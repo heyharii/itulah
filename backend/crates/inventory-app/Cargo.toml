@@ -1,0 +1,29 @@
+[package]
+name = "inventory-app"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Application layer: node configuration, error taxonomy, request/response DTOs, the storage port traits every database adapter implements, and the sync sender/applier agents. Knows no SQL dialect."
+
+[dependencies]
+inventory-domain = { path = "../inventory-domain" }
+async-trait = "=0.1.88"
+axum = { version = "=0.8.4", features = ["json", "macros"] }
+chrono = { version = "=0.4.41", features = ["serde"] }
+hex = "=0.4.3"
+reqwest = { version = "=0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "=1.0.219", features = ["derive"] }
+serde_json = "=1.0.140"
+sha2 = "=0.10.9"
+sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio-rustls", "migrate"] }
+thiserror = "=2.0.12"
+tokio = { version = "=1.45.1", features = ["macros", "sync", "time"] }
+tracing = "=0.1.41"
+uuid = { version = "=1.16.0", features = ["serde", "v4"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

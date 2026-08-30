@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Struk</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; background: #e2e8f0; font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+    .actions { display: flex; gap: 8px; justify-content: center; padding: 16px; }
+    .actions button { padding: 8px 16px; border: 1px solid #94a3b8; border-radius: 6px;
+      background: #fff; cursor: pointer; font: inherit; }
+    .paper { width: 58mm; margin: 0 auto 24px; background: #fff; padding: 6mm 4mm;
+      box-shadow: 0 2px 12px rgba(0,0,0,.25); font-size: 11px; line-height: 1.45; }
+    .center { text-align: center; }
+    .rule { border-top: 1px dashed #000; margin: 6px 0; }
+    .row { display: flex; justify-content: space-between; gap: 6px; }
+    .row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .total { font-weight: 700; }
+    .muted { color: #444; font-size: 10px; }
+    .returned { text-decoration: line-through; }
+    #error { color: #dc2626; text-align: center; padding: 24px; }
+    @media print {
+      body { background: #fff; }
+      .actions { display: none; }
+      .paper { box-shadow: none; margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="actions">
+    <button onclick="window.print()">Cetak</button>
+    <button onclick="location.href='/'">Kembali</button>
+  </div>
+  <div id="error" hidden></div>
+  <div class="paper" id="paper" hidden></div>
+  <script src="/auth.js" defer></script>
+  <script defer>
+    (function () {
+      'use strict';
+      var saleId = new URLSearchParams(location.search).get('sale');
+      var paper = document.getElementById('paper');
+      var errorBox = document.getElementById('error');
+      function money(minor) { return new Intl.NumberFormat('id-ID').format(minor); }
+      function el(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+      function row(left, right, cls) {
+        var r = el('div', 'row' + (cls ? ' ' + cls : ''));
+        var name = el('span', 'name', left);
+        r.appendChild(name);
+        r.appendChild(el('span', null, right));
+        return r;
+      }
+      function fail(message) {
+        errorBox.hidden = false;
+        errorBox.textContent = message;
+      }
+      if (!saleId) { fail('Tambahkan ?sale=<id> pada URL.'); return; }
+      window.addEventListener('DOMContentLoaded', function () {
+        fetch('/api/v1/sales/' + encodeURIComponent(saleId) + '/receipt')
+          .then(function (response) {
+            return response.json().then(function (body) {
+              if (!response.ok) throw new Error(body.error || ('HTTP ' + response.status));
+              return body;
+            });
+          })
+          .then(function (receipt) {
+            paper.hidden = false;
+            paper.appendChild(el('div', 'center total', receipt.site.name));
+            paper.appendChild(el('div', 'center muted', receipt.site.id));
+            paper.appendChild(el('div', 'rule'));
+            paper.appendChild(row('No', receipt.sale_number));
+            paper.appendChild(row('Waktu', new Date(receipt.completed_at).toLocaleString('id-ID')));
+            paper.appendChild(row('Kasir', receipt.cashier));
+            paper.appendChild(el('div', 'rule'));
+            receipt.lines.forEach(function (line) {
+              var cls = line.returned ? 'returned' : null;
+              paper.appendChild(row(line.article_name, '', cls));
+              paper.appendChild(row(
+                '  ' + line.sku_code + ' x' + line.quantity,
+                money(line.total_minor),
+                cls
+              ));
+            });
+            paper.appendChild(el('div', 'rule'));
+            paper.appendChild(row('Subtotal', money(receipt.totals.net_minor)));
+            receipt.tax_summary.forEach(function (tax) {
+              var label = 'PPN ' + (tax.rate_bps / 100) + '%' + (tax.inclusive ? ' (incl)' : '');
+              paper.appendChild(row(label, money(tax.tax_minor)));
+            });
+            paper.appendChild(row('TOTAL ' + receipt.currency, money(receipt.totals.total_minor), 'total'));
+            receipt.payments.forEach(function (payment) {
+              paper.appendChild(row(payment.method, money(payment.amount_minor)));
+            });
+            paper.appendChild(row('Kembalian', money(receipt.totals.change_minor)));
+            if (receipt.totals.refunded_minor > 0) {
+              paper.appendChild(el('div', 'rule'));
+              paper.appendChild(row('Refund', money(receipt.totals.refunded_minor), 'total'));
+              receipt.returns.forEach(function (ret) {
+                paper.appendChild(row('  ' + ret.return_number, money(ret.refund_total_minor)));
+              });
+            }
+            paper.appendChild(el('div', 'rule'));
+            paper.appendChild(el('div', 'center muted', 'Pajak dihitung per baris.'));
+            paper.appendChild(el('div', 'center', 'Terima kasih'));
+          })
+          .catch(function (err) { fail(err.message); });
+      });
+    })();
+  </script>
+</body>
+</html>
