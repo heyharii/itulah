@@ -285,3 +285,100 @@ mod tests {
         assert!(ingest_rejection_reason(&non_object).is_some());
     }
 }
+
+/// One line of a movement fact as `enqueue_movement_fact` persists it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MovementFactLine {
+    pub subject_id: Uuid,
+    pub quantity: i64,
+    pub from_place_id: String,
+    pub to_place_id: String,
+}
+
+/// The `inventory.movement` payload shape, as written by the edge enqueue.
+/// The applier parses this to replay the fact into the receiving ledger.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MovementFactPayload {
+    pub movement_group_id: Uuid,
+    pub cause: String,
+    pub reason: String,
+    #[serde(default)]
+    pub reference_type: Option<String>,
+    #[serde(default)]
+    pub reference_id: Option<String>,
+    pub actor_id: String,
+    pub occurred_at: DateTime<Utc>,
+    pub lines: Vec<MovementFactLine>,
+    #[serde(default)]
+    pub payload_digest: Option<String>,
+}
+
+/// Parse and validate an `inventory.movement` payload for application.
+///
+/// `Err` here means the stream BLOCKS at this fact (head-of-line, on purpose):
+/// an accepted canonical fact that cannot be applied is an incident to
+/// surface, never something to silently skip — skipping would advance the
+/// applied prefix past a business event that left no ledger effect.
+pub fn parse_movement_fact(payload: &Value) -> Result<MovementFactPayload, String> {
+    let fact: MovementFactPayload = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed inventory.movement payload: {e}"))?;
+    if fact.lines.is_empty() {
+        return Err("inventory.movement payload has no lines".into());
+    }
+    if fact.lines.iter().any(|line| line.quantity <= 0) {
+        return Err("inventory.movement line quantity must be positive".into());
+    }
+    if fact.cause.trim().is_empty()
+        || fact.reason.trim().is_empty()
+        || fact.actor_id.trim().is_empty()
+    {
+        return Err("inventory.movement payload requires cause, reason and actor_id".into());
+    }
+    Ok(fact)
+}
+
+#[cfg(test)]
+mod apply_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sound_payload() -> Value {
+        json!({
+            "movement_group_id": Uuid::new_v4(),
+            "cause": "NORMAL_MOVE",
+            "reason": "restock",
+            "reference_type": null,
+            "reference_id": null,
+            "actor_id": "till-1",
+            "occurred_at": Utc::now(),
+            "lines": [{
+                "subject_id": Uuid::new_v4(),
+                "quantity": 1,
+                "from_place_id": "store-07.warehouse:on_hand",
+                "to_place_id": "store-07.floor:on_hand",
+            }],
+        })
+    }
+
+    #[test]
+    fn movement_fact_parses_and_validates() {
+        assert!(parse_movement_fact(&sound_payload()).is_ok());
+    }
+
+    #[test]
+    fn movement_fact_rejects_empty_lines_and_bad_quantity() {
+        let mut no_lines = sound_payload();
+        no_lines["lines"] = json!([]);
+        assert!(parse_movement_fact(&no_lines).is_err());
+        let mut bad_qty = sound_payload();
+        bad_qty["lines"][0]["quantity"] = json!(0);
+        assert!(parse_movement_fact(&bad_qty).is_err());
+    }
+
+    #[test]
+    fn movement_fact_rejects_blank_required_fields() {
+        let mut blank = sound_payload();
+        blank["actor_id"] = json!("  ");
+        assert!(parse_movement_fact(&blank).is_err());
+    }
+}

@@ -1,5 +1,7 @@
-use inventory_edge::{http, AppConfig, AppError, AppState};
+use inventory_edge::application::sync as sync_agent;
+use inventory_edge::{http, infrastructure, AppConfig, AppError, AppState};
 use sqlx::postgres::PgPoolOptions;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -20,10 +22,39 @@ async fn main() -> Result<(), AppError> {
         .connect(&config.database_url)
         .await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
+    // Durable sync identity: origin id + generation live in the node's own
+    // database, not in the process environment, so a restart cannot change
+    // what stream this node's facts belong to.
+    infrastructure::provision_origin(
+        &pool,
+        &config.node_id,
+        config.sync_generation,
+        config.sync_enqueue_enabled,
+    )
+    .await?;
+    // First-boot admin account (no-op once users exist); also warns loudly
+    // when the node is running without authentication.
+    infrastructure::bootstrap_admin(
+        &pool,
+        config.bootstrap_admin_password.as_deref(),
+        config.jwt_secret.is_some(),
+    )
+    .await?;
     let bind_addr = config.bind_addr;
     let node_id = config.node_id.clone();
     let node_role = config.node_role.clone();
-    let app = http::router(AppState::new(pool, config));
+    let state = AppState::new(pool, config);
+    if state.config.sync_apply_enabled {
+        tokio::spawn(sync_agent::run_apply_agent(state.clone()));
+    }
+    if let Some(url) = state.config.sync_upload_url.clone() {
+        let transport = sync_agent::HttpTransport::new(&url, state.config.sync_upload_key.clone())?;
+        tokio::spawn(sync_agent::run_sync_agent(
+            state.clone(),
+            Arc::new(transport),
+        ));
+    }
+    let app = http::router(state);
     let listener = TcpListener::bind(bind_addr)
         .await
         .map_err(|e| AppError::Configuration(format!("cannot bind {bind_addr}: {e}")))?;

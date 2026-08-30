@@ -229,11 +229,11 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                 }
             )
         }
-        MovementCause::ReturnToDc => match (&line.from, &line.to) {
+        MovementCause::ReturnToDc => matches!(
+            (&line.from, &line.to),
             (
                 Place::Operational {
-                    pool:
-                        OperationalPool::StoreWarehouse(_)
+                    pool: OperationalPool::StoreWarehouse(_)
                         | OperationalPool::StoreFloor(_)
                         | OperationalPool::StoreReject(_),
                     state: InventoryState::Normal,
@@ -242,9 +242,8 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                     pool: OperationalPool::DcWarehouse,
                     state: InventoryState::Normal,
                 },
-            ) => true,
-            _ => false,
-        },
+            )
+        ),
         MovementCause::SupplierReturn => {
             on_hand(&line.from)
                 && matches!(
@@ -283,12 +282,16 @@ fn normal_pool_transition(from: &OperationalPool, to: &OperationalPool) -> bool 
     use OperationalPool::*;
     match (from, to) {
         (DcPendingUnidentified, DcPendingUntagged)
-        | (DcPendingUntagged, DcWarehouse)
-        | (DcWarehouse, DcOutboundPicked)
-        | (DcOutboundPicked, DcOutboundPacked)
-        | (DcOutboundPacked, DcOutboundShipment)
-        | (DcOutboundShipment, DcOutboundInTransit) => true,
-        (DcOutboundInTransit, StoreWarehouse(_)) => true,
+        | (DcPendingUntagged, DcWarehouse) => true,
+        (DcWarehouse, DcOutboundPicked(_)) => true,
+        (DcOutboundPicked(from_store), DcOutboundPacked(to_store))
+        | (DcOutboundPacked(from_store), DcOutboundShipment(to_store))
+        | (DcOutboundShipment(from_store), DcOutboundInTransit(to_store)) => {
+            from_store == to_store
+        }
+        (DcOutboundInTransit(from_store), StoreWarehouse(to_store)) => {
+            from_store == to_store
+        },
         (StoreWarehouse(a), StoreFloor(b)) | (StoreFloor(a), StoreWarehouse(b)) => a == b,
         (StoreWarehouse(a), StoreReject(b)) | (StoreFloor(a), StoreReject(b)) => a == b,
         (StoreReject(origin), DcRejectStore(target_origin)) => origin == target_origin,

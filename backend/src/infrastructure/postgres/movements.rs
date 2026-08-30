@@ -16,7 +16,6 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 const TO_STORE_SOURCE_PLACE_ID: &str = "dc.warehouse:on_hand";
-const TO_STORE_OUTBOUND_PLACE_ID: &str = "dc.outbound.picked:on_hand";
 
 pub async fn create_manual_movement(
     pool: &PgPool,
@@ -34,7 +33,8 @@ pub async fn create_manual_movement(
     }
     if cause == MovementCause::NormalMove
         && request.lines.iter().any(|line| {
-            line.from == TO_STORE_SOURCE_PLACE_ID && line.to == TO_STORE_OUTBOUND_PLACE_ID
+            line.from == TO_STORE_SOURCE_PLACE_ID
+                && line.to.starts_with("dc.outbound.picked.store-")
         })
     {
         return Err(AppError::Validation(
@@ -296,6 +296,19 @@ async fn validate_outbound_allotment_line_provenance(
                 "outbound subject SKU does not match the referenced allotment line".into(),
             ));
         }
+        let destination_id: String = provenance.get("destination_id");
+        for endpoint in [&line.from, &line.to] {
+            if let Some(outbound_store) = endpoint
+                .pool()
+                .and_then(|pool| pool.outbound_destination())
+            {
+                if outbound_store.as_str() != destination_id {
+                    return Err(AppError::Conflict(format!(
+                        "allotment line {allotment_line_id} is destined for {destination_id}, not {outbound_store}"
+                    )));
+                }
+            }
+        }
         if to_outbound && !from_outbound {
             let source_pool_id: String = provenance.get("source_pool_id");
             let expected_source = format!("{source_pool_id}:on_hand");
@@ -321,7 +334,6 @@ async fn validate_outbound_allotment_line_provenance(
             }
         }
         if to.starts_with("store-") {
-            let destination_id: String = provenance.get("destination_id");
             if to.split('.').next() != Some(destination_id.as_str()) {
                 return Err(AppError::Conflict(format!(
                     "allotment line {allotment_line_id} is destined for {destination_id}, not {}",
@@ -377,7 +389,9 @@ async fn company_placement_count(
     Ok(row.get("count"))
 }
 
-async fn refresh_projection_position(
+// pub(super): the sync applier replays movement facts from other origins and
+// must maintain the projection with the same logic as local writes.
+pub(super) async fn refresh_projection_position(
     tx: &mut Transaction<'_, Postgres>,
     subject_id: Uuid,
     place: &Place,
@@ -405,32 +419,60 @@ async fn refresh_projection_position(
 
 pub async fn list_movements(pool: &PgPool, query: MovementQuery) -> Result<Value, AppError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
-    let rows = sqlx::query("SELECT m.movement_id,m.movement_group_id,m.subject_id,s.epc,sk.sku_code,m.quantity,m.from_place_id,m.to_place_id,m.cause,m.reference_type,m.reference_id,line.id allotment_line_id,COALESCE(line.allotment_id,legacy.id) allotment_id,line.destination_type,line.destination_id,m.actor_id,m.occurred_at,m.recorded_at FROM movement m JOIN inventory_subject s ON s.id=m.subject_id LEFT JOIN sku sk ON sk.id=s.sku_id LEFT JOIN allotment_line line ON m.reference_type='ALLOTMENT_LINE' AND m.reference_id=line.id::text LEFT JOIN allotment legacy ON m.reference_type='ALLOTMENT' AND m.reference_id=legacy.id::text LEFT JOIN inventory_place fp ON fp.id=m.from_place_id LEFT JOIN inventory_place tp ON tp.id=m.to_place_id LEFT JOIN operational_pool fpool ON fpool.id=fp.pool_id LEFT JOIN operational_pool tpool ON tpool.id=tp.pool_id WHERE ($1::uuid IS NULL OR m.subject_id=$1) AND ($2::text IS NULL OR fpool.id=$2 OR tpool.id=$2) ORDER BY m.occurred_at DESC,m.fact_sequence DESC LIMIT $3")
+    let rows = sqlx::query(r#"
+SELECT m.movement_id,m.movement_group_id,m.subject_id,s.epc,sk.sku_code,m.quantity,m.from_place_id,m.to_place_id,m.cause,m.reference_type,m.reference_id,
+       line.id allotment_line_id,COALESCE(line.allotment_id,legacy.id) allotment_id,line.destination_type,line.destination_id,m.actor_id,m.occurred_at,m.recorded_at
+FROM movement m
+JOIN inventory_subject s ON s.id=m.subject_id
+LEFT JOIN sku sk ON sk.id=s.sku_id
+LEFT JOIN allotment_line line ON m.reference_type='ALLOTMENT_LINE' AND m.reference_id=line.id::text
+LEFT JOIN allotment legacy ON m.reference_type='ALLOTMENT' AND m.reference_id=legacy.id::text
+LEFT JOIN inventory_place fp ON fp.id=m.from_place_id
+LEFT JOIN inventory_place tp ON tp.id=m.to_place_id
+LEFT JOIN operational_pool fpool ON fpool.id=fp.pool_id
+LEFT JOIN operational_pool tpool ON tpool.id=tp.pool_id
+WHERE ($1::uuid IS NULL OR m.subject_id=$1)
+  AND (
+      $2::text IS NULL OR fpool.id=$2 OR tpool.id=$2
+      OR EXISTS (
+          SELECT 1 FROM operational_pool scope
+          WHERE scope.id=$2 AND NOT scope.is_placement AND scope.outbound_stage IS NOT NULL
+            AND ((fpool.is_placement AND fpool.outbound_stage=scope.outbound_stage)
+              OR (tpool.is_placement AND tpool.outbound_stage=scope.outbound_stage))
+      )
+  )
+ORDER BY m.occurred_at DESC,m.fact_sequence DESC LIMIT $3
+"#)
         .bind(query.subject_id)
         .bind(query.pool_id)
         .bind(limit)
         .fetch_all(pool)
         .await?;
-    let values: Vec<Value> = rows.into_iter().map(|row| json!({
-        "movement_id":row.get::<Uuid,_>("movement_id"),
-        "movement_group_id":row.get::<Uuid,_>("movement_group_id"),
-        "subject_id":row.get::<Uuid,_>("subject_id"),
-        "epc":row.get::<Option<String>,_>("epc"),
-        "sku_code":row.get::<Option<String>,_>("sku_code"),
-        "quantity":row.get::<i64,_>("quantity"),
-        "from":row.get::<String,_>("from_place_id"),
-        "to":row.get::<String,_>("to_place_id"),
-        "cause":row.get::<String,_>("cause"),
-        "reference_type":row.get::<Option<String>,_>("reference_type"),
-        "reference_id":row.get::<Option<String>,_>("reference_id"),
-        "allotment_line_id":row.get::<Option<Uuid>,_>("allotment_line_id"),
-        "allotment_id":row.get::<Option<Uuid>,_>("allotment_id"),
-        "destination_type":row.get::<Option<String>,_>("destination_type"),
-        "destination_id":row.get::<Option<String>,_>("destination_id"),
-        "actor_id":row.get::<String,_>("actor_id"),
-        "occurred_at":row.get::<chrono::DateTime<Utc>,_>("occurred_at"),
-        "recorded_at":row.get::<chrono::DateTime<Utc>,_>("recorded_at")
-    })).collect();
+    let values: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "movement_id":row.get::<Uuid,_>("movement_id"),
+                "movement_group_id":row.get::<Uuid,_>("movement_group_id"),
+                "subject_id":row.get::<Uuid,_>("subject_id"),
+                "epc":row.get::<Option<String>,_>("epc"),
+                "sku_code":row.get::<Option<String>,_>("sku_code"),
+                "quantity":row.get::<i64,_>("quantity"),
+                "from":row.get::<String,_>("from_place_id"),
+                "to":row.get::<String,_>("to_place_id"),
+                "cause":row.get::<String,_>("cause"),
+                "reference_type":row.get::<Option<String>,_>("reference_type"),
+                "reference_id":row.get::<Option<String>,_>("reference_id"),
+                "allotment_line_id":row.get::<Option<Uuid>,_>("allotment_line_id"),
+                "allotment_id":row.get::<Option<Uuid>,_>("allotment_id"),
+                "destination_type":row.get::<Option<String>,_>("destination_type"),
+                "destination_id":row.get::<Option<String>,_>("destination_id"),
+                "actor_id":row.get::<String,_>("actor_id"),
+                "occurred_at":row.get::<chrono::DateTime<Utc>,_>("occurred_at"),
+                "recorded_at":row.get::<chrono::DateTime<Utc>,_>("recorded_at")
+            })
+        })
+        .collect();
     Ok(json!({"items": values, "limit": limit}))
 }
 

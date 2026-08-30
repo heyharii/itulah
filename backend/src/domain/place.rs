@@ -29,10 +29,10 @@ pub enum OperationalPool {
     DcPendingUnidentified,
     DcPendingUntagged,
     DcWarehouse,
-    DcOutboundPicked,
-    DcOutboundPacked,
-    DcOutboundShipment,
-    DcOutboundInTransit,
+    DcOutboundPicked(SiteId),
+    DcOutboundPacked(SiteId),
+    DcOutboundShipment(SiteId),
+    DcOutboundInTransit(SiteId),
     DcRejectDc,
     DcRejectStore(SiteId),
     StoreWarehouse(SiteId),
@@ -68,10 +68,10 @@ impl OperationalPool {
             Self::DcPendingUnidentified => "dc.pending.unidentified".into(),
             Self::DcPendingUntagged => "dc.pending.untagged".into(),
             Self::DcWarehouse => "dc.warehouse".into(),
-            Self::DcOutboundPicked => "dc.outbound.picked".into(),
-            Self::DcOutboundPacked => "dc.outbound.packed".into(),
-            Self::DcOutboundShipment => "dc.outbound.shipment".into(),
-            Self::DcOutboundInTransit => "dc.outbound.in-transit".into(),
+            Self::DcOutboundPicked(store) => format!("dc.outbound.picked.{store}"),
+            Self::DcOutboundPacked(store) => format!("dc.outbound.packed.{store}"),
+            Self::DcOutboundShipment(store) => format!("dc.outbound.shipment.{store}"),
+            Self::DcOutboundInTransit(store) => format!("dc.outbound.in-transit.{store}"),
             Self::DcRejectDc => "dc.reject.dc".into(),
             Self::DcRejectStore(site) => format!("dc.reject.{site}"),
             Self::StoreWarehouse(site) => format!("{site}.warehouse"),
@@ -85,10 +85,10 @@ impl OperationalPool {
             Self::DcPendingUnidentified
             | Self::DcPendingUntagged
             | Self::DcWarehouse
-            | Self::DcOutboundPicked
-            | Self::DcOutboundPacked
-            | Self::DcOutboundShipment
-            | Self::DcOutboundInTransit
+            | Self::DcOutboundPicked(_)
+            | Self::DcOutboundPacked(_)
+            | Self::DcOutboundShipment(_)
+            | Self::DcOutboundInTransit(_)
             | Self::DcRejectDc
             | Self::DcRejectStore(_) => SiteId::dc(),
             Self::StoreWarehouse(site) | Self::StoreFloor(site) | Self::StoreReject(site) => {
@@ -101,10 +101,10 @@ impl OperationalPool {
         match self {
             Self::DcPendingUnidentified | Self::DcPendingUntagged => GroupCode::Pending,
             Self::DcWarehouse => GroupCode::Warehouse,
-            Self::DcOutboundPicked
-            | Self::DcOutboundPacked
-            | Self::DcOutboundShipment
-            | Self::DcOutboundInTransit => GroupCode::Outbound,
+            Self::DcOutboundPicked(_)
+            | Self::DcOutboundPacked(_)
+            | Self::DcOutboundShipment(_)
+            | Self::DcOutboundInTransit(_) => GroupCode::Outbound,
             Self::DcRejectDc | Self::DcRejectStore(_) | Self::StoreReject(_) => GroupCode::Reject,
             Self::StoreWarehouse(_) | Self::StoreFloor(_) => GroupCode::StoreInventory,
         }
@@ -113,6 +113,16 @@ impl OperationalPool {
     pub fn store_origin(&self) -> Option<&SiteId> {
         match self {
             Self::DcRejectStore(site) => Some(site),
+            _ => None,
+        }
+    }
+
+    pub fn outbound_destination(&self) -> Option<&SiteId> {
+        match self {
+            Self::DcOutboundPicked(store)
+            | Self::DcOutboundPacked(store)
+            | Self::DcOutboundShipment(store)
+            | Self::DcOutboundInTransit(store) => Some(store),
             _ => None,
         }
     }
@@ -133,10 +143,18 @@ impl FromStr for OperationalPool {
             "dc.pending.unidentified" => Ok(Self::DcPendingUnidentified),
             "dc.pending.untagged" => Ok(Self::DcPendingUntagged),
             "dc.warehouse" => Ok(Self::DcWarehouse),
-            "dc.outbound.picked" => Ok(Self::DcOutboundPicked),
-            "dc.outbound.packed" => Ok(Self::DcOutboundPacked),
-            "dc.outbound.shipment" => Ok(Self::DcOutboundShipment),
-            "dc.outbound.in-transit" => Ok(Self::DcOutboundInTransit),
+            _ if value.starts_with("dc.outbound.picked.store-") => Ok(
+                Self::DcOutboundPicked(store(value.trim_start_matches("dc.outbound.picked."))?),
+            ),
+            _ if value.starts_with("dc.outbound.packed.store-") => Ok(
+                Self::DcOutboundPacked(store(value.trim_start_matches("dc.outbound.packed."))?),
+            ),
+            _ if value.starts_with("dc.outbound.shipment.store-") => Ok(
+                Self::DcOutboundShipment(store(value.trim_start_matches("dc.outbound.shipment."))?),
+            ),
+            _ if value.starts_with("dc.outbound.in-transit.store-") => Ok(
+                Self::DcOutboundInTransit(store(value.trim_start_matches("dc.outbound.in-transit."))?),
+            ),
             "dc.reject.dc" => Ok(Self::DcRejectDc),
             _ if value.starts_with("dc.reject.store-") => Ok(Self::DcRejectStore(store(
                 value.trim_start_matches("dc.reject."),

@@ -5,8 +5,8 @@ use crate::{
         CreateAllotmentRequest, ExecuteAllotmentRequest,
     },
     domain::{
-        derive_allotment_status, AllotmentType, DestinationType, MovementCause, MovementCommand,
-        MovementGroupId, MovementLine, Place, SubjectId,
+        derive_allotment_status, AllotmentType, DestinationType, InventoryState, MovementCause,
+        MovementCommand, MovementGroupId, MovementLine, OperationalPool, Place, SiteId, SubjectId,
     },
 };
 use chrono::{DateTime, Utc};
@@ -16,7 +16,6 @@ use std::{collections::HashSet, str::FromStr};
 use uuid::Uuid;
 
 const DEFAULT_SOURCE_POOL_ID: &str = "dc.warehouse";
-const TO_STORE_OUTBOUND_PLACE_ID: &str = "dc.outbound.picked:on_hand";
 
 #[derive(Clone, Debug)]
 struct LineIdentity {
@@ -88,14 +87,22 @@ pub async fn create_allotment(
         left.identity
             .sku_id
             .cmp(&right.identity.sku_id)
-            .then_with(|| left.identity.source_pool_id.cmp(&right.identity.source_pool_id))
+            .then_with(|| {
+                left.identity
+                    .source_pool_id
+                    .cmp(&right.identity.source_pool_id)
+            })
             .then_with(|| {
                 left.identity
                     .destination_type
                     .as_str()
                     .cmp(right.identity.destination_type.as_str())
             })
-            .then_with(|| left.identity.destination_id.cmp(&right.identity.destination_id))
+            .then_with(|| {
+                left.identity
+                    .destination_id
+                    .cmp(&right.identity.destination_id)
+            })
     });
 
     let digest = payload_digest(&request)?;
@@ -140,18 +147,11 @@ pub async fn create_allotment(
 
     let mut response_lines = Vec::with_capacity(lines.len());
     for line in lines {
-        let normal_quantity = normal_balance_tx(
-            &mut tx,
-            &line.identity.source_pool_id,
-            line.identity.sku_id,
-        )
-        .await?;
-        let allotted_quantity = active_allotment_tx(
-            &mut tx,
-            &line.identity.source_pool_id,
-            line.identity.sku_id,
-        )
-        .await?;
+        let normal_quantity =
+            normal_balance_tx(&mut tx, &line.identity.source_pool_id, line.identity.sku_id).await?;
+        let allotted_quantity =
+            active_allotment_tx(&mut tx, &line.identity.source_pool_id, line.identity.sku_id)
+                .await?;
         let on_hand_quantity = normal_quantity - allotted_quantity;
         if line.quantity > on_hand_quantity {
             return Err(AppError::Conflict(format!(
@@ -386,7 +386,7 @@ pub async fn execute_allotment(
         identity.sku_id,
         request.quantity,
         &source_place_id,
-        destination_place_id,
+        &destination_place_id,
     )
     .await?;
     let movement_group_id = MovementGroupId::new();
@@ -491,21 +491,23 @@ pub async fn get_allotment(pool: &PgPool, allotment_id: Uuid) -> Result<Value, A
         .await?;
     let line_values: Vec<Value> = lines
         .iter()
-        .map(|row| json!({
-            "id":row.get::<Uuid,_>("id"),
-            "source_site_id":row.get::<String,_>("source_site_id"),
-            "source_pool_id":row.get::<String,_>("source_pool_id"),
-            "destination_type":row.get::<String,_>("destination_type"),
-            "destination_id":row.get::<String,_>("destination_id"),
-            "sku_id":row.get::<Uuid,_>("sku_id"),
-            "sku_code":row.get::<String,_>("sku_code"),
-            "article_code":row.get::<String,_>("article_code"),
-            "article_name":row.get::<String,_>("article_name"),
-            "quantity":row.get::<i64,_>("quantity"),
-            "executed_quantity":row.get::<i64,_>("executed_quantity"),
-            "cancelled_quantity":row.get::<i64,_>("cancelled_quantity"),
-            "remaining_quantity":row.get::<i64,_>("remaining_quantity")
-        }))
+        .map(|row| {
+            json!({
+                "id":row.get::<Uuid,_>("id"),
+                "source_site_id":row.get::<String,_>("source_site_id"),
+                "source_pool_id":row.get::<String,_>("source_pool_id"),
+                "destination_type":row.get::<String,_>("destination_type"),
+                "destination_id":row.get::<String,_>("destination_id"),
+                "sku_id":row.get::<Uuid,_>("sku_id"),
+                "sku_code":row.get::<String,_>("sku_code"),
+                "article_code":row.get::<String,_>("article_code"),
+                "article_name":row.get::<String,_>("article_name"),
+                "quantity":row.get::<i64,_>("quantity"),
+                "executed_quantity":row.get::<i64,_>("executed_quantity"),
+                "cancelled_quantity":row.get::<i64,_>("cancelled_quantity"),
+                "remaining_quantity":row.get::<i64,_>("remaining_quantity")
+            })
+        })
         .collect();
     let total_quantity: i64 = lines.iter().map(|row| row.get::<i64, _>("quantity")).sum();
     let total_executed: i64 = lines
@@ -573,9 +575,7 @@ pub async fn get_allotment(pool: &PgPool, allotment_id: Uuid) -> Result<Value, A
 
 pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Value, AppError> {
     let limit = query.limit.unwrap_or(200).clamp(1, 500);
-    let allotment_type = query
-        .allotment_type
-        .map(|value| value.as_str().to_owned());
+    let allotment_type = query.allotment_type.map(|value| value.as_str().to_owned());
     let status = query.status.map(|value| value.as_str().to_owned());
     let rows = sqlx::query("SELECT a.id,a.allotment_number,a.type,a.status,a.created_by,a.notes,a.created_at,a.updated_at,COALESCE(SUM(l.quantity),0)::bigint quantity,COALESCE(SUM(l.executed_quantity),0)::bigint executed,COALESCE(SUM(l.cancelled_quantity),0)::bigint cancelled,COALESCE(SUM(l.quantity-l.executed_quantity-l.cancelled_quantity),0)::bigint remaining FROM allotment a LEFT JOIN allotment_line l ON l.allotment_id=a.id WHERE ($1::text IS NULL OR a.type=$1) AND ($2::text IS NULL OR a.status=$2) AND ($3::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line source_line WHERE source_line.allotment_id=a.id AND source_line.source_pool_id=$3)) AND ($4::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line destination_line WHERE destination_line.allotment_id=a.id AND destination_line.destination_id=$4)) GROUP BY a.id ORDER BY a.created_at DESC LIMIT $5")
         .bind(allotment_type)
@@ -615,20 +615,22 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
         .unwrap_or_default();
     let items: Vec<Value> = rows
         .into_iter()
-        .map(|row|json!({
-            "id":row.get::<Uuid,_>("id"),
-            "allotment_number":row.get::<String,_>("allotment_number"),
-            "type":row.get::<String,_>("type"),
-            "status":row.get::<String,_>("status"),
-            "total_quantity":row.get::<i64,_>("quantity"),
-            "total_executed_quantity":row.get::<i64,_>("executed"),
-            "total_cancelled_quantity":row.get::<i64,_>("cancelled"),
-            "remaining_quantity":row.get::<i64,_>("remaining"),
-            "created_by":row.get::<String,_>("created_by"),
-            "notes":row.get::<Option<String>,_>("notes"),
-            "created_at":row.get::<DateTime<Utc>,_>("created_at"),
-            "updated_at":row.get::<DateTime<Utc>,_>("updated_at")
-        }))
+        .map(|row| {
+            json!({
+                "id":row.get::<Uuid,_>("id"),
+                "allotment_number":row.get::<String,_>("allotment_number"),
+                "type":row.get::<String,_>("type"),
+                "status":row.get::<String,_>("status"),
+                "total_quantity":row.get::<i64,_>("quantity"),
+                "total_executed_quantity":row.get::<i64,_>("executed"),
+                "total_cancelled_quantity":row.get::<i64,_>("cancelled"),
+                "remaining_quantity":row.get::<i64,_>("remaining"),
+                "created_by":row.get::<String,_>("created_by"),
+                "notes":row.get::<Option<String>,_>("notes"),
+                "created_at":row.get::<DateTime<Utc>,_>("created_at"),
+                "updated_at":row.get::<DateTime<Utc>,_>("updated_at")
+            })
+        })
         .collect();
     Ok(json!({
         "items":items,
@@ -671,14 +673,17 @@ pub async fn list_allotments_by_store(pool: &PgPool, store_id: &str) -> Result<V
     result["destination_type"] = json!("STORE");
     result["destination_id"] = json!(store_id);
     result["destination_name"] = json!(store.get::<String, _>("name"));
-    result["sku_summary"] = json!(rows.into_iter().map(|row|json!({
-        "sku_id":row.get::<Uuid,_>("sku_id"),
-        "sku_code":row.get::<String,_>("sku_code"),
-        "quantity":row.get::<i64,_>("quantity"),
-        "executed_quantity":row.get::<i64,_>("executed"),
-        "cancelled_quantity":row.get::<i64,_>("cancelled"),
-        "remaining_quantity":row.get::<i64,_>("remaining")
-    })).collect::<Vec<_>>());
+    result["sku_summary"] = json!(rows
+        .into_iter()
+        .map(|row| json!({
+            "sku_id":row.get::<Uuid,_>("sku_id"),
+            "sku_code":row.get::<String,_>("sku_code"),
+            "quantity":row.get::<i64,_>("quantity"),
+            "executed_quantity":row.get::<i64,_>("executed"),
+            "cancelled_quantity":row.get::<i64,_>("cancelled"),
+            "remaining_quantity":row.get::<i64,_>("remaining")
+        }))
+        .collect::<Vec<_>>());
     Ok(result)
 }
 
@@ -691,11 +696,12 @@ pub async fn get_availability(pool: &PgPool, query: AvailabilityQuery) -> Result
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_SOURCE_POOL_ID)
         .to_ascii_lowercase();
-    let source = sqlx::query("SELECT p.site_id,p.label FROM operational_pool p WHERE p.id=$1 AND p.active")
-        .bind(&source_pool_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("active source pool".into()))?;
+    let source =
+        sqlx::query("SELECT p.site_id,p.label FROM operational_pool p WHERE p.id=$1 AND p.active AND p.is_placement")
+            .bind(&source_pool_id)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("active placement source pool".into()))?;
     let rows = sqlx::query(r#"
 WITH ledger_delta AS (
     SELECT subject.sku_id,place.state,movement.quantity delta
@@ -738,16 +744,21 @@ WHERE sku.active ORDER BY sku.sku_code
         .bind(&source_pool_id)
         .fetch_all(pool)
         .await?;
-    let items: Vec<Value> = rows.into_iter().map(|row|json!({
-        "sku_id":row.get::<Uuid,_>("sku_id"),
-        "sku_code":row.get::<String,_>("sku_code"),
-        "article_code":row.get::<String,_>("article_code"),
-        "article_name":row.get::<String,_>("article_name"),
-        "stock_qty":row.get::<i64,_>("stock_quantity"),
-        "allotted_qty":row.get::<i64,_>("allotted_quantity"),
-        "on_hand_qty":row.get::<i64,_>("on_hand_quantity"),
-        "missing_qty":row.get::<i64,_>("missing_quantity")
-    })).collect();
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "sku_id":row.get::<Uuid,_>("sku_id"),
+                "sku_code":row.get::<String,_>("sku_code"),
+                "article_code":row.get::<String,_>("article_code"),
+                "article_name":row.get::<String,_>("article_name"),
+                "stock_qty":row.get::<i64,_>("stock_quantity"),
+                "allotted_qty":row.get::<i64,_>("allotted_quantity"),
+                "on_hand_qty":row.get::<i64,_>("on_hand_quantity"),
+                "missing_qty":row.get::<i64,_>("missing_quantity")
+            })
+        })
+        .collect();
     let total = |field: &str| {
         items
             .iter()
@@ -801,9 +812,7 @@ pub(super) async fn record_allotment_shortages_for_count(
         if shortage_quantity <= 0 {
             continue;
         }
-        let event_key = format!(
-            "official-count:{count_id}:allotment-shortage:{pool_id}:{sku_id}"
-        );
+        let event_key = format!("official-count:{count_id}:allotment-shortage:{pool_id}:{sku_id}");
         let result = sqlx::query("INSERT INTO allotment_event(id,event_key,event_type,sku_id,quantity,remaining_delta,movement_group_id,reference_type,reference_id,actor_id,details,occurred_at) VALUES($1,$2,'ALLOTMENT_SHORTAGE',$3,$4,0,$5,'OFFICIAL_COUNT',$6,$7,$8,now()) ON CONFLICT(event_key) DO NOTHING")
             .bind(Uuid::new_v4())
             .bind(event_key)
@@ -831,12 +840,12 @@ async fn validate_create_line(
     allotment_type: AllotmentType,
     line: &NormalizedLine,
 ) -> Result<(), AppError> {
-    let source = sqlx::query("SELECT p.site_id,s.kind site_kind FROM operational_pool p JOIN site s ON s.id=p.site_id WHERE p.id=$1 AND p.site_id=$2 AND p.active")
+    let source = sqlx::query("SELECT p.site_id,s.kind site_kind FROM operational_pool p JOIN site s ON s.id=p.site_id WHERE p.id=$1 AND p.site_id=$2 AND p.active AND p.is_placement")
         .bind(&line.identity.source_pool_id)
         .bind(&line.identity.source_site_id)
         .fetch_optional(&mut **tx)
         .await?
-        .ok_or_else(|| AppError::NotFound("active source pool/site pair".into()))?;
+        .ok_or_else(|| AppError::NotFound("active placement source pool/site pair".into()))?;
     let source_site_kind: String = source.get("site_kind");
     match allotment_type {
         AllotmentType::ToStore => {
@@ -894,27 +903,33 @@ async fn validate_create_line(
 fn execution_transition(
     allotment_type: AllotmentType,
     identity: &LineIdentity,
-) -> Result<(MovementCause, &'static str), AppError> {
+) -> Result<(MovementCause, String), AppError> {
     match allotment_type {
         AllotmentType::ToStore
             if identity.source_site_id == "dc"
                 && identity.source_pool_id == DEFAULT_SOURCE_POOL_ID
                 && identity.destination_type == DestinationType::Store =>
         {
-            Ok((MovementCause::NormalMove, TO_STORE_OUTBOUND_PLACE_ID))
+            let destination_store = SiteId::new(&identity.destination_id)
+                .map_err(|error| AppError::Conflict(error.to_string()))?;
+            let destination = Place::Operational {
+                pool: OperationalPool::DcOutboundPicked(destination_store),
+                state: InventoryState::Normal,
+            };
+            Ok((MovementCause::NormalMove, destination.id()))
         }
         AllotmentType::ReturnToDc
             if identity.destination_type == DestinationType::Dc
                 && identity.destination_id == "dc" =>
         {
-            Ok((MovementCause::ReturnToDc, "dc.warehouse:on_hand"))
+            Ok((MovementCause::ReturnToDc, "dc.warehouse:on_hand".into()))
         }
         AllotmentType::ReturnToSupplier
             if identity.source_pool_id == "dc.reject.dc"
                 && identity.destination_type == DestinationType::Supplier
                 && identity.destination_id == "external/supplier" =>
         {
-            Ok((MovementCause::SupplierReturn, "external/supplier"))
+            Ok((MovementCause::SupplierReturn, "external/supplier".into()))
         }
         _ => Err(AppError::Conflict(
             "persisted allotment type and line endpoints are inconsistent".into(),
@@ -942,11 +957,12 @@ async fn lock_open_allotment(
     tx: &mut Transaction<'_, Postgres>,
     allotment_id: Uuid,
 ) -> Result<sqlx::postgres::PgRow, AppError> {
-    let row = sqlx::query("SELECT id,allotment_number,type,status FROM allotment WHERE id=$1 FOR UPDATE")
-        .bind(allotment_id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound("allotment".into()))?;
+    let row =
+        sqlx::query("SELECT id,allotment_number,type,status FROM allotment WHERE id=$1 FOR UPDATE")
+            .bind(allotment_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("allotment".into()))?;
     let status: String = row.get("status");
     if !matches!(status.as_str(), "ACTIVE" | "PARTIALLY_EXECUTED") {
         return Err(AppError::Conflict(format!(

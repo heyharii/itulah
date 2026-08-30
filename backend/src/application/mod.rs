@@ -1,18 +1,21 @@
 use crate::domain::{
-    AllotmentStatus, AllotmentType, CommercialChannel, CountKind, DestinationType, RfidRead,
+    AllotmentStatus, AllotmentType, CommercialChannel, CountKind, DestinationType, PaymentMethod,
+    RfidRead, Role,
 };
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 use thiserror::Error;
 use uuid::Uuid;
+
+pub mod sync;
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
@@ -25,6 +28,30 @@ pub struct AppConfig {
     pub lost_risk_window_days: i64,
     pub enable_test_controls: bool,
     pub frontend_dir: PathBuf,
+    // Ordered edge->cloud sync (see migrations/0006_sync_outbox.sql).
+    pub sync_upload_url: Option<String>,
+    pub sync_upload_key: Option<String>,
+    pub sync_ingest_key: Option<String>,
+    pub sync_generation: i64,
+    pub sync_enqueue_enabled: bool,
+    pub sync_interval_seconds: i64,
+    pub sync_batch_limit: i64,
+    pub sync_breaker_threshold: u32,
+    pub sync_breaker_base_cooldown_seconds: i64,
+    pub sync_breaker_max_cooldown_seconds: i64,
+    pub sync_retention_days: i64,
+    pub sync_degraded_after_seconds: i64,
+    /// Drain the receipt log into this node's ledger (the receiving node's
+    /// job — defaults on for the CLOUD role).
+    pub sync_apply_enabled: bool,
+    // Local node authentication (see migrations/0007_auth.sql). When
+    // `jwt_secret` is None the API runs open and logs a loud warning — that
+    // keeps existing dev setups working; production sets INVENTORY_JWT_SECRET.
+    pub jwt_secret: Option<String>,
+    pub auth_token_ttl_minutes: i64,
+    pub bootstrap_admin_password: Option<String>,
+    /// Comma-separated exact origins; None keeps the permissive dev default.
+    pub cors_allowed_origins: Option<String>,
 }
 
 impl AppConfig {
@@ -38,11 +65,15 @@ impl AppConfig {
         let frontend_dir = env::var("FRONTEND_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("../frontend"));
+        let node_role = env::var("INVENTORY_NODE_ROLE").unwrap_or_else(|_| "CLOUD".into());
+        // Edges enqueue by default; the central node has no upstream to sync to.
+        let sync_enqueue_default = !node_role.eq_ignore_ascii_case("CLOUD");
+        let sync_apply_default = node_role.eq_ignore_ascii_case("CLOUD");
         Ok(Self {
             bind_addr,
             database_url,
             node_id: env::var("INVENTORY_NODE_ID").unwrap_or_else(|_| "cloud-primary".into()),
-            node_role: env::var("INVENTORY_NODE_ROLE").unwrap_or_else(|_| "CLOUD".into()),
+            node_role,
             rfid_burst_window_seconds: parse_env("RFID_BURST_WINDOW_SECONDS", 10)?,
             observed_window_hours: parse_env("OBSERVED_WINDOW_HOURS", 24)?,
             lost_risk_window_days: parse_env("LOST_RISK_WINDOW_DAYS", 30)?,
@@ -50,8 +81,39 @@ impl AppConfig {
                 .map(|v| v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
             frontend_dir,
+            sync_upload_url: env_opt("SYNC_UPLOAD_URL"),
+            sync_upload_key: env_opt("SYNC_UPLOAD_KEY"),
+            sync_ingest_key: env_opt("SYNC_INGEST_KEY"),
+            sync_generation: parse_env("INVENTORY_ORIGIN_GENERATION", 1)?,
+            sync_enqueue_enabled: env::var("SYNC_ENQUEUE")
+                .map(|v| v.eq_ignore_ascii_case("true"))
+                .unwrap_or(sync_enqueue_default),
+            sync_interval_seconds: parse_env("SYNC_INTERVAL_SECONDS", 5)?,
+            sync_batch_limit: parse_env("SYNC_BATCH_LIMIT", 100)?,
+            sync_breaker_threshold: parse_env("SYNC_BREAKER_THRESHOLD", 5)?.clamp(1, 1_000) as u32,
+            sync_breaker_base_cooldown_seconds: parse_env(
+                "SYNC_BREAKER_BASE_COOLDOWN_SECONDS",
+                30,
+            )?,
+            sync_breaker_max_cooldown_seconds: parse_env("SYNC_BREAKER_MAX_COOLDOWN_SECONDS", 900)?,
+            sync_retention_days: parse_env("SYNC_RETENTION_DAYS", 14)?,
+            sync_degraded_after_seconds: parse_env("SYNC_DEGRADED_AFTER_SECONDS", 900)?,
+            sync_apply_enabled: env::var("SYNC_APPLY")
+                .map(|v| v.eq_ignore_ascii_case("true"))
+                .unwrap_or(sync_apply_default),
+            jwt_secret: env_opt("INVENTORY_JWT_SECRET"),
+            auth_token_ttl_minutes: parse_env("INVENTORY_AUTH_TOKEN_TTL_MINUTES", 12 * 60)?,
+            bootstrap_admin_password: env_opt("INVENTORY_BOOTSTRAP_ADMIN_PASSWORD"),
+            cors_allowed_origins: env_opt("INVENTORY_CORS_ALLOWED_ORIGINS"),
         })
     }
+}
+
+fn env_opt(name: &str) -> Option<String> {
+    env::var(name)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 fn parse_env(name: &str, default: i64) -> Result<i64, AppError> {
@@ -69,6 +131,8 @@ fn parse_env(name: &str, default: i64) -> Result<i64, AppError> {
 pub struct AppState {
     pub db: PgPool,
     pub config: Arc<AppConfig>,
+    /// Wakes the sync sender outside its interval (`POST /api/v1/sync/trigger`).
+    pub sync_wake: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
@@ -76,6 +140,7 @@ impl AppState {
         Self {
             db,
             config: Arc::new(config),
+            sync_wake: Arc::new(tokio::sync::Notify::new()),
         }
     }
 }
@@ -92,6 +157,8 @@ pub enum AppError {
     Conflict(String),
     #[error("forbidden: {0}")]
     Forbidden(String),
+    #[error("unauthorized: {0}")]
+    Unauthorized(String),
     #[error("database operation failed")]
     Database(#[from] sqlx::Error),
     #[error("database migration failed")]
@@ -102,11 +169,25 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        // Business rules enforced by database triggers surface as RAISE
+        // EXCEPTION (SQLSTATE P0001). Those are legitimate conflicts — e.g.
+        // "published commercial rules are immutable" — not server faults, so
+        // map them to 409 with the trigger's own message instead of a 500.
+        if let Self::Database(sqlx::Error::Database(db)) = &self {
+            if db.code().as_deref() == Some("P0001") {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(json!({ "error": db.message() })),
+                )
+                    .into_response();
+            }
+        }
         let status = match self {
             Self::Validation(_) => StatusCode::BAD_REQUEST,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
+            Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::Configuration(_)
             | Self::Database(_)
             | Self::Migration(_)
@@ -386,4 +467,85 @@ pub struct AllotmentQuery {
 pub struct AvailabilityQuery {
     pub at: Option<DateTime<Utc>>,
     pub source_pool_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct DeadLetterQuery {
+    pub limit: Option<i64>,
+}
+
+// ---- Authentication ------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CreateUserRequest {
+    pub username: String,
+    pub display_name: String,
+    pub password: String,
+    pub role: Role,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct SetUserActiveRequest {
+    pub active: bool,
+}
+
+// ---- Returns and reporting ----------------------------------------------
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ReturnLineInput {
+    pub sale_line_id: Uuid,
+    /// TRUE puts the item back on the store floor as sellable stock; FALSE
+    /// sends it to the store reject pool (damaged).
+    pub restock: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RefundInput {
+    pub method: PaymentMethod,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CreateReturnRequest {
+    pub lines: Vec<ReturnLineInput>,
+    pub refunds: Vec<RefundInput>,
+    pub reason: String,
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ReturnQuery {
+    pub site_id: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DailyReportQuery {
+    pub site_id: String,
+    /// Local business date the report covers (YYYY-MM-DD).
+    pub date: NaiveDate,
+    /// Minutes east of UTC for the business-day boundary; defaults to WIB
+    /// (UTC+7 = 420) when omitted.
+    pub utc_offset_minutes: Option<i32>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RegisterOriginRequest {
+    pub origin_id: String,
+    pub ingest_key: String,
+    pub label: Option<String>,
 }

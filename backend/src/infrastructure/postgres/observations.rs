@@ -100,7 +100,23 @@ pub async fn list_observations(
     epc: Option<&str>,
     limit: i64,
 ) -> Result<Value, AppError> {
-    let rows = sqlx::query("SELECT o.observation_id,o.subject_id,o.epc,o.site_id,o.pool_id,o.first_seen_at,o.last_seen_at,o.received_at,o.device_id,o.reader_session_id,o.method,o.read_count,o.best_rssi,o.antenna,sk.sku_code FROM observation_sighting o LEFT JOIN inventory_subject s ON s.id=o.subject_id LEFT JOIN sku sk ON sk.id=s.sku_id WHERE ($1::text IS NULL OR o.pool_id=$1) AND ($2::text IS NULL OR o.epc=$2) ORDER BY o.last_seen_at DESC LIMIT $3")
+    let rows = sqlx::query(r#"
+SELECT o.observation_id,o.subject_id,o.epc,o.site_id,o.pool_id,o.first_seen_at,o.last_seen_at,o.received_at,
+       o.device_id,o.reader_session_id,o.method,o.read_count,o.best_rssi,o.antenna,sk.sku_code
+FROM observation_sighting o
+LEFT JOIN inventory_subject s ON s.id=o.subject_id
+LEFT JOIN sku sk ON sk.id=s.sku_id
+LEFT JOIN operational_pool observed_pool ON observed_pool.id=o.pool_id
+WHERE (
+    $1::text IS NULL OR o.pool_id=$1
+    OR EXISTS (
+        SELECT 1 FROM operational_pool scope
+        WHERE scope.id=$1 AND NOT scope.is_placement AND scope.outbound_stage IS NOT NULL
+          AND observed_pool.is_placement AND observed_pool.outbound_stage=scope.outbound_stage
+    )
+) AND ($2::text IS NULL OR o.epc=$2)
+ORDER BY o.last_seen_at DESC LIMIT $3
+"#)
         .bind(pool_id).bind(epc.map(|v|v.to_ascii_uppercase())).bind(limit.clamp(1,500)).fetch_all(pool).await?;
     let items: Vec<Value> = rows.into_iter().map(|r| json!({
         "observation_id":r.get::<Uuid,_>("observation_id"),"subject_id":r.get::<Option<Uuid>,_>("subject_id"),"epc":r.get::<String,_>("epc"),"sku_code":r.get::<Option<String>,_>("sku_code"),

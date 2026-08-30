@@ -5,8 +5,13 @@ mod counts;
 mod movements;
 mod observations;
 mod queries;
+mod receipts;
+mod reports;
+mod returns;
 mod sales;
 mod sync;
+mod time_machine;
+mod users;
 
 pub use allotments::*;
 pub use commercial::*;
@@ -15,8 +20,13 @@ pub use counts::*;
 pub use movements::*;
 pub use observations::*;
 pub use queries::*;
+pub use receipts::*;
+pub use reports::*;
+pub use returns::*;
 pub use sales::*;
 pub use sync::*;
+pub use time_machine::*;
+pub use users::*;
 
 use crate::application::AppError;
 use serde::Serialize;

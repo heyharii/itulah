@@ -478,6 +478,18 @@ pub struct IngestStreamStatus {
     pub durable_seq: i64,
     pub rejected_count: i64,
     pub last_received_at: Option<DateTime<Utc>>,
+    /// Contiguous prefix applied into this node's ledger. `durable_seq -
+    /// applied_seq` is the apply lag the dashboard watches per store.
+    pub applied_seq: i64,
+    pub blocked_at_seq: Option<i64>,
+    pub blocked_reason: Option<String>,
+    pub blocked_since: Option<DateTime<Utc>>,
+}
+
+impl IngestStreamStatus {
+    pub fn apply_lag(&self) -> i64 {
+        (self.durable_seq - self.applied_seq).max(0)
+    }
 }
 
 pub async fn sync_snapshot(pool: &PgPool) -> Result<SyncSnapshot, AppError> {
@@ -504,17 +516,20 @@ pub async fn sync_snapshot(pool: &PgPool) -> Result<SyncSnapshot, AppError> {
         }
         None => (0, None, 0),
     };
-    let dead_letter_count =
-        sqlx::query("SELECT count(*)::bigint AS count FROM sync_dead_letter")
-            .fetch_one(pool)
-            .await?
-            .get("count");
+    let dead_letter_count = sqlx::query("SELECT count(*)::bigint AS count FROM sync_dead_letter")
+        .fetch_one(pool)
+        .await?
+        .get("count");
     let ingest_streams = sqlx::query(
         "SELECT w.origin_id, w.generation, w.durable_seq, w.last_received_at,
+                COALESCE(a.applied_seq, 0) AS applied_seq,
+                a.blocked_at_seq, a.blocked_reason, a.blocked_since,
                 (SELECT count(*)::bigint FROM sync_ingest_fact f
                  WHERE f.origin_id = w.origin_id AND f.generation = w.generation
                    AND f.status = 'REJECTED') AS rejected_count
          FROM sync_ingest_watermark w
+         LEFT JOIN sync_applied_watermark a
+           ON a.origin_id = w.origin_id AND a.generation = w.generation
          ORDER BY w.origin_id, w.generation",
     )
     .fetch_all(pool)
@@ -526,6 +541,10 @@ pub async fn sync_snapshot(pool: &PgPool) -> Result<SyncSnapshot, AppError> {
         durable_seq: r.get("durable_seq"),
         rejected_count: r.get("rejected_count"),
         last_received_at: r.get("last_received_at"),
+        applied_seq: r.get("applied_seq"),
+        blocked_at_seq: r.get("blocked_at_seq"),
+        blocked_reason: r.get("blocked_reason"),
+        blocked_since: r.get("blocked_since"),
     })
     .collect();
     Ok(SyncSnapshot {
@@ -579,7 +598,13 @@ pub fn sync_health_state(
     let backlog_stale = snapshot
         .backlog_oldest_seconds
         .is_some_and(|age| age >= degraded_after_seconds as f64);
-    if breaker_open || backlog_stale {
+    // A blocked apply stream means a store's facts stopped reaching this
+    // node's ledger — page-worthy even while transport looks healthy.
+    let apply_blocked = snapshot
+        .ingest_streams
+        .iter()
+        .any(|stream| stream.blocked_at_seq.is_some());
+    if breaker_open || backlog_stale || apply_blocked {
         "DEGRADED"
     } else {
         "OK"
@@ -639,4 +664,359 @@ pub async fn debug_insert_raw_fact(
 #[allow(dead_code)]
 fn chrono_seconds(duration: Duration) -> f64 {
     duration.num_milliseconds() as f64 / 1000.0
+}
+
+// ---- Per-origin ingest credentials (30-store hardening) -------------------
+
+fn sha256_hex(value: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    hex::encode(Sha256::digest(value.as_bytes()))
+}
+
+/// Register (or rotate) one origin's ingest key. Only the SHA-256 digest is
+/// stored; the plaintext key lives at the store, in its SYNC_UPLOAD_KEY.
+pub async fn register_origin_credential(
+    pool: &PgPool,
+    origin_id: &str,
+    ingest_key: &str,
+    label: Option<&str>,
+) -> Result<(), AppError> {
+    if origin_id.trim().is_empty() {
+        return Err(AppError::Validation("origin_id must not be empty".into()));
+    }
+    if ingest_key.len() < 8 {
+        return Err(AppError::Validation(
+            "ingest_key must be at least 8 characters".into(),
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO sync_origin_credential (origin_id, ingest_key_sha256, label)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (origin_id) DO UPDATE SET
+             ingest_key_sha256 = EXCLUDED.ingest_key_sha256,
+             label = COALESCE(EXCLUDED.label, sync_origin_credential.label),
+             rotated_at = now()",
+    )
+    .bind(origin_id.trim())
+    .bind(sha256_hex(ingest_key))
+    .bind(label)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// The stored key digest for an origin, if it is registered.
+pub async fn origin_credential_digest(
+    pool: &PgPool,
+    origin_id: &str,
+) -> Result<Option<String>, AppError> {
+    let row = sqlx::query("SELECT ingest_key_sha256 FROM sync_origin_credential WHERE origin_id = $1")
+        .bind(origin_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.get("ingest_key_sha256")))
+}
+
+/// Constant-shape comparison of a presented key against the stored digest.
+pub fn ingest_key_matches(stored_digest: &str, presented_key: &str) -> bool {
+    sha256_hex(presented_key) == stored_digest
+}
+
+/// Registered origins for the operator — never exposes key material.
+pub async fn list_origin_credentials(pool: &PgPool) -> Result<Value, AppError> {
+    let rows = sqlx::query(
+        "SELECT origin_id, label, created_at, rotated_at
+         FROM sync_origin_credential ORDER BY origin_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            json!({
+                "origin_id": r.get::<String, _>("origin_id"),
+                "label": r.get::<Option<String>, _>("label"),
+                "created_at": r.get::<DateTime<Utc>, _>("created_at"),
+                "rotated_at": r.get::<Option<DateTime<Utc>>, _>("rotated_at"),
+            })
+        })
+        .collect();
+    Ok(json!({ "items": items }))
+}
+
+// ---- The applier: receipt log -> this node's ledger -----------------------
+
+/// One stream that is blocked at a fact it cannot apply.
+#[derive(Clone, Debug)]
+pub struct BlockedStream {
+    pub origin_id: String,
+    pub generation: i64,
+    pub seq: i64,
+    pub reason: String,
+}
+
+/// What one apply pass did across every stream.
+#[derive(Clone, Debug, Default)]
+pub struct ApplyReport {
+    pub applied: u64,
+    pub skipped: u64,
+    pub blocked: Vec<BlockedStream>,
+}
+
+enum ApplyStep {
+    /// Nothing left below the receipt watermark.
+    Drained,
+    /// One fact handled and the applied prefix advanced.
+    Advanced { applied_movement: bool },
+    /// The fact at `seq` cannot be applied; the stream stops here (and will
+    /// retry from the same seq next pass — blocking is observability, not a
+    /// terminal state).
+    Blocked { seq: i64, reason: String },
+}
+
+/// Apply pending accepted facts into this node's ledger, one stream at a
+/// time, in seq order, each fact in its own transaction together with its
+/// watermark advance — so a crash can never leave a fact applied but
+/// unaccounted, or accounted but unapplied.
+///
+/// Head-of-line blocking per stream is deliberate: facts within one origin
+/// are causally ordered (a sale after a restock), so skipping an unappliable
+/// fact would let effects apply out of order. Streams are independent — one
+/// blocked store never delays the other 29.
+pub async fn apply_pending(pool: &PgPool, per_stream_limit: i64) -> Result<ApplyReport, AppError> {
+    let streams: Vec<(String, i64, i64)> = sqlx::query(
+        "SELECT origin_id, generation, durable_seq FROM sync_ingest_watermark
+         ORDER BY origin_id, generation",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|r| (r.get("origin_id"), r.get("generation"), r.get("durable_seq")))
+    .collect();
+    let mut report = ApplyReport::default();
+    for (origin_id, generation, durable_seq) in streams {
+        sqlx::query(
+            "INSERT INTO sync_applied_watermark (origin_id, generation)
+             VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(&origin_id)
+        .bind(generation)
+        .execute(pool)
+        .await?;
+        for _ in 0..per_stream_limit.max(1) {
+            match apply_one(pool, &origin_id, generation, durable_seq).await? {
+                ApplyStep::Drained => break,
+                ApplyStep::Advanced { applied_movement } => {
+                    if applied_movement {
+                        report.applied += 1;
+                    } else {
+                        report.skipped += 1;
+                    }
+                }
+                ApplyStep::Blocked { seq, reason } => {
+                    record_blocked(pool, &origin_id, generation, seq, &reason).await?;
+                    report.blocked.push(BlockedStream {
+                        origin_id: origin_id.clone(),
+                        generation,
+                        seq,
+                        reason,
+                    });
+                    break;
+                }
+            }
+        }
+    }
+    Ok(report)
+}
+
+async fn apply_one(
+    pool: &PgPool,
+    origin_id: &str,
+    generation: i64,
+    durable_seq: i64,
+) -> Result<ApplyStep, AppError> {
+    let mut tx = pool.begin().await?;
+    let applied_seq: i64 = sqlx::query(
+        "SELECT applied_seq FROM sync_applied_watermark
+         WHERE origin_id = $1 AND generation = $2 FOR UPDATE",
+    )
+    .bind(origin_id)
+    .bind(generation)
+    .fetch_one(&mut *tx)
+    .await?
+    .get("applied_seq");
+    let next = applied_seq + 1;
+    if next > durable_seq {
+        tx.commit().await?;
+        return Ok(ApplyStep::Drained);
+    }
+    let fact = sqlx::query(
+        "SELECT event_type, payload, status FROM sync_ingest_fact
+         WHERE origin_id = $1 AND generation = $2 AND seq = $3",
+    )
+    .bind(origin_id)
+    .bind(generation)
+    .bind(next)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let applied_movement = match fact {
+        // A receipt-less seq (duplicate advanced by event-id, or purged after
+        // application elsewhere) or a rejection tombstone: nothing to apply.
+        None => false,
+        Some(row) if row.get::<String, _>("status") == "REJECTED" => false,
+        Some(row) => {
+            let event_type: String = row.get("event_type");
+            if event_type != "inventory.movement" {
+                // Unknown types pass through: the receipt log still holds
+                // them for a future applier that understands them.
+                tracing::warn!(origin_id, generation, seq = next, %event_type,
+                    "sync apply: unknown event_type passed through");
+                false
+            } else {
+                let payload: Value = row.get("payload");
+                let fact = match crate::domain::parse_movement_fact(&payload) {
+                    Ok(fact) => fact,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                match apply_movement(&mut tx, origin_id, generation, next, &fact).await {
+                    Ok(applied) => applied,
+                    Err(error) => {
+                        // The transaction rolls back on drop; the block is
+                        // recorded outside it by the caller.
+                        return Ok(ApplyStep::Blocked {
+                            seq: next,
+                            reason: error.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    };
+    sqlx::query(
+        "UPDATE sync_applied_watermark
+         SET applied_seq = $3, blocked_at_seq = NULL, blocked_reason = NULL,
+             blocked_since = NULL, updated_at = now()
+         WHERE origin_id = $1 AND generation = $2",
+    )
+    .bind(origin_id)
+    .bind(generation)
+    .bind(next)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(ApplyStep::Advanced { applied_movement })
+}
+
+/// Replay one movement fact into the local ledger. Returns `false` when the
+/// movement group already exists (single-database demo, or a replayed
+/// stream) — idempotence by the group's stable id.
+async fn apply_movement(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    generation: i64,
+    seq: i64,
+    fact: &crate::domain::MovementFactPayload,
+) -> Result<bool, AppError> {
+    let exists = sqlx::query("SELECT 1 FROM movement_group WHERE id = $1")
+        .bind(fact.movement_group_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .is_some();
+    if exists {
+        return Ok(false);
+    }
+    let idempotency_key = format!("sync:{origin_id}:{generation}:{seq}");
+    let digest = fact.payload_digest.clone().unwrap_or_default();
+    sqlx::query(
+        "INSERT INTO movement_group
+             (id, cause, reason, reference_type, reference_id, actor_id,
+              idempotency_key, payload_digest, occurred_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+    )
+    .bind(fact.movement_group_id)
+    .bind(&fact.cause)
+    .bind(&fact.reason)
+    .bind(&fact.reference_type)
+    .bind(&fact.reference_id)
+    .bind(&fact.actor_id)
+    .bind(&idempotency_key)
+    .bind(&digest)
+    .bind(fact.occurred_at)
+    .execute(&mut **tx)
+    .await?;
+    for line in &fact.lines {
+        let from: crate::domain::Place = line
+            .from_place_id
+            .parse()
+            .map_err(|e: crate::domain::PlaceError| AppError::Validation(e.to_string()))?;
+        let to: crate::domain::Place = line
+            .to_place_id
+            .parse()
+            .map_err(|e: crate::domain::PlaceError| AppError::Validation(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO movement
+                 (movement_id, movement_group_id, subject_id, quantity,
+                  from_place_id, to_place_id, cause, reference_type, reference_id,
+                  idempotency_key, payload_digest, actor_id, occurred_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(fact.movement_group_id)
+        .bind(line.subject_id)
+        .bind(line.quantity)
+        .bind(&line.from_place_id)
+        .bind(&line.to_place_id)
+        .bind(&fact.cause)
+        .bind(&fact.reference_type)
+        .bind(&fact.reference_id)
+        .bind(&idempotency_key)
+        .bind(&digest)
+        .bind(&fact.actor_id)
+        .bind(fact.occurred_at)
+        .execute(&mut **tx)
+        .await?;
+        super::refresh_projection_position(tx, line.subject_id, &from).await?;
+        super::refresh_projection_position(tx, line.subject_id, &to).await?;
+    }
+    Ok(true)
+}
+
+async fn record_blocked(
+    pool: &PgPool,
+    origin_id: &str,
+    generation: i64,
+    seq: i64,
+    reason: &str,
+) -> Result<(), AppError> {
+    let bounded: String = reason.chars().take(500).collect();
+    sqlx::query(
+        "UPDATE sync_applied_watermark
+         SET blocked_at_seq = $3, blocked_reason = $4,
+             blocked_since = COALESCE(blocked_since, now()), updated_at = now()
+         WHERE origin_id = $1 AND generation = $2",
+    )
+    .bind(origin_id)
+    .bind(generation)
+    .bind(seq)
+    .bind(bounded)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Receiver-side retention: receipt rows both applied and old may go. Dedup
+/// of very-late resends survives the purge because it keys on the ingest
+/// WATERMARK (`seq <= durable_seq` is skipped), not on the receipt rows.
+pub async fn purge_applied_ingest(pool: &PgPool, retention_days: i64) -> Result<u64, AppError> {
+    let result = sqlx::query(
+        "DELETE FROM sync_ingest_fact f
+         USING sync_applied_watermark a
+         WHERE a.origin_id = f.origin_id AND a.generation = f.generation
+           AND f.seq <= a.applied_seq
+           AND f.received_at < now() - make_interval(days => $1::int)",
+    )
+    .bind(retention_days.max(0) as i32)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }

@@ -33,7 +33,7 @@
 
     <section id="page-allotments" class="page">
       <div class="page-head">
-        <div><h1>DC Warehouse Allotments</h1><p>Commitment to a destination Store; inventory remains in Warehouse until Pick.</p></div>
+        <div><h1>Allotments</h1><p>Destination is decided before physical execution; creating an Allotment creates no inventory movement.</p></div>
         <div class="toolbar"><button id="refresh-allotments" class="secondary">Refresh</button><button id="open-allotment">Create Allotment</button></div>
       </div>
       <div id="allotment-summary" class="cards"></div>
@@ -111,15 +111,16 @@
 
   <dialog id="allotment-dialog" class="wide-dialog">
     <form id="allotment-form" method="dialog">
-      <div class="dialog-head"><div><h2>Create Allotment</h2><p>Creates a Store commitment only—zero inventory movement.</p></div><button value="cancel" formnovalidate class="icon">×</button></div>
+      <div class="dialog-head"><div><h2>Create Allotment</h2><p>Decides destinations without changing inventory placement.</p></div><button value="cancel" formnovalidate class="icon">×</button></div>
       <div class="form-grid">
-        <label>Destination Store<select id="allotment-store" required></select></label>
-        <label>Actor<input id="allotment-actor" value="dc-allotment-planner" required></label>
-        <label class="span-2">Notes<input id="allotment-notes" placeholder="Optional planning note"></label>
+        <label>Type<select id="allotment-type" required><option value="TO_STORE">To Store</option><option value="RETURN_TO_DC">Return to DC</option><option value="RETURN_TO_SUPPLIER">Return to Supplier</option></select></label>
+        <label>Source Pool<select id="allotment-source" required></select></label>
+        <label>Actor<input id="allotment-actor" value="inventory-planner" required></label>
+        <label>Notes<input id="allotment-notes" placeholder="Optional planning note"></label>
       </div>
-      <h3>Items</h3>
-      <div id="allotment-item-inputs" class="loading">Loading Warehouse availability…</div>
-      <div class="preview"><strong>Preview</strong><code id="allotment-preview">Select a destination and enter at least one quantity.</code></div>
+      <h3>Lines</h3>
+      <div id="allotment-item-inputs" class="loading">Loading source pool balances…</div>
+      <div class="preview"><strong>Preview</strong><code id="allotment-preview">Choose a type, source pool, destinations, and quantities.</code></div>
       <div class="dialog-actions"><button value="cancel" formnovalidate class="secondary">Cancel</button><button id="preview-allotment" type="button" class="secondary">Preview</button><button id="create-allotment" value="default" disabled>Create Allotment</button></div>
     </form>
   </dialog>

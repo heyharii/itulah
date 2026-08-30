@@ -7,10 +7,10 @@ use inventory_edge::{
         CancelAllotmentRequest, CommandRequest, CommercialOfferRuleInput, CommercialTaxRuleInput,
         CorruptProjectionRequest, CreateAllotmentLineInput, CreateAllotmentRequest,
         CreateCommercialPublicationRequest, CreateCountRequest, CreateMovementRequest,
-        CreateSaleRequest, MissingResolutionRequest, MovementLineRequest, ObservationBatchRequest,
-        ExecuteAllotmentRequest, ReplayRequest, ReplayScope, RepostRequest, ResolveOfferQuery,
+        CreateSaleRequest, ExecuteAllotmentRequest, MissingResolutionRequest, MovementLineRequest,
+        ObservationBatchRequest, ReplayRequest, ReplayScope, RepostRequest, ResolveOfferQuery,
     },
-    domain::{CommercialChannel, CountKind, RfidRead},
+    domain::{AllotmentType, CommercialChannel, CountKind, DestinationType, RfidRead},
     http as api_http, infrastructure, AppConfig, AppState,
 };
 use sqlx::{PgPool, Row};
@@ -99,6 +99,19 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
             lost_risk_window_days: 30,
             enable_test_controls: true,
             frontend_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend"),
+            sync_upload_url: None,
+            sync_upload_key: None,
+            sync_ingest_key: None,
+            sync_generation: 1,
+            sync_enqueue_enabled: false,
+            sync_interval_seconds: 5,
+            sync_batch_limit: 100,
+            sync_breaker_threshold: 5,
+            sync_breaker_base_cooldown_seconds: 30,
+            sync_breaker_max_cooldown_seconds: 900,
+            sync_retention_days: 14,
+            sync_degraded_after_seconds: 900,
+            sync_apply_enabled: false,
         },
     ));
     let health = app
@@ -681,6 +694,19 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
             lost_risk_window_days: 30,
             enable_test_controls: false,
             frontend_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend"),
+            sync_upload_url: None,
+            sync_upload_key: None,
+            sync_ingest_key: None,
+            sync_generation: 1,
+            sync_enqueue_enabled: false,
+            sync_interval_seconds: 5,
+            sync_batch_limit: 100,
+            sync_breaker_threshold: 5,
+            sync_breaker_base_cooldown_seconds: 30,
+            sync_breaker_max_cooldown_seconds: 900,
+            sync_retention_days: 14,
+            sync_degraded_after_seconds: 900,
+            sync_apply_enabled: false,
         },
     ));
     let offers_response = app
@@ -860,10 +886,14 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let facts_before_create = fact_count(&pool).await;
     let on_hand_before_create = sku_place_quantity(&pool, cancel_sku, "dc.warehouse:on_hand").await;
     let create_request = CreateAllotmentRequest {
-        destination_store_id: "store-01".into(),
+        allotment_type: AllotmentType::ToStore,
         lines: vec![CreateAllotmentLineInput {
+            source_site_id: "dc".into(),
+            source_pool_id: "dc.warehouse".into(),
+            destination_type: DestinationType::Store,
+            destination_id: "store-01".into(),
             sku_id: cancel_sku,
-            requested_qty: 10,
+            quantity: 10,
         }],
         notes: Some("No physical movement during planning".into()),
         actor_id: "allotment-planner".into(),
@@ -936,10 +966,14 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let store_01 = infrastructure::create_allotment(
         &pool,
         CreateAllotmentRequest {
-            destination_store_id: "store-01".into(),
+            allotment_type: AllotmentType::ToStore,
             lines: vec![CreateAllotmentLineInput {
+                source_site_id: "dc".into(),
+                source_pool_id: "dc.warehouse".into(),
+                destination_type: DestinationType::Store,
+                destination_id: "store-01".into(),
                 sku_id: pick_sku,
-                requested_qty: 5,
+                quantity: 5,
             }],
             notes: None,
             actor_id: "allotment-planner".into(),
@@ -951,10 +985,14 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let store_02 = infrastructure::create_allotment(
         &pool,
         CreateAllotmentRequest {
-            destination_store_id: "store-02".into(),
+            allotment_type: AllotmentType::ToStore,
             lines: vec![CreateAllotmentLineInput {
+                source_site_id: "dc".into(),
+                source_pool_id: "dc.warehouse".into(),
+                destination_type: DestinationType::Store,
+                destination_id: "store-02".into(),
                 sku_id: pick_sku,
-                requested_qty: 7,
+                quantity: 7,
             }],
             notes: None,
             actor_id: "allotment-planner".into(),
@@ -996,6 +1034,8 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     .unwrap_or_else(|e| panic!("cancel Store 01: {e}"));
     let store_02_id = Uuid::parse_str(store_02["id"].as_str().unwrap_or_default())
         .unwrap_or_else(|e| panic!("Store 02 allotment UUID: {e}"));
+    let store_02_line_id = Uuid::parse_str(store_02["lines"][0]["id"].as_str().unwrap_or_default())
+        .unwrap_or_else(|e| panic!("Store 02 allotment line UUID: {e}"));
 
     let availability_before_pick =
         infrastructure::get_availability(&pool, AvailabilityQuery::default())
@@ -1013,12 +1053,12 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let picked_before = sku_place_quantity(&pool, pick_sku, "dc.outbound.picked:on_hand").await;
     let facts_before_pick = fact_count(&pool).await;
     let pick_request = ExecuteAllotmentRequest {
-        sku_id: pick_sku,
+        allotment_line_id: store_02_line_id,
         quantity: 3,
         actor_id: "dc-picker".into(),
         idempotency_key: "allotment-pick-store-02".into(),
     };
-    let picked = infrastructure::pick_allotment(&pool, store_02_id, pick_request.clone())
+    let picked = infrastructure::execute_allotment(&pool, store_02_id, pick_request.clone())
         .await
         .unwrap_or_else(|e| panic!("pick allotment: {e}"));
     let movement_count = picked["movement_ids"]
@@ -1028,7 +1068,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     assert_eq!(fact_count(&pool).await, facts_before_pick + movement_count);
     assert_eq!(
         picked,
-        infrastructure::pick_allotment(&pool, store_02_id, pick_request)
+        infrastructure::execute_allotment(&pool, store_02_id, pick_request)
             .await
             .unwrap_or_else(|e| panic!("pick retry: {e}"))
     );
@@ -1054,11 +1094,11 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     assert_eq!(pick_after["allotment_qty"], allotment_before_pick - 3);
     assert_eq!(pick_after["available_qty"], available_before_pick);
     assert!(
-        infrastructure::pick_allotment(
+        infrastructure::execute_allotment(
             &pool,
             store_02_id,
             ExecuteAllotmentRequest {
-                sku_id: pick_sku,
+                allotment_line_id: store_02_line_id,
                 quantity: 5,
                 actor_id: "dc-picker".into(),
                 idempotency_key: "allotment-pick-too-much".into(),
@@ -1178,10 +1218,14 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .unwrap_or_default();
     assert!(race_available > 0);
     let race_request = |store: &str, key: &str| CreateAllotmentRequest {
-        destination_store_id: store.into(),
+        allotment_type: AllotmentType::ToStore,
         lines: vec![CreateAllotmentLineInput {
+            source_site_id: "dc".into(),
+            source_pool_id: "dc.warehouse".into(),
+            destination_type: DestinationType::Store,
+            destination_id: store.into(),
             sku_id: race_sku,
-            requested_qty: race_available,
+            quantity: race_available,
         }],
         notes: None,
         actor_id: "concurrent-planner".into(),
@@ -1204,10 +1248,14 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     assert!(infrastructure::create_allotment(
         &pool,
         CreateAllotmentRequest {
-            destination_store_id: "store-05".into(),
+            allotment_type: AllotmentType::ToStore,
             lines: vec![CreateAllotmentLineInput {
+                source_site_id: "dc".into(),
+                source_pool_id: "dc.warehouse".into(),
+                destination_type: DestinationType::Store,
+                destination_id: "store-05".into(),
                 sku_id: race_sku,
-                requested_qty: 1,
+                quantity: 1,
             }],
             notes: None,
             actor_id: "allotment-planner".into(),
@@ -1244,10 +1292,14 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let shortage_allotment = infrastructure::create_allotment(
         &pool,
         CreateAllotmentRequest {
-            destination_store_id: "store-06".into(),
+            allotment_type: AllotmentType::ToStore,
             lines: vec![CreateAllotmentLineInput {
+                source_site_id: "dc".into(),
+                source_pool_id: "dc.warehouse".into(),
+                destination_type: DestinationType::Store,
+                destination_id: "store-06".into(),
                 sku_id: cancel_sku,
-                requested_qty: shortage_available,
+                quantity: shortage_available,
             }],
             notes: Some("Commitment survives physical shortage".into()),
             actor_id: "allotment-planner".into(),
@@ -1259,6 +1311,12 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let shortage_allotment_id =
         Uuid::parse_str(shortage_allotment["id"].as_str().unwrap_or_default())
             .unwrap_or_else(|e| panic!("shortage Allotment UUID: {e}"));
+    let shortage_allotment_line_id = Uuid::parse_str(
+        shortage_allotment["lines"][0]["id"]
+            .as_str()
+            .unwrap_or_default(),
+    )
+    .unwrap_or_else(|e| panic!("shortage Allotment line UUID: {e}"));
     let count = infrastructure::create_count(
         &pool,
         CreateCountRequest {
@@ -1341,11 +1399,11 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .get("count");
     assert_eq!(shortage_events, 1);
     let facts_before_failed_pick = fact_count(&pool).await;
-    assert!(infrastructure::pick_allotment(
+    assert!(infrastructure::execute_allotment(
         &pool,
         shortage_allotment_id,
         ExecuteAllotmentRequest {
-            sku_id: cancel_sku,
+            allotment_line_id: shortage_allotment_line_id,
             quantity: 1,
             actor_id: "dc-picker".into(),
             idempotency_key: "allotment-pick-missing-inventory".into(),
@@ -1390,6 +1448,19 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
             lost_risk_window_days: 30,
             enable_test_controls: false,
             frontend_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend"),
+            sync_upload_url: None,
+            sync_upload_key: None,
+            sync_ingest_key: None,
+            sync_generation: 1,
+            sync_enqueue_enabled: false,
+            sync_interval_seconds: 5,
+            sync_batch_limit: 100,
+            sync_breaker_threshold: 5,
+            sync_breaker_base_cooldown_seconds: 30,
+            sync_breaker_max_cooldown_seconds: 900,
+            sync_retention_days: 14,
+            sync_degraded_after_seconds: 900,
+            sync_apply_enabled: false,
         },
     ));
     for uri in [

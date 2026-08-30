@@ -8,7 +8,7 @@ use crate::{
         SaleQuery,
     },
     domain::{
-        calculate_line_totals, validate_command, validate_payment, CommercialChannel,
+        calculate_line_totals, validate_command, validate_tender, CommercialChannel,
         MovementCause, MovementCommand, MovementGroupId, MovementLine, PaymentMethod, Place,
         SiteId, SiteKind, SubjectId,
     },
@@ -231,7 +231,39 @@ pub async fn add_sale_payment(
         tx.commit().await?;
         return Ok(response);
     }
-    open_sale_for_update(&mut tx, sale_id).await?;
+    let sale = open_sale_for_update(&mut tx, sale_id).await?;
+    // A tender against an empty cart is always a mistake: there is nothing
+    // to pay for yet, and stray paid_minor confuses completion.
+    let has_lines = sqlx::query("SELECT 1 FROM sale_line WHERE sale_id=$1 LIMIT 1")
+        .bind(sale_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+    if !has_lines {
+        return Err(AppError::Conflict(
+            "cannot record a payment before the sale has lines".into(),
+        ));
+    }
+    // Change can only be given from cash, so electronic tenders may never
+    // exceed the running total (see domain::validate_tender).
+    if method != PaymentMethod::Cash {
+        let total_minor: i64 = sale.get("total_minor");
+        let non_cash_paid: i64 = sqlx::query(
+            "SELECT COALESCE(SUM(amount_minor),0)::bigint total FROM sale_payment \
+             WHERE sale_id=$1 AND method <> 'CASH'",
+        )
+        .bind(sale_id)
+        .fetch_one(&mut *tx)
+        .await?
+        .get("total");
+        if non_cash_paid + request.amount_minor > total_minor {
+            return Err(AppError::Conflict(format!(
+                "non-cash tender would exceed the sale total: total {total_minor}, \
+                 non-cash already {non_cash_paid}, attempted {}",
+                request.amount_minor
+            )));
+        }
+    }
     let payment_id = Uuid::new_v4();
     sqlx::query("INSERT INTO sale_payment(id,sale_id,method,amount_minor,reference,actor_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7)")
         .bind(payment_id).bind(sale_id).bind(method.as_str()).bind(request.amount_minor).bind(&request.reference).bind(request.actor_id.trim()).bind(&request.idempotency_key)
@@ -263,11 +295,27 @@ pub async fn complete_sale(
     let sale = open_sale_for_update(&mut tx, sale_id).await?;
     let site_id: String = sale.get("site_id");
     let total_minor: i64 = sale.get("total_minor");
-    let paid_minor: i64 = sale.get("paid_minor");
-    let payment =
-        validate_payment(total_minor, paid_minor).map_err(|e| AppError::Conflict(e.to_string()))?;
+    // Change can only be given from cash: split the tenders and let the
+    // domain rule decide (electronic overpayment was already refused at
+    // add_sale_payment; this re-checks at the commit point).
+    let tender = sqlx::query(
+        "SELECT COALESCE(SUM(amount_minor) FILTER (WHERE method='CASH'),0)::bigint cash,\
+         COALESCE(SUM(amount_minor) FILTER (WHERE method<>'CASH'),0)::bigint non_cash \
+         FROM sale_payment WHERE sale_id=$1",
+    )
+    .bind(sale_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let payment = validate_tender(
+        total_minor,
+        tender.get::<i64, _>("cash"),
+        tender.get::<i64, _>("non_cash"),
+    )
+    .map_err(|e| AppError::Conflict(e.to_string()))?;
     let line_rows = sqlx::query(
-        "SELECT subject_id,quantity FROM sale_line WHERE sale_id=$1 ORDER BY subject_id",
+        "SELECT l.subject_id,l.quantity,subject.epc FROM sale_line l \
+         JOIN inventory_subject subject ON subject.id=l.subject_id \
+         WHERE l.sale_id=$1 ORDER BY l.subject_id",
     )
     .bind(sale_id)
     .fetch_all(&mut *tx)
@@ -281,15 +329,29 @@ pub async fn complete_sale(
     let destination: Place = "external/customer"
         .parse()
         .map_err(|e: crate::domain::PlaceError| AppError::Validation(e.to_string()))?;
-    let lines: Vec<MovementLine> = line_rows
-        .into_iter()
-        .map(|row| MovementLine {
-            subject_id: SubjectId(row.get("subject_id")),
-            quantity: row.get("quantity"),
+    // Friendly pre-check so a lost race names the offending item: the ledger
+    // apply would fail anyway, but its error cannot say which EPC to remove
+    // from the cart.
+    let floor_place = format!("{site_id}.floor:on_hand");
+    let mut lines = Vec::with_capacity(line_rows.len());
+    for row in &line_rows {
+        let subject_id: Uuid = row.get("subject_id");
+        let quantity: i64 = row.get("quantity");
+        let available = authoritative_subject_balance(&mut tx, subject_id, &floor_place).await?;
+        if available < quantity {
+            let epc: Option<String> = row.get("epc");
+            return Err(AppError::Conflict(format!(
+                "item {} is no longer available on the store floor (likely sold by another till); remove it from this sale",
+                epc.unwrap_or_else(|| subject_id.to_string())
+            )));
+        }
+        lines.push(MovementLine {
+            subject_id: SubjectId(subject_id),
+            quantity,
             from: source.clone(),
             to: destination.clone(),
-        })
-        .collect();
+        });
+    }
     let movement_group_id = MovementGroupId::new();
     let command = MovementCommand {
         movement_group_id,
@@ -302,14 +364,17 @@ pub async fn complete_sale(
         occurred_at: Utc::now(),
     };
     validate_command(&command).map_err(|e| AppError::Validation(e.to_string()))?;
-    let movement_key = format!("{}:inventory", request.idempotency_key);
+    // Namespaced so a client key can never collide with another command's
+    // derived movement key (e.g. an allotment execute using the same key).
+    let movement_key = format!("sale:{}:inventory", request.idempotency_key);
     insert_group(&mut tx, &command, &movement_key, &digest).await?;
     let movement_ids = apply_lines(&mut tx, &command, &movement_key, &digest).await?;
-    sqlx::query("UPDATE sale SET status='COMPLETED',change_minor=$2,movement_group_id=$3,completed_at=now() WHERE id=$1")
-        .bind(sale_id).bind(payment.change_minor).bind(movement_group_id.0).execute(&mut *tx).await?;
+    let completed_at = command.occurred_at;
+    sqlx::query("UPDATE sale SET status='COMPLETED',change_minor=$2,movement_group_id=$3,completed_at=$4 WHERE id=$1")
+        .bind(sale_id).bind(payment.change_minor).bind(movement_group_id.0).bind(completed_at).execute(&mut *tx).await?;
     let response = json!({
         "id":sale_id,"status":"COMPLETED","total_minor":payment.total_minor,"paid_minor":payment.paid_minor,"change_minor":payment.change_minor,
-        "movement_group_id":movement_group_id.0,"movement_ids":movement_ids,"inventory_effect":"Store Floor / On Hand -> external/customer","completed_at":Utc::now()
+        "movement_group_id":movement_group_id.0,"movement_ids":movement_ids,"inventory_effect":"Store Floor / On Hand -> external/customer","completed_at":completed_at
     });
     complete_idempotent(&mut tx, &request.idempotency_key, &response).await?;
     tx.commit().await?;
