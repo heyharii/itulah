@@ -20,6 +20,7 @@ pub enum MovementCause {
     NormalMove,
     ReturnToDc,
     Sale,
+    CustomerReturn,
     SupplierReturn,
     PlacementCorrection,
     CountShortage,
@@ -36,6 +37,7 @@ impl MovementCause {
             Self::NormalMove => "NORMAL_MOVE",
             Self::ReturnToDc => "RETURN_TO_DC",
             Self::Sale => "SALE",
+            Self::CustomerReturn => "CUSTOMER_RETURN",
             Self::SupplierReturn => "SUPPLIER_RETURN",
             Self::PlacementCorrection => "PLACEMENT_CORRECTION",
             Self::CountShortage => "COUNT_SHORTAGE",
@@ -61,6 +63,7 @@ impl FromStr for MovementCause {
             "NORMAL_MOVE" => Ok(Self::NormalMove),
             "RETURN_TO_DC" => Ok(Self::ReturnToDc),
             "SALE" => Ok(Self::Sale),
+            "CUSTOMER_RETURN" => Ok(Self::CustomerReturn),
             "SUPPLIER_RETURN" => Ok(Self::SupplierReturn),
             "PLACEMENT_CORRECTION" => Ok(Self::PlacementCorrection),
             "COUNT_SHORTAGE" => Ok(Self::CountShortage),
@@ -210,6 +213,22 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                     }
                 )
         }
+        // The inverse of a Sale: goods come back from the customer into the
+        // same store, either sellable again (floor) or damaged (reject).
+        MovementCause::CustomerReturn => {
+            matches!(
+                line.from,
+                Place::External {
+                    place: ExternalPlace::Customer
+                }
+            ) && matches!(
+                line.to,
+                Place::Operational {
+                    pool: OperationalPool::StoreFloor(_) | OperationalPool::StoreReject(_),
+                    state: InventoryState::Normal,
+                }
+            )
+        }
         MovementCause::ReturnToDc => match (&line.from, &line.to) {
             (
                 Place::Operational {
@@ -323,6 +342,35 @@ mod tests {
                 "{from} -> {to}"
             );
         }
+    }
+
+    #[test]
+    fn customer_return_flows_back_to_floor_or_reject_only() {
+        assert!(validate_transition(
+            MovementCause::CustomerReturn,
+            &line("external/customer", "store-07.floor:on_hand")
+        )
+        .is_ok());
+        assert!(validate_transition(
+            MovementCause::CustomerReturn,
+            &line("external/customer", "store-07.reject:on_hand")
+        )
+        .is_ok());
+        assert!(validate_transition(
+            MovementCause::CustomerReturn,
+            &line("external/customer", "store-07.warehouse:on_hand")
+        )
+        .is_err());
+        assert!(validate_transition(
+            MovementCause::CustomerReturn,
+            &line("external/customer", "dc.warehouse:on_hand")
+        )
+        .is_err());
+        assert!(validate_transition(
+            MovementCause::CustomerReturn,
+            &line("store-07.floor:on_hand", "store-07.reject:on_hand")
+        )
+        .is_err());
     }
 
     #[test]

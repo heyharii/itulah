@@ -132,7 +132,9 @@ pub fn cooldown_after_failure(policy: BreakerPolicy, consecutive_failures: u32) 
     if consecutive_failures < policy.threshold.max(1) {
         return None;
     }
-    let exponent = consecutive_failures.saturating_sub(policy.threshold).min(16);
+    let exponent = consecutive_failures
+        .saturating_sub(policy.threshold)
+        .min(16);
     let cooldown = policy
         .base_cooldown_seconds
         .saturating_mul(1_i64 << exponent);

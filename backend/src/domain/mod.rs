@@ -1,4 +1,5 @@
 mod allotment;
+mod auth;
 mod commercial;
 mod count;
 mod ids;
@@ -10,6 +11,7 @@ mod sales;
 mod sync;
 
 pub use allotment::*;
+pub use auth::*;
 pub use commercial::*;
 pub use count::*;
 pub use ids::*;
