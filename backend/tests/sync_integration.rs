@@ -47,7 +47,11 @@ fn test_config() -> AppConfig {
         sync_breaker_max_cooldown_seconds: 900,
         sync_retention_days: 14,
         sync_degraded_after_seconds: 900,
-            sync_apply_enabled: false,
+        sync_apply_enabled: false,
+        jwt_secret: None,
+        auth_token_ttl_minutes: 60,
+        bootstrap_admin_password: None,
+        cors_allowed_origins: None,
     }
 }
 

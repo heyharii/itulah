@@ -219,6 +219,8 @@ pub async fn control_status(pool: &PgPool) -> Result<Value, AppError> {
         .await?
         .get::<i64, _>("count");
     let differences = replay_differences(pool, &ReplayScope::default()).await?;
+    let outbound_rollup_differences =
+        outbound_stage_rollup_differences(pool, &ReplayScope::default()).await?;
     let replay = sqlx::query(
         "SELECT id,status,difference_count,ran_at FROM replay_run ORDER BY ran_at DESC LIMIT 1",
     )
@@ -232,7 +234,17 @@ pub async fn control_status(pool: &PgPool) -> Result<Value, AppError> {
     let last_replay=replay.map(|r|json!({"id":r.get::<Uuid,_>("id"),"status":r.get::<String,_>("status"),"difference_count":r.get::<i64,_>("difference_count"),"ran_at":r.get::<DateTime<Utc>,_>("ran_at")}));
     let last_repost=repost.map(|r|json!({"id":r.get::<Uuid,_>("id"),"projection_rows":r.get::<i64,_>("projection_rows"),"ran_at":r.get::<DateTime<Utc>,_>("ran_at")}));
     Ok(
-        json!({"ledger_fact_count":fact_count,"projection_difference_count":differences.len(),"ledger_health":if differences.is_empty(){"HEALTHY"}else{"DIFFERENCE"},"last_replay":last_replay,"last_repost":last_repost,"differences":differences}),
+        json!({
+            "ledger_fact_count":fact_count,
+            "projection_difference_count":differences.len(),
+            "outbound_rollup_status":if outbound_rollup_differences.is_empty(){"MATCH"}else{"DIFFERENCE"},
+            "outbound_rollup_difference_count":outbound_rollup_differences.len(),
+            "ledger_health":if differences.is_empty() && outbound_rollup_differences.is_empty(){"HEALTHY"}else{"DIFFERENCE"},
+            "last_replay":last_replay,
+            "last_repost":last_repost,
+            "differences":differences,
+            "outbound_rollup_differences":outbound_rollup_differences
+        }),
     )
 }
 

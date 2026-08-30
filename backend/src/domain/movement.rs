@@ -326,15 +326,21 @@ mod tests {
                 "dc.pending.untagged:on_hand",
             ),
             ("dc.pending.untagged:on_hand", "dc.warehouse:on_hand"),
-            ("dc.warehouse:on_hand", "dc.outbound.picked:on_hand"),
-            ("dc.outbound.picked:on_hand", "dc.outbound.packed:on_hand"),
-            ("dc.outbound.packed:on_hand", "dc.outbound.shipment:on_hand"),
+            ("dc.warehouse:on_hand", "dc.outbound.picked.store-07:on_hand"),
             (
-                "dc.outbound.shipment:on_hand",
-                "dc.outbound.in-transit:on_hand",
+                "dc.outbound.picked.store-07:on_hand",
+                "dc.outbound.packed.store-07:on_hand",
             ),
             (
-                "dc.outbound.in-transit:on_hand",
+                "dc.outbound.packed.store-07:on_hand",
+                "dc.outbound.shipment.store-07:on_hand",
+            ),
+            (
+                "dc.outbound.shipment.store-07:on_hand",
+                "dc.outbound.in-transit.store-07:on_hand",
+            ),
+            (
+                "dc.outbound.in-transit.store-07:on_hand",
                 "store-07.warehouse:on_hand",
             ),
             ("store-07.warehouse:on_hand", "store-07.floor:on_hand"),

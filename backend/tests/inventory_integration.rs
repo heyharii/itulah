@@ -112,6 +112,10 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
             sync_retention_days: 14,
             sync_degraded_after_seconds: 900,
             sync_apply_enabled: false,
+            jwt_secret: None,
+            auth_token_ttl_minutes: 720,
+            bootstrap_admin_password: None,
+            cors_allowed_origins: None,
         },
     ));
     let health = app
@@ -707,6 +711,10 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
             sync_retention_days: 14,
             sync_degraded_after_seconds: 900,
             sync_apply_enabled: false,
+            jwt_secret: None,
+            auth_token_ttl_minutes: 720,
+            bootstrap_admin_password: None,
+            cors_allowed_origins: None,
         },
     ));
     let offers_response = app
@@ -1461,6 +1469,10 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
             sync_retention_days: 14,
             sync_degraded_after_seconds: 900,
             sync_apply_enabled: false,
+            jwt_secret: None,
+            auth_token_ttl_minutes: 720,
+            bootstrap_admin_password: None,
+            cors_allowed_origins: None,
         },
     ));
     for uri in [
