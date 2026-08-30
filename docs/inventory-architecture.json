@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Inventory + Allotment Edge Architecture",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [1320, 820]
+  },
+  "components": [
+    {
+      "id": "operatorUi",
+      "type": "frontend",
+      "label": "Retail Edge HTML UI",
+      "sublabel": "Pools, Allotments, Sales, Control",
+      "pos": [50, 190],
+      "size": [190, 76],
+      "sources": [{ "path": "frontend/app.js", "label": "UI commands" }]
+    },
+    {
+      "id": "rfidHandheld",
+      "type": "external",
+      "label": "RFID Handheld",
+      "sublabel": "Physical evidence only",
+      "pos": [50, 450],
+      "size": [190, 76],
+      "sources": [{ "path": "backend/src/infrastructure/postgres/observations.rs", "label": "Evidence stream" }]
+    },
+    {
+      "id": "dcEdge",
+      "type": "backend",
+      "label": "DC Edge / Rust",
+      "sublabel": "Warehouse + outbound operations",
+      "tag": "DEPLOYMENT",
+      "pos": [310, 190],
+      "size": [190, 76]
+    },
+    {
+      "id": "storeEdge",
+      "type": "backend",
+      "label": "Store Edge / Rust",
+      "sublabel": "Store inventory + Sales",
+      "tag": "DEPLOYMENT",
+      "pos": [310, 450],
+      "size": [190, 76]
+    },
+    {
+      "id": "allotmentCore",
+      "type": "backend",
+      "label": "Allotment Core",
+      "sublabel": "Intended Store commitment",
+      "tag": "NOT A POOL / MOVEMENT",
+      "pos": [580, 170],
+      "size": [210, 82],
+      "sources": [
+        { "path": "backend/src/domain/allotment.rs", "label": "Commitment rules" },
+        { "path": "backend/src/infrastructure/postgres/allotments.rs", "label": "Atomic commands" }
+      ]
+    },
+    {
+      "id": "inventoryCore",
+      "type": "security",
+      "label": "Inventory Core",
+      "sublabel": "Placement + state invariants",
+      "tag": "MOVEMENT AUTHORITY",
+      "pos": [580, 420],
+      "size": [210, 82],
+      "sources": [
+        { "path": "backend/src/domain/movement.rs", "label": "Transition graph" },
+        { "path": "backend/src/infrastructure/postgres/movements.rs", "label": "Ledger kernel" }
+      ]
+    },
+    {
+      "id": "allotmentHistory",
+      "type": "database",
+      "label": "Allotment History",
+      "sublabel": "Current lines + immutable events",
+      "tag": "COMMITMENT STREAM",
+      "pos": [900, 170],
+      "size": [210, 82],
+      "sources": [{ "path": "backend/migrations/0004_allotment.sql", "label": "Allotment schema" }]
+    },
+    {
+      "id": "inventoryLedger",
+      "type": "database",
+      "label": "Inventory Ledger",
+      "sublabel": "Movement facts + projection",
+      "tag": "PHYSICAL TRUTH",
+      "pos": [900, 420],
+      "size": [210, 82],
+      "sources": [{ "path": "backend/migrations/0001_inventory_schema.sql", "label": "Ledger schema" }]
+    }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Operational clients", "wraps": ["operatorUi", "rfidHandheld"], "pad": 20 },
+    { "kind": "region", "label": "DC and Store edge deployments", "wraps": ["dcEdge", "storeEdge", "allotmentCore", "inventoryCore"], "pad": 24 },
+    { "kind": "region", "label": "PostgreSQL V1 — separate factual streams", "wraps": ["allotmentHistory", "inventoryLedger"], "pad": 22 }
+  ],
+  "connections": [
+    { "id": "uiCommands", "from": "operatorUi", "to": "dcEdge", "label": "HTTPS queries + commands", "variant": "emphasis" },
+    { "id": "rfidEvidence", "from": "rfidHandheld", "to": "storeEdge", "label": "Idempotent observations", "variant": "emphasis" },
+    { "id": "dcCommitments", "from": "dcEdge", "to": "allotmentCore", "label": "Create / cancel: zero movement" },
+    { "id": "dcInventory", "from": "dcEdge", "to": "inventoryCore", "label": "Count + movement commands" },
+    { "id": "storeInventory", "from": "storeEdge", "to": "inventoryCore", "label": "Sales + inventory commands" },
+    { "id": "atomicPick", "from": "allotmentCore", "to": "inventoryCore", "label": "Pick: consume commitment + move stock", "variant": "security" },
+    { "id": "commitmentEvents", "from": "allotmentCore", "to": "allotmentHistory", "label": "Append immutable events", "variant": "emphasis" },
+    { "id": "warehouseBalanceRead", "from": "allotmentCore", "to": "inventoryLedger", "label": "Read Warehouse On Hand" },
+    { "id": "appendMovementFacts", "from": "inventoryCore", "to": "inventoryLedger", "label": "Append placement facts; derive balances", "variant": "security" },
+    { "id": "shortageException", "from": "inventoryCore", "to": "allotmentHistory", "label": "Count shortage event; no cancellation" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Orthogonal meanings",
+      "items": [
+        "POOL = where inventory currently is",
+        "ALLOTMENT = intended destination Store",
+        "MOVEMENT = inventory actually changes placement"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Commitment math",
+      "items": [
+        "Available = DC Warehouse On Hand - active remaining Allotment",
+        "Create and cancel append Allotment events and create zero movement",
+        "Missing and Reject never satisfy a new Allotment"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Physical transition",
+      "items": [
+        "Pick atomically moves Warehouse → Picked and reduces remaining commitment",
+        "Allotment ID and destination Store remain movement provenance",
+        "Count shortage surfaces ALLOTMENT_SHORTAGE without rewriting commitments"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Inventory Edge</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div><strong>RETAIL EDGE</strong><span class="node" id="node-status">Connecting…</span></div>
+    <nav aria-label="Retail edge navigation">
+      <button data-page="sales">Sales</button>
+      <button data-page="commercial">Commercial</button>
+      <button data-page="pools" class="active">Pools</button>
+      <button data-page="allotments">Allotments</button>
+      <button data-page="movements">Movements</button>
+      <button data-page="counts">Counts</button>
+      <button data-page="missing">Missing</button>
+      <button data-page="control">Control</button>
+    </nav>
+  </header>
+  <main>
+    <section id="page-pools" class="page active">
+      <div class="page-head">
+        <div><h1>Inventory by Pool</h1><p id="pool-context">Current ledger balances</p></div>
+        <div class="toolbar"><label>As Of <input id="as-of" type="datetime-local"></label><button id="apply-as-of">Apply</button><button id="current-time" class="secondary">Current</button></div>
+      </div>
+      <div class="metric-strip"><span>Observed window: <strong id="observed-window">24h</strong></span><span>Historical risk: <strong id="lost-window">30d</strong></span><span>RFID mismatches: <button class="link" id="show-anomalies">view</button></span></div>
+      <div id="pool-tree" class="loading">Loading inventory pools…</div>
+    </section>
+
+    <section id="page-allotments" class="page">
+      <div class="page-head">
+        <div><h1>DC Warehouse Allotments</h1><p>Commitment to a destination Store; inventory remains in Warehouse until Pick.</p></div>
+        <div class="toolbar"><button id="refresh-allotments" class="secondary">Refresh</button><button id="open-allotment">Create Allotment</button></div>
+      </div>
+      <div id="allotment-summary" class="cards"></div>
+      <h3>Remaining by Destination Store</h3>
+      <div id="allotment-destinations" class="loading">Loading destination breakdown…</div>
+      <h3>Allotments</h3>
+      <div id="allotment-table" class="loading">Loading allotments…</div>
+      <h3>Current Exceptions</h3>
+      <div id="allotment-shortages" class="empty">No Allotment shortage</div>
+    </section>
+
+    <section id="page-movements" class="page">
+      <div class="page-head"><div><h1>Movements</h1><p>Immutable inventory ledger history</p></div><div class="toolbar"><button id="open-move">Move Stock</button><button id="open-correct" class="warning">Correct Placement</button></div></div>
+      <div id="movement-table" class="loading">Loading movements…</div>
+    </section>
+
+    <section id="page-counts" class="page">
+      <div class="page-head"><div><h1>Official Counts</h1><p>Explicit physical reconciliation—not RFID observation</p></div><button id="open-count">Create Count</button></div>
+      <div id="count-board" class="loading">Loading counts…</div>
+    </section>
+
+    <section id="page-missing" class="page">
+      <div class="page-head"><div><h1>Missing Inventory</h1><p>Current Missing remains attached to its origin pool</p></div><button id="refresh-missing" class="secondary">Refresh</button></div>
+      <div id="missing-table" class="loading">Loading missing inventory…</div>
+    </section>
+
+    <section id="page-sales" class="page">
+      <div class="page-head"><div><h1>Store Sales</h1><p>Commercial snapshot + atomic Store Floor inventory movement</p></div><div class="toolbar"><label>Store<select id="sales-site"></select></label><button id="new-sale">New Sale</button></div></div>
+      <div class="pos-layout">
+        <div class="pos-main">
+          <div id="sale-header" class="card"><span>No open sale</span><div class="value">Start a sale</div></div>
+          <form id="sale-scan-form" class="scanner-bar"><label>EPC<input id="sale-epc" placeholder="Scan Store Floor EPC" autocomplete="off" disabled></label><button id="add-sale-line" disabled>Add Item</button></form>
+          <div id="sale-cart" class="empty">No active cart</div>
+        </div>
+        <aside class="pos-summary">
+          <h3>Payment</h3>
+          <div id="sale-totals" class="sale-totals"><span>Total</span><strong>Rp0</strong></div>
+          <form id="sale-payment-form"><label>Cash received<input id="sale-payment-amount" type="number" min="1" placeholder="Amount in IDR" disabled></label><button id="add-sale-payment" disabled>Record Cash</button></form>
+          <div class="dialog-actions"><button id="void-sale" class="secondary" disabled>Void Open Sale</button><button id="complete-sale" disabled>Complete Sale</button></div>
+          <p class="muted">Completion locks every EPC and appends one atomic inventory movement group.</p>
+        </aside>
+      </div>
+      <h3>Recent Sales</h3><div id="sales-history" class="loading">Loading sales…</div>
+    </section>
+
+    <section id="page-commercial" class="page">
+      <div class="page-head"><div><h1>Commercial</h1><p>Published, effective-dated assortment, base price, and tax</p></div><div class="toolbar"><label>Resolve for Store<select id="commercial-site"></select></label><button id="refresh-commercial" class="secondary">Refresh</button></div></div>
+      <div id="commercial-publications" class="loading">Loading publications…</div>
+      <h3>Resolved Store Offers</h3><div id="commercial-offers" class="loading">Loading offers…</div>
+    </section>
+
+    <section id="page-control" class="page">
+      <div class="page-head"><div><h1>Ledger Control</h1><p>Replay diagnoses; Repost repairs projection only</p></div><div class="toolbar"><button id="run-replay">Run Replay</button><button id="run-repost" class="warning">Repost Projection</button></div></div>
+      <div id="control-panel" class="loading">Loading ledger health…</div>
+      <details class="test-control"><summary>Disposable environment test control</summary><p>Deliberately corrupt one projection row to demonstrate Replay → Repost. Requires <code>INVENTORY_ENABLE_TEST_CONTROLS=true</code>.</p><div class="inline-form"><input id="corrupt-subject" placeholder="Subject UUID"><input id="corrupt-place" placeholder="store-07.floor:on_hand"><input id="corrupt-delta" type="number" value="1"><button id="corrupt-projection" class="danger">Corrupt test projection</button></div></details>
+    </section>
+  </main>
+
+  <aside id="drawer" class="drawer" aria-hidden="true"><div class="drawer-head"><div><h2 id="drawer-title">Pool</h2><p id="drawer-subtitle"></p></div><button id="close-drawer" aria-label="Close">×</button></div><div id="drawer-tabs" class="tabs"></div><div id="drawer-content"></div></aside><div id="shade" class="shade"></div>
+
+  <dialog id="movement-dialog">
+    <form id="movement-form" method="dialog">
+      <div class="dialog-head"><div><h2 id="movement-dialog-title">Move Stock</h2><p id="movement-dialog-note">Valid operational transition</p></div><button value="cancel" formnovalidate class="icon">×</button></div>
+      <input type="hidden" id="movement-mode" value="move">
+      <div class="form-grid">
+        <label>From<select id="move-from" required></select></label><label>To<select id="move-to" required></select></label>
+        <label>Item / EPC<input id="move-epc" required autofocus placeholder="Scan EPC"></label><label>Quantity<input id="move-quantity" type="number" min="1" value="1" required></label>
+        <label class="span-2">Reason<input id="move-reason" required placeholder="Operational reason"></label><label class="span-2" id="evidence-field">Evidence / reference<input id="move-reference" placeholder="Optional for move; required for correction"></label>
+      </div>
+      <div id="cross-site-warning" class="callout warning-box" hidden>Higher risk: this correction crosses sites. Confirm evidence carefully.</div>
+      <div class="preview"><strong>Preview</strong><code id="movement-preview">Select source and destination</code></div>
+      <div class="dialog-actions"><button value="cancel" formnovalidate class="secondary">Cancel</button><button id="submit-movement" value="default">Confirm movement</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="allotment-dialog" class="wide-dialog">
+    <form id="allotment-form" method="dialog">
+      <div class="dialog-head"><div><h2>Create Allotment</h2><p>Creates a Store commitment only—zero inventory movement.</p></div><button value="cancel" formnovalidate class="icon">×</button></div>
+      <div class="form-grid">
+        <label>Destination Store<select id="allotment-store" required></select></label>
+        <label>Actor<input id="allotment-actor" value="dc-allotment-planner" required></label>
+        <label class="span-2">Notes<input id="allotment-notes" placeholder="Optional planning note"></label>
+      </div>
+      <h3>Items</h3>
+      <div id="allotment-item-inputs" class="loading">Loading Warehouse availability…</div>
+      <div class="preview"><strong>Preview</strong><code id="allotment-preview">Select a destination and enter at least one quantity.</code></div>
+      <div class="dialog-actions"><button value="cancel" formnovalidate class="secondary">Cancel</button><button id="preview-allotment" type="button" class="secondary">Preview</button><button id="create-allotment" value="default" disabled>Create Allotment</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="count-dialog">
+    <form id="count-form" method="dialog">
+      <div class="dialog-head"><div><h2>Create Official Count</h2><p>Creates a DRAFT; activation freezes expected inventory.</p></div><button value="cancel" formnovalidate class="icon">×</button></div>
+      <div class="form-grid"><label class="span-2">Operational Pool<select id="count-pool" required></select></label><label>Count Type<select id="count-kind"><option>FULL</option><option>CYCLE</option><option>TARGETED</option></select></label><label>Actor<input id="count-actor" value="inventory-supervisor" required></label><label class="span-2">Reason<input id="count-reason" value="Operational inventory count" required></label></div>
+      <div class="dialog-actions"><button value="cancel" formnovalidate class="secondary">Cancel</button><button value="default">Create Draft</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="entry-dialog">
+    <form id="entry-form" method="dialog"><div class="dialog-head"><div><h2>Record Count Entry</h2><p>Scanner-friendly official count evidence.</p></div><button value="cancel" formnovalidate class="icon">×</button></div><input type="hidden" id="entry-count-id"><div class="form-grid"><label class="span-2">EPC<input id="entry-epc" required autofocus placeholder="Scan EPC"></label><label>Found Quantity<input id="entry-quantity" type="number" min="0" value="1" required></label><label>Actor<input id="entry-actor" value="inventory-counter" required></label></div><div class="dialog-actions"><button value="cancel" formnovalidate class="secondary">Cancel</button><button value="default">Record Entry</button></div></form>
+  </dialog>
+
+  <dialog id="message-dialog"><div class="dialog-head"><h2 id="message-title">Result</h2><button id="close-message" class="icon">×</button></div><pre id="message-content"></pre></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

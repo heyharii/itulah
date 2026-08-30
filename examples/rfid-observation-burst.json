@@ -1,0 +1,14 @@
+{
+  "site_id": "store-07",
+  "pool": "store-07.floor",
+  "device_id": "RFID-HH-07-01",
+  "reader_session_id": "SESSION-20260830-001",
+  "observed_at": "2026-08-30T03:42:31Z",
+  "idempotency_key": "rfid-store07-session001-batch001",
+  "observations": [
+    { "epc": "EPC00000001", "rssi": -53, "antenna": "A1", "read_count": 1 },
+    { "epc": "EPC00000001", "rssi": -46, "antenna": "A1", "read_count": 79 },
+    { "epc": "EPC00000002", "rssi": -62 },
+    { "epc": "EPC00000003" }
+  ]
+}
