@@ -1,6 +1,6 @@
 use super::{create_movement, movement_request_for_resolution, parse_missing_id};
-use inventory_app::{AppError, AsOfQuery, MissingResolutionRequest};
-use inventory_domain::InventoryBalance;
+use retail_app::{AppError, AsOfQuery, MissingResolutionRequest};
+use retail_domain::InventoryBalance;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
@@ -163,7 +163,7 @@ pub async fn get_pool(
         crate::list_observations(pool, Some(pool_id), None, 100).await?;
     let movements = crate::list_movements(
         pool,
-        inventory_app::MovementQuery {
+        retail_app::MovementQuery {
             pool_id: Some(pool_id.into()),
             subject_id: None,
             limit: Some(100),

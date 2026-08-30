@@ -4,7 +4,7 @@
 //! come from the database row, not from any idempotency response cache, so
 //! timestamps and totals are the committed ones.
 
-use inventory_app::AppError;
+use retail_app::AppError;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};

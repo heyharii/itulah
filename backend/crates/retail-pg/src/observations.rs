@@ -1,6 +1,6 @@
 use super::{begin_idempotent, complete_idempotent, payload_digest};
-use inventory_app::{AppError, ObservationBatchRequest};
-use inventory_domain::{belongs_to_same_burst, consolidate_reads, OperationalPool, SiteId};
+use retail_app::{AppError, ObservationBatchRequest};
+use retail_domain::{belongs_to_same_burst, consolidate_reads, OperationalPool, SiteId};
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};

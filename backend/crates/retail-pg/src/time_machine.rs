@@ -15,7 +15,7 @@
 //! - ledger: internal seq = fact_sequence*2 - 1 (from side), fact_sequence*2
 //! - sync logs: internal seq = fact_seq*4096 + line_index*2 (+1 for to side)
 
-use inventory_app::AppError;
+use retail_app::AppError;
 use chrono::{DateTime, Utc};
 use inventory_time_machine as tm;
 use serde::Deserialize;

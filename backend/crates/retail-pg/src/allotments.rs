@@ -1,6 +1,6 @@
 use super::{apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest};
-use inventory_app::{ AllotmentQuery, AppError, AvailabilityQuery, CancelAllotmentRequest, CreateAllotmentRequest, ExecuteAllotmentRequest, };
-use inventory_domain::{ derive_allotment_status, AllotmentType, DestinationType, InventoryState, MovementCause, MovementCommand, MovementGroupId, MovementLine, OperationalPool, Place, SiteId, SubjectId, };
+use retail_app::{ AllotmentQuery, AppError, AvailabilityQuery, CancelAllotmentRequest, CreateAllotmentRequest, ExecuteAllotmentRequest, };
+use retail_domain::{ derive_allotment_status, AllotmentType, DestinationType, InventoryState, MovementCause, MovementCommand, MovementGroupId, MovementLine, OperationalPool, Place, SiteId, SubjectId, };
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -398,7 +398,7 @@ pub async fn execute_allotment(
         actor_id: request.actor_id.trim().into(),
         occurred_at: now,
     };
-    inventory_domain::validate_command(&movement)
+    retail_domain::validate_command(&movement)
         .map_err(|error| AppError::Validation(error.to_string()))?;
     let movement_key = format!("{}:inventory", request.idempotency_key);
     insert_group(&mut tx, &movement, &movement_key, &digest).await?;
@@ -1017,10 +1017,10 @@ WHERE subject.sku_id=$1 ORDER BY subject.id FOR UPDATE OF subject
     .await?;
     let source: Place = source_place_id
         .parse()
-        .map_err(|error: inventory_domain::PlaceError| AppError::Validation(error.to_string()))?;
+        .map_err(|error: retail_domain::PlaceError| AppError::Validation(error.to_string()))?;
     let destination: Place = destination_place_id
         .parse()
-        .map_err(|error: inventory_domain::PlaceError| AppError::Validation(error.to_string()))?;
+        .map_err(|error: retail_domain::PlaceError| AppError::Validation(error.to_string()))?;
     let mut needed = quantity;
     let mut lines = Vec::new();
     for row in rows {

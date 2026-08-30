@@ -5,8 +5,8 @@
 //! `domain::sync`. This module knows transactions, locks and rows.
 
 use super::payload_digest;
-use inventory_app::AppError;
-use inventory_domain::{
+use retail_app::AppError;
+use retail_domain::{
     cooldown_after_failure, ingest_rejection_reason, BreakerPolicy, IngestBatch, IngestResponse,
     MovementCommand, RejectedFact, SyncFact,
 };
@@ -874,7 +874,7 @@ async fn apply_one(
                 false
             } else {
                 let payload: Value = row.get("payload");
-                let fact = match inventory_domain::parse_movement_fact(&payload) {
+                let fact = match retail_domain::parse_movement_fact(&payload) {
                     Ok(fact) => fact,
                     Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
                 };
@@ -915,7 +915,7 @@ async fn apply_movement(
     origin_id: &str,
     generation: i64,
     seq: i64,
-    fact: &inventory_domain::MovementFactPayload,
+    fact: &retail_domain::MovementFactPayload,
 ) -> Result<bool, AppError> {
     let exists = sqlx::query("SELECT 1 FROM movement_group WHERE id = $1")
         .bind(fact.movement_group_id)
@@ -945,14 +945,14 @@ async fn apply_movement(
     .execute(&mut **tx)
     .await?;
     for line in &fact.lines {
-        let from: inventory_domain::Place = line
+        let from: retail_domain::Place = line
             .from_place_id
             .parse()
-            .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?;
-        let to: inventory_domain::Place = line
+            .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?;
+        let to: retail_domain::Place = line
             .to_place_id
             .parse()
-            .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?;
+            .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?;
         sqlx::query(
             "INSERT INTO movement
                  (movement_id, movement_group_id, subject_id, quantity,

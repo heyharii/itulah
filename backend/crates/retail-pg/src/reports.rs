@@ -4,7 +4,7 @@
 //! sale_return*) for one business day at a configurable UTC offset; nothing
 //! here writes.
 
-use inventory_app::{AppError, DailyReportQuery};
+use retail_app::{AppError, DailyReportQuery};
 use chrono::{DateTime, Duration, NaiveTime, TimeZone, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};

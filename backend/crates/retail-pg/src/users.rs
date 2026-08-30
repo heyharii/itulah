@@ -4,8 +4,8 @@
 //! When a cloud identity downlink exists, this table becomes its projection
 //! target; nothing here assumes the credentials were minted locally.
 
-use inventory_app::{AppError, ChangePasswordRequest, CreateUserRequest};
-use inventory_domain::Role;
+use retail_app::{AppError, ChangePasswordRequest, CreateUserRequest};
+use retail_domain::Role;
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,

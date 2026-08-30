@@ -5,8 +5,8 @@
 //! finalized sales are immutable, and the return is its own document.
 
 use super::{apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest};
-use inventory_app::{AppError, CreateReturnRequest, ReturnQuery};
-use inventory_domain::{ validate_command, validate_refund, MovementCause, MovementCommand, MovementGroupId, MovementLine, Place, SubjectId, };
+use retail_app::{AppError, CreateReturnRequest, ReturnQuery};
+use retail_domain::{ validate_command, validate_refund, MovementCause, MovementCommand, MovementGroupId, MovementLine, Place, SubjectId, };
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
@@ -126,7 +126,7 @@ pub async fn create_sale_return(
     // Movements: customer -> floor (sellable) or customer -> reject (damaged).
     let source: Place = "external/customer"
         .parse()
-        .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?;
+        .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?;
     let mut movement_lines = Vec::with_capacity(return_lines.len());
     for (input, row) in &return_lines {
         let destination_place = if input.restock {
@@ -136,7 +136,7 @@ pub async fn create_sale_return(
         };
         let destination: Place = destination_place
             .parse()
-            .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?;
+            .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?;
         movement_lines.push(MovementLine {
             subject_id: SubjectId(row.get("subject_id")),
             quantity: row.get("quantity"),

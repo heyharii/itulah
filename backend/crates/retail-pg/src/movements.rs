@@ -1,6 +1,6 @@
 use super::{begin_idempotent, complete_idempotent, payload_digest, resolve_subject};
-use inventory_app::{ AppError, CorrectPlacementRequest, CreateMovementRequest, MissingResolutionRequest, MovementLineRequest, MovementQuery, };
-use inventory_domain::{ validate_command, MovementCause, MovementCommand, MovementGroupId, MovementLine, Place, SubjectId, SubjectType, };
+use retail_app::{ AppError, CorrectPlacementRequest, CreateMovementRequest, MissingResolutionRequest, MovementLineRequest, MovementQuery, };
+use retail_domain::{ validate_command, MovementCause, MovementCommand, MovementGroupId, MovementLine, Place, SubjectId, SubjectType, };
 use chrono::Utc;
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -106,11 +106,11 @@ async fn create_movement_with_cause(
             from: line
                 .from
                 .parse()
-                .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?,
+                .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?,
             to: line
                 .to
                 .parse()
-                .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?,
+                .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?,
         });
     }
     let command = MovementCommand {
@@ -474,7 +474,7 @@ pub fn parse_missing_id(value: &str) -> Result<(Uuid, String), AppError> {
         .ok_or_else(|| AppError::Validation("missing id must be subject_uuid@pool_id".into()))?;
     let subject = Uuid::parse_str(subject)
         .map_err(|_| AppError::Validation("invalid missing subject id".into()))?;
-    pool.parse::<inventory_domain::OperationalPool>()
+    pool.parse::<retail_domain::OperationalPool>()
         .map_err(|e| AppError::Validation(e.to_string()))?;
     Ok((subject, pool.to_owned()))
 }

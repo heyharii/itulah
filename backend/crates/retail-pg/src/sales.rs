@@ -2,8 +2,8 @@ use super::{
     apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest,
     resolve_offer_in_tx,
 };
-use inventory_app::{ AddSaleLineRequest, AddSalePaymentRequest, AppError, CommandRequest, CreateSaleRequest, SaleQuery, };
-use inventory_domain::{ calculate_line_totals, validate_command, validate_tender, CommercialChannel, MovementCause, MovementCommand, MovementGroupId, MovementLine, PaymentMethod, Place, SiteId, SiteKind, SubjectId, };
+use retail_app::{ AddSaleLineRequest, AddSalePaymentRequest, AppError, CommandRequest, CreateSaleRequest, SaleQuery, };
+use retail_domain::{ calculate_line_totals, validate_command, validate_tender, CommercialChannel, MovementCause, MovementCommand, MovementGroupId, MovementLine, PaymentMethod, Place, SiteId, SiteKind, SubjectId, };
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -316,10 +316,10 @@ pub async fn complete_sale(
     }
     let source: Place = format!("{site_id}.floor:on_hand")
         .parse()
-        .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?;
+        .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?;
     let destination: Place = "external/customer"
         .parse()
-        .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?;
+        .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?;
     // Friendly pre-check so a lost race names the offending item: the ledger
     // apply would fail anyway, but its error cannot say which EPC to remove
     // from the cart.

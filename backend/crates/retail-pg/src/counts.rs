@@ -2,8 +2,8 @@ use super::{
     apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest,
     resolve_subject,
 };
-use inventory_app::{AppError, CommandRequest, CountEntriesRequest, CreateCountRequest};
-use inventory_domain::{ validate_command, CountStatus, MovementCause, MovementCommand, MovementGroupId, MovementLine, OperationalPool, Place, SubjectId, SystemPlace, };
+use retail_app::{AppError, CommandRequest, CountEntriesRequest, CreateCountRequest};
+use retail_domain::{ validate_command, CountStatus, MovementCause, MovementCommand, MovementGroupId, MovementLine, OperationalPool, Place, SubjectId, SystemPlace, };
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
@@ -36,9 +36,9 @@ pub async fn create_count(pool: &PgPool, request: CreateCountRequest) -> Result<
     }
     let id = Uuid::new_v4();
     let kind = match request.kind {
-        inventory_domain::CountKind::Full => "FULL",
-        inventory_domain::CountKind::Cycle => "CYCLE",
-        inventory_domain::CountKind::Targeted => "TARGETED",
+        retail_domain::CountKind::Full => "FULL",
+        retail_domain::CountKind::Cycle => "CYCLE",
+        retail_domain::CountKind::Targeted => "TARGETED",
     };
     let scope = json!({"sku_ids":request.sku_ids,"epcs":request.epcs});
     sqlx::query("INSERT INTO official_count(id,site_id,pool_id,kind,status,scope_json,reason,created_by) VALUES($1,$2,$3,$4,'DRAFT',$5,$6,$7)")
@@ -194,7 +194,7 @@ async fn transition_count(
 ) -> Result<Value, AppError> {
     let from_status = parse_status(from)?;
     let to_status = parse_status(to)?;
-    inventory_domain::validate_count_transition(from_status, to_status)
+    retail_domain::validate_count_transition(from_status, to_status)
         .map_err(|e| AppError::Validation(e.to_string()))?;
     let digest = payload_digest(&request)?;
     let mut tx = pool.begin().await?;
@@ -276,10 +276,10 @@ WHERE COALESCE(s.count_id,e.count_id)=$1 ORDER BY COALESCE(s.subject_id,e.subjec
                 quantity: expected - found,
                 from: format!("{pool_id}:on_hand")
                     .parse()
-                    .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?,
+                    .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?,
                 to: format!("{pool_id}:missing")
                     .parse()
-                    .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?,
+                    .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?,
             })
         } else if found > expected {
             gains.push(MovementLine {
@@ -290,7 +290,7 @@ WHERE COALESCE(s.count_id,e.count_id)=$1 ORDER BY COALESCE(s.subject_id,e.subjec
                 },
                 to: format!("{pool_id}:on_hand")
                     .parse()
-                    .map_err(|e: inventory_domain::PlaceError| AppError::Validation(e.to_string()))?,
+                    .map_err(|e: retail_domain::PlaceError| AppError::Validation(e.to_string()))?,
             })
         }
     }

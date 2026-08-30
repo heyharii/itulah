@@ -1,5 +1,5 @@
 use super::{begin_idempotent, complete_idempotent, payload_digest};
-use inventory_app::{
+use retail_app::{
     AppError, CorruptProjectionRequest, ReplayRequest, ReplayScope, RepostRequest,
 };
 use chrono::{DateTime, Utc};

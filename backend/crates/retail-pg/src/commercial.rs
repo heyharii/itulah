@@ -1,6 +1,6 @@
 use super::{begin_idempotent, complete_idempotent, payload_digest};
-use inventory_app::{ AppError, CommandRequest, CreateCommercialPublicationRequest, ResolveOfferQuery, };
-use inventory_domain::{CommercialChannel, CurrencyCode, ResolvedOffer, SiteId};
+use retail_app::{ AppError, CommandRequest, CreateCommercialPublicationRequest, ResolveOfferQuery, };
+use retail_domain::{CommercialChannel, CurrencyCode, ResolvedOffer, SiteId};
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
