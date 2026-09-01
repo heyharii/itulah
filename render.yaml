@@ -1,18 +1,29 @@
-# Render Blueprint for the central Cloud API and the three browser surfaces.
+# Render Blueprint: the central Cloud API, the edge nodes, and one browser
+# surface for each.
 #
-# NOTE: itulah-dc and itulah-store are running as public Render web services
-# (dc-br5g / store-mhpy), created outside this blueprint and managed from the
-# dashboard. That contradicts the original intent recorded here — that the edge
-# binaries belong on hardware at the site, next to their SQLite files and their
-# RFID boundary — but it is what is deployed, and the three static sites below
-# rewrite to those URLs. Either bring them into this file or move them back to
-# site hardware; leaving the intent and the deployment disagreeing is how the
-# next person gets it wrong.
+# ─────────────────────────────────────────────────────────────────────────────
+# A SERVICE'S NAME IS NOT ITS HOSTNAME. On Render the `.onrender.com` subdomain
+# is fixed when the service is created and does NOT follow a later rename —
+# verified by renaming one and watching the URL stay put. That is why the names
+# below carry no `itulah-` prefix while the rewrite destinations still do: the
+# names were changed, the addresses could not be. `store` has answered at
+# store-mhpy.onrender.com since the day it was made, for the same reason.
+#
+# Getting clean URLs would mean creating new services and moving the database
+# link, the env vars, the disks and the sync origin registrations across — a
+# migration, not a rename. Custom domains are the cheaper answer if the URLs
+# matter.
+#
+# These eight services exist and were made by hand or by API, not from this
+# file: no blueprint is linked to the account, so applying this would try to
+# adopt or duplicate them. It is a description of what is deployed, kept
+# truthful so the next person is not misled by it.
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
   - type: web
     runtime: docker
-    name: itulah-cloud
+    name: cloud
     region: singapore
     plan: 0.5c-512mb
     dockerfilePath: ./Dockerfile
@@ -48,27 +59,168 @@ services:
         value: inventory_backend=info,tower_http=info
       - key: DATABASE_URL
         fromDatabase:
+          # NOT renamed, deliberately. A web service's name is just an address;
+          # a database's name identifies the thing holding the data. Renaming it
+          # in a blueprint is how somebody ends up with a new empty database and
+          # a very quiet outage. Rename it separately, on purpose, or leave it.
           name: itulah-postgres
           property: connectionString
 
-  # Three surfaces, three static sites, one rule each.
+  # ── The edge nodes ─────────────────────────────────────────────────────────
+  #
+  # Brought into this file, as its previous note asked, rather than left as
+  # dashboard services the blueprint pretends not to know about.
+  #
+  # THE DISK IS NOT OPTIONAL, and all three edges have one. An edge keeps its
+  # whole ledger in SQLite on local disk (`INVENTORY_DATABASE_PATH`, see
+  # src/bin/store.rs), and a Render web service without a disk has an ephemeral
+  # filesystem — every deploy would silently discard the shop's sales, counts
+  # and stock. Checked against the deployed services: each mounts its disk at
+  # /var/lib/itulah and points INVENTORY_DATABASE_PATH inside it.
+
+  - type: web
+    runtime: docker
+    name: dc
+    region: singapore
+    plan: 0.5c-512mb
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    maxShutdownDelaySeconds: 60
+    disk:
+      name: dc-data
+      mountPath: /var/lib/itulah
+      sizeGB: 1
+    envVars:
+      - key: APP_BIN
+        value: dc
+      - key: FRONTEND_DIR
+        value: /app/api-only
+      - key: INVENTORY_DATABASE_PATH
+        value: /var/lib/itulah/dc-edge.sqlite3
+      - key: INVENTORY_NODE_ID
+        value: dc-01
+      - key: INVENTORY_SITE_ID
+        value: dc-01
+      - key: INVENTORY_NODE_ROLE
+        value: DC
+      - key: INVENTORY_AUTH_MODE
+        value: required
+      - key: INVENTORY_AUTH_COOKIE_SECURE
+        value: "true"
+      - key: INVENTORY_BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      # Where this node uploads its facts, and the origin key the cloud issued
+      # for it. Both are set per node in the dashboard: the key is a secret and
+      # the URL changes with the rename above.
+      - key: SYNC_UPLOAD_URL
+        sync: false
+      - key: SYNC_UPLOAD_KEY
+        sync: false
+      - key: RUST_LOG
+        value: inventory_backend=info,tower_http=info
+
+  - type: web
+    runtime: docker
+    name: store
+    region: singapore
+    plan: 0.5c-512mb
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    maxShutdownDelaySeconds: 60
+    disk:
+      name: store-data
+      mountPath: /var/lib/itulah
+      sizeGB: 1
+    envVars:
+      - key: APP_BIN
+        value: store
+      - key: FRONTEND_DIR
+        value: /app/api-only
+      - key: INVENTORY_DATABASE_PATH
+        value: /var/lib/itulah/store-edge.sqlite3
+      - key: INVENTORY_NODE_ID
+        value: store-07
+      - key: INVENTORY_SITE_ID
+        value: store-07
+      - key: INVENTORY_NODE_ROLE
+        value: STORE
+      - key: INVENTORY_AUTH_MODE
+        value: required
+      - key: INVENTORY_AUTH_COOKIE_SECURE
+        value: "true"
+      - key: INVENTORY_BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: SYNC_UPLOAD_URL
+        sync: false
+      - key: SYNC_UPLOAD_KEY
+        sync: false
+      - key: RUST_LOG
+        value: inventory_backend=info,tower_http=info
+
+  # The second shop. Everything about it is the same product as `store` above;
+  # only its identity differs — and that identity is the whole point.
+  #
+  # `INVENTORY_NODE_ID` is also the sync origin, so this node CANNOT share one
+  # with store-07: the cloud fences each origin's stream by (node id,
+  # generation), and two nodes claiming one origin would interleave their facts
+  # into a single ledger stream that neither shop's stock could be recovered
+  # from. Before this service will sync at all, somebody has to register the
+  # origin at the cloud with the master x-sync-key and put the issued key in
+  # SYNC_UPLOAD_KEY below.
+  - type: web
+    runtime: docker
+    name: store-2
+    region: singapore
+    plan: 0.5c-512mb
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    maxShutdownDelaySeconds: 60
+    disk:
+      name: store-2-data
+      mountPath: /var/lib/itulah
+      sizeGB: 1
+    envVars:
+      - key: APP_BIN
+        value: store
+      - key: FRONTEND_DIR
+        value: /app/api-only
+      - key: INVENTORY_DATABASE_PATH
+        value: /var/lib/itulah/store-edge.sqlite3
+      - key: INVENTORY_NODE_ID
+        value: store-02
+      - key: INVENTORY_SITE_ID
+        value: store-02
+      - key: INVENTORY_NODE_ROLE
+        value: STORE
+      - key: INVENTORY_AUTH_MODE
+        value: required
+      - key: INVENTORY_AUTH_COOKIE_SECURE
+        value: "true"
+      - key: INVENTORY_BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: SYNC_UPLOAD_URL
+        sync: false
+      - key: SYNC_UPLOAD_KEY
+        sync: false
+      - key: RUST_LOG
+        value: inventory_backend=info,tower_http=info
+
+  # ── The browser surfaces ───────────────────────────────────────────────────
   #
   # Each site rewrites /api/* to its OWN node and nothing else. That is not a
   # tidiness preference: the session cookie is SameSite=Strict, so a browser
   # will not send it to a different site than the one it is looking at. Serving
   # the front end on one origin and its API on another silently drops the
-  # cookie and every request arrives unauthenticated. The rewrite makes the
-  # node same-origin from the browser's point of view, which is also why none
-  # of these needs INVENTORY_CORS_ALLOWED_ORIGINS set.
-  #
-  # The previous single site tried to reach all three nodes from one origin
-  # via /api, /edge and /store-api. One surface talking to three nodes is not
-  # what these products are: a till, a warehouse console and head office are
-  # three different jobs, deployed and signed into separately.
+  # cookie and every request arrives unauthenticated. The rewrite makes the node
+  # same-origin from the browser's point of view, which is also why none of
+  # these needs INVENTORY_CORS_ALLOWED_ORIGINS set.
 
   - type: web
     runtime: static
-    name: itulah-frontend-cloud
+    name: frontend-cloud
     buildCommand: cd frontend-cloud && npm install --no-audit --no-fund && npm run build
     staticPublishPath: ./frontend-cloud/dist
     routes:
@@ -81,7 +233,7 @@ services:
 
   - type: web
     runtime: static
-    name: itulah-frontend-dc
+    name: frontend-dc
     buildCommand: cd frontend-dc && npm install --no-audit --no-fund && npm run build
     staticPublishPath: ./frontend-dc/dist
     routes:
@@ -92,15 +244,31 @@ services:
         source: /*
         destination: /index.html
 
+  # Two shops, two sites, one codebase. The second shop needs no front-end code
+  # of its own: `frontend-store` is the same till software either way, and the
+  # only thing that differs is which node it is served beside.
   - type: web
     runtime: static
-    name: itulah-frontend-store
+    name: frontend-store
     buildCommand: cd frontend-store && npm install --no-audit --no-fund && npm run build
     staticPublishPath: ./frontend-store/dist
     routes:
       - type: rewrite
         source: /api/*
         destination: https://store-mhpy.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  - type: web
+    runtime: static
+    name: frontend-store-2
+    buildCommand: cd frontend-store && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: ./frontend-store/dist
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://store-2-fkr4.onrender.com/api/*
       - type: rewrite
         source: /*
         destination: /index.html

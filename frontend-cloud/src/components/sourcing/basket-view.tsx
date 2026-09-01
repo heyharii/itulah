@@ -1,0 +1,223 @@
+import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { useBasket, useBasketActions } from "@/lib/basket"
+import { money, units } from "@/lib/money"
+import { ApiError } from "@itulah/contract/client"
+import { Minus, Plus, X } from "lucide-react"
+import { useMemo } from "react"
+import { Thumb } from "./columns"
+import { toSourcingRow, type SourcingRow } from "./rows"
+
+interface BasketGroup {
+  supplierId: string
+  supplier: string
+  lines: { row: SourcingRow; quantity: number }[]
+}
+
+/// The basket: what has been picked out, and the only place it turns into an
+/// order.
+///
+/// Grouped by supplier and not sorted any other way, because the grouping is
+/// not decoration — a purchase order goes to exactly one supplier, so a basket
+/// spanning three suppliers is three orders. Showing it as one flat list would
+/// invite a buyer to expect one checkout and then explain itself at the last
+/// moment.
+export function BasketView({
+  nav,
+  onDraft,
+}: {
+  nav: React.ReactNode
+  onDraft: (supplierId: string, quantities: Record<string, number>) => void
+}) {
+  const basket = useBasket()
+  const { setQuantity, remove, clear } = useBasketActions()
+
+  const groups = useMemo<BasketGroup[]>(() => {
+    const collected = new Map<string, BasketGroup>()
+    for (const line of basket.data ?? []) {
+      const row = toSourcingRow({ item: line.item, supplier: line.supplier })
+      const group = collected.get(row.supplierId)
+      if (group === undefined) {
+        collected.set(row.supplierId, {
+          supplierId: row.supplierId,
+          supplier: row.supplier,
+          lines: [{ row, quantity: line.quantity }],
+        })
+      } else {
+        group.lines.push({ row, quantity: line.quantity })
+      }
+    }
+    return [...collected.values()].sort((a, b) => a.supplier.localeCompare(b.supplier))
+  }, [basket.data])
+
+  const lineCount = basket.data?.length ?? 0
+  const pieceCount = (basket.data ?? []).reduce((sum, line) => sum + line.quantity, 0)
+
+  return (
+    <AppShell nav={nav}>
+      <ScreenHeader
+        title="Basket"
+        subtitle={
+          basket.isPending
+            ? "loading…"
+            : `${units(lineCount)} item${lineCount === 1 ? "" : "s"} · ${units(pieceCount)} pieces · ${groups.length} supplier${groups.length === 1 ? "" : "s"}`
+        }
+      >
+        {lineCount > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={clear.isPending}
+            onClick={() => clear.mutate()}
+          >
+            {clear.isPending ? "Emptying…" : "Empty basket"}
+          </Button>
+        )}
+      </ScreenHeader>
+
+      {(setQuantity.isError || remove.isError || clear.isError) && (
+        <div className="text-destructive border-b px-3.5 py-2 text-[11.5px]">
+          {[setQuantity.error, remove.error, clear.error].find(Boolean) instanceof ApiError
+            ? ([setQuantity.error, remove.error, clear.error].find(Boolean) as ApiError).message
+            : "The basket could not be changed."}
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        {basket.isPending ? (
+          <ScreenState>Loading your basket…</ScreenState>
+        ) : basket.isError ? (
+          <ScreenState
+            tone="problem"
+            action={
+              <Button size="sm" variant="outline" onClick={() => void basket.refetch()}>
+                Try again
+              </Button>
+            }
+          >
+            {basket.error instanceof ApiError
+              ? basket.error.message
+              : "Your basket could not be loaded."}
+          </ScreenState>
+        ) : lineCount === 0 ? (
+          <ScreenState>
+            Your basket is empty. Open something in Sourcing and add it here first — an
+            order is always raised from the basket.
+          </ScreenState>
+        ) : (
+          groups.map((group) => {
+            const currencies = new Set(group.lines.map((line) => line.row.currency))
+            const currency = currencies.size === 1 ? [...currencies][0] : null
+            const total = group.lines.reduce(
+              (sum, line) => sum + line.row.price * line.quantity,
+              0,
+            )
+            return (
+              <section key={group.supplierId} className="border-b last:border-b-0">
+                <div className="bg-muted/40 flex h-12 items-center gap-3 border-b px-3.5">
+                  <span className="truncate text-xs font-semibold">{group.supplier}</span>
+                  <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
+                    {units(group.lines.length)} item{group.lines.length === 1 ? "" : "s"}
+                    {currency !== null && ` · ${money(total, currency)}`}
+                  </span>
+                  <Button
+                    size="sm"
+                    className="ml-auto h-7"
+                    onClick={() =>
+                      onDraft(
+                        group.supplierId,
+                        Object.fromEntries(
+                          group.lines.map((line) => [line.row.id, line.quantity]),
+                        ),
+                      )
+                    }
+                  >
+                    Draft PO
+                  </Button>
+                </div>
+
+                <ul>
+                  {group.lines.map(({ row, quantity }) => (
+                    <li
+                      key={row.id}
+                      className="flex items-center gap-3 border-b px-3.5 py-2.5 last:border-b-0"
+                    >
+                      <Thumb row={row} className="size-14 rounded-md" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-medium">{row.name}</div>
+                        <div className="text-muted-foreground truncate font-mono text-[10.5px]">
+                          {row.code}
+                          {row.division !== "" && ` · ${row.division}`}
+                        </div>
+                      </div>
+                      <div className="text-muted-foreground w-24 shrink-0 text-right font-mono text-xs tabular-nums">
+                        {money(row.price, row.currency)}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          size="icon-xs"
+                          variant="outline"
+                          aria-label={`One fewer ${row.name}`}
+                          disabled={setQuantity.isPending}
+                          onClick={() =>
+                            setQuantity.mutate({
+                              supplierItemId: row.id,
+                              // One fewer than one is a removal, and the server
+                              // reads zero that way — so the minus button empties
+                              // the line rather than refusing at one.
+                              quantity: quantity - 1,
+                            })
+                          }
+                        >
+                          <Minus className="size-3" />
+                        </Button>
+                        <Input
+                          value={quantity}
+                          inputMode="numeric"
+                          aria-label={`Quantity of ${row.name}`}
+                          onChange={(event) => {
+                            const parsed = Number.parseInt(event.target.value, 10)
+                            if (!Number.isFinite(parsed) || parsed < 1) return
+                            setQuantity.mutate({ supplierItemId: row.id, quantity: parsed })
+                          }}
+                          className="h-7 w-14 text-center font-mono text-xs"
+                        />
+                        <Button
+                          size="icon-xs"
+                          variant="outline"
+                          aria-label={`One more ${row.name}`}
+                          disabled={setQuantity.isPending}
+                          onClick={() =>
+                            setQuantity.mutate({
+                              supplierItemId: row.id,
+                              quantity: quantity + 1,
+                            })
+                          }
+                        >
+                          <Plus className="size-3" />
+                        </Button>
+                      </div>
+                      <div className="w-28 shrink-0 text-right font-mono text-[13px] font-medium tabular-nums">
+                        {money(row.price * quantity, row.currency)}
+                      </div>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label={`Remove ${row.name}`}
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(row.id)}
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )
+          })
+        )}
+      </div>
+    </AppShell>
+  )
+}

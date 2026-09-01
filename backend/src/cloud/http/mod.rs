@@ -3,7 +3,7 @@ use crate::security;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use chrono::{Duration, Utc};
@@ -12,6 +12,7 @@ use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use uuid::Uuid;
 
 pub mod auth;
+pub mod basket;
 pub mod suppliers;
 
 /// Exact browser origins from config. Unset means same-origin only.
@@ -155,6 +156,21 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/supplier-items/{id}/deactivate",
             post(suppliers::deactivate_supplier_item),
         )
+        // The buyer's basket: picked out, not yet ordered. Scoped to the
+        // caller by the session, so no path here names a user.
+        .route(
+            "/api/v1/sourcing-basket",
+            get(basket::read_basket).post(basket::add_to_basket),
+        )
+        .route("/api/v1/sourcing-basket/clear", post(basket::clear_basket))
+        .route(
+            "/api/v1/sourcing-basket/{supplier_item_id}",
+            patch(basket::set_basket_quantity),
+        )
+        .route(
+            "/api/v1/sourcing-basket/{supplier_item_id}/remove",
+            post(basket::remove_from_basket),
+        )
         .route("/api/v1/sales", get(sales).post(create_sale))
         .route("/api/v1/sales/{id}", get(sale_detail))
         .route("/api/v1/sales/{id}/lines", post(add_sale_line))
@@ -231,6 +247,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/purchase-orders/catalog",
             post(suppliers::create_catalog_purchase_order),
+        )
+        .route(
+            "/api/v1/purchase-destinations",
+            get(suppliers::list_purchase_destinations),
         )
         .route("/api/v1/purchase-orders/{id}", get(purchase_order_detail))
         .route(

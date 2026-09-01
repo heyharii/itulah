@@ -7,7 +7,7 @@ import { money } from "@/lib/money"
 import { createSchema, field } from "@/lib/store/schema"
 import type { DataTableFeatures } from "@/lib/table/features"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Star } from "lucide-react"
+import { Plus } from "lucide-react"
 import type { SourcingRow } from "./rows"
 
 /// The filter state, named once.
@@ -105,10 +105,16 @@ export function Thumb({
   )
 }
 
-export function sourcingColumns(
-  isShortlisted: (id: string) => boolean,
-  onToggleShortlist: (id: string) => void,
-): ColumnDef<DataTableFeatures, SourcingRow>[] {
+export function sourcingColumns({
+  held,
+  onAdd,
+  onOpen,
+}: {
+  /// How many of each item is already in the basket.
+  held: Map<string, number>
+  onAdd: (id: string) => void
+  onOpen: (id: string) => void
+}): ColumnDef<DataTableFeatures, SourcingRow>[] {
   return [
     {
       id: "select",
@@ -134,29 +140,40 @@ export function sourcingColumns(
       ),
     },
     {
-      id: "shortlist",
-      size: 36,
+      id: "basket",
+      size: 56,
       enableHiding: false,
       enableSorting: false,
-      header: () => <span className="sr-only">Shortlist</span>,
+      header: () => <span className="sr-only">Add to basket</span>,
       cell: ({ row }) => {
-        const staged = isShortlisted(row.original.id)
+        const inBasket = held.get(row.original.id) ?? 0
+        const onHold = row.original.status !== "ACTIVE"
         return (
-          <button
-            type="button"
-            aria-pressed={staged}
-            aria-label={staged ? "Remove from shortlist" : "Add to shortlist"}
-            onClick={(event) => {
-              // The row is a link to the detail sheet; starring it is not.
-              event.stopPropagation()
-              onToggleShortlist(row.original.id)
-            }}
-            className="text-muted-foreground hover:text-foreground grid size-6 place-items-center rounded-md"
-          >
-            <Star
-              className={staged ? "size-4 fill-amber-400 text-amber-500" : "size-4"}
-            />
-          </button>
+          <span className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={onHold}
+              aria-label={`Add one ${row.original.name} to the basket`}
+              title={onHold ? "On hold — cannot be ordered" : "Add one to the basket"}
+              onClick={(event) => {
+                // The row opens the item; this button does one specific thing
+                // to it, so it must not also open it.
+                event.stopPropagation()
+                onAdd(row.original.id)
+              }}
+              className="text-muted-foreground hover:bg-muted hover:text-foreground grid size-6 place-items-center rounded-md disabled:pointer-events-none disabled:opacity-30"
+            >
+              <Plus className="size-4" />
+            </button>
+            {inBasket > 0 && (
+              <span
+                className="font-mono text-[10.5px] tabular-nums text-emerald-600"
+                title={`${inBasket} in your basket`}
+              >
+                {inBasket}
+              </span>
+            )}
+          </span>
         )
       },
     },
@@ -168,7 +185,13 @@ export function sourcingColumns(
         <div className="flex min-w-0 items-center gap-2.5">
           <Thumb row={row.original} />
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-medium">{row.original.name}</div>
+            <button
+              type="button"
+              onClick={() => onOpen(row.original.id)}
+              className="block max-w-full truncate text-left text-[13px] font-medium hover:underline"
+            >
+              {row.original.name}
+            </button>
             <div className="text-muted-foreground truncate font-mono text-[10.5px]">
               {row.original.code}
               {row.original.article !== null && ` · ${row.original.article}`}

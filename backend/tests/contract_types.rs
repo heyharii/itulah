@@ -116,4 +116,18 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("CatalogPurchaseOrderRequest: {e}"));
     inventory_backend::cloud::postgres::SourcedItem::export_all(&config)
         .unwrap_or_else(|e| panic!("SourcedItem: {e}"));
+
+    // The buyer's basket. Picked out, not yet ordered — and now a record the
+    // server keeps rather than a set of ids in one browser's storage.
+    inventory_backend::cloud::postgres::BasketLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("BasketLine: {e}"));
+    inventory_backend::cloud::postgres::AddToBasketRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("AddToBasketRequest: {e}"));
+    inventory_backend::cloud::postgres::SetBasketQuantityRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetBasketQuantityRequest: {e}"));
+
+    // Where an order can be delivered — the purchasing question, asked without
+    // the administration privilege the sync origin register requires.
+    inventory_backend::cloud::postgres::PurchaseDestination::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseDestination: {e}"));
 }

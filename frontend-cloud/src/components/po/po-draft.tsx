@@ -14,7 +14,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { money, units } from "@/lib/money"
-import { createCatalogPurchaseOrder, listDestinations } from "@/lib/purchase-orders"
+import { useBasketActions, useDestinations } from "@/lib/basket"
+import { createCatalogPurchaseOrder } from "@/lib/purchase-orders"
 import { searchSourcedItems } from "@/lib/sourcing"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
@@ -36,13 +37,17 @@ import { useMemo, useRef, useState } from "react"
 export function PoDraft({
   nav,
   supplierId,
-  seedItemIds,
+  seedQuantities,
   onCancel,
   onCreated,
 }: {
   nav: React.ReactNode
   supplierId: string
-  seedItemIds: readonly string[]
+  /// The basket lines for this supplier, as `supplier_item_id -> quantity`.
+  /// The quantities come from the basket rather than being reset to one here:
+  /// deciding how many is part of picking, and asking again at the last step
+  /// is how the two numbers end up disagreeing.
+  seedQuantities: Record<string, number>
   onCancel: () => void
   onCreated: (purchaseOrderId: string, poNumber: string) => void
 }) {
@@ -51,10 +56,8 @@ export function PoDraft({
     queryKey: ["sourcing", "supplier", supplierId],
     queryFn: ({ signal }) => searchSourcedItems({ supplierId, limit: 500 }, signal),
   })
-  const destinations = useQuery({
-    queryKey: ["sync", "destinations"],
-    queryFn: ({ signal }) => listDestinations(signal),
-  })
+  const destinations = useDestinations()
+  const { remove: removeFromBasket } = useBasketActions()
 
   const rows = useMemo<SourcingRow[]>(
     () => (catalogue.data ?? []).map(toSourcingRow),
@@ -63,10 +66,10 @@ export function PoDraft({
   const byId = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
 
   const [step, setStep] = useState<"lines" | "review">("lines")
-  const [quantities, setQuantities] = useState<Record<string, number>>(() =>
-    Object.fromEntries(seedItemIds.map((id) => [id, 1])),
-  )
-  const [order, setOrder] = useState<string[]>([...seedItemIds])
+  const [quantities, setQuantities] = useState<Record<string, number>>(() => ({
+    ...seedQuantities,
+  }))
+  const [order, setOrder] = useState<string[]>(() => Object.keys(seedQuantities))
   const [poNumber, setPoNumber] = useState(suggestPoNumber)
   const [destination, setDestination] = useState("")
   const [promisedDate, setPromisedDate] = useState("")
@@ -119,6 +122,12 @@ export function PoDraft({
     onSuccess: (receipt) => {
       idempotencyKey.current = crypto.randomUUID()
       void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] })
+      // What became an order is no longer picked out. Only the lines that
+      // actually went on it are removed — a buyer who ordered six of the eight
+      // things in their basket keeps the other two.
+      for (const line of lines) {
+        removeFromBasket.mutate(line.row.id)
+      }
       onCreated(receipt.purchase_order_id, receipt.po_number)
     },
   })
@@ -226,16 +235,28 @@ export function PoDraft({
               className="border-input bg-background h-8 rounded-md border px-2 text-xs"
             >
               <option value="">Choose a site…</option>
-              {(destinations.data ?? []).map((origin) => (
-                <option key={origin.origin_id} value={origin.site_id ?? ""}>
-                  {origin.label ?? origin.origin_id} ({origin.site_id})
+              {(destinations.data ?? []).map((site) => (
+                <option key={site.site_id} value={site.site_id}>
+                  {site.label} · {site.node_role}
                 </option>
               ))}
             </select>
-            {destinations.data?.length === 0 && (
-              <p className="text-[10.5px] text-amber-600">
-                No node is registered to receive deliveries yet.
+            {destinations.isError ? (
+              // A refusal and an empty register are different problems with
+              // different fixes, and telling a buyer "nothing is registered"
+              // when the truth is "you may not see it" sends them to register
+              // sites that already exist.
+              <p className="text-destructive text-[10.5px]">
+                {destinations.error instanceof ApiError
+                  ? destinations.error.message
+                  : "The delivery sites could not be loaded."}
               </p>
+            ) : (
+              destinations.data?.length === 0 && (
+                <p className="text-[10.5px] text-amber-600">
+                  No site is registered to receive deliveries yet.
+                </p>
+              )
             )}
           </div>
 

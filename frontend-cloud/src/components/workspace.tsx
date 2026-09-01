@@ -1,29 +1,31 @@
 import { OrderDetail } from "@/components/po/order-detail"
 import { PoDraft } from "@/components/po/po-draft"
 import { PurchaseOrdersView } from "@/components/po/purchase-orders-view"
+import { BasketView } from "@/components/sourcing/basket-view"
 import { SourcingView } from "@/components/sourcing/sourcing-view"
-import { useShortlist } from "@/lib/shortlist"
+import { useBasket } from "@/lib/basket"
 import { cn } from "@/lib/utils"
-import { ClipboardList, Shirt, Star } from "lucide-react"
+import { ClipboardList, Shirt, ShoppingBasket } from "lucide-react"
 import { useState } from "react"
 
 /// Where the buyer is.
 ///
-/// Held in React state rather than the URL, and that is a real limitation
-/// worth naming: a draft cannot be linked to or reloaded into, and the back
-/// button leaves the app. It is state a router would own, and this shape — one
-/// discriminated union, changed only through `go` — is what a router's routes
-/// would be derived from when one is added.
+/// Held in React state rather than the URL, and that is a real limitation worth
+/// naming: a draft cannot be linked to or reloaded into, and the back button
+/// leaves the app. It is state a router would own, and this shape — one
+/// discriminated union, changed only through `setView` — is what a router's
+/// routes would be derived from when one is added.
 type View =
   | { name: "sourcing" }
-  | { name: "shortlist" }
+  | { name: "basket" }
   | { name: "orders" }
   | { name: "order"; id: string }
-  | { name: "draft"; supplierId: string; itemIds: string[] }
+  | { name: "draft"; supplierId: string; quantities: Record<string, number> }
 
 export function Workspace() {
   const [view, setView] = useState<View>({ name: "sourcing" })
-  const shortlist = useShortlist()
+  const basket = useBasket()
+  const pieces = (basket.data ?? []).reduce((sum, line) => sum + line.quantity, 0)
 
   const nav = (
     <nav className="flex flex-col gap-0.5" aria-label="Buying">
@@ -35,12 +37,17 @@ export function Workspace() {
         Sourcing
       </NavItem>
       <NavItem
-        icon={<Star className={cn("size-4", shortlist.count > 0 && "text-amber-500")} />}
-        active={view.name === "shortlist"}
-        count={shortlist.count}
-        onClick={() => setView({ name: "shortlist" })}
+        icon={
+          <ShoppingBasket className={cn("size-4", pieces > 0 && "text-emerald-600")} />
+        }
+        active={view.name === "basket"}
+        // Pieces, not lines: a basket holding three of one thing is not the
+        // same errand as one of three things, and the piece count is what turns
+        // into ordered quantity.
+        count={pieces}
+        onClick={() => setView({ name: "basket" })}
       >
-        Shortlist
+        Basket
       </NavItem>
       <NavItem
         icon={<ClipboardList className="size-4" />}
@@ -52,21 +59,16 @@ export function Workspace() {
     </nav>
   )
 
-  const draft = (supplierId: string, itemIds: string[]) =>
-    setView({ name: "draft", supplierId, itemIds })
-
   switch (view.name) {
     case "sourcing":
-    case "shortlist":
+      return <SourcingView nav={nav} onOpenBasket={() => setView({ name: "basket" })} />
+    case "basket":
       return (
-        <SourcingView
-          // Remounting on the scope change is deliberate: the two scopes have
-          // their own filter store, and carrying one's facets into the other
-          // shows a shortlist narrowed by a supplier that isn't in it.
-          key={view.name}
+        <BasketView
           nav={nav}
-          staged={view.name === "shortlist"}
-          onDraft={draft}
+          onDraft={(supplierId, quantities) =>
+            setView({ name: "draft", supplierId, quantities })
+          }
         />
       )
     case "orders":
@@ -90,14 +92,13 @@ export function Workspace() {
         <PoDraft
           nav={nav}
           supplierId={view.supplierId}
-          seedItemIds={view.itemIds}
-          onCancel={() => setView({ name: "shortlist" })}
+          seedQuantities={view.quantities}
+          onCancel={() => setView({ name: "basket" })}
           onCreated={(id) => {
-            // The lines that became an order are no longer staged. Leaving them
-            // there is how the same goods get ordered twice.
-            shortlist.remove(view.itemIds)
             // The order's own screen is the confirmation: it shows the number,
-            // the lines, and that nothing has arrived against it yet.
+            // the lines, and that nothing has arrived against it yet. The
+            // basket lines that became the order are cleared by the draft
+            // itself, which knows which ones actually went on it.
             setView({ name: "order", id })
           }}
         />

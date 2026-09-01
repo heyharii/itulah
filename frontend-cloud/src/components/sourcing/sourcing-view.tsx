@@ -1,9 +1,4 @@
 import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
-import { DataTableFilterControls } from "@/components/data-table/data-table-filter-controls"
-import { DataTableFloatingBar } from "@/components/data-table/data-table-floating-bar"
-import { DataTableProvider } from "@/components/data-table/data-table-provider"
-import { DataTableResetButton } from "@/components/data-table/data-table-reset-button"
-import { DataTableViewOptions } from "@/components/data-table/data-table-view-options"
 import {
   Table,
   TableBody,
@@ -12,12 +7,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/custom/table"
+import { DataTableFilterControls } from "@/components/data-table/data-table-filter-controls"
+import { DataTableFloatingBar } from "@/components/data-table/data-table-floating-bar"
+import { DataTableProvider } from "@/components/data-table/data-table-provider"
+import { DataTableResetButton } from "@/components/data-table/data-table-reset-button"
+import { DataTableViewOptions } from "@/components/data-table/data-table-view-options"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useDebounce } from "@/hooks/use-debounce"
-import { searchSourcedItems } from "@/lib/sourcing"
+import { useBasket, useBasketActions } from "@/lib/basket"
 import { money } from "@/lib/money"
-import { useShortlist } from "@/lib/shortlist"
+import { searchSourcedItems } from "@/lib/sourcing"
 import { useMemoryAdapter } from "@/lib/store/adapters/memory"
 import { DataTableStoreProvider } from "@/lib/store/provider/DataTableStoreProvider"
 import { dataTableFeatures } from "@/lib/table/features"
@@ -31,11 +31,12 @@ import type {
   SortingState,
 } from "@tanstack/react-table"
 import { flexRender, useTable } from "@tanstack/react-table"
-import { LayoutGrid, List, Search, Star } from "lucide-react"
+import { LayoutGrid, List, Search, ShoppingBasket } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import { sourcingColumns, sourcingFilterFields, sourcingFilterSchema } from "./columns"
+import { ItemDetail } from "./item-detail"
 import { ProductGrid } from "./product-grid"
-import { bySupplier, quoteTotal, toSourcingRow, type SourcingRow } from "./rows"
+import { quoteTotal, toSourcingRow, type SourcingRow } from "./rows"
 
 /// How many candidates one request may return.
 ///
@@ -47,34 +48,36 @@ const PAGE = 500
 
 export function SourcingView({
   nav,
-  staged,
-  onDraft,
+  onOpenBasket,
 }: {
   nav: React.ReactNode
-  /// The shortlist is the same rows, narrowed to what has been starred — a
-  /// scope, not a second screen. It is the one view where the rows are grouped
-  /// by supplier, because that is the shape an order has to be raised in.
-  staged: boolean
-  onDraft: (supplierId: string, itemIds: string[]) => void
+  onOpenBasket: () => void
 }) {
-  const shortlist = useShortlist()
   const [search, setSearch] = useState("")
   const query = useDebounce(search, 250)
   const [layout, setLayout] = useState<"grid" | "table">("grid")
+  const [openItemId, setOpenItemId] = useState<string | null>(null)
 
   const items = useQuery({
     queryKey: ["sourcing", "items", query],
     queryFn: ({ signal }) => searchSourcedItems({ q: query, limit: PAGE }, signal),
   })
+  const basket = useBasket()
+  const { add } = useBasketActions()
 
-  const rows = useMemo<SourcingRow[]>(() => {
-    const mapped = (items.data ?? []).map(toSourcingRow)
-    return staged ? mapped.filter((row) => shortlist.has(row.id)) : mapped
-  }, [items.data, staged, shortlist])
+  /// How many of each item is already in the basket, so the list can say so
+  /// without every row asking.
+  const held = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const line of basket.data ?? []) {
+      counts.set(line.item.supplier_item_id, line.quantity)
+    }
+    return counts
+  }, [basket.data])
 
-  const columns = useMemo(
-    () => sourcingColumns(shortlist.has, shortlist.toggle),
-    [shortlist],
+  const rows = useMemo<SourcingRow[]>(
+    () => (items.data ?? []).map(toSourcingRow),
+    [items.data],
   )
   const filterFields = useMemo(() => sourcingFilterFields(rows), [rows])
 
@@ -83,9 +86,6 @@ export function SourcingView({
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({})
 
-  // Row selection is a set, spelled as a map of the ids that are in it — an id
-  // mapped to `false` is not "unselected", it is a third state the table's own
-  // type does not have.
   const select = useCallback((id: string, selected: boolean) => {
     setRowSelection((current) => {
       const next = { ...current }
@@ -95,16 +95,24 @@ export function SourcingView({
     })
   }, [])
 
-  const adapter = useMemoryAdapter(sourcingFilterSchema.definition, {
-    id: staged ? "shortlist" : "sourcing",
-  })
+  const addOne = useCallback(
+    (id: string) => add.mutate({ supplier_item_id: id, quantity: 1 }),
+    [add],
+  )
+
+  const columns = useMemo(
+    () => sourcingColumns({ held, onAdd: addOne, onOpen: setOpenItemId }),
+    [held, addOne],
+  )
+
+  const adapter = useMemoryAdapter(sourcingFilterSchema.definition, { id: "sourcing" })
 
   const tableOptions = useMemo(
     () => ({
       features: dataTableFeatures,
       data: rows,
       columns,
-      // The shortlist and the selection both address `supplier_item_id`, so the
+      // The basket and the selection both address `supplier_item_id`, so the
       // table's own row key is that id rather than a positional index.
       getRowId: (row: SourcingRow) => row.id,
       state: {
@@ -126,8 +134,8 @@ export function SourcingView({
 
   const table = useTable(tableOptions)
   const visible = table.getFilteredRowModel().rows.map((row) => row.original)
-  const groups = useMemo(() => bySupplier(visible), [visible])
   const total = quoteTotal(visible)
+  const openRow = rows.find((row) => row.id === openItemId) ?? null
 
   return (
     <DataTableStoreProvider adapter={adapter}>
@@ -143,14 +151,11 @@ export function SourcingView({
       >
         <AppShell nav={nav} facets={<DataTableFilterControls />}>
           <ScreenHeader
-            title={staged ? "Shortlist" : "Sourcing"}
+            title="Sourcing"
             subtitle={
               items.isPending
                 ? "loading…"
                 : `${visible.length} item${visible.length === 1 ? "" : "s"}` +
-                  (staged ? ` · ${groups.length} supplier${groups.length === 1 ? "" : "s"}` : "") +
-                  // Only when it means something: a mixed-currency selection has
-                  // no total, and saying so is the point of `quoteTotal`.
                   (total === null ? "" : ` · ${money(total.minor, total.currency)}`)
             }
           >
@@ -161,7 +166,7 @@ export function SourcingView({
                 onChange={(event) => {
                   setSearch(event.target.value)
                   // A selection is a set of rows, and a new search is a new set
-                  // of rows. Left alone, the floating bar would offer to order
+                  // of rows. Left alone, the floating bar would offer to add
                   // something that is no longer on screen.
                   setRowSelection({})
                 }}
@@ -198,13 +203,15 @@ export function SourcingView({
 
             <DataTableResetButton />
             <DataTableViewOptions />
-
-            {staged && shortlist.count > 0 && (
-              <Button variant="ghost" size="sm" onClick={shortlist.clear}>
-                Clear
-              </Button>
-            )}
           </ScreenHeader>
+
+          {add.isError && (
+            <div className="text-destructive border-b px-3.5 py-2 text-[11.5px]">
+              {add.error instanceof ApiError
+                ? add.error.message
+                : "It could not be added to the basket."}
+            </div>
+          )}
 
           <div className="min-h-0 flex-1 overflow-auto">
             {items.isPending ? (
@@ -223,49 +230,48 @@ export function SourcingView({
                   : "The catalogue could not be loaded."}
               </ScreenState>
             ) : visible.length === 0 ? (
-              <ScreenState>
-                {staged
-                  ? shortlist.count === 0
-                    ? "Nothing is shortlisted yet. Star an item in Sourcing to stage it for an order."
-                    : "Nothing shortlisted matches these filters."
-                  : "No supplier items match this search."}
-              </ScreenState>
-            ) : staged ? (
-              groups.map((group) => (
-                <section key={group.supplierId} className="border-b last:border-b-0">
-                  <SupplierGroupHeader
-                    supplier={group.supplier}
-                    rows={group.rows}
-                    onDraft={() =>
-                      onDraft(
-                        group.supplierId,
-                        group.rows.map((row) => row.id),
-                      )
-                    }
-                  />
-                  {layout === "grid" ? (
-                    <ProductGrid
-                      rows={group.rows}
-                      isSelected={(id) => rowSelection[id] === true}
-                      onSelect={(id, selected) => select(id, selected)}
-                      isShortlisted={shortlist.has}
-                      onToggleShortlist={shortlist.toggle}
-                    />
-                  ) : (
-                    <RowTable rows={group.rows} table={table} />
-                  )}
-                </section>
-              ))
+              <ScreenState>No supplier items match this search.</ScreenState>
             ) : layout === "grid" ? (
               <ProductGrid
                 rows={visible}
+                held={held}
                 isSelected={(id) => rowSelection[id] === true}
-                onSelect={(id, selected) => select(id, selected)}
-                isShortlisted={shortlist.has}
-                onToggleShortlist={shortlist.toggle}
+                onSelect={select}
+                onAdd={addOne}
+                onOpen={setOpenItemId}
               />
             ) : (
-              <RowTable rows={visible} table={table} />
+              <Table>
+                <TableHeader className="bg-muted/50">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id} className="hover:bg-transparent">
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id}>
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getFilteredRowModel().rows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      data-state={row.getIsSelected() && "selected"}
+                      onClick={() => setOpenItemId(row.original.id)}
+                      className="cursor-pointer"
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </div>
         </AppShell>
@@ -273,111 +279,45 @@ export function SourcingView({
         <DataTableFloatingBar<SourcingRow>>
           {({ rows: selected, table: selectionTable }) => {
             const picked = selected.map((row) => row.original)
-            const suppliers = new Set(picked.map((row) => row.supplierId))
-            const one = suppliers.size === 1 ? picked[0].supplierId : null
+            const orderable = picked.filter((row) => row.status === "ACTIVE")
             return (
               <>
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={() => shortlist.add(picked.map((row) => row.id))}
-                >
-                  <Star className="size-3.5" />
-                  Shortlist
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={one === null}
+                  disabled={orderable.length === 0 || add.isPending}
                   title={
-                    one === null
-                      ? "One purchase order goes to one supplier. Narrow the selection to a single supplier first."
-                      : undefined
+                    orderable.length === picked.length
+                      ? undefined
+                      : "Items on hold cannot be ordered and will be left out."
                   }
                   onClick={() => {
-                    if (one === null) return
-                    onDraft(
-                      one,
-                      picked.map((row) => row.id),
-                    )
+                    // One request per item rather than one bulk route: the
+                    // server's add is per line, and a partial failure should
+                    // leave the rest of the basket alone rather than rolling
+                    // back a basket the buyer can see.
+                    for (const row of orderable) {
+                      add.mutate({ supplier_item_id: row.id, quantity: 1 })
+                    }
                     selectionTable.resetRowSelection()
                   }}
                 >
-                  Draft PO
+                  <ShoppingBasket className="size-3.5" />
+                  Add {orderable.length} to basket
+                </Button>
+                <Button size="sm" variant="outline" onClick={onOpenBasket}>
+                  Open basket
                 </Button>
               </>
             )
           }}
         </DataTableFloatingBar>
+
+        <ItemDetail
+          row={openRow}
+          inBasket={openRow === null ? 0 : (held.get(openRow.id) ?? 0)}
+          onClose={() => setOpenItemId(null)}
+        />
       </DataTableProvider>
     </DataTableStoreProvider>
-  )
-}
-
-/// One supplier's staged items, and the order they would become.
-function SupplierGroupHeader({
-  supplier,
-  rows,
-  onDraft,
-}: {
-  supplier: string
-  rows: readonly SourcingRow[]
-  onDraft: () => void
-}) {
-  const total = quoteTotal(rows)
-  return (
-    <div className="bg-muted/40 flex h-11 items-center gap-3 border-b px-3.5">
-      <span className="truncate text-xs font-semibold">{supplier}</span>
-      <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
-        {rows.length} item{rows.length === 1 ? "" : "s"}
-        {total !== null && ` · ${total.currency}`}
-      </span>
-      <Button size="sm" variant="outline" className="ml-auto h-7" onClick={onDraft}>
-        Draft PO
-      </Button>
-    </div>
-  )
-}
-
-/// The table body, rendered from rows the caller has already narrowed.
-///
-/// It takes rows rather than reading the row model itself so the staged view
-/// can render one table per supplier group off the same table instance —
-/// filters, sorting and selection stay in one place.
-function RowTable({
-  rows,
-  table,
-}: {
-  rows: readonly SourcingRow[]
-  table: ReturnType<typeof useTable<typeof dataTableFeatures, SourcingRow>>
-}) {
-  const wanted = new Set(rows.map((row) => row.id))
-  const modelRows = table.getFilteredRowModel().rows.filter((row) => wanted.has(row.id))
-  return (
-    <Table>
-      <TableHeader className="bg-muted/50">
-        {table.getHeaderGroups().map((headerGroup) => (
-          <TableRow key={headerGroup.id} className="hover:bg-transparent">
-            {headerGroup.headers.map((header) => (
-              <TableHead key={header.id}>
-                {header.isPlaceholder
-                  ? null
-                  : flexRender(header.column.columnDef.header, header.getContext())}
-              </TableHead>
-            ))}
-          </TableRow>
-        ))}
-      </TableHeader>
-      <TableBody>
-        {modelRows.map((row) => (
-          <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-            {row.getVisibleCells().map((cell) => (
-              <TableCell key={cell.id}>
-                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-              </TableCell>
-            ))}
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
   )
 }

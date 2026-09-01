@@ -558,29 +558,38 @@ pub async fn search_supplier_items(
     .fetch_all(pool)
     .await?;
 
-    rows.into_iter()
-        .map(|row| {
-            let supplier = Supplier {
-                supplier_id: row.try_get("s_supplier_id")?,
-                supplier_code: row.try_get("s_supplier_code")?,
-                supplier_code_normalized: row.try_get("s_supplier_code_normalized")?,
-                name: row.try_get("s_name")?,
-                contact_name: row.try_get("s_contact_name")?,
-                phone: row.try_get("s_phone")?,
-                email: row.try_get("s_email")?,
-                address: row.try_get("s_address")?,
-                status: SupplierStatus::from_str(&row.try_get::<String, _>("s_status")?)
-                    .map_err(validation)?,
-                version: row.try_get("s_version")?,
-                created_by: row.try_get("s_created_by")?,
-                created_at: row.try_get("s_created_at")?,
-                updated_by: row.try_get("s_updated_by")?,
-                updated_at: row.try_get("s_updated_at")?,
-            };
-            let item = supplier_item_from_row(row)?;
-            Ok(SourcedItem { item, supplier })
-        })
-        .collect()
+    rows.into_iter().map(sourced_item_from_row).collect()
+}
+
+/// One joined `supplier_item` + `supplier` row, as both this module and the
+/// basket read it.
+///
+/// The supplier's columns are aliased `s_*` because the two tables share four
+/// column names — `name`, `status`, `created_by`, `updated_by` — and an
+/// unaliased join would silently hand the item's values to the supplier. Any
+/// query feeding this must use the same aliases; that is the contract between
+/// this function and its callers, and it is why it lives here rather than
+/// being written twice.
+pub(crate) fn sourced_item_from_row(row: PgRow) -> Result<SourcedItem, AppError> {
+    let supplier = Supplier {
+        supplier_id: row.try_get("s_supplier_id")?,
+        supplier_code: row.try_get("s_supplier_code")?,
+        supplier_code_normalized: row.try_get("s_supplier_code_normalized")?,
+        name: row.try_get("s_name")?,
+        contact_name: row.try_get("s_contact_name")?,
+        phone: row.try_get("s_phone")?,
+        email: row.try_get("s_email")?,
+        address: row.try_get("s_address")?,
+        status: SupplierStatus::from_str(&row.try_get::<String, _>("s_status")?)
+            .map_err(validation)?,
+        version: row.try_get("s_version")?,
+        created_by: row.try_get("s_created_by")?,
+        created_at: row.try_get("s_created_at")?,
+        updated_by: row.try_get("s_updated_by")?,
+        updated_at: row.try_get("s_updated_at")?,
+    };
+    let item = supplier_item_from_row(row)?;
+    Ok(SourcedItem { item, supplier })
 }
 
 pub async fn list_supplier_items(
@@ -1152,4 +1161,77 @@ pub async fn create_catalog_purchase_order(
     .await?;
     transaction.commit().await?;
     Ok(receipt)
+}
+
+/// A site a purchase order can actually be delivered to.
+///
+/// A purchase order names a `destination_site_id`, and until now the only way
+/// to list those was `GET /api/v1/sync/origins` — which is Admin-only, on
+/// purpose: `cloud/domain/auth.rs` has a test asserting that knowing which
+/// nodes exist is administration even when you are only reading it. A
+/// Supervisor raising an order is not doing administration, and was getting a
+/// 403 on a list of site names.
+///
+/// `GET /api/v1/sync/fleet` is readable by everyone but answers a different
+/// question: it carries `origin_id` and convergence, not `site_id`, and the two
+/// are not the same string — a node registered as `dc-jakarta` can be standing
+/// in site `DC-JKT`. An order routed by origin id would name a site that does
+/// not exist.
+///
+/// So this is the purchasing question asked directly: where can a delivery go.
+/// It exposes site names and roles and nothing else — no ingest keys, no
+/// generations, no command backlog.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseDestination {
+    pub site_id: String,
+    /// What a person calls it. Falls back to the site id when nobody has named
+    /// the node, because a blank line in a picker is not a choice.
+    pub label: String,
+    /// `DC` or `STORE`. A buyer routing a full container and a buyer topping up
+    /// one shop are making different decisions and the list should say which is
+    /// which.
+    pub node_role: String,
+}
+
+/// Every site that can receive a delivery.
+///
+/// Cloud itself is excluded: the centre has no floor to put stock on. So is any
+/// node with inventory switched off, and any registration that never named a
+/// site — both would offer a destination the goods receipt could not be booked
+/// against.
+pub async fn purchase_destinations(pool: &PgPool) -> Result<Vec<PurchaseDestination>, AppError> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT ON (site_id) site_id, label, node_role
+           FROM sync_origin_credential
+          WHERE inventory_enabled
+            AND site_id IS NOT NULL
+            AND node_role IS NOT NULL
+            AND node_role <> 'CLOUD'
+          ORDER BY site_id, origin_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut destinations: Vec<PurchaseDestination> = rows
+        .into_iter()
+        .map(|row| {
+            let site_id: String = row.try_get("site_id")?;
+            let label: Option<String> = row.try_get("label")?;
+            Ok(PurchaseDestination {
+                label: label
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| site_id.clone()),
+                site_id,
+                node_role: row.try_get("node_role")?,
+            })
+        })
+        .collect::<Result<_, AppError>>()?;
+    // Warehouses first, then shops, alphabetically inside each — the order a
+    // buyer scans them in.
+    destinations.sort_by(|a, b| {
+        a.node_role
+            .cmp(&b.node_role)
+            .then_with(|| a.label.cmp(&b.label))
+    });
+    Ok(destinations)
 }

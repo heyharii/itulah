@@ -1,5 +1,6 @@
 mod allotments;
 mod auth_policy;
+mod basket;
 mod commercial;
 mod control;
 mod counts;
@@ -19,6 +20,7 @@ mod users;
 
 pub use allotments::*;
 pub use auth_policy::*;
+pub use basket::*;
 pub use commercial::*;
 pub use control::*;
 pub use counts::*;

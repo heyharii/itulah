@@ -4,6 +4,8 @@
 // Rust struct the server actually serialises — see
 // backend/tests/contract_types.rs. Regenerate the lot with `make contract`.
 
+export type { AddToBasketRequest } from "./contract/AddToBasketRequest";
+export type { BasketLine } from "./contract/BasketLine";
 export type { CatalogPurchaseLineRequest } from "./contract/CatalogPurchaseLineRequest";
 export type { CatalogPurchaseOrderRequest } from "./contract/CatalogPurchaseOrderRequest";
 export type { CatalogRow } from "./contract/CatalogRow";
@@ -18,9 +20,9 @@ export type { GoodsReceiptView } from "./contract/GoodsReceiptView";
 export type { GrantedLine } from "./contract/GrantedLine";
 export type { LoginRequest } from "./contract/LoginRequest";
 export type { LoginResponse } from "./contract/LoginResponse";
+export type { MoveRequest } from "./contract/MoveRequest";
 export type { MovementCause } from "./contract/MovementCause";
 export type { MovementView } from "./contract/MovementView";
-export type { MoveRequest } from "./contract/MoveRequest";
 export type { OfficialCountScope } from "./contract/OfficialCountScope";
 export type { OpenGoodsReceiptRequest } from "./contract/OpenGoodsReceiptRequest";
 export type { PackKoliRequest } from "./contract/PackKoliRequest";
@@ -29,6 +31,7 @@ export type { PickResult } from "./contract/PickResult";
 export type { PoolBalance } from "./contract/PoolBalance";
 export type { PromotionOutcome } from "./contract/PromotionOutcome";
 export type { PurchaseCountRequest } from "./contract/PurchaseCountRequest";
+export type { PurchaseDestination } from "./contract/PurchaseDestination";
 export type { PurchaseVerifyDecision } from "./contract/PurchaseVerifyDecision";
 export type { PurchaseVerifyRequest } from "./contract/PurchaseVerifyRequest";
 export type { PurchaseWorkLine } from "./contract/PurchaseWorkLine";
@@ -39,6 +42,7 @@ export type { Role } from "./contract/Role";
 export type { SaleRequest } from "./contract/SaleRequest";
 export type { SaleResult } from "./contract/SaleResult";
 export type { SessionUser } from "./contract/SessionUser";
+export type { SetBasketQuantityRequest } from "./contract/SetBasketQuantityRequest";
 export type { SiteId } from "./contract/SiteId";
 export type { SourcedItem } from "./contract/SourcedItem";
 export type { SubjectId } from "./contract/SubjectId";

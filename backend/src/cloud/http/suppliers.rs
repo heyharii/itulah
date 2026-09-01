@@ -373,3 +373,14 @@ pub async fn create_catalog_purchase_order(
     .await?;
     Ok((StatusCode::CREATED, Json(receipt)))
 }
+
+/// Where a purchase order can be delivered.
+///
+/// Readable by anyone signed in, unlike the sync origin register it is derived
+/// from — see `infrastructure::purchase_destinations` for why that distinction
+/// is deliberate rather than a hole.
+pub async fn list_purchase_destinations(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::PurchaseDestination>>, AppError> {
+    Ok(Json(infrastructure::purchase_destinations(&state.db).await?))
+}
