@@ -36,7 +36,7 @@ export function App() {
   // yet: showing a login box during that moment makes an already-signed-in
   // operator type their password for nothing.
   const [identity, setIdentity] = useState<Identity | null | undefined>(
-    undefined,
+    undefined
   )
   const [where, setWhere] = useState<NodeIdentity | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -70,7 +70,7 @@ export function App() {
         setProblem(
           error instanceof ApiError
             ? error.message
-            : "could not reach the server",
+            : "could not reach the server"
         )
       }
     })()
@@ -95,7 +95,7 @@ export function App() {
   if (identity === undefined) {
     return (
       <main className="flex min-h-svh items-center justify-center p-6">
-        <p className="text-muted-foreground text-sm">Checking your session…</p>
+        <p className="text-sm text-muted-foreground">Checking your session…</p>
       </main>
     )
   }
@@ -111,12 +111,12 @@ export function App() {
             }}
           />
           {problem !== null && (
-            <p role="alert" className="text-destructive text-center text-sm">
+            <p role="alert" className="text-center text-sm text-destructive">
               {problem}
             </p>
           )}
           {where !== null && (
-            <p className="text-muted-foreground text-center text-xs">
+            <p className="text-center text-xs text-muted-foreground">
               {where.node_id} · {where.node_role}
               {where.site_id === undefined ? "" : ` · ${where.site_id}`}
             </p>

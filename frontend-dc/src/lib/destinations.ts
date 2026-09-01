@@ -1,4 +1,5 @@
 import {
+  BoxesIcon,
   ClipboardCheckIcon,
   HouseIcon,
   InboxIcon,
@@ -73,6 +74,12 @@ export const DESTINATIONS: readonly Destination[] = [
     icon: TruckIcon,
     waiting: (counts) => counts.loose + counts.unshipped,
     onTabBar: true,
+  },
+  {
+    to: "/stock",
+    label: "Stock",
+    icon: BoxesIcon,
+    waiting: () => 0,
   },
   {
     to: "/counts",

@@ -19,7 +19,7 @@ export function Rail({ counts }: { counts: OperationCounts }) {
   return (
     <nav
       aria-label="Operations"
-      className="bg-sidebar hidden shrink-0 flex-col gap-1 overflow-y-auto border-r p-2 md:flex md:w-[76px] lg:w-52"
+      className="hidden shrink-0 flex-col gap-1 overflow-y-auto border-r bg-sidebar p-2 md:flex md:w-[76px] lg:w-52"
     >
       {DESTINATIONS.map((destination) => {
         const waiting = destination.waiting(counts)
@@ -34,12 +34,14 @@ export function Rail({ counts }: { counts: OperationCounts }) {
               "max-lg:flex-col max-lg:justify-center max-lg:gap-1 max-lg:px-1 max-lg:py-2 max-lg:text-[10.5px]",
               on
                 ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
             )}
           >
             <Icon className="size-5 shrink-0" />
             <span className="truncate">{destination.label}</span>
-            {waiting > 0 && <Badge count={waiting} className="lg:ml-auto lg:static" />}
+            {waiting > 0 && (
+              <Badge count={waiting} className="lg:static lg:ml-auto" />
+            )}
           </Link>
         )
       })}
@@ -51,11 +53,13 @@ export function Rail({ counts }: { counts: OperationCounts }) {
 /// area under them so the last row is not hidden by a home indicator.
 export function TabBar({ counts }: { counts: OperationCounts }) {
   const path = useActivePath()
-  const tabs = DESTINATIONS.filter((destination) => destination.onTabBar === true)
+  const tabs = DESTINATIONS.filter(
+    (destination) => destination.onTabBar === true
+  )
   return (
     <nav
       aria-label="Operations"
-      className="bg-background/92 fixed inset-x-0 bottom-0 z-40 flex border-t pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/92 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
     >
       {tabs.map((destination) => {
         const waiting = destination.waiting(counts)
@@ -67,7 +71,7 @@ export function TabBar({ counts }: { counts: OperationCounts }) {
             to={destination.to}
             className={cn(
               "relative flex flex-1 flex-col items-center gap-1 py-2.5 text-[10.5px] font-medium",
-              on ? "text-foreground" : "text-muted-foreground",
+              on ? "text-foreground" : "text-muted-foreground"
             )}
           >
             <Icon className="size-5.5" />
@@ -84,8 +88,8 @@ function Badge({ count, className }: { count: number; className?: string }) {
   return (
     <span
       className={cn(
-        "bg-primary text-primary-foreground absolute top-1 right-2 grid h-4 min-w-4 place-items-center rounded-full px-1 font-mono text-[10px] leading-none tabular-nums",
-        className,
+        "absolute top-1 right-2 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[10px] leading-none text-primary-foreground tabular-nums",
+        className
       )}
     >
       {count > 99 ? "99+" : count}
@@ -128,15 +132,17 @@ export function ScreenHeader({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
       <div className="min-w-0">
-        <h1 className="font-heading truncate text-lg font-medium tracking-tight">
+        <h1 className="truncate font-heading text-lg font-medium tracking-tight">
           {title}
         </h1>
         {subtitle !== undefined && (
-          <p className="text-muted-foreground truncate text-xs">{subtitle}</p>
+          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         )}
       </div>
       {children !== undefined && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {children}
+        </div>
       )}
     </div>
   )
@@ -151,7 +157,9 @@ export function ScreenBody({
   children: React.ReactNode
 }) {
   return (
-    <div className={cn("flex flex-col gap-4 p-4 sm:p-6", className)}>{children}</div>
+    <div className={cn("flex flex-col gap-4 p-4 sm:p-6", className)}>
+      {children}
+    </div>
   )
 }
 
@@ -171,7 +179,7 @@ export function ScreenState({
       <p
         className={cn(
           "max-w-md text-sm",
-          tone === "problem" ? "text-destructive" : "text-muted-foreground",
+          tone === "problem" ? "text-destructive" : "text-muted-foreground"
         )}
         role={tone === "problem" ? "alert" : undefined}
       >
@@ -190,7 +198,7 @@ export function ScreenState({
 /// screen is a document nobody reads.
 export function Note({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-muted-foreground bg-muted/40 rounded-xl px-3 py-2.5 text-xs leading-relaxed">
+    <p className="rounded-xl bg-muted/40 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
       {children}
     </p>
   )
@@ -214,7 +222,7 @@ export function Pill({
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap",
-        TONES[tone],
+        TONES[tone]
       )}
     >
       {children}
@@ -234,13 +242,13 @@ export function Stat({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-muted-foreground text-[11px]">{label}</span>
+      <span className="text-[11px] text-muted-foreground">{label}</span>
       <span
         className={cn(
           "font-mono text-xl leading-none font-medium tabular-nums",
           tone === "good" && "text-emerald-600 dark:text-emerald-400",
           tone === "warn" && "text-amber-600 dark:text-amber-400",
-          tone === "bad" && "text-destructive",
+          tone === "bad" && "text-destructive"
         )}
       >
         {value}

@@ -9,7 +9,13 @@ import {
   RowText,
 } from "@/components/ops/parts"
 import { useAction } from "@/lib/action"
-import { Note, Pill, ScreenBody, ScreenHeader, ScreenState } from "@/components/shell"
+import {
+  Note,
+  Pill,
+  ScreenBody,
+  ScreenHeader,
+  ScreenState,
+} from "@/components/shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { dc } from "@/lib/api"
@@ -51,7 +57,7 @@ export function ReceivingScreen() {
         title="Receiving"
         subtitle="Count blind, then a second person decides"
       >
-        <div className="bg-muted flex rounded-full p-0.5">
+        <div className="flex rounded-full bg-muted p-0.5">
           {(["count", "verify"] as const).map((option) => (
             <button
               key={option}
@@ -59,8 +65,8 @@ export function ReceivingScreen() {
               onClick={() => setJob(option)}
               className={
                 job === option
-                  ? "bg-background rounded-full px-4 py-1.5 text-xs font-medium shadow-sm"
-                  : "text-muted-foreground rounded-full px-4 py-1.5 text-xs font-medium"
+                  ? "rounded-full bg-background px-4 py-1.5 text-xs font-medium shadow-sm"
+                  : "rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground"
               }
             >
               {option === "count" ? "Counting" : "Verifying"}
@@ -145,10 +151,7 @@ function Deliveries({
   }
 
   return (
-    <Panel
-      title="On the bay"
-      meta={`${receipts.data?.length ?? 0} open`}
-    >
+    <Panel title="On the bay" meta={`${receipts.data?.length ?? 0} open`}>
       {receipts.isPending && <ScreenState>Reading the bay…</ScreenState>}
       {receipts.isError && (
         <ScreenState tone="problem">
@@ -157,8 +160,8 @@ function Deliveries({
       )}
       {receipts.data?.length === 0 && (
         <ScreenState>
-          Nothing is open. Open a delivery when a lorry arrives — before anything
-          is counted.
+          Nothing is open. Open a delivery when a lorry arrives — before
+          anything is counted.
         </ScreenState>
       )}
 
@@ -175,7 +178,7 @@ function Deliveries({
             <Pill tone={receipt.status === "COUNTING" ? "warn" : "neutral"}>
               {receipt.status.toLowerCase().replace(/_/g, " ")}
             </Pill>
-            <span className="text-muted-foreground font-mono text-[11px] tabular-nums">
+            <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
               {receipt.accepted_lines}/{receipt.counted_lines} accepted
             </span>
           </span>
@@ -263,7 +266,7 @@ function Counting({
         counted_quantity: typed,
         actor_id: actor,
         idempotency_key: idempotencyKey(),
-      }),
+      })
     )
     if (done) {
       setCounted((current) => ({ ...current, [poLineId]: "" }))
@@ -308,10 +311,14 @@ function Counting({
               className="flex flex-wrap items-center gap-3 border-b px-4 py-3 last:border-b-0"
             >
               <span className="min-w-40 flex-1">
-                <span className="block text-sm font-medium">{line.article_name}</span>
-                <span className="text-muted-foreground block font-mono text-[11px]">
+                <span className="block text-sm font-medium">
+                  {line.article_name}
+                </span>
+                <span className="block font-mono text-[11px] text-muted-foreground">
                   {line.article_code} · {line.po_number}
-                  {line.supplier_name === null ? "" : ` · ${line.supplier_name}`}
+                  {line.supplier_name === null
+                    ? ""
+                    : ` · ${line.supplier_name}`}
                 </span>
               </span>
               <Input
@@ -335,7 +342,8 @@ function Counting({
               <Button
                 className="h-(--tap)"
                 disabled={
-                  action.pending || (counted[line.po_line_id] ?? "").trim() === ""
+                  action.pending ||
+                  (counted[line.po_line_id] ?? "").trim() === ""
                 }
                 onClick={() => void record(line.po_line_id)}
               >
@@ -347,7 +355,7 @@ function Counting({
       </Panel>
 
       <Note>
-        <strong className="text-foreground font-medium">
+        <strong className="font-medium text-foreground">
           The ordered quantity is not on this screen.
         </strong>{" "}
         It is not hidden by the layout — the server does not send it to this
@@ -420,12 +428,15 @@ function Verifying({ onChanged }: { onChanged: () => void }) {
                   <span className="block text-sm font-medium">
                     {count.article_name}
                   </span>
-                  <span className="text-muted-foreground block font-mono text-[11px]">
+                  <span className="block font-mono text-[11px] text-muted-foreground">
                     {count.article_code} · {count.po_number} · counted by{" "}
                     {count.counted_by} at {clock(count.counted_at)}
                   </span>
                 </span>
-                <RowNumber value={units(count.counted_quantity)} label="counted" />
+                <RowNumber
+                  value={units(count.counted_quantity)}
+                  label="counted"
+                />
                 <RowNumber
                   value={units(count.expected_stock_units)}
                   label="ordered"
@@ -443,7 +454,7 @@ function Verifying({ onChanged }: { onChanged: () => void }) {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-muted-foreground text-xs">
+                <span className="text-xs text-muted-foreground">
                   Agreed {money(count.unit_price_minor)} per piece
                 </span>
                 <Input
@@ -512,7 +523,7 @@ function Verifying({ onChanged }: { onChanged: () => void }) {
               </div>
 
               {yours && (
-                <p className="text-muted-foreground text-[11px]">
+                <p className="text-[11px] text-muted-foreground">
                   You counted this one. Where this site enforces two pairs of
                   hands the node will refuse it, and say so.
                 </p>
@@ -567,7 +578,7 @@ function Invoice({
         invoice_document_ref: null,
         actor_id: actor,
         idempotency_key: idempotencyKey(),
-      }),
+      })
     )
     if (done) {
       setNumber("")

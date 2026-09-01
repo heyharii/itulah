@@ -86,12 +86,34 @@ impl Config {
     }
 }
 
+/// Render an error with everything underneath it.
+///
+/// `reqwest::Error` displays as "error sending request for url (...)" and puts
+/// the reason — DNS, TLS, refused connection — in its source chain. Printing
+/// only the top line produces a message that names the URL and says nothing
+/// about why, which is the least useful half.
+fn with_sources(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut message = error.to_string();
+    let mut current = error.source();
+    while let Some(cause) = current {
+        message.push_str(&format!(": {cause}"));
+        current = cause.source();
+    }
+    message
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Transport(with_sources(&error))
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("object store misconfigured: {0}")]
     Config(String),
     #[error("object store transport: {0}")]
-    Transport(#[from] reqwest::Error),
+    Transport(String),
     #[error("object store rejected {method} {key}: {status} {body}")]
     Rejected {
         method: &'static str,

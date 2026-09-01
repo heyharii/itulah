@@ -6,6 +6,7 @@
 
 export type { AcceptSolutionRequest } from "./contract/AcceptSolutionRequest";
 export type { AddToBasketRequest } from "./contract/AddToBasketRequest";
+export type { AdvanceKoliRequest } from "./contract/AdvanceKoliRequest";
 export type { BasketLine } from "./contract/BasketLine";
 export type { CaptureLine } from "./contract/CaptureLine";
 export type { CaptureOutcome } from "./contract/CaptureOutcome";
@@ -18,6 +19,7 @@ export type { ChatMessage } from "./contract/ChatMessage";
 export type { CloudMe } from "./contract/CloudMe";
 export type { CollaborationEvent } from "./contract/CollaborationEvent";
 export type { CreateDispatchRequest } from "./contract/CreateDispatchRequest";
+export type { CreateKoliShipmentRequest } from "./contract/CreateKoliShipmentRequest";
 export type { CreateShipmentRequest } from "./contract/CreateShipmentRequest";
 export type { CreateSupplierItemRequest } from "./contract/CreateSupplierItemRequest";
 export type { CreateSupplierRequest } from "./contract/CreateSupplierRequest";
@@ -42,6 +44,7 @@ export type { FulfillmentProgressResult } from "./contract/FulfillmentProgressRe
 export type { FulfillmentStage } from "./contract/FulfillmentStage";
 export type { GoodsReceiptView } from "./contract/GoodsReceiptView";
 export type { GrantedLine } from "./contract/GrantedLine";
+export type { IntakeRequest } from "./contract/IntakeRequest";
 export type { Koli } from "./contract/Koli";
 export type { KoliManifest } from "./contract/KoliManifest";
 export type { LinePosition } from "./contract/LinePosition";

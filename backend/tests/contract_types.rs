@@ -108,6 +108,15 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("TaggingConfirmRequest: {e}"));
     inventory_backend::edge::TaggingConfirmResult::export_all(&config)
         .unwrap_or_else(|e| panic!("TaggingConfirmResult: {e}"));
+    // Putting a tagged piece into this DC, and walking one carton through the
+    // outbound stages. The stage advances are what actually move stock; the
+    // shipment and dispatch documents only say who is carrying it.
+    inventory_backend::edge::IntakeRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("IntakeRequest: {e}"));
+    inventory_backend::edge::CreateKoliShipmentRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreateKoliShipmentRequest: {e}"));
+    inventory_backend::edge::AdvanceKoliRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("AdvanceKoliRequest: {e}"));
     inventory_backend::edge::PickRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PickRequest: {e}"));
     inventory_backend::edge::PickResult::export_all(&config)

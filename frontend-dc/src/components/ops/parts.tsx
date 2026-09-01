@@ -34,9 +34,9 @@ export function Panel({
   return (
     <Card size="sm" className={cn("gap-0 overflow-hidden py-0", className)}>
       <div className="flex min-h-12 items-center justify-between gap-3 border-b px-4 py-2.5">
-        <h2 className="font-heading truncate text-sm font-medium">{title}</h2>
+        <h2 className="truncate font-heading text-sm font-medium">{title}</h2>
         {meta !== undefined && (
-          <span className="text-muted-foreground shrink-0 text-xs">{meta}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">{meta}</span>
         )}
       </div>
       {children}
@@ -57,13 +57,13 @@ export function Row({
   children: React.ReactNode
 }) {
   const shared = cn(
-    "relative flex w-full min-h-(--tap) items-center gap-3 border-b px-4 py-3 text-left last:border-b-0",
+    "relative flex min-h-(--tap) w-full items-center gap-3 border-b px-4 py-3 text-left last:border-b-0",
     // A bar down the left edge as well as a tint. The tint alone is a couple
     // of percent of lightness apart from the card, which is invisible on a
     // warehouse screen at arm's length in daylight.
     selected === true &&
-      "bg-accent before:bg-primary before:absolute before:inset-y-0 before:left-0 before:w-1",
-    className,
+      "bg-accent before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary",
+    className
   )
   if (onClick === undefined) {
     return <div className={shared}>{children}</div>
@@ -73,7 +73,7 @@ export function Row({
       type="button"
       onClick={onClick}
       aria-selected={selected === true}
-      className={cn(shared, "hover:bg-accent/60 transition-colors")}
+      className={cn(shared, "transition-colors hover:bg-accent/60")}
     >
       {children}
     </button>
@@ -91,9 +91,13 @@ export function RowText({
 }) {
   return (
     <span className="min-w-0 flex-1">
-      <span className="block truncate font-mono text-[13.5px] font-medium">{code}</span>
+      <span className="block truncate font-mono text-[13.5px] font-medium">
+        {code}
+      </span>
       {children !== undefined && (
-        <span className="text-muted-foreground block truncate text-xs">{children}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {children}
+        </span>
       )}
     </span>
   )
@@ -115,13 +119,15 @@ export function RowNumber({
         className={cn(
           "block font-mono text-base leading-tight font-medium tabular-nums",
           tone === "muted" && "text-muted-foreground",
-          tone === "bad" && "text-destructive",
+          tone === "bad" && "text-destructive"
         )}
       >
         {value}
       </span>
       {label !== undefined && (
-        <span className="text-muted-foreground block text-[10.5px]">{label}</span>
+        <span className="block text-[10.5px] text-muted-foreground">
+          {label}
+        </span>
       )}
     </span>
   )
@@ -171,7 +177,11 @@ export function ScanField({
           }
         }}
       />
-      <Button className="h-(--tap) px-5" disabled={pending === true} onClick={submit}>
+      <Button
+        className="h-(--tap) px-5"
+        disabled={pending === true}
+        onClick={submit}
+      >
         {pending === true ? "…" : action}
       </Button>
     </div>
@@ -190,7 +200,7 @@ export function Problem({ error }: { error: unknown }) {
         ? error.message
         : String(error)
   return (
-    <p role="alert" className="text-destructive px-4 py-2.5 text-xs">
+    <p role="alert" className="px-4 py-2.5 text-xs text-destructive">
       {message}
     </p>
   )
@@ -238,7 +248,7 @@ export function SessionBar({
     >
       {active === null ? (
         <div className="flex flex-col gap-3 px-4 py-4">
-          <p className="text-muted-foreground text-xs">
+          <p className="text-xs text-muted-foreground">
             Work is recorded either way. A round only adds a number to report it
             under.
           </p>
@@ -270,7 +280,7 @@ export function SessionBar({
               <p className="truncate font-mono text-[13px] font-medium">
                 {active.session_id}
               </p>
-              <p className="text-muted-foreground text-xs">
+              <p className="text-xs text-muted-foreground">
                 {active.actor_id} · since {clock(active.started_at)}
               </p>
             </div>
@@ -316,8 +326,8 @@ export function NativeSelect({
       value={value}
       onChange={onChange}
       className={cn(
-        "border-input bg-input/30 focus-visible:border-ring focus-visible:ring-ring/50 h-(--tap) rounded-4xl border px-3 text-sm outline-none focus-visible:ring-[3px]",
-        className,
+        "h-(--tap) rounded-4xl border border-input bg-input/30 px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        className
       )}
       {...props}
     >

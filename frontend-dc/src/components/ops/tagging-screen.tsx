@@ -9,7 +9,13 @@ import {
   RowText,
 } from "@/components/ops/parts"
 import { useAction } from "@/lib/action"
-import { Note, Pill, ScreenBody, ScreenHeader, ScreenState } from "@/components/shell"
+import {
+  Note,
+  Pill,
+  ScreenBody,
+  ScreenHeader,
+  ScreenState,
+} from "@/components/shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { dc } from "@/lib/api"
@@ -48,7 +54,9 @@ export function TaggingScreen() {
         <Panel title="Print queue" meta={`${jobs.data?.length ?? 0} jobs`}>
           {jobs.isPending && <ScreenState>Reading the queue…</ScreenState>}
           {jobs.isError && (
-            <ScreenState tone="problem">{(jobs.error as Error).message}</ScreenState>
+            <ScreenState tone="problem">
+              {(jobs.error as Error).message}
+            </ScreenState>
           )}
           {jobs.data?.length === 0 && (
             <ScreenState>
@@ -126,7 +134,7 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
       }
       const chunk = await dc.runPrintChunk(sessionId)
       setReport(
-        `${chunk.printed} printed, ${chunk.failed} refused of ${chunk.attempted} attempted`,
+        `${chunk.printed} printed, ${chunk.failed} refused of ${chunk.attempted} attempted`
       )
       void client.invalidateQueries({ queryKey: keys.printSession(sessionId) })
     })
@@ -176,7 +184,9 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
             value={printer.host}
             placeholder="Printer host"
             className="h-(--tap) min-w-40 flex-1 font-mono"
-            onChange={(event) => remember({ ...printer, host: event.target.value })}
+            onChange={(event) =>
+              remember({ ...printer, host: event.target.value })
+            }
           />
           <Input
             value={String(printer.port)}
@@ -213,7 +223,9 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
             <div className="flex flex-wrap gap-2 border-t px-4 py-3">
               <Button
                 className="h-(--tap) flex-1"
-                disabled={action.pending || (session.data?.pending_count ?? 0) === 0}
+                disabled={
+                  action.pending || (session.data?.pending_count ?? 0) === 0
+                }
                 onClick={runChunk}
               >
                 Print next pass
@@ -227,7 +239,9 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
               </Button>
             </div>
             {report !== null && (
-              <p className="text-muted-foreground px-4 pb-3 text-xs">{report}</p>
+              <p className="px-4 pb-3 text-xs text-muted-foreground">
+                {report}
+              </p>
             )}
           </>
         )}
@@ -236,7 +250,7 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
 
       <Panel title="The tags are on the goods">
         <div className="flex flex-col gap-3 px-4 py-4">
-          <p className="text-muted-foreground text-xs">
+          <p className="text-xs text-muted-foreground">
             One confirmation for the whole job, given by the person who attached
             them.
           </p>
@@ -276,9 +290,9 @@ function PrintProgress({ summary }: { summary: PrintSessionSummary | null }) {
   const share = summary.total_items === 0 ? 0 : done / summary.total_items
   return (
     <div className="flex flex-col gap-2 border-t px-4 py-3">
-      <div className="bg-muted h-2 overflow-hidden rounded-full">
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
         <div
-          className="bg-primary h-full rounded-full transition-[width]"
+          className="h-full rounded-full bg-primary transition-[width]"
           style={{ width: `${Math.round(share * 100)}%` }}
         />
       </div>

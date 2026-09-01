@@ -1,6 +1,8 @@
 import type {
+  AdvanceKoliRequest,
   CaptureOutcome,
   CreateDispatchRequest,
+  CreateKoliShipmentRequest,
   CreateShipmentRequest,
   Dispatch,
   DispatchDetail,
@@ -8,9 +10,12 @@ import type {
   EdgeOfficialCountSummary,
   FulfillmentProgressResult,
   GoodsReceiptView,
+  IntakeRequest,
   Koli,
   KoliManifest,
   LinePosition,
+  MovementView,
+  MoveRequest,
   OfficialCountEntriesRequest,
   OfficialCountSubmitRequest,
   OfficialCountSubmitResult,
@@ -22,10 +27,10 @@ import type {
   PackingBox,
   PackingSessionSummary,
   PackKoliRequest,
+  PicklistLine,
   PickRequest,
   PickResult,
   PickSessionSummary,
-  PicklistLine,
   PrintChunkReport,
   PrintKoliLabelRequest,
   PrintSessionSummary,
@@ -122,9 +127,13 @@ export class Dc {
     request: OpenGoodsReceiptRequest,
     signal?: AbortSignal,
   ): Promise<GoodsReceiptView> {
-    return this.node.post<GoodsReceiptView>("/api/v1/dc/goods-receipts", request, {
-      signal,
-    });
+    return this.node.post<GoodsReceiptView>(
+      "/api/v1/dc/goods-receipts",
+      request,
+      {
+        signal,
+      },
+    );
   }
 
   /// Record the supplier's invoice against a delivery. The verifier is holding
@@ -216,7 +225,10 @@ export class Dc {
     );
   }
 
-  printSession(sessionId: string, signal?: AbortSignal): Promise<PrintSessionSummary> {
+  printSession(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<PrintSessionSummary> {
     return this.node.get<PrintSessionSummary>(
       `/api/v1/dc/print-sessions/${encodeURIComponent(sessionId)}`,
       { signal },
@@ -225,7 +237,10 @@ export class Dc {
 
   /// Print the next chunk. Called again until nothing is pending; a chunk the
   /// printer refused comes back around on a later call.
-  runPrintChunk(sessionId: string, signal?: AbortSignal): Promise<PrintChunkReport> {
+  runPrintChunk(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<PrintChunkReport> {
     return this.node.post<PrintChunkReport>(
       `/api/v1/dc/print-sessions/${encodeURIComponent(sessionId)}/run`,
       {},
@@ -262,7 +277,10 @@ export class Dc {
     return body.lines;
   }
 
-  async pickSessions(filter?: ListFilter, signal?: AbortSignal): Promise<Session[]> {
+  async pickSessions(
+    filter?: ListFilter,
+    signal?: AbortSignal,
+  ): Promise<Session[]> {
     const body = await this.node.get<{ items: Session[] }>(
       `/api/v1/dc/pick-sessions${query(filter)}`,
       { signal },
@@ -270,11 +288,19 @@ export class Dc {
     return body.items;
   }
 
-  openPickSession(request: OpenSessionRequest, signal?: AbortSignal): Promise<Session> {
-    return this.node.post<Session>("/api/v1/dc/pick-sessions", request, { signal });
+  openPickSession(
+    request: OpenSessionRequest,
+    signal?: AbortSignal,
+  ): Promise<Session> {
+    return this.node.post<Session>("/api/v1/dc/pick-sessions", request, {
+      signal,
+    });
   }
 
-  pickSession(sessionId: string, signal?: AbortSignal): Promise<PickSessionSummary> {
+  pickSession(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<PickSessionSummary> {
     return this.node.get<PickSessionSummary>(
       `/api/v1/dc/pick-sessions/${encodeURIComponent(sessionId)}`,
       { signal },
@@ -314,7 +340,10 @@ export class Dc {
     return body.lines;
   }
 
-  async packingSessions(filter?: ListFilter, signal?: AbortSignal): Promise<Session[]> {
+  async packingSessions(
+    filter?: ListFilter,
+    signal?: AbortSignal,
+  ): Promise<Session[]> {
     const body = await this.node.get<{ items: Session[] }>(
       `/api/v1/dc/packing-sessions${query(filter)}`,
       { signal },
@@ -326,7 +355,9 @@ export class Dc {
     request: OpenSessionRequest,
     signal?: AbortSignal,
   ): Promise<Session> {
-    return this.node.post<Session>("/api/v1/dc/packing-sessions", request, { signal });
+    return this.node.post<Session>("/api/v1/dc/packing-sessions", request, {
+      signal,
+    });
   }
 
   packingSession(
@@ -339,7 +370,10 @@ export class Dc {
     );
   }
 
-  closePackingSession(sessionId: string, signal?: AbortSignal): Promise<Session> {
+  closePackingSession(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<Session> {
     return this.node.post<Session>(
       `/api/v1/dc/packing-sessions/${encodeURIComponent(sessionId)}/close`,
       {},
@@ -361,9 +395,13 @@ export class Dc {
     request: PackKoliRequest,
     signal?: AbortSignal,
   ): Promise<FulfillmentProgressResult> {
-    return this.node.post<FulfillmentProgressResult>("/api/v1/dc/koli", request, {
-      signal,
-    });
+    return this.node.post<FulfillmentProgressResult>(
+      "/api/v1/dc/koli",
+      request,
+      {
+        signal,
+      },
+    );
   }
 
   /// The packing list: what is in this box, its QR, and the sticker's ZPL —
@@ -375,7 +413,11 @@ export class Dc {
     );
   }
 
-  assignKoli(koliId: string, sessionId: string, signal?: AbortSignal): Promise<Koli> {
+  assignKoli(
+    koliId: string,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<Koli> {
     return this.node.post<Koli>(
       `/api/v1/dc/koli/${encodeURIComponent(koliId)}/session`,
       { session_id: sessionId },
@@ -411,7 +453,9 @@ export class Dc {
     request: OpenPackingBoxRequest,
     signal?: AbortSignal,
   ): Promise<PackingBox> {
-    return this.node.post<PackingBox>("/api/v1/dc/packing-boxes", request, { signal });
+    return this.node.post<PackingBox>("/api/v1/dc/packing-boxes", request, {
+      signal,
+    });
   }
 
   packingBox(sessionId: string, signal?: AbortSignal): Promise<PackingBox> {
@@ -441,7 +485,10 @@ export class Dc {
   // world.
   // -------------------------------------------------------------------------
 
-  async shipments(filter?: ListFilter, signal?: AbortSignal): Promise<Shipment[]> {
+  async shipments(
+    filter?: ListFilter,
+    signal?: AbortSignal,
+  ): Promise<Shipment[]> {
     const body = await this.node.get<{ items: Shipment[] }>(
       `/api/v1/dc/shipments${query(filter)}`,
       { signal },
@@ -453,7 +500,9 @@ export class Dc {
     request: CreateShipmentRequest,
     signal?: AbortSignal,
   ): Promise<Shipment> {
-    return this.node.post<Shipment>("/api/v1/dc/shipments", request, { signal });
+    return this.node.post<Shipment>("/api/v1/dc/shipments", request, {
+      signal,
+    });
   }
 
   shipment(shipmentId: string, signal?: AbortSignal): Promise<ShipmentDetail> {
@@ -463,7 +512,10 @@ export class Dc {
     );
   }
 
-  async dispatches(filter?: ListFilter, signal?: AbortSignal): Promise<Dispatch[]> {
+  async dispatches(
+    filter?: ListFilter,
+    signal?: AbortSignal,
+  ): Promise<Dispatch[]> {
     const body = await this.node.get<{ items: Dispatch[] }>(
       `/api/v1/dc/dispatches${query(filter)}`,
       { signal },
@@ -475,7 +527,9 @@ export class Dc {
     request: CreateDispatchRequest,
     signal?: AbortSignal,
   ): Promise<Dispatch> {
-    return this.node.post<Dispatch>("/api/v1/dc/dispatches", request, { signal });
+    return this.node.post<Dispatch>("/api/v1/dc/dispatches", request, {
+      signal,
+    });
   }
 
   dispatch(dispatchId: string, signal?: AbortSignal): Promise<DispatchDetail> {
@@ -493,6 +547,52 @@ export class Dc {
     );
   }
 
+  /// Walk one carton to the next outbound stage.
+  ///
+  /// These are not the same thing as the shipment and dispatch documents above,
+  /// and the difference has caught people out. A shipment says who is carrying
+  /// a box; these three move the stock — each writes a movement group, taking
+  /// the units from one outbound pool to the next. A warehouse that only files
+  /// the paperwork leaves its goods sitting in `outbound.packed` while the
+  /// consignment note claims they are on the road.
+  koliToShipment(
+    koliId: string,
+    request: CreateKoliShipmentRequest,
+    signal?: AbortSignal,
+  ): Promise<FulfillmentProgressResult> {
+    return this.node.post<FulfillmentProgressResult>(
+      `/api/v1/dc/koli/${encodeURIComponent(koliId)}/shipment`,
+      request,
+      { signal },
+    );
+  }
+
+  /// Onto the truck, still on the yard.
+  koliLoaded(
+    koliId: string,
+    request: AdvanceKoliRequest,
+    signal?: AbortSignal,
+  ): Promise<FulfillmentProgressResult> {
+    return this.node.post<FulfillmentProgressResult>(
+      `/api/v1/dc/koli/${encodeURIComponent(koliId)}/dispatch`,
+      request,
+      { signal },
+    );
+  }
+
+  /// Gone. The stock leaves this DC's pools here and nowhere else.
+  koliInTransit(
+    koliId: string,
+    request: AdvanceKoliRequest,
+    signal?: AbortSignal,
+  ): Promise<FulfillmentProgressResult> {
+    return this.node.post<FulfillmentProgressResult>(
+      `/api/v1/dc/koli/${encodeURIComponent(koliId)}/in-transit`,
+      request,
+      { signal },
+    );
+  }
+
   /// Has the stock for this allotment line reached the store, or is it still
   /// on the road? Counted from containment, not from a tally kept beside it.
   allotmentLinePosition(
@@ -506,10 +606,44 @@ export class Dc {
   }
 
   // -------------------------------------------------------------------------
+  // Stock itself: what is here, what happened to it, and the two writes a
+  // warehouse makes directly rather than as a side effect of a document.
+  // -------------------------------------------------------------------------
+
+  /// Put one tagged piece into this DC.
+  ///
+  /// The ordinary way stock arrives is receiving and then tagging, and both of
+  /// those write their own movements. This is the direct path — an opening
+  /// balance, a piece recovered, a bench test — and it is deliberately one EPC
+  /// at a time.
+  intake(request: IntakeRequest, signal?: AbortSignal): Promise<unknown> {
+    return this.node.post<unknown>("/api/v1/dc/intake", request, { signal });
+  }
+
+  /// Move stock between two pools this node owns.
+  ///
+  /// The ledger is append-only: a mistake is corrected by another movement
+  /// that says what it is correcting, never by editing the one before it.
+  move(request: MoveRequest, signal?: AbortSignal): Promise<unknown> {
+    return this.node.post<unknown>("/api/v1/dc/movements", request, { signal });
+  }
+
+  /// The ledger, newest first. Capped by the node at 500.
+  async movements(limit = 100, signal?: AbortSignal): Promise<MovementView[]> {
+    const body = await this.node.get<{ items: MovementView[] }>(
+      `/api/v1/inventory/movements?limit=${Math.trunc(limit)}`,
+      { signal },
+    );
+    return body.items;
+  }
+
+  // -------------------------------------------------------------------------
   // Official counts. Authored and activated at the centre, executed here.
   // -------------------------------------------------------------------------
 
-  async officialCounts(signal?: AbortSignal): Promise<EdgeOfficialCountSummary[]> {
+  async officialCounts(
+    signal?: AbortSignal,
+  ): Promise<EdgeOfficialCountSummary[]> {
     const body = await this.node.get<{ items: EdgeOfficialCountSummary[] }>(
       "/api/v1/dc/official-counts",
       { signal },

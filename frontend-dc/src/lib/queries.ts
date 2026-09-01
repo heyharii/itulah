@@ -1,6 +1,6 @@
 import { useQueries } from "@tanstack/react-query"
 
-import { dc, pools } from "@/lib/api"
+import { dc, poolsAnswer } from "@/lib/api"
 import type { ListFilter } from "@itulah/contract/client"
 
 /// A key that changes whenever a request's answer could change.
@@ -15,11 +15,13 @@ export const keys = {
   verifyQueue: () => ["dc", "purchase-counts"] as const,
 
   taggingJobs: () => ["dc", "tagging-jobs"] as const,
-  printSession: (sessionId: string) => ["dc", "print-session", sessionId] as const,
+  printSession: (sessionId: string) =>
+    ["dc", "print-session", sessionId] as const,
 
   picklist: () => ["dc", "picklist"] as const,
   pickSessions: () => ["dc", "pick-sessions"] as const,
-  pickSession: (sessionId: string) => ["dc", "pick-session", sessionId] as const,
+  pickSession: (sessionId: string) =>
+    ["dc", "pick-session", sessionId] as const,
 
   packingSessions: () => ["dc", "packing-sessions"] as const,
   packingSession: (sessionId: string) =>
@@ -30,13 +32,16 @@ export const keys = {
 
   shipments: (filter: ListFilter = {}) => ["dc", "shipments", filter] as const,
   shipment: (shipmentId: string) => ["dc", "shipment", shipmentId] as const,
-  dispatches: (filter: ListFilter = {}) => ["dc", "dispatches", filter] as const,
+  dispatches: (filter: ListFilter = {}) =>
+    ["dc", "dispatches", filter] as const,
   dispatch: (dispatchId: string) => ["dc", "dispatch", dispatchId] as const,
 
   officialCounts: () => ["dc", "official-counts"] as const,
-  officialCount: (countId: string) => ["dc", "official-count", countId] as const,
+  officialCount: (countId: string) =>
+    ["dc", "official-count", countId] as const,
 
   pools: () => ["inventory", "pools"] as const,
+  movements: () => ["inventory", "movements"] as const,
 } as const
 
 /// How often the nav re-asks. Work arrives from head office and from the other
@@ -68,57 +73,75 @@ export interface OperationCounts {
   readonly onYard: number
   /// Counts activated by the centre and not yet submitted.
   readonly openCounts: number
+  /// Pieces known to exist and not found where they should be. Not a queue —
+  /// nobody works a list of them — but the one number on this node that means
+  /// something is wrong rather than merely unfinished.
+  readonly missing: number
 }
 
 export function useOperationCounts(): OperationCounts {
   // Written out rather than mapped over a list: `useQueries` infers one result
   // type per entry, and running the entries through `.map` collapses them into
   // a union that no longer knows which query answered what.
-  const [receipts, verify, tagging, picklist, koli, shipments, dispatches, counts] =
-    useQueries({
-      queries: [
-        {
-          queryKey: keys.receipts(),
-          queryFn: () => dc.goodsReceipts(),
-          refetchInterval: QUEUE_POLL_MS,
-        },
-        {
-          queryKey: keys.verifyQueue(),
-          queryFn: () => dc.countsAwaitingVerification(),
-          refetchInterval: QUEUE_POLL_MS,
-        },
-        {
-          queryKey: keys.taggingJobs(),
-          queryFn: () => dc.taggingJobs(),
-          refetchInterval: QUEUE_POLL_MS,
-        },
-        {
-          queryKey: keys.picklist(),
-          queryFn: () => dc.picklist(),
-          refetchInterval: QUEUE_POLL_MS,
-        },
-        {
-          queryKey: keys.koli(),
-          queryFn: () => dc.koli(),
-          refetchInterval: QUEUE_POLL_MS,
-        },
-        {
-          queryKey: keys.shipments({ unassigned: true }),
-          queryFn: () => dc.shipments({ unassigned: true }),
-          refetchInterval: QUEUE_POLL_MS,
-        },
-        {
-          queryKey: keys.dispatches({ ready: true }),
-          queryFn: () => dc.dispatches({ ready: true }),
-          refetchInterval: QUEUE_POLL_MS,
-        },
-        {
-          queryKey: keys.officialCounts(),
-          queryFn: () => dc.officialCounts(),
-          refetchInterval: QUEUE_POLL_MS,
-        },
-      ],
-    })
+  const [
+    receipts,
+    verify,
+    tagging,
+    picklist,
+    koli,
+    shipments,
+    dispatches,
+    counts,
+    owned,
+  ] = useQueries({
+    queries: [
+      {
+        queryKey: keys.receipts(),
+        queryFn: () => dc.goodsReceipts(),
+        refetchInterval: QUEUE_POLL_MS,
+      },
+      {
+        queryKey: keys.verifyQueue(),
+        queryFn: () => dc.countsAwaitingVerification(),
+        refetchInterval: QUEUE_POLL_MS,
+      },
+      {
+        queryKey: keys.taggingJobs(),
+        queryFn: () => dc.taggingJobs(),
+        refetchInterval: QUEUE_POLL_MS,
+      },
+      {
+        queryKey: keys.picklist(),
+        queryFn: () => dc.picklist(),
+        refetchInterval: QUEUE_POLL_MS,
+      },
+      {
+        queryKey: keys.koli(),
+        queryFn: () => dc.koli(),
+        refetchInterval: QUEUE_POLL_MS,
+      },
+      {
+        queryKey: keys.shipments({ unassigned: true }),
+        queryFn: () => dc.shipments({ unassigned: true }),
+        refetchInterval: QUEUE_POLL_MS,
+      },
+      {
+        queryKey: keys.dispatches({ ready: true }),
+        queryFn: () => dc.dispatches({ ready: true }),
+        refetchInterval: QUEUE_POLL_MS,
+      },
+      {
+        queryKey: keys.officialCounts(),
+        queryFn: () => dc.officialCounts(),
+        refetchInterval: QUEUE_POLL_MS,
+      },
+      {
+        queryKey: keys.pools(),
+        queryFn: () => poolsAnswer(),
+        refetchInterval: QUEUE_POLL_MS,
+      },
+    ],
+  })
 
   const lines = picklist.data ?? []
   const boxes = koli.data ?? []
@@ -131,15 +154,22 @@ export function useOperationCounts(): OperationCounts {
     picklistUnits: lines.reduce((total, line) => total + line.outstanding, 0),
     unsealedKoli: boxes.filter((box) => box.sealed_at === null).length,
     // Sealed and unclaimed: the pile a supervisor builds a consignment from.
-    loose: boxes.filter((box) => box.sealed_at !== null && box.shipment_id === null)
-      .length,
+    loose: boxes.filter(
+      (box) => box.sealed_at !== null && box.shipment_id === null
+    ).length,
     unshipped: shipments.data?.length ?? 0,
     onYard: dispatches.data?.length ?? 0,
     // A count is the warehouse's business until it has been submitted; what
     // happens to it afterwards is decided at the centre.
-    openCounts: (counts.data ?? []).filter((count) => count.submitted_at === null)
-      .length,
+    openCounts: (counts.data ?? []).filter(
+      (count) => count.submitted_at === null
+    ).length,
+    // Leaves only. The rollups are sums of the pools under them, so counting
+    // both would report every missing piece twice.
+    missing: (owned.data?.items ?? [])
+      .filter((pool) => pool.is_rollup === false)
+      .reduce((total, pool) => total + pool.missing, 0),
   }
 }
 
-export { pools }
+export { poolsAnswer }

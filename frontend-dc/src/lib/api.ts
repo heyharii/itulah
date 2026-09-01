@@ -24,15 +24,37 @@ export interface PoolRow {
   readonly group: string
   readonly pool_code: string
   readonly label: string
+  readonly display_order: number
+  /// True for the five outbound stage totals the node adds up itself. They
+  /// double-count the leaves under them, so a screen that summed both would
+  /// report twice the stock this DC holds.
   readonly is_rollup: boolean
+  readonly outbound_stage: string | null
+  readonly destination_store_id: string | null
   readonly stock: number
+  readonly allotted: number | null
   readonly on_hand: number
   readonly missing: number
 }
 
-export async function pools(signal?: AbortSignal): Promise<PoolRow[]> {
-  const body = await node.get<{ items: PoolRow[] }>("/api/v1/inventory/pools", {
-    signal,
-  })
-  return body.items
+/// The pools, and the equation the node says they add up to.
+///
+/// The sentence comes from the server rather than being written here: it is
+/// the node's own statement of what its numbers mean, and a screen that
+/// paraphrased it would be free to drift from the arithmetic underneath.
+export interface PoolsAnswer {
+  readonly as_of: string
+  readonly inventory_equation: string
+  readonly aggregation_policy: string
+  readonly items: PoolRow[]
+}
+
+/// One function rather than two, and deliberately.
+///
+/// There was briefly a second helper here that returned just the rows, and
+/// both were used as the query function under the same cache key — so whoever
+/// asked first decided the shape, and the other call site read `.filter` on an
+/// object. One key, one shape: callers that only want the rows say `.items`.
+export function poolsAnswer(signal?: AbortSignal): Promise<PoolsAnswer> {
+  return node.get<PoolsAnswer>("/api/v1/inventory/pools", { signal })
 }

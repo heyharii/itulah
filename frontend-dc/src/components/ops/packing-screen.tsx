@@ -69,9 +69,9 @@ export function PackingScreen() {
   const knownStores = useMemo(
     () =>
       Array.from(
-        new Set((boxes.data ?? []).map((box) => box.destination_store_id)),
+        new Set((boxes.data ?? []).map((box) => box.destination_store_id))
       ).sort(),
-    [boxes.data],
+    [boxes.data]
   )
 
   const refresh = () => {
@@ -129,14 +129,18 @@ export function PackingScreen() {
                   note: null,
                 })
                 setSessionId(opened.session_id)
-                void client.invalidateQueries({ queryKey: keys.packingSessions() })
+                void client.invalidateQueries({
+                  queryKey: keys.packingSessions(),
+                })
               })
             }
             onClose={(id) =>
               void action.run(async () => {
                 await dc.closePackingSession(id)
                 setSessionId(null)
-                void client.invalidateQueries({ queryKey: keys.packingSessions() })
+                void client.invalidateQueries({
+                  queryKey: keys.packingSessions(),
+                })
               })
             }
           >
@@ -156,7 +160,7 @@ export function PackingScreen() {
           <Problem error={action.error} />
 
           <Note>
-            <strong className="text-foreground font-medium">
+            <strong className="font-medium text-foreground">
               The destination is decided at the box, not at the rack.
             </strong>{" "}
             Each piece is attributed to the oldest allotment line still wanting
@@ -285,11 +289,7 @@ function FillBox({
       title="Fill a box"
       meta={epcs.length === 0 ? destination : `${epcs.length} scanned`}
     >
-      <ScanField
-        placeholder="Scan an EPC"
-        action="Add"
-        onSubmit={add}
-      />
+      <ScanField placeholder="Scan an EPC" action="Add" onSubmit={add} />
 
       {epcs.length > 0 && (
         <>
@@ -298,7 +298,7 @@ function FillBox({
               <button
                 key={epc}
                 type="button"
-                className="bg-muted hover:bg-destructive/12 hover:text-destructive rounded-full px-2.5 py-1 font-mono text-[11px]"
+                className="rounded-full bg-muted px-2.5 py-1 font-mono text-[11px] hover:bg-destructive/12 hover:text-destructive"
                 onClick={() =>
                   setEpcs((current) => current.filter((other) => other !== epc))
                 }
@@ -324,13 +324,14 @@ function FillBox({
       {packed !== null && (
         <div className="border-t px-4 py-3">
           <p className="mb-2 text-xs font-medium">
-            {units(packed.units.length)} pieces packed · {packed.stage.toLowerCase()}
+            {units(packed.units.length)} pieces packed ·{" "}
+            {packed.stage.toLowerCase()}
           </p>
           <ul className="flex flex-col gap-1">
             {packed.units.map((unit) => (
               <li
                 key={unit.epc}
-                className="text-muted-foreground flex justify-between gap-3 font-mono text-[11px]"
+                className="flex justify-between gap-3 font-mono text-[11px] text-muted-foreground"
               >
                 <span className="truncate">{unit.epc}</span>
                 <span className="shrink-0">
@@ -407,7 +408,7 @@ function Boxes({
               className="h-(--tap)"
               onClick={() =>
                 setOpenManifest((current) =>
-                  current === box.koli_id ? null : box.koli_id,
+                  current === box.koli_id ? null : box.koli_id
                 )
               }
             >
@@ -427,7 +428,7 @@ function Boxes({
                     dc.printKoliLabel(box.koli_id, {
                       printer_host: printer.host,
                       printer_port: printer.port,
-                    }),
+                    })
                   )
                 }}
               >
@@ -451,11 +452,11 @@ function Boxes({
           </div>
 
           {openManifest === box.koli_id && (
-            <div className="bg-muted/40 flex flex-col gap-3 px-4 py-3 sm:flex-row">
+            <div className="flex flex-col gap-3 bg-muted/40 px-4 py-3 sm:flex-row">
               {manifest.data !== undefined && (
                 <>
                   <div
-                    className="[&_svg]:h-28 [&_svg]:w-28 shrink-0"
+                    className="shrink-0 [&_svg]:h-28 [&_svg]:w-28"
                     aria-label={`QR for ${manifest.data.qr_payload}`}
                     dangerouslySetInnerHTML={{ __html: manifest.data.qr_svg }}
                   />
@@ -467,7 +468,7 @@ function Boxes({
                       {manifest.data.lines.map((line) => (
                         <li
                           key={`${line.sku_code}-${line.allotment_line_id}`}
-                          className="text-muted-foreground flex justify-between gap-3 font-mono text-[11px]"
+                          className="flex justify-between gap-3 font-mono text-[11px] text-muted-foreground"
                         >
                           <span className="truncate">{line.sku_code}</span>
                           <span className="shrink-0 tabular-nums">
@@ -480,7 +481,9 @@ function Boxes({
                 </>
               )}
               {manifest.isPending && (
-                <p className="text-muted-foreground text-xs">Reading the box…</p>
+                <p className="text-xs text-muted-foreground">
+                  Reading the box…
+                </p>
               )}
             </div>
           )}
@@ -530,7 +533,9 @@ function SweepBox({
         sku_code,
         target_qty: Number(quantity),
       }))
-      .filter((line) => Number.isInteger(line.target_qty) && line.target_qty > 0)
+      .filter(
+        (line) => Number.isInteger(line.target_qty) && line.target_qty > 0
+      )
     if (lines.length === 0) {
       return
     }
@@ -577,16 +582,16 @@ function SweepBox({
       {sessionId === null ? (
         <>
           {outstanding.data?.length === 0 && (
-            <ScreenState>
-              Nothing to target for this store yet.
-            </ScreenState>
+            <ScreenState>Nothing to target for this store yet.</ScreenState>
           )}
           {outstanding.data?.map((line) => (
             <div
               key={line.sku_code}
               className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
             >
-              <RowText code={line.sku_code}>{line.outstanding} can go now</RowText>
+              <RowText code={line.sku_code}>
+                {line.outstanding} can go now
+              </RowText>
               <Input
                 value={target[line.sku_code] ?? ""}
                 inputMode="numeric"
@@ -618,7 +623,7 @@ function SweepBox({
         <>
           {box.data?.target.map((line) => {
             const found = outcome?.lines.find(
-              (swept) => swept.sku_code === line.sku_code,
+              (swept) => swept.sku_code === line.sku_code
             )
             return (
               <Row key={line.sku_code}>
@@ -679,10 +684,11 @@ function SweepBox({
       {outcome !== null && !outcome.matched && (
         <div className="border-t px-4 py-3 text-xs">
           {outcome.unexpected.length > 0 && (
-            <p className="text-destructive mb-1">
+            <p className="mb-1 text-destructive">
               Not on this box&apos;s list:{" "}
-              {outcome.unexpected.map((line) => line.sku_code).join(", ")} — wrong
-              goods, caught before the lid closed rather than at the shop door.
+              {outcome.unexpected.map((line) => line.sku_code).join(", ")} —
+              wrong goods, caught before the lid closed rather than at the shop
+              door.
             </p>
           )}
           {outcome.unknown_epcs.length > 0 && (

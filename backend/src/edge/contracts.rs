@@ -137,6 +137,7 @@ impl From<MovementError> for EdgeError {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct IntakeRequest {
     pub epc: String,
     pub sku_code: String,
@@ -241,6 +242,7 @@ pub struct PackKoliRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CreateKoliShipmentRequest {
     pub shipment_reference: String,
     pub actor_id: String,
@@ -248,6 +250,7 @@ pub struct CreateKoliShipmentRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AdvanceKoliRequest {
     pub actor_id: String,
     pub idempotency_key: String,

@@ -10,6 +10,7 @@ import { PackingScreen } from "@/components/ops/packing-screen"
 import { PickingScreen } from "@/components/ops/picking-screen"
 import { ReceivingScreen } from "@/components/ops/receiving-screen"
 import { ShippingScreen } from "@/components/ops/shipping-screen"
+import { StockScreen } from "@/components/ops/stock-screen"
 import { TaggingScreen } from "@/components/ops/tagging-screen"
 import { WorkScreen } from "@/components/ops/work-screen"
 import { OutboxScreen } from "@/components/ops/outbox-screen"
@@ -23,7 +24,7 @@ import { TopBar } from "@/components/top-bar"
 /// back at the top of the queue every time that happened, and would make it
 /// impossible to send a colleague to the thing you are looking at.
 ///
-/// Routes are code-based: eight routes do not need a codegen step, and one
+/// Routes are code-based: nine routes do not need a codegen step, and one
 /// readable file is worth more here than the convention.
 const rootRoute = createRootRoute({
   component: () => (
@@ -69,6 +70,12 @@ const shippingRoute = createRoute({
   component: ShippingScreen,
 })
 
+const stockRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/stock",
+  component: StockScreen,
+})
+
 const countsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/counts",
@@ -88,6 +95,7 @@ const routeTree = rootRoute.addChildren([
   pickingRoute,
   packingRoute,
   shippingRoute,
+  stockRoute,
   countsRoute,
   outboxRoute,
 ])

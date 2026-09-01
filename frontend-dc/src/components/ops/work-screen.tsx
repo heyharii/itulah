@@ -58,6 +58,13 @@ export function WorkScreen() {
       detail: `${counts.loose} sealed boxes loose · ${counts.unshipped} consignments without a truck · ${counts.onYard} trucks on the yard`,
     },
     {
+      to: "/stock",
+      title: "Stock",
+      waiting: counts.missing,
+      unit: "missing",
+      detail: "Where everything is, and the ledger that says how it got there",
+    },
+    {
       to: "/counts",
       title: "Official counts",
       waiting: counts.openCounts,
@@ -82,11 +89,11 @@ export function WorkScreen() {
             <Link
               key={queue.to}
               to={queue.to}
-              className="hover:bg-accent/60 flex min-h-(--tap) items-center gap-3 border-b px-4 py-3 transition-colors last:border-b-0"
+              className="flex min-h-(--tap) items-center gap-3 border-b px-4 py-3 transition-colors last:border-b-0 hover:bg-accent/60"
             >
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">{queue.title}</span>
-                <span className="text-muted-foreground block truncate text-xs">
+                <span className="block truncate text-xs text-muted-foreground">
                   {queue.detail}
                 </span>
               </span>
@@ -94,31 +101,34 @@ export function WorkScreen() {
                 <span className="block font-mono text-lg leading-tight font-medium tabular-nums">
                   {units(queue.waiting)}
                 </span>
-                <span className="text-muted-foreground block text-[10.5px]">
+                <span className="block text-[10.5px] text-muted-foreground">
                   {queue.unit}
                 </span>
               </span>
-              <ChevronRightIcon className="text-muted-foreground size-4 shrink-0" />
+              <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />
             </Link>
           ))}
         </Panel>
 
         <Note>
-          <strong className="text-foreground font-medium">
+          <strong className="font-medium text-foreground">
             Nobody authors these lists.
           </strong>{" "}
-          The picklist is recomputed on every read from allotments that have come
-          down from head office; the receiving queue is what this DC still owes a
-          supplier delivery against. What a person decides is the allotment and the
-          order — at the centre — not the queue, here.
+          The picklist is recomputed on every read from allotments that have
+          come down from head office; the receiving queue is what this DC still
+          owes a supplier delivery against. What a person decides is the
+          allotment and the order — at the centre — not the queue, here.
         </Note>
 
         <Note>
-          This node keeps working with the line down. What it has written and not
-          yet sent is in the <Link to="/outbox" className="underline">outbox</Link>{" "}
-          — worth a glance at the end of a shift, because a warehouse that traded
-          all day with nothing leaving the building looks exactly like one with
-          nothing to send.
+          This node keeps working with the line down. What it has written and
+          not yet sent is in the{" "}
+          <Link to="/outbox" className="underline">
+            outbox
+          </Link>{" "}
+          — worth a glance at the end of a shift, because a warehouse that
+          traded all day with nothing leaving the building looks exactly like
+          one with nothing to send.
         </Note>
       </ScreenBody>
     </>

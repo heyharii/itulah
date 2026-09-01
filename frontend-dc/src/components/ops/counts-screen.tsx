@@ -46,7 +46,9 @@ export function CountsScreen() {
     queryFn: ({ signal }) => dc.officialCounts(signal),
   })
 
-  const open = (counts.data ?? []).filter((count) => count.submitted_at === null)
+  const open = (counts.data ?? []).filter(
+    (count) => count.submitted_at === null
+  )
 
   return (
     <>
@@ -58,7 +60,9 @@ export function CountsScreen() {
         <Panel title="Sheets" meta={`${counts.data?.length ?? 0} total`}>
           {counts.isPending && <ScreenState>Reading the sheets…</ScreenState>}
           {counts.isError && (
-            <ScreenState tone="problem">{(counts.error as Error).message}</ScreenState>
+            <ScreenState tone="problem">
+              {(counts.error as Error).message}
+            </ScreenState>
           )}
           {counts.data?.length === 0 && (
             <ScreenState>
@@ -155,7 +159,8 @@ function CountSheet({ countId }: { countId: string }) {
       void client.invalidateQueries({ queryKey: ["dc"] })
     })
 
-  const ready = entries.length > 0 && entries.every((entry) => entry.sku_code !== "")
+  const ready =
+    entries.length > 0 && entries.every((entry) => entry.sku_code !== "")
 
   return (
     <div className="flex flex-col gap-4">
@@ -188,7 +193,11 @@ function CountSheet({ countId }: { countId: string }) {
       {!submitted && (
         <Panel
           title="Count"
-          meta={entries.length === 0 ? "nothing scanned" : `${entries.length} scanned`}
+          meta={
+            entries.length === 0
+              ? "nothing scanned"
+              : `${entries.length} scanned`
+          }
         >
           <ScanField placeholder="Scan an EPC" action="Add" onSubmit={scan} />
 
@@ -198,7 +207,9 @@ function CountSheet({ countId }: { countId: string }) {
               className="flex flex-wrap items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
             >
               <RowText code={entry.epc}>
-                {entry.sku_code === "" ? "not on this sheet — say what it is" : "on the sheet"}
+                {entry.sku_code === ""
+                  ? "not on this sheet — say what it is"
+                  : "on the sheet"}
               </RowText>
               {entry.sku_code === "" ? (
                 <Input
@@ -209,8 +220,8 @@ function CountSheet({ countId }: { countId: string }) {
                       current.map((other, other_index) =>
                         other_index === index
                           ? { ...other, sku_code: event.target.value.trim() }
-                          : other,
-                      ),
+                          : other
+                      )
                     )
                   }
                 />
@@ -222,7 +233,7 @@ function CountSheet({ countId }: { countId: string }) {
                 className="h-(--tap)"
                 onClick={() =>
                   setEntries((current) =>
-                    current.filter((other) => other.epc !== entry.epc),
+                    current.filter((other) => other.epc !== entry.epc)
                   )
                 }
               >
@@ -253,7 +264,11 @@ function CountSheet({ countId }: { countId: string }) {
         {lines.map((line) => (
           <Row key={line.epc}>
             <RowText code={line.epc}>{line.sku_code}</RowText>
-            <RowNumber value={units(line.expected_quantity)} label="expected" tone="muted" />
+            <RowNumber
+              value={units(line.expected_quantity)}
+              label="expected"
+              tone="muted"
+            />
             <RowNumber
               value={units(line.found_quantity)}
               label="found"
@@ -266,9 +281,9 @@ function CountSheet({ countId }: { countId: string }) {
       {!submitted && (
         <Panel title="Submit">
           <div className="flex flex-col gap-3 px-4 py-4">
-            <p className="text-muted-foreground text-xs">
-              Submitting closes the counting and sends the result to head office.
-              What happens to the difference is decided there.
+            <p className="text-xs text-muted-foreground">
+              Submitting closes the counting and sends the result to head
+              office. What happens to the difference is decided there.
             </p>
             <ConfirmButton
               label="Submit this count"
@@ -277,9 +292,9 @@ function CountSheet({ countId }: { countId: string }) {
               title="Submit the count"
               description={
                 <>
-                  The counting stops here and the sheet goes to head office as it
-                  stands. A difference becomes an adjustment only once somebody
-                  there approves it — nothing on this node writes that.
+                  The counting stops here and the sheet goes to head office as
+                  it stands. A difference becomes an adjustment only once
+                  somebody there approves it — nothing on this node writes that.
                 </>
               }
               confirmLabel="Submit"
@@ -290,9 +305,9 @@ function CountSheet({ countId }: { countId: string }) {
       )}
 
       <Note>
-        A count is executed at the edge and approved at the centre, and those are
-        two different people&apos;s jobs on purpose. This node can say what it
-        found; it cannot decide what that means.
+        A count is executed at the edge and approved at the centre, and those
+        are two different people&apos;s jobs on purpose. This node can say what
+        it found; it cannot decide what that means.
       </Note>
     </div>
   )

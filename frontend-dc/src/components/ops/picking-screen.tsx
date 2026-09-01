@@ -11,10 +11,16 @@ import {
   SessionBar,
 } from "@/components/ops/parts"
 import { useAction } from "@/lib/action"
-import { Note, ScreenBody, ScreenHeader, ScreenState, Stat } from "@/components/shell"
+import {
+  Note,
+  ScreenBody,
+  ScreenHeader,
+  ScreenState,
+  Stat,
+} from "@/components/shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { dc, pools } from "@/lib/api"
+import { dc, poolsAnswer } from "@/lib/api"
 import { units } from "@/lib/format"
 import { keys } from "@/lib/queries"
 import { useActor } from "@/lib/session"
@@ -52,13 +58,16 @@ export function PickingScreen() {
     enabled: sessionId !== null,
   })
 
-  const owned = useQuery({ queryKey: keys.pools(), queryFn: ({ signal }) => pools(signal) })
+  const owned = useQuery({
+    queryKey: keys.pools(),
+    queryFn: ({ signal }) => poolsAnswer(signal),
+  })
 
   // Stock comes off a rack, and the rack is a pool this node owns. Offered as
   // a choice rather than guessed from the site id: composing a pool id in the
   // browser would be inventing a wire format nobody asked it to know.
-  const racks = (owned.data ?? []).filter(
-    (pool) => pool.is_rollup === false && pool.group === "WAREHOUSE",
+  const racks = (owned.data?.items ?? []).filter(
+    (pool) => pool.is_rollup === false && pool.group === "WAREHOUSE"
   )
   const source = poolId ?? racks[0]?.id ?? null
 
@@ -80,7 +89,7 @@ export function PickingScreen() {
         actor_id: actor,
         idempotency_key: idempotencyKey(),
         pick_session_id: sessionId,
-      }),
+      })
     )
     if (done) {
       setQuantities((current) => ({ ...current, [skuCode]: "" }))
@@ -90,7 +99,7 @@ export function PickingScreen() {
 
   const outstanding = (picklist.data ?? []).reduce(
     (total, line) => total + line.outstanding,
-    0,
+    0
   )
 
   return (
@@ -122,7 +131,9 @@ export function PickingScreen() {
               )
             }
           >
-            {picklist.isPending && <ScreenState>Working out what is owed…</ScreenState>}
+            {picklist.isPending && (
+              <ScreenState>Working out what is owed…</ScreenState>
+            )}
             {picklist.isError && (
               <ScreenState tone="problem">
                 {(picklist.error as Error).message}
@@ -159,7 +170,10 @@ export function PickingScreen() {
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault()
-                      void take(line.sku_code, Number(quantities[line.sku_code]))
+                      void take(
+                        line.sku_code,
+                        Number(quantities[line.sku_code])
+                      )
                     }
                   }}
                 />
@@ -169,7 +183,7 @@ export function PickingScreen() {
                   onClick={() =>
                     void take(
                       line.sku_code,
-                      Number(quantities[line.sku_code] ?? line.outstanding),
+                      Number(quantities[line.sku_code] ?? line.outstanding)
                     )
                   }
                 >
@@ -188,7 +202,7 @@ export function PickingScreen() {
           </Panel>
 
           <Note>
-            <strong className="text-foreground font-medium">
+            <strong className="font-medium text-foreground">
               Nobody writes this list.
             </strong>{" "}
             It is recomputed every time it is read: what each allotment line
@@ -231,7 +245,10 @@ export function PickingScreen() {
           </SessionBar>
 
           {sessionId !== null && (summary.data?.lines.length ?? 0) > 0 && (
-            <Panel title="This round" meta={`${summary.data?.lines.length} racks`}>
+            <Panel
+              title="This round"
+              meta={`${summary.data?.lines.length} racks`}
+            >
               {summary.data?.lines.map((line) => (
                 <Row key={line.sku_code}>
                   <RowText code={line.sku_code}>

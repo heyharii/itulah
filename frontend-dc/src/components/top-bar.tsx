@@ -42,10 +42,10 @@ export function TopBar() {
   const health = status.data === undefined ? null : syncHealth(status.data)
 
   return (
-    <header className="bg-background/92 sticky top-0 z-30 flex items-center gap-3 border-b px-4 py-2.5 backdrop-blur sm:px-6">
+    <header className="sticky top-0 z-30 flex items-center gap-3 border-b bg-background/92 px-4 py-2.5 backdrop-blur sm:px-6">
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{identity.display_name}</p>
-        <p className="text-muted-foreground truncate text-[11px]">
+        <p className="truncate text-[11px] text-muted-foreground">
           {identity.username} · {identity.role}
           {node === null ? "" : ` · ${node.node_id}`}
         </p>
@@ -53,7 +53,7 @@ export function TopBar() {
 
       <div className="ml-auto flex shrink-0 items-center gap-2">
         {health !== null && (
-          <span className="text-muted-foreground hidden items-center gap-1.5 text-[11px] sm:flex">
+          <span className="hidden items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
             <span className={cn("size-2 rounded-full", OUTBOX_TONE[health])} />
             {status.data !== undefined && status.data.pending_facts > 0
               ? `${status.data.pending_facts} ${OUTBOX_WORD[health]}`

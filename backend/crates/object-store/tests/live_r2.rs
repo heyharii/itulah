@@ -67,15 +67,19 @@ async fn put_head_get_presign_delete_round_trip() {
     println!("delete ok — gone");
 }
 
-/// The catalogue upload that already ran should be readable through this
-/// client, which is a stronger check than a key we just wrote ourselves.
+/// An object this client did not write should be readable through it, which is
+/// a stronger check than a key we put there ourselves a moment ago.
+///
+/// The supplier prefix, not the catalogue one: `catalogue/` is keyed by our own
+/// article codes and stays empty until articles exist, while `supplier/hm/`
+/// holds the imported photographs under the supplier's own numbering.
 #[tokio::test]
 #[ignore = "needs R2 credentials and network"]
 async fn reads_an_uploaded_catalogue_image() {
     let Some(store) = store_from_env() else {
         panic!("set the R2_* environment variables");
     };
-    let key = "catalogue/0108775015.jpg";
+    let key = "supplier/hm/0108775015.jpg";
     let meta = store
         .head(key)
         .await
