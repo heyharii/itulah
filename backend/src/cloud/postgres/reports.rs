@@ -10,12 +10,11 @@
 //! at a configurable UTC offset; nothing here writes.
 
 use crate::cloud::application::{AppError, DailyReportQuery, SalesSeriesQuery, SalesWindowQuery};
-use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
+use crate::reporting::{buckets_between, offset_of, Bucket, DEFAULT_UTC_OFFSET_MINUTES};
+use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
-
-const DEFAULT_UTC_OFFSET_MINUTES: i32 = 7 * 60; // WIB
 
 pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Result<Value, AppError> {
     let site_id = query.site_id.trim().to_ascii_lowercase();
@@ -161,99 +160,6 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
 
 // ---- The fleet, over a span --------------------------------------------
 
-/// Which bucket a day falls into, and how to name the buckets of a span.
-///
-/// A closed set rather than a string passed to `date_trunc`: the parameter
-/// arrives from a query string, and `date_trunc` accepts field names —
-/// `century`, `microseconds` — that would produce a technically valid report
-/// nobody asked for and an axis the caller cannot label.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Bucket {
-    Day,
-    Week,
-    Month,
-}
-
-impl Bucket {
-    fn parse(raw: Option<&str>) -> Result<Self, AppError> {
-        match raw.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
-            None | Some("") | Some("day") => Ok(Self::Day),
-            Some("week") => Ok(Self::Week),
-            Some("month") => Ok(Self::Month),
-            Some(other) => Err(AppError::Validation(format!(
-                "bucket must be day, week or month, not {other:?}"
-            ))),
-        }
-    }
-
-    /// The `date_trunc` field this bucket is. `week` is ISO, so a week is
-    /// named by its Monday.
-    fn field(self) -> &'static str {
-        match self {
-            Self::Day => "day",
-            Self::Week => "week",
-            Self::Month => "month",
-        }
-    }
-
-    fn label(self) -> &'static str {
-        self.field()
-    }
-
-    /// The bucket a local date belongs to, named by the date the bucket starts.
-    fn start_of(self, date: NaiveDate) -> NaiveDate {
-        match self {
-            Self::Day => date,
-            // ISO weeks start on Monday, which is what `date_trunc('week')`
-            // does; the two have to agree or the axis would not line up with
-            // the cells.
-            Self::Week => date - Duration::days(i64::from(date.weekday().num_days_from_monday())),
-            Self::Month => NaiveDate::from_ymd_opt(date.year(), date.month(), 1).unwrap_or(date),
-        }
-    }
-
-    fn next(self, start: NaiveDate) -> NaiveDate {
-        match self {
-            Self::Day => start + Duration::days(1),
-            Self::Week => start + Duration::days(7),
-            Self::Month => {
-                let (year, month) = if start.month() == 12 {
-                    (start.year() + 1, 1)
-                } else {
-                    (start.year(), start.month() + 1)
-                };
-                NaiveDate::from_ymd_opt(year, month, 1).unwrap_or(start + Duration::days(31))
-            }
-        }
-    }
-}
-
-/// The span's local dates, as the UTC instants they begin and end at.
-///
-/// `to` is inclusive — a reader asking for the first to the thirtieth means
-/// the thirtieth — so the exclusive end is midnight after it.
-fn window_of(
-    from: NaiveDate,
-    to: NaiveDate,
-    offset_minutes: i32,
-) -> Result<(DateTime<Utc>, DateTime<Utc>), AppError> {
-    if to < from {
-        return Err(AppError::Validation(format!(
-            "the span ends before it starts: {from} to {to}"
-        )));
-    }
-    let shift = Duration::minutes(i64::from(offset_minutes));
-    let start = Utc.from_utc_datetime(&(from.and_time(NaiveTime::MIN) - shift));
-    let end = Utc.from_utc_datetime(&((to + Duration::days(1)).and_time(NaiveTime::MIN) - shift));
-    Ok((start, end))
-}
-
-fn offset_of(minutes: Option<i32>) -> i32 {
-    minutes
-        .unwrap_or(DEFAULT_UTC_OFFSET_MINUTES)
-        .clamp(-14 * 60, 14 * 60)
-}
-
 /// Every shop's takings across a span, bucketed.
 ///
 /// Two things are returned that a caller could in principle derive and would
@@ -266,9 +172,10 @@ fn offset_of(minutes: Option<i32>) -> i32 {
 /// Only COMPLETED sales count. An open sale is a till mid-transaction and a
 /// voided one is a sale that did not happen; neither is takings.
 pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Value, AppError> {
-    let bucket = Bucket::parse(query.bucket.as_deref())?;
+    let bucket = Bucket::parse(query.bucket.as_deref()).map_err(AppError::Validation)?;
     let offset_minutes = offset_of(query.utc_offset_minutes);
-    let (start, end) = window_of(query.from, query.to, offset_minutes)?;
+    let (start, end) = crate::reporting::window_of(query.from, query.to, offset_minutes)
+        .map_err(AppError::Validation)?;
 
     // The shops the chart has rows for: every store, plus anything that
     // actually sold in the span. The second half is not paranoia — a site
@@ -302,7 +209,7 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
          FROM sale s \
          WHERE s.status='COMPLETED' AND s.completed_at >= $1 AND s.completed_at < $2 \
          GROUP BY 1,2 ORDER BY 2,1",
-        field = bucket.field(),
+        field = bucket.label(),
     ))
     .bind(start)
     .bind(end)
@@ -310,14 +217,7 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
     .fetch_all(pool)
     .await?;
 
-    // The axis, built from the span rather than from the rows, so an empty
-    // bucket is a gap in the chart and not a missing column.
-    let mut buckets: Vec<NaiveDate> = Vec::new();
-    let mut cursor = bucket.start_of(query.from);
-    while cursor <= query.to {
-        buckets.push(cursor);
-        cursor = bucket.next(cursor);
-    }
+    let buckets = buckets_between(bucket, query.from, query.to);
 
     Ok(json!({
         "from": query.from,
@@ -362,7 +262,8 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
         .ok_or_else(|| AppError::NotFound("site".into()))?;
 
     let offset_minutes = offset_of(query.utc_offset_minutes);
-    let (start, end) = window_of(query.from, query.to, offset_minutes)?;
+    let (start, end) = crate::reporting::window_of(query.from, query.to, offset_minutes)
+        .map_err(AppError::Validation)?;
     let limit = query.limit.unwrap_or(200).clamp(1, 1000);
 
     let sales = sqlx::query(

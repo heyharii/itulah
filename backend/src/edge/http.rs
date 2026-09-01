@@ -270,6 +270,8 @@ pub fn store_router_with_sync(
         .route("/api/v1/store/movements", post(move_stock))
         .route("/api/v1/store/sales", post(store_sale))
         .route("/api/v1/store/catalog", get(store_catalog))
+        .route("/api/v1/store/reports/sales/series", get(store_sales_series))
+        .route("/api/v1/store/reports/sales/window", get(store_sales_window))
         .fallback_service(ServeDir::new(frontend_dir).append_index_html_on_directories(true))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -1109,6 +1111,33 @@ async fn store_sale(
     }
     let result = run_blocking(move || state.inventory.complete_sale(request)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
+/// What this shop took, bucketed by day, week or month.
+///
+/// Read from the shop's own SQLite, so it still answers when the link to the
+/// centre is down. `InventoryRead` rather than a new permission: this is the
+/// shop's own trade, and anybody trusted to see its stock is trusted to see
+/// what it sold.
+async fn store_sales_series(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<crate::edge::reports::SalesSeriesQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let series = run_blocking(move || state.inventory.sales_series(query)).await?;
+    Ok(Json(serde_json::to_value(series)?))
+}
+
+/// One span of this shop's trade, down to the receipts.
+async fn store_sales_window(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<crate::edge::reports::SalesWindowQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let window = run_blocking(move || state.inventory.sales_window(query)).await?;
+    Ok(Json(serde_json::to_value(window)?))
 }
 
 /// This shop's sellable range, at this shop's prices.

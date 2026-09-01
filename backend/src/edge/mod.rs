@@ -7,6 +7,7 @@ pub mod http;
 pub mod outbound;
 pub mod pricing;
 pub mod printing;
+pub mod reports;
 pub mod rfid;
 pub mod sqlite;
 pub mod sync;

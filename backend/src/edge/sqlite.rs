@@ -3464,6 +3464,32 @@ impl EdgeInventory for SqliteEdge {
         )
     }
 
+    fn sales_series(
+        &self,
+        query: super::reports::SalesSeriesQuery,
+    ) -> Result<super::reports::SalesSeries, EdgeError> {
+        if self.node.role != EdgeRole::Store {
+            return Err(EdgeError::Forbidden(
+                "only a shop has takings; a DC does not sell".into(),
+            ));
+        }
+        let connection = self.lock()?;
+        super::reports::sales_series(&connection, self.node.site_id.as_str(), query)
+    }
+
+    fn sales_window(
+        &self,
+        query: super::reports::SalesWindowQuery,
+    ) -> Result<super::reports::SalesWindow, EdgeError> {
+        if self.node.role != EdgeRole::Store {
+            return Err(EdgeError::Forbidden(
+                "only a shop has takings; a DC does not sell".into(),
+            ));
+        }
+        let connection = self.lock()?;
+        super::reports::sales_window(&connection, self.node.site_id.as_str(), query)
+    }
+
     fn list_official_counts(&self) -> Result<Vec<EdgeOfficialCountSummary>, EdgeError> {
         if self.node.role != EdgeRole::Dc {
             return Err(EdgeError::Forbidden(
@@ -3654,7 +3680,7 @@ fn parse_uuid(value: &str) -> Result<Uuid, EdgeError> {
     Uuid::parse_str(value).map_err(|error| EdgeError::Persistence(error.to_string()))
 }
 
-fn db(error: rusqlite::Error) -> EdgeError {
+pub(super) fn db(error: rusqlite::Error) -> EdgeError {
     EdgeError::Persistence(error.to_string())
 }
 

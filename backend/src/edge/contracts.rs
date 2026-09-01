@@ -562,6 +562,21 @@ pub trait EdgeInventory: Send + Sync {
     /// Answered from the same evaluator the till uses, so the catalogue screen
     /// and the receipt cannot disagree.
     fn store_catalog(&self) -> Result<Vec<super::pricing::CatalogRow>, EdgeError>;
+    /// This shop's own takings over a span, bucketed by day, week or month.
+    ///
+    /// Answered from the shop's own SQLite so it keeps working when the link
+    /// to the centre is down — which is the whole reason an edge node exists.
+    /// The centre has the same report across every shop; this one is about the
+    /// shop it runs in and nothing else.
+    fn sales_series(
+        &self,
+        query: super::reports::SalesSeriesQuery,
+    ) -> Result<super::reports::SalesSeries, EdgeError>;
+    /// One span of this shop's trade, down to the receipts.
+    fn sales_window(
+        &self,
+        query: super::reports::SalesWindowQuery,
+    ) -> Result<super::reports::SalesWindow, EdgeError>;
     fn list_movements(&self, limit: usize) -> Result<Vec<MovementView>, EdgeError>;
     fn list_official_counts(&self) -> Result<Vec<EdgeOfficialCountSummary>, EdgeError>;
     fn official_count(&self, count_id: Uuid) -> Result<EdgeOfficialCountDetail, EdgeError>;
