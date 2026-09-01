@@ -17,6 +17,8 @@ data class Settings(
     val deviceKey: String = "",
     val pool: String = "",
     val operatorToken: String = "",
+    /** The shared reading session this handheld is helping with, if any. */
+    val sessionCode: String = "",
 ) {
     val isConfigured: Boolean
         get() = baseUrl.isNotBlank() && siteId.isNotBlank() &&
@@ -34,6 +36,7 @@ class ConfigStore(context: Context) {
         deviceKey = prefs.getString(K_KEY, "").orEmpty(),
         pool = prefs.getString(K_POOL, "").orEmpty(),
         operatorToken = prefs.getString(K_TOKEN, "").orEmpty(),
+        sessionCode = prefs.getString(K_SESSION, "").orEmpty(),
     )
 
     fun save(s: Settings) {
@@ -44,6 +47,7 @@ class ConfigStore(context: Context) {
             .putString(K_KEY, s.deviceKey.trim())
             .putString(K_POOL, s.pool.trim())
             .putString(K_TOKEN, s.operatorToken.trim())
+            .putString(K_SESSION, s.sessionCode.trim())
             .apply()
     }
 
@@ -51,5 +55,6 @@ class ConfigStore(context: Context) {
         const val K_URL = "base_url"; const val K_SITE = "site_id"
         const val K_DEV = "device_id"; const val K_KEY = "device_key"
         const val K_POOL = "pool"; const val K_TOKEN = "operator_token"
+        const val K_SESSION = "session_code"
     }
 }

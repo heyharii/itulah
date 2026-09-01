@@ -11,7 +11,7 @@ use crate::edge::{
     OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest, PickRequest, PickResult, Place,
     PoolBalance, PurchaseCountAwaitingVerification, PurchaseCountRequest, PurchaseCountResult,
     PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine,
-    CatalogIdentity, ReceiveRequest, RecordInvoiceRequest, SaleRequest, SaleResult, SegregationPolicy, SiteId,
+    CatalogIdentity, ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, SaleRequest, SaleResult, SegregationPolicy, SiteId,
     SiteKind, SubjectId, SystemPlace, TaggingConfirmRequest, TaggingConfirmResult, TaggingWorkJob,
     TaggingWorkLine,
 };
@@ -3174,6 +3174,152 @@ impl EdgeInventory for SqliteEdge {
             &tx,
             &request.idempotency_key,
             "STORE_RECEIVE",
+            &request_json,
+            &response,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(response)
+    }
+
+    fn receive_store_batch(
+        &self,
+        request: ReceiveBatchRequest,
+    ) -> Result<CommandResult, EdgeError> {
+        if self.node.role != EdgeRole::Store {
+            return Err(EdgeError::Forbidden(
+                "only Store Edge can receive Store stock".into(),
+            ));
+        }
+        if request.lines.is_empty() {
+            return Err(EdgeError::Validation("a delivery of nothing is not a delivery".into()));
+        }
+        const MAX_LINES: usize = 1000;
+        if request.lines.len() > MAX_LINES {
+            return Err(EdgeError::Validation(format!(
+                "receive at most {MAX_LINES} units per batch, not {}",
+                request.lines.len()
+            )));
+        }
+        if request
+            .source_dc_id
+            .as_ref()
+            .is_some_and(|source_dc_id| source_dc_id.kind() != SiteKind::Dc)
+        {
+            return Err(EdgeError::Validation(
+                "source_dc_id must identify a DC site".into(),
+            ));
+        }
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+
+        // Normalise and reject duplicates BEFORE opening the transaction: one
+        // EPC twice in a sweep is a double read, and receiving it twice would
+        // put two units of one garment on the shelf. Validating here rather
+        // than inside the write also means a malformed line never takes the
+        // immediate lock away from a till trying to sell something.
+        //
+        // A tag the shop has ALREADY received fails the whole batch, by design.
+        // The delivery is one event, so it commits as one; and a garment that
+        // is already on the shelf cannot arrive again. The error names the EPC
+        // so the receiver can lift that one tag out and re-sweep, which is a
+        // ten-second fix — quietly receiving the other forty-eight and leaving
+        // an unexplained gap is not.
+        let mut normalised = Vec::with_capacity(request.lines.len());
+        let mut seen = std::collections::BTreeSet::new();
+        for line in &request.lines {
+            let epc = Self::normalized_epc(&line.epc)?;
+            Self::validate_subject_fields(&line.sku_code, line.unit_price_minor)?;
+            if !seen.insert(epc.clone()) {
+                return Err(EdgeError::Validation(format!(
+                    "EPC {epc} appears twice in one delivery"
+                )));
+            }
+            normalised.push((epc, line.sku_code.clone(), line.unit_price_minor));
+        }
+
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) = Self::load_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "STORE_RECEIVE_BATCH",
+            &request_json,
+        )? {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+
+        let occurred_at = Utc::now();
+        let receipt_id = Uuid::new_v4();
+        let mut lines = Vec::with_capacity(normalised.len());
+        let mut subjects = Vec::with_capacity(normalised.len());
+        for (epc, sku_code, unit_price_minor) in normalised {
+            let subject = Self::insert_subject(&tx, &epc, &sku_code, unit_price_minor)?;
+            lines.push(MovementLine {
+                subject_id: subject.id,
+                quantity: 1,
+                from: Place::System {
+                    place: SystemPlace::Opening,
+                },
+                to: Place::Operational {
+                    pool: OperationalPool::StoreWarehouse {
+                        store_id: self.node.site_id.clone(),
+                    },
+                    state: InventoryState::Normal,
+                },
+            });
+            subjects.push(subject);
+        }
+
+        // One arrival, one movement group. The ledger reads the way the lorry
+        // actually turned up.
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines,
+            cause: MovementCause::StoreReceive,
+            reference_type: Some("STORE_RECEIPT".into()),
+            reference_id: Some(receipt_id.to_string()),
+            reason: "Physical receipt recorded locally at Store Edge".into(),
+            actor_id: request.actor_id.clone(),
+            occurred_at,
+        };
+        let response = self.append_command(&tx, &request.idempotency_key, &command)?;
+
+        for subject in &subjects {
+            let claim = TransferClaimPayload::new(
+                TransferClaimKind::Received,
+                request.source_dc_id.as_ref().map(ToString::to_string),
+                self.node.site_id.to_string(),
+                request.shipment_reference.clone(),
+                subject.epc.clone(),
+                subject.sku_code.clone(),
+                response.movement_group_id,
+                Some(receipt_id),
+                occurred_at,
+            )
+            .map_err(|error| EdgeError::Validation(error.to_string()))?;
+            tx.execute(
+                "INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    format!("{}:{}", request.idempotency_key, subject.epc),
+                    subject.id.to_string(),
+                    request.source_dc_id.as_ref().map(ToString::to_string),
+                    request.shipment_reference.as_deref(),
+                    response.movement_group_id.to_string(),
+                    time_text(occurred_at)
+                ],
+            )
+            .map_err(db)?;
+            Self::enqueue_transfer_claim(&tx, &claim)?;
+        }
+
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "STORE_RECEIVE_BATCH",
             &request_json,
             &response,
         )?;

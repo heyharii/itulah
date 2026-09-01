@@ -37,6 +37,25 @@ data class Identity(
 /** One product line of a sweep: what it is, and how many of it are here. */
 data class Grouped(val sku: String, val qty: Int, val identity: Identity?)
 
+/** One reader's contribution to a shared session. */
+data class Helper(val deviceId: String, val tagCount: Int)
+
+/**
+ * The combined state of a session several handhelds are working together.
+ *
+ * [tagCount] counts DISTINCT tags, not sightings: two readers sweeping the same
+ * shelf see the same garment, and that is one unit. Counting sightings would
+ * inflate the total by exactly the amount of help offered.
+ */
+data class SharedSession(
+    val code: String,
+    val tagCount: Int,
+    val sightingCount: Int,
+    val helpers: List<Helper>,
+    val epcs: List<String>,
+    val truncated: Boolean,
+)
+
 data class SweepState(
     val mode: Mode = Mode.SCAN,
     val sweeping: Boolean = false,
@@ -53,6 +72,9 @@ data class SweepState(
     val identities: Map<String, Identity> = emptyMap(),
     val resolving: Boolean = false,
     val resolveNote: String? = null,
+    val sessionCode: String = "",
+    val shared: SharedSession? = null,
+    val sharedNote: String? = null,
 )
 
 /**
@@ -83,9 +105,13 @@ class SweepViewModel(
     private val config: ConfigStore,
 ) : ViewModel() {
 
-    val state = MutableStateFlow(SweepState())
+    val state = MutableStateFlow(SweepState(sessionCode = config.load().sessionCode))
     private val collector = ConcurrentHashMap<String, Seen>()
     private var sessionId = UUID.randomUUID().toString()
+
+    /** The id every batch of this sweep is filed under — shared when joined. */
+    private fun currentSessionId(): String =
+        state.value.sessionCode.ifBlank { sessionId }
 
     private fun settings(): Settings = config.load()
 
@@ -179,6 +205,61 @@ class SweepViewModel(
                     it.copy(resolving = false,
                         resolveNote = "nama tak tersedia di node ini (${e.message})")
                 }
+            }
+        }
+    }
+
+    /**
+     * Join a session by name, or leave it.
+     *
+     * A shared session needs no coordinator and no lock — only agreement on a
+     * name. Each reader keeps signing its own batches under its own key; what
+     * makes them one count is that they all file under this string.
+     *
+     * The code is short and typable on purpose: it is read aloud across a
+     * warehouse floor, not copied between machines.
+     */
+    fun setSessionCode(code: String) {
+        val cleaned = code.trim().uppercase().filter { it.isLetterOrDigit() || it == '-' }.take(24)
+        config.save(config.load().copy(sessionCode = cleaned))
+        update { it.copy(sessionCode = cleaned, shared = null, sharedNote = null) }
+        if (cleaned.isNotBlank()) refreshShared()
+    }
+
+    fun newSessionCode() {
+        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  // no O/0, no I/1
+        val code = (1..6).map { alphabet.random() }.joinToString("")
+        setSessionCode("S-$code")
+    }
+
+    /** What everyone in this session has found so far. */
+    fun refreshShared() {
+        val settings = settings()
+        val code = state.value.sessionCode
+        if (!settings.isConfigured || code.isBlank()) return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val json = Api(settings).get("/api/v1/rfid/sessions/" + code)
+                    val devices = json.optJSONArray("devices") ?: org.json.JSONArray()
+                    val epcArray = json.optJSONArray("epcs") ?: org.json.JSONArray()
+                    SharedSession(
+                        code = code,
+                        tagCount = json.optInt("tag_count"),
+                        sightingCount = json.optInt("sighting_count"),
+                        helpers = (0 until devices.length()).map { i ->
+                            val row = devices.getJSONObject(i)
+                            Helper(row.optString("device_id"), row.optInt("tag_count"))
+                        },
+                        epcs = (0 until epcArray.length()).map { i -> epcArray.getString(i) },
+                        truncated = json.optBoolean("truncated"),
+                    )
+                }
+            }
+            result.onSuccess { session ->
+                update { it.copy(shared = session, sharedNote = null) }
+            }.onFailure { e ->
+                update { it.copy(sharedNote = e.message ?: "sesi tak terbaca") }
             }
         }
     }
@@ -285,6 +366,9 @@ class SweepViewModel(
                         (extra?.getOrNull()?.let { " · $it" } ?: "")
                     update { it.copy(busy = false, sweeping = false, failed = false,
                         message = text, lastReceipt = text) }
+                    // Everyone else in the session should see this within a
+                    // moment; the person who just swept should see it now.
+                    refreshShared()
                 }
             }
         }
@@ -314,22 +398,41 @@ class SweepViewModel(
 
     /** Each tag arrives at the shop as its own unit. */
     private fun receiving(api: Api, s: SweepState): String {
-        var ok = 0
-        var skipped = 0
+        // One delivery, one request, one movement group. Sending a POST per tag
+        // turned an arrival into fifty transactions over shop wifi — slow
+        // enough that operators stopped waiting for it, and wrong in the ledger
+        // besides, because the goods came off one lorry.
+        val lines = org.json.JSONArray()
+        var foreign = 0
         s.seen.forEach { seen ->
             val sku = seen.sku
-            if (sku == null) { skipped++; return@forEach }
-            val payload = JSONObject().apply {
-                put("epc", seen.epc)
-                put("sku_code", sku)
-                put("unit_price_minor", 0)
-                put("actor_id", "handheld")
-                put("idempotency_key", "hh-recv-" + seen.epc)
+            if (sku == null) {
+                foreign++
+                return@forEach
             }
-            runCatching { api.post("/api/v1/store/receive", payload) }
-                .onSuccess { ok++ }.onFailure { skipped++ }
+            lines.put(
+                JSONObject()
+                    .put("epc", seen.epc)
+                    .put("sku_code", sku)
+                    .put("unit_price_minor", 0),
+            )
         }
-        return "$ok diterima" + if (skipped > 0) ", $skipped dilewati" else ""
+        if (lines.length() == 0) {
+            throw IllegalStateException("tak ada tag ber-SKU kita di sapuan ini")
+        }
+        val payload = JSONObject().apply {
+            put("lines", lines)
+            put("actor_id", "handheld")
+            // Keyed by the sweep, so a retry after a lost response receives the
+            // same delivery once rather than twice.
+            put("idempotency_key", "hh-recv-" + currentSessionId().take(40))
+        }
+        api.post("/api/v1/store/receive-batch", payload)
+        // A tag that is not ours is reported, never silently dropped: the
+        // difference between "not our merchandise" and "the server said no"
+        // is the difference between a shrug and an investigation.
+        return "${lines.length()} diterima" +
+            if (foreign > 0) ", $foreign bukan milik kita" else ""
     }
 
     /** Entries against an Official Count the centre already opened. */

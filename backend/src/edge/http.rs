@@ -7,7 +7,8 @@ use crate::edge::{
     EdgeAuthConfig, EdgeError, EdgeInventory, EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole,
     IntakeRequest, MoveRequest, NodeContext, OfficialCountEntriesRequest,
     OfficialCountSubmitRequest, OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest,
-    PickRequest, PoolBalance, PurchaseCountRequest, PurchaseVerifyRequest, ReceiveRequest,
+    PickRequest, PoolBalance, PurchaseCountRequest, PurchaseVerifyRequest, ReceiveBatchRequest,
+    ReceiveRequest,
     RecordInvoiceRequest, SaleRequest, TaggingConfirmRequest, RFID_OBSERVATION_PATH,
 };
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
@@ -267,6 +268,7 @@ pub fn store_router_with_sync(
     };
     Ok(common_router()
         .route("/api/v1/store/receive", post(store_receive))
+        .route("/api/v1/store/receive-batch", post(store_receive_batch))
         .route("/api/v1/store/movements", post(move_stock))
         .route("/api/v1/store/sales", post(store_sale))
         // Price a basket without selling it. POST because a basket is a body,
@@ -298,6 +300,8 @@ fn common_router() -> Router<EdgeState> {
         // in the common router because a DC needs to name what it is holding
         // even though it has no price book.
         .route("/api/v1/catalog/identities", get(catalog_identities))
+        // A shared reading session, readable by every handheld in it.
+        .route("/api/v1/rfid/sessions/{session_id}", get(rfid_session))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/me", get(me))
         .route("/api/v1/auth/logout", post(logout))
@@ -1102,6 +1106,19 @@ async fn store_receive(
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
 }
 
+/// Receive a whole sweep at once — see `ReceiveBatchRequest`.
+async fn store_receive_batch(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<ReceiveBatchRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreReceive)? {
+        request.actor_id = principal.username;
+    }
+    let result = run_blocking(move || state.inventory.receive_store_batch(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
 async fn move_stock(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
@@ -1465,6 +1482,23 @@ async fn catalog_identities(
 struct CatalogIdentityQuery {
     #[serde(default)]
     skus: String,
+}
+
+/// What one shared session has found so far, across every reader in it.
+///
+/// Open to any signed-in operator with inventory read: the people helping with
+/// a count need to see the same number, and a session is not a secret.
+async fn rfid_session(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let rfid = state.rfid.clone();
+    let summary = run_blocking(move || rfid.session(&session_id)).await?;
+    Ok(Json(serde_json::to_value(summary).map_err(|error| {
+        ApiError(EdgeError::Persistence(error.to_string()))
+    })?))
 }
 
 async fn rfid_observations(

@@ -173,6 +173,36 @@ pub struct CatalogIdentity {
     pub image_url: Option<String>,
 }
 
+/// One garment inside a delivery.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReceiveLine {
+    pub epc: String,
+    pub sku_code: String,
+    pub unit_price_minor: i64,
+}
+
+/// A whole delivery, received as the single event it actually is.
+///
+/// A handheld sweeping a pallet reads fifty tags in one pass. Sending fifty
+/// requests turns one arrival into fifty transactions, fifty movement groups
+/// and fifty round trips over shop wifi — slow enough that operators stop
+/// waiting for it, and wrong in the ledger besides: the goods came off one
+/// lorry, so they belong in one movement group. The lines travel together and
+/// commit together.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReceiveBatchRequest {
+    pub lines: Vec<ReceiveLine>,
+    #[serde(default)]
+    pub source_dc_id: Option<SiteId>,
+    #[serde(default)]
+    pub shipment_reference: Option<String>,
+    #[serde(default)]
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ReceiveRequest {
@@ -606,6 +636,12 @@ pub trait EdgeInventory: Send + Sync {
         request: AdvanceKoliRequest,
     ) -> Result<FulfillmentProgressResult, EdgeError>;
     fn receive_store(&self, request: ReceiveRequest) -> Result<CommandResult, EdgeError>;
+
+    /// Receive a whole delivery in one transaction — see [`ReceiveBatchRequest`].
+    fn receive_store_batch(
+        &self,
+        request: ReceiveBatchRequest,
+    ) -> Result<CommandResult, EdgeError>;
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError>;
     fn complete_sale(&self, request: SaleRequest) -> Result<SaleResult, EdgeError>;
     fn list_pools(&self) -> Result<Vec<PoolBalance>, EdgeError>;

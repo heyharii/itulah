@@ -43,6 +43,29 @@ carries `device_key` exactly once — then fill Setelan:
 One build serves both. Which node a handheld belongs to is a deployment fact,
 not a code fact.
 
+## Shared sessions
+
+More than one handheld can work the same count. They do not need a coordinator,
+a lock, or a leader — they need to agree on a **name**:
+
+```
+POST /api/v1/rfid/observations   { reader_session_id: "S-K7M2QP", ... }
+GET  /api/v1/rfid/sessions/S-K7M2QP
+```
+
+Each reader keeps signing its own batches under its own device key; what makes
+them one count is that they all file under that string. The union is a query,
+not a merge, so nothing has to be reconciled afterwards and a reader that drops
+off wifi mid-aisle simply contributes when it comes back.
+
+**Deduplication is by EPC, and it has to be.** Two people sweeping the same
+shelf see the same garment, and that is one unit. `tag_count` counts distinct
+tags; `sighting_count` counts every filing. Reporting the second as the answer
+would inflate every shared count by exactly the amount of help that was offered.
+
+Codes are short and typable (`S-K7M2QP`, no `O`/`0`, no `I`/`1`) because they
+are read aloud across a floor, not copied between machines.
+
 ## Two things that are deliberate
 
 **It is silent.** No beeper, no vibration, and no switch to turn them on. A

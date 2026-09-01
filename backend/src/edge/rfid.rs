@@ -65,6 +65,91 @@ impl EdgeRfid {
             .map_err(|_| EdgeError::Persistence("edge RFID connection is poisoned".into()))
     }
 
+    /// Read back one shared session. See [`RfidSessionSummary`].
+    pub fn session(&self, reader_session_id: &str) -> Result<RfidSessionSummary, EdgeError> {
+        let id = reader_session_id.trim();
+        if id.is_empty() || id.len() > 128 {
+            return Err(EdgeError::Validation(
+                "reader_session_id must be 1-128 characters".into(),
+            ));
+        }
+        const MAX_EPCS: usize = 2000;
+        let connection = self.lock()?;
+
+        let (tag_count, sighting_count, first, last): (i64, i64, Option<String>, Option<String>) =
+            connection
+                .query_row(
+                    "SELECT COUNT(DISTINCT epc), COUNT(*), MIN(first_seen_at), MAX(last_seen_at)
+                     FROM edge_observation_sighting WHERE reader_session_id=?1",
+                    params![id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .map_err(db)?;
+
+        let mut device_statement = connection
+            .prepare(
+                "SELECT device_id, COUNT(DISTINCT epc), MAX(last_seen_at)
+                 FROM edge_observation_sighting WHERE reader_session_id=?1
+                 GROUP BY device_id ORDER BY device_id",
+            )
+            .map_err(db)?;
+        let devices = device_statement
+            .query_map(params![id], |row| {
+                Ok(RfidSessionDevice {
+                    device_id: row.get(0)?,
+                    tag_count: row.get(1)?,
+                    last_seen_at: row.get(2)?,
+                })
+            })
+            .map_err(db)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db)?;
+        drop(device_statement);
+
+        let mut pool_statement = connection
+            .prepare(
+                "SELECT DISTINCT pool_id FROM edge_observation_sighting
+                 WHERE reader_session_id=?1 ORDER BY pool_id",
+            )
+            .map_err(db)?;
+        let pools = pool_statement
+            .query_map(params![id], |row| row.get::<_, String>(0))
+            .map_err(db)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db)?;
+        drop(pool_statement);
+
+        let mut epc_statement = connection
+            .prepare(
+                "SELECT DISTINCT epc FROM edge_observation_sighting
+                 WHERE reader_session_id=?1 ORDER BY epc LIMIT ?2",
+            )
+            .map_err(db)?;
+        let epcs = epc_statement
+            .query_map(params![id, (MAX_EPCS + 1) as i64], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(db)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db)?;
+        drop(epc_statement);
+        let truncated = epcs.len() > MAX_EPCS;
+
+        let site_id = self.node.site_id.to_string();
+        Ok(RfidSessionSummary {
+            reader_session_id: id.to_string(),
+            site_id,
+            tag_count,
+            sighting_count,
+            devices,
+            pools,
+            first_seen_at: first,
+            last_seen_at: last,
+            epcs: epcs.into_iter().take(MAX_EPCS).collect(),
+            truncated,
+        })
+    }
+
     pub fn ingest(
         &self,
         proof: DeviceProof,
@@ -300,6 +385,47 @@ pub fn derive_rfid_signing_key(device_key: &str) -> String {
     security::sha256_hex(device_key.trim())
 }
 
+/// What one shared reading session has found, across every handheld in it.
+///
+/// # Why a session is just a name
+///
+/// Two people counting one rack is the ordinary case, not the exotic one: a
+/// mezzanine takes an hour alone and twenty minutes with three readers. They do
+/// not need a coordinator, a lock, or a leader — they need to agree on a NAME,
+/// and the evidence log does the rest. Each device signs its own batches under
+/// its own key and files them against the shared `reader_session_id`; the union
+/// is a query, not a merge.
+///
+/// Deduplication is by EPC and it must be: two readers sweeping the same shelf
+/// see the same garment, and that is one unit, not two. Counting sightings
+/// instead of tags would inflate every shared count by exactly the amount of
+/// help that was offered.
+#[derive(Clone, Debug, Serialize)]
+pub struct RfidSessionSummary {
+    pub reader_session_id: String,
+    pub site_id: String,
+    /// Distinct tags — the honest count of things present.
+    pub tag_count: i64,
+    /// Every sighting filed, including the same tag seen by several readers.
+    pub sighting_count: i64,
+    pub devices: Vec<RfidSessionDevice>,
+    pub pools: Vec<String>,
+    pub first_seen_at: Option<String>,
+    pub last_seen_at: Option<String>,
+    /// The tags themselves, so a handheld can show the combined sweep. Capped;
+    /// `truncated` says when the caller is looking at part of it.
+    pub epcs: Vec<String>,
+    pub truncated: bool,
+}
+
+/// One reader's contribution, so the floor can see who has covered what.
+#[derive(Clone, Debug, Serialize)]
+pub struct RfidSessionDevice {
+    pub device_id: String,
+    pub tag_count: i64,
+    pub last_seen_at: Option<String>,
+}
+
 pub fn sign_rfid_request(
     signing_key_sha256: &str,
     device_id: &str,
@@ -478,6 +604,111 @@ mod tests {
                 &security::sha256_hex(body),
             ),
         }
+    }
+
+    /// Two readers, one session, one overlapping garment.
+    ///
+    /// This is the whole promise of a shared session: help does not inflate the
+    /// count. If this test ever goes green on `tag_count == 4` the floor will
+    /// be told there is more stock than there is, and the difference will look
+    /// exactly like a miscount nobody can explain.
+    #[test]
+    fn a_shared_session_counts_garments_not_sightings() {
+        let (edge, service, signing_key) = setup();
+        {
+            let shared_connection = edge.connection();
+            let connection = shared_connection
+                .lock()
+                .unwrap_or_else(|error| panic!("connection: {error}"));
+            connection
+                .execute(
+                    "INSERT INTO edge_rfid_device
+                         (device_id,label,auth_key_sha256,active,valid_until,last_sequence,
+                          policy_version,updated_at)
+                     VALUES('RFID-02','Second reader',?1,1,?2,0,1,?3)",
+                    params![
+                        signing_key,
+                        time_text(Utc::now() + Duration::days(1)),
+                        time_text(Utc::now()),
+                    ],
+                )
+                .unwrap_or_else(|error| panic!("second device: {error}"));
+            connection
+                .execute(
+                    "INSERT INTO edge_rfid_device_pool(device_id,pool_id)
+                     VALUES('RFID-02','store-07.floor')",
+                    [],
+                )
+                .unwrap_or_else(|error| panic!("second scope: {error}"));
+        }
+
+        fn sweep(key: &str, epcs: &[&str]) -> EdgeRfidObservationRequest {
+            EdgeRfidObservationRequest {
+                site_id: "store-07".into(),
+                pool: "store-07.floor".into(),
+                reader_session_id: "S-SHARED".into(),
+                observed_at: Utc::now(),
+                idempotency_key: key.into(),
+                observations: epcs
+                    .iter()
+                    .map(|epc| RfidRead {
+                        epc: (*epc).into(),
+                        antenna: None,
+                        rssi: Some(-50.0),
+                        phase: None,
+                        frequency: None,
+                        read_count: 1,
+                    })
+                    .collect(),
+            }
+        }
+
+        fn proof_for(device: &str, signing_key: &str, body: &[u8], sequence: i64) -> DeviceProof {
+            let timestamp = Utc::now().timestamp();
+            DeviceProof {
+                device_id: device.into(),
+                timestamp,
+                sequence,
+                signature: sign_rfid_request(
+                    signing_key,
+                    device,
+                    timestamp,
+                    sequence,
+                    &security::sha256_hex(body),
+                ),
+            }
+        }
+
+        // One reader takes the left of the aisle, the other the right, and they
+        // meet in the middle over EPCB.
+        let first = serde_json::to_vec(&sweep("batch-a", &["EPCA", "EPCB"]))
+            .unwrap_or_else(|error| panic!("first body: {error}"));
+        service
+            .ingest(proof_for("RFID-01", &signing_key, &first, 1), &first, None)
+            .unwrap_or_else(|error| panic!("first ingest: {error}"));
+
+        let second = serde_json::to_vec(&sweep("batch-b", &["EPCB", "EPCC"]))
+            .unwrap_or_else(|error| panic!("second body: {error}"));
+        service
+            .ingest(proof_for("RFID-02", &signing_key, &second, 1), &second, None)
+            .unwrap_or_else(|error| panic!("second ingest: {error}"));
+
+        let summary = service
+            .session("S-SHARED")
+            .unwrap_or_else(|error| panic!("session: {error}"));
+        assert_eq!(summary.tag_count, 3, "EPCB was seen twice but is one garment");
+        assert_eq!(summary.sighting_count, 4, "every filing is still on record");
+        assert_eq!(summary.devices.len(), 2);
+        assert_eq!(summary.epcs, vec!["EPCA", "EPCB", "EPCC"]);
+        assert!(!summary.truncated);
+
+        // A session nobody has swept is empty, not an error: the first reader
+        // to join asks before anyone has filed anything.
+        let empty = service
+            .session("S-NOBODY")
+            .unwrap_or_else(|error| panic!("empty session: {error}"));
+        assert_eq!(empty.tag_count, 0);
+        assert!(empty.devices.is_empty());
     }
 
     #[test]

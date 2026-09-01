@@ -39,6 +39,7 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState) {
             verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             HeroCount(state)
+            SessionCard(vm, state)
             ModeExtras(vm, state)
             if (state.seen.isNotEmpty()) {
                 val lines = state.grouped()
@@ -117,6 +118,86 @@ private fun HeroCount(state: SweepState) {
             Spacer(Modifier.height(Space.sm))
             Text(it, style = Type.caption,
                 color = if (state.failed) Destructive else Ink.text(.74f))
+        }
+    }
+}
+
+/**
+ * The shared session: a name several handhelds agree on, and the combined
+ * count that follows from it.
+ *
+ * The card shows the union first because that is the number the floor is
+ * working towards; this device's own contribution is a detail underneath it.
+ */
+@Composable
+private fun SessionCard(vm: SweepViewModel, state: SweepState) {
+    PlanetCard {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("Sesi bersama")
+            if (state.sessionCode.isNotBlank()) {
+                Text(state.sessionCode, style = Type.emphasis, color = Ink.text())
+            }
+        }
+        Spacer(Modifier.height(Space.sm))
+        if (state.sessionCode.isBlank()) {
+            Text(
+                "Sendirian. Buat sesi agar handheld lain bisa ikut menghitung " +
+                    "rak yang sama — tag yang sama terbaca dua reader tetap satu unit.",
+                style = Type.caption, color = Ink.text(.74f),
+            )
+            Spacer(Modifier.height(Space.sm))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                QuietButton("Buat sesi", onClick = vm::newSessionCode,
+                    modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(Space.sm))
+            // Held locally until submitted: joining on every keystroke would
+            // fire a lookup for "S", "S-", "S-K" and land the operator in a
+            // session named after half of what they meant to type.
+            var typed by remember { mutableStateOf("") }
+            OutlinedTextField(
+                value = typed,
+                onValueChange = { typed = it },
+                placeholder = { Text("atau ketik kode sesi", style = Type.body,
+                    color = Ink.text(.36f)) },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = ControlShape,
+            )
+            if (typed.isNotBlank()) {
+                Spacer(Modifier.height(Space.sm))
+                QuietButton("Gabung ${typed.trim().uppercase()}",
+                    onClick = { vm.setSessionCode(typed); typed = "" })
+            }
+        } else {
+            val shared = state.shared
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom) {
+                Column {
+                    Text("${shared?.tagCount ?: 0}", style = Type.hero, color = Ink.text())
+                    Text("tag di sesi ini", style = Type.caption, color = Ink.text(.60f))
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    shared?.helpers?.forEach { helper ->
+                        Text("${helper.deviceId} · ${helper.tagCount}",
+                            style = Type.micro, color = Ink.text(.60f))
+                    }
+                }
+            }
+            state.sharedNote?.let {
+                Spacer(Modifier.height(Space.xs))
+                Text(it, style = Type.micro, color = Destructive)
+            }
+            if (shared?.truncated == true) {
+                Text("daftar dipotong — sesi ini sudah sangat besar",
+                    style = Type.micro, color = Ink.text(.60f))
+            }
+            Spacer(Modifier.height(Space.sm))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                QuietButton("Segarkan", onClick = vm::refreshShared,
+                    modifier = Modifier.weight(1f))
+                QuietButton("Keluar", onClick = { vm.setSessionCode("") },
+                    modifier = Modifier.weight(1f))
+            }
         }
     }
 }
