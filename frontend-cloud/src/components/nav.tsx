@@ -20,6 +20,7 @@ import {
   Tag,
   TrendingUp,
   Truck,
+  IdCard,
   Users,
   Wallet,
 } from "lucide-react"
@@ -175,6 +176,15 @@ export function Nav() {
           label="Finance"
           icon={<Wallet className="size-5" />}
           active={path.startsWith("/finance")}
+        />
+
+        {/* Who works here. Last in the rail on purpose: a buyer opens it
+            rarely, and the things above it are opened every day. */}
+        <RailLink
+          to="/people"
+          label="People"
+          icon={<IdCard className="size-5" />}
+          active={path.startsWith("/people")}
         />
 
         {/* Also not a destination, and for a different reason than the basket:

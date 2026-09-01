@@ -139,7 +139,7 @@ export interface SalesWindow {
     readonly gross_minor: number
     readonly paid_minor: number
     readonly change_minor: number
-    /// Takings divided by completed sales, computed by the server so it cannot
+    /// Revenue divided by completed sales, computed by the server so it cannot
     /// be divided by a count that includes voided ones.
     readonly average_minor: number
     readonly voided_count: number

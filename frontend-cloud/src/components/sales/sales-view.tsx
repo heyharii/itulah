@@ -184,7 +184,7 @@ export function SalesView() {
         >
           {series.error instanceof ApiError
             ? series.error.message
-            : "The takings could not be read."}
+            : "The sales figures could not be read."}
         </ScreenState>
       ) : fleet.rows.length === 0 ? (
         <ScreenState>

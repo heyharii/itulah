@@ -55,7 +55,12 @@ export function SalesChart({
     <Card className="gap-0 rounded-none border-0 border-b py-0 shadow-none">
       <CardHeader className="flex flex-col items-stretch gap-0 border-b p-0! sm:flex-row">
         <div className="flex flex-1 flex-col justify-center gap-0.5 px-3.5 py-3 sm:py-0">
-          <span className="text-sm font-semibold tracking-tight">The fleet, by shop</span>
+          {/* "The fleet" is a lie about a chart showing one shop, and the shop's
+              own name is the first thing somebody who narrowed to it wants
+              confirmed. */}
+          <span className="text-sm font-semibold tracking-tight">
+            {matrix.series.length === 1 ? matrix.series[0].label : "The fleet, by shop"}
+          </span>
           <span className="text-muted-foreground text-[11.5px]">
             {matrix.buckets.length === 0
               ? "No period in this span."

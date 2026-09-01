@@ -369,6 +369,7 @@ export {
   discussionsRoute,
   draftRoute,
   orderRoute,
+  personRoute,
   priceBookRoute,
   threadRoute,
 }

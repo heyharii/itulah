@@ -173,8 +173,11 @@ export function SalesTable({
 
         {/* What the fleet did, under the shops that did it. Not clickable:
             there is no one shop to open, and a sheet about "everybody" would
-            be this screen again. */}
-        <tfoot>
+            be this screen again.
+
+            Absent when one shop is being looked at on its own, because then it
+            is not a total of anything — it is the row above it, again. */}
+        <tfoot hidden={matrix.rows.length < 2}>
           <tr>
             <th
               scope="row"

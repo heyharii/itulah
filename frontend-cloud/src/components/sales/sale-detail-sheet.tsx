@@ -78,7 +78,7 @@ function SalesPanel({ scope }: { scope: SalesScope }) {
         >
           {report.error instanceof ApiError
             ? report.error.message
-            : "The takings could not be read."}
+            : "The sales figures could not be read."}
         </ScreenState>
       ) : (
         <SalesReport report={report.data} />
@@ -105,7 +105,7 @@ function SalesReport({ report }: { report: SalesWindow }) {
       <div className="grid grid-cols-2 gap-px border-b bg-border sm:grid-cols-4">
         <Stat label="Sales" value={units(report.sales.count)} />
         <Stat label="Average sale" value={money(report.sales.average_minor)} />
-        <Stat label="Takings" value={money(report.sales.gross_minor)} />
+        <Stat label="Revenue" value={money(report.sales.gross_minor)} />
         <Stat label="Units" value={units(report.sales.units_sold)} />
       </div>
 
