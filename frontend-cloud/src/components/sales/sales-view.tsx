@@ -3,6 +3,7 @@ import { Nav } from "@/components/nav"
 import type { SalesSeriesKind } from "@/components/sales/matrix"
 import { buildMatrix, chartConfig } from "@/components/sales/matrix"
 import type { SalesScope } from "@/components/sales/sale-detail-sheet"
+import { ComparisonPicker } from "@/components/sales/comparison-picker"
 import { SaleDetailSheet } from "@/components/sales/sale-detail-sheet"
 import { SalesChart } from "@/components/sales/sales-chart"
 import { SalesTable } from "@/components/sales/sales-table"
@@ -17,8 +18,9 @@ import {
 } from "@/components/ui/select"
 import { compactMoney } from "@/lib/money"
 import type { SalesBucket } from "@/lib/sales"
+import type { Comparison, ComparisonMode } from "@/lib/sales"
 import {
-  previousSpanOf,
+  comparisonOf,
   SALES_BUCKETS,
   SALES_SPANS,
   salesSeries,
@@ -55,6 +57,10 @@ export interface SalesSearch {
   span?: number
   /// One shop, or the whole fleet when absent.
   shop?: string
+  /// What the figures are measured against.
+  cmp?: ComparisonMode
+  cmpFrom?: string
+  cmpTo?: string
 }
 
 export function SalesView() {
@@ -86,12 +92,25 @@ export function SalesView() {
   const fleet = useMemo(() => buildMatrix(series.data), [series.data])
   const config = useMemo(() => chartConfig(fleet), [fleet])
 
-  // The span of the same shape immediately before this one, so every figure
-  // can say which way it is moving. A separate request rather than a wider
-  // response: a comparison is worth nothing if it delays the number it
-  // qualifies, so the screen paints on the first and fills in the arrows when
-  // the second lands.
-  const priorRange = useMemo(() => previousSpanOf(bucket, span), [bucket, span])
+  // What the figures are measured against — by default the span immediately
+  // before, but a reader can name any other, which is the only way to ask
+  // about a feast that moves in the Gregorian calendar.
+  //
+  // A separate request rather than a wider response: a comparison is worth
+  // nothing if it delays the number it qualifies, so the screen paints on the
+  // first and fills in the arrows when the second lands.
+  const comparison: Comparison = useMemo(
+    () =>
+      comparisonOf(range, span, search.cmp ?? "prev", {
+        from: search.cmpFrom,
+        to: search.cmpTo,
+      }),
+    [range, span, search.cmp, search.cmpFrom, search.cmpTo],
+  )
+  const priorRange = useMemo(
+    () => ({ from: comparison.from, to: comparison.to, bucket }),
+    [comparison, bucket],
+  )
   const prior = useQuery({
     queryKey: salesSeriesKey(priorRange),
     queryFn: ({ signal }) => salesSeries(priorRange, signal),
@@ -122,6 +141,9 @@ export function SalesView() {
           bucket: bucketNext,
           span: spanNext,
           shop: shopNext === "" ? undefined : shopNext,
+          cmp: "cmp" in next ? next.cmp : previous.cmp,
+          cmpFrom: "cmp" in next ? next.cmpFrom : previous.cmpFrom,
+          cmpTo: "cmp" in next ? next.cmpTo : previous.cmpTo,
         }
       },
     })
@@ -181,6 +203,14 @@ export function SalesView() {
 
         {/* The label says what the number means. A trigger reading "30" is a
             number nobody can act on — days? shops? sales? */}
+        <ComparisonPicker
+          comparison={comparison}
+          range={range}
+          onChange={(next) =>
+            go({ cmp: next.mode, cmpFrom: next.from, cmpTo: next.to })
+          }
+        />
+
         <Select value={String(span)} onValueChange={(value) => go({ span: Number(value) })}>
           <SelectTrigger size="sm" className="w-36">
             <SelectValue>{spanLabel(span, bucket)}</SelectValue>
@@ -220,6 +250,7 @@ export function SalesView() {
           <SalesChart
             matrix={matrix}
             before={before}
+            comparison={comparison}
             bucket={bucket}
             kind={kind}
             onKindChange={setKind}
@@ -227,9 +258,10 @@ export function SalesView() {
           <SalesTable
             matrix={matrix}
             before={before}
+            comparison={comparison}
             bucket={bucket}
             kind={kind}
-            onOpen={setScope}
+            onOpen={(next) => setScope({ ...next, range, comparison })}
             onFocus={(siteId) => go({ shop: siteId === shop ? undefined : siteId })}
           />
         </div>

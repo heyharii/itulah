@@ -334,6 +334,116 @@ export function previousWindow(from: string, to: string): { from: string; to: st
   return { from: isoDate(beforeStart), to: isoDate(before) }
 }
 
+/// What the figures are being measured against.
+///
+/// "The period before this one" is a mechanical shift, and it is the wrong
+/// question more often than it looks. Ramadan moves about eleven days earlier
+/// every Gregorian year, so this year's Ramadan is not last year's Ramadan
+/// shifted by 365 days and it is certainly not "the previous thirty days".
+/// Same for Eid, Chinese New Year, Nyepi, and any promotion somebody ran on
+/// dates they chose. Those comparisons are the ones worth making, and none of
+/// them can be derived — so the span is the reader's to name.
+export type ComparisonMode = "prev" | "year" | "custom"
+
+export interface Comparison {
+  readonly mode: ComparisonMode
+  readonly from: string
+  readonly to: string
+  /// Short enough for a narrow column header.
+  readonly short: string
+  /// The whole span, for the tooltip that column header carries.
+  readonly full: string
+}
+
+/// How many days one date is after another.
+function daysBetween(from: string, to: string): number {
+  const start = new Date(`${from}T12:00:00`).getTime()
+  const end = new Date(`${to}T12:00:00`).getTime()
+  return Math.round((end - start) / 86_400_000)
+}
+
+function shiftDate(date: string, days: number): string {
+  const shifted = new Date(`${date}T12:00:00`)
+  shifted.setDate(shifted.getDate() + days)
+  return isoDate(shifted)
+}
+
+function shortDate(date: string): string {
+  return new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  })
+}
+
+function spanText(from: string, to: string): string {
+  const sameYear = from.slice(0, 4) === to.slice(0, 4)
+  const end = new Date(`${to}T12:00:00`).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })
+  return `${sameYear ? shortDate(from) : `${shortDate(from)} ${from.slice(0, 4)}`} – ${end}`
+}
+
+/// How many days a span covers, both ends included.
+export function spanDays(from: string, to: string): number {
+  return daysBetween(from, to) + 1
+}
+
+/// The span this one is measured against, resolved.
+///
+/// `custom` falls back to the previous period when it is half-filled, so a
+/// hand-edited URL cannot produce a comparison against nothing.
+export function comparisonOf(
+  range: SalesRange,
+  buckets: number,
+  mode: ComparisonMode,
+  custom?: { from?: string; to?: string },
+): Comparison {
+  if (mode === "custom" && custom?.from !== undefined && custom.to !== undefined) {
+    const from = custom.from <= custom.to ? custom.from : custom.to
+    const to = custom.from <= custom.to ? custom.to : custom.from
+    return { mode, from, to, short: `vs ${shortDate(from)}`, full: spanText(from, to) }
+  }
+  if (mode === "year") {
+    const from = shiftDate(range.from, -365)
+    const to = shiftDate(range.to, -365)
+    return {
+      mode,
+      from,
+      to,
+      short: `vs ${from.slice(0, 4)}`,
+      full: spanText(from, to),
+    }
+  }
+  const previous = previousSpanOf(range.bucket, buckets)
+  return {
+    mode: "prev",
+    from: previous.from,
+    to: previous.to,
+    short: "vs prev",
+    full: spanText(previous.from, previous.to),
+  }
+}
+
+/// The same cell, in the span being compared against.
+///
+/// Offset by the distance between the two spans' starts rather than by a fresh
+/// rule per mode, so one Tuesday compares against whatever Tuesday the reader's
+/// choice puts opposite it — and a custom Ramadan window lines its first day up
+/// with the first day of last year's, which is the whole point of naming it.
+export function comparableWindow(
+  window: { from: string; to: string },
+  range: SalesRange,
+  comparison: Comparison,
+): { from: string; to: string } {
+  const offset = daysBetween(comparison.from, range.from)
+  return {
+    from: shiftDate(window.from, -offset),
+    to: shiftDate(window.to, -offset),
+  }
+}
+
 /// How much bigger this period is than the one before it, as a fraction.
 ///
 /// `null` when there is nothing to compare against. A shop that took nothing

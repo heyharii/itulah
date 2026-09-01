@@ -1,7 +1,7 @@
 import { Delta } from "@/components/sales/delta"
 import type { SalesMatrix, SalesSeriesKind } from "@/components/sales/matrix"
 import { compactMoney, money, units } from "@/lib/money"
-import type { SalesBucket } from "@/lib/sales"
+import type { Comparison, SalesBucket } from "@/lib/sales"
 import { bucketEnd, bucketLabel, bucketTitle } from "@/lib/sales"
 
 /// The width of the two columns that do not scroll away.
@@ -27,14 +27,16 @@ const DELTA_COLUMN = 74
 export function SalesTable({
   matrix,
   before,
+  comparison,
   bucket,
   kind,
   onOpen,
   onFocus,
 }: {
   matrix: SalesMatrix
-  /// The same shops over the span immediately before this one.
+  /// The same shops over the span being compared against.
   before?: SalesMatrix
+  comparison: Comparison
   bucket: SalesBucket
   kind: SalesSeriesKind
   /// A shop and a span — one period, or the whole range from the total column.
@@ -80,7 +82,7 @@ export function SalesTable({
             {before !== undefined && (
               <th
                 scope="col"
-                title="Against the span immediately before this one"
+                title={`Against ${comparison.full}`}
                 className="bg-card text-muted-foreground sticky top-0 z-30 h-9 border-r border-b px-2 text-right font-medium"
                 style={{
                   left: SHOP_COLUMN + TOTAL_COLUMN,
@@ -88,7 +90,7 @@ export function SalesTable({
                   minWidth: DELTA_COLUMN,
                 }}
               >
-                vs prev
+                {comparison.short}
               </th>
             )}
             {matrix.buckets.map((start) => (
@@ -104,14 +106,24 @@ export function SalesTable({
           </tr>
         </thead>
 
-        <tbody>
-          {matrix.rows.map((site) => {
-            const total = matrix.siteTotal(site.site_id, kind)
-            return (
-              <tr key={site.site_id} className="group">
+        {/* One tbody per shop, so a shop and the span it is being compared
+            against hover together and the rule underneath separates shops
+            rather than rows.
+
+            Two rows rather than a percentage alone, because a percentage
+            answers "how much" and hides "out of what". Ramadan against last
+            Ramadan is the case that makes this obvious: +40% means nothing
+            until you can see it is forty percent of a fortnight that was
+            already the best fortnight of the year. */}
+        {matrix.rows.map((site) => {
+          const total = matrix.siteTotal(site.site_id, kind)
+          const wasTotal = before?.siteTotal(site.site_id, kind) ?? 0
+          return (
+            <tbody key={site.site_id} className="group">
+              <tr>
                 <th
                   scope="row"
-                  className="bg-card group-hover:bg-muted sticky left-0 z-10 border-r border-b p-0 text-left font-medium transition-colors"
+                  className="bg-card group-hover:bg-muted sticky left-0 z-10 border-r p-0 text-left font-medium transition-colors"
                   style={{ width: SHOP_COLUMN, minWidth: SHOP_COLUMN }}
                 >
                   {/* The name is the way to look at this shop and nothing
@@ -122,7 +134,7 @@ export function SalesTable({
                     type="button"
                     onClick={() => onFocus(site.site_id)}
                     title={`Show ${site.site_name} on its own`}
-                    className="focus-visible:ring-ring flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left focus-visible:ring-2 focus-visible:outline-none"
+                    className="focus-visible:ring-ring flex w-full cursor-pointer items-center gap-2 px-3 pt-1.5 text-left focus-visible:ring-2 focus-visible:outline-none"
                   >
                     {/* The band's colour, taken from the chart's own variable
                         so the swatch is right in both themes rather than in
@@ -138,7 +150,7 @@ export function SalesTable({
                   </button>
                 </th>
                 <td
-                  className="bg-card group-hover:bg-muted sticky z-10 border-r border-b p-0 transition-colors"
+                  className="bg-card group-hover:bg-muted sticky z-10 border-r p-0 transition-colors"
                   style={{ left: SHOP_COLUMN, width: TOTAL_COLUMN, minWidth: TOTAL_COLUMN }}
                 >
                   <button
@@ -153,21 +165,22 @@ export function SalesTable({
                         title: `${site.site_name} · whole range`,
                       })
                     }
-                    className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 py-1.5 text-right font-mono font-semibold tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+                    className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 pt-1.5 text-right font-mono font-semibold tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
                   >
                     {show(total, true)}
                   </button>
                 </td>
                 {before !== undefined && (
                   <td
-                    className="bg-card group-hover:bg-muted sticky z-10 border-r border-b px-2 py-1.5 text-right transition-colors"
+                    rowSpan={2}
+                    className="bg-card group-hover:bg-muted sticky z-10 border-r border-b px-2 text-right align-middle transition-colors"
                     style={{
                       left: SHOP_COLUMN + TOTAL_COLUMN,
                       width: DELTA_COLUMN,
                       minWidth: DELTA_COLUMN,
                     }}
                   >
-                    <Delta now={total} before={before.siteTotal(site.site_id, kind)} />
+                    <Delta now={total} before={wasTotal} against={comparison.full} />
                   </td>
                 )}
                 {matrix.buckets.map((start) => {
@@ -175,7 +188,7 @@ export function SalesTable({
                   return (
                     <td
                       key={start}
-                      className="bg-card group-hover:bg-muted border-b p-0 transition-colors"
+                      className="bg-card group-hover:bg-muted p-0 transition-colors"
                     >
                       <button
                         type="button"
@@ -193,7 +206,7 @@ export function SalesTable({
                             title: `${site.site_name} · ${bucketTitle(start, bucket)}`,
                           })
                         }
-                        className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 py-1.5 text-right font-mono tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+                        className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 pt-1.5 text-right font-mono tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
                       >
                         {show(value)}
                       </button>
@@ -201,9 +214,92 @@ export function SalesTable({
                   )
                 })}
               </tr>
-            )
-          })}
-        </tbody>
+
+              {before !== undefined && (
+                <tr className="text-muted-foreground">
+                  <th
+                    scope="row"
+                    className="bg-card group-hover:bg-muted sticky left-0 z-10 border-r border-b px-3 pb-1.5 text-left font-normal transition-colors"
+                    style={{ width: SHOP_COLUMN, minWidth: SHOP_COLUMN }}
+                  >
+                    {/* Indented past the swatch above it, so the eye reads it
+                        as belonging to that shop rather than as another one. */}
+                    <span className="block truncate pl-4 text-[10.5px]">
+                      {comparison.full}
+                    </span>
+                  </th>
+                  <td
+                    className="bg-card group-hover:bg-muted sticky z-10 border-r border-b p-0 transition-colors"
+                    style={{ left: SHOP_COLUMN, width: TOTAL_COLUMN, minWidth: TOTAL_COLUMN }}
+                  >
+                    <button
+                      type="button"
+                      disabled={wasTotal === 0}
+                      title={wasTotal === 0 ? undefined : exactly(wasTotal)}
+                      onClick={() =>
+                        onOpen({
+                          siteId: site.site_id,
+                          from: comparison.from,
+                          to: comparison.to,
+                          title: `${site.site_name} · ${comparison.full}`,
+                        })
+                      }
+                      className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 pb-1.5 text-right font-mono tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+                    >
+                      {show(wasTotal, true)}
+                    </button>
+                  </td>
+                  {/* Aligned by POSITION, not by date. The comparison span
+                      starts on a different day — that is the whole reason it
+                      was named — so the second column of one is read against
+                      the second column of the other: day two of this Ramadan
+                      under day two of last. Where the spans are different
+                      lengths the tail has no counterpart and says so. */}
+                  {matrix.buckets.map((start, index) => {
+                    const wasBucket = before.buckets[index]
+                    const was =
+                      wasBucket === undefined
+                        ? null
+                        : before.siteValue(site.site_id, wasBucket, kind)
+                    return (
+                      <td
+                        key={start}
+                        className="bg-card group-hover:bg-muted border-b p-0 transition-colors"
+                      >
+                        {was === null || wasBucket === undefined ? (
+                          <span className="text-muted-foreground/40 block px-3 pb-1.5 text-right">
+                            ·
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={was === 0}
+                            title={
+                              was === 0
+                                ? undefined
+                                : `${site.site_name} · ${bucketTitle(wasBucket, bucket)} · ${exactly(was)}`
+                            }
+                            onClick={() =>
+                              onOpen({
+                                siteId: site.site_id,
+                                from: wasBucket,
+                                to: bucketEnd(wasBucket, bucket),
+                                title: `${site.site_name} · ${bucketTitle(wasBucket, bucket)}`,
+                              })
+                            }
+                            className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 pb-1.5 text-right font-mono text-[11px] tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+                          >
+                            {show(was)}
+                          </button>
+                        )}
+                      </td>
+                    )
+                  })}
+                </tr>
+              )}
+            </tbody>
+          )
+        })}
 
         {/* What the fleet did, under the shops that did it. Not clickable:
             there is no one shop to open, and a sheet about "everybody" would
@@ -215,39 +311,79 @@ export function SalesTable({
           <tr>
             <th
               scope="row"
-              className="bg-secondary sticky bottom-0 left-0 z-30 border-t border-r px-3 py-1.5 text-left font-semibold"
+              className="bg-secondary sticky bottom-0 left-0 z-30 border-t border-r px-3 pt-1.5 text-left font-semibold"
               style={{ width: SHOP_COLUMN, minWidth: SHOP_COLUMN }}
             >
               Fleet
             </th>
             <td
-              className="bg-secondary sticky bottom-0 z-30 border-t border-r px-3 py-1.5 text-right font-mono font-semibold tabular-nums"
+              className="bg-secondary sticky bottom-0 z-30 border-t border-r px-3 pt-1.5 text-right font-mono font-semibold tabular-nums"
               style={{ left: SHOP_COLUMN, width: TOTAL_COLUMN, minWidth: TOTAL_COLUMN }}
             >
               {show(matrix.grandTotal(kind), true)}
             </td>
             {before !== undefined && (
               <td
-                className="bg-secondary sticky bottom-0 z-30 border-t border-r px-2 py-1.5 text-right"
+                rowSpan={2}
+                className="bg-secondary sticky bottom-0 z-30 border-t border-r px-2 text-right align-middle"
                 style={{
                   left: SHOP_COLUMN + TOTAL_COLUMN,
                   width: DELTA_COLUMN,
                   minWidth: DELTA_COLUMN,
                 }}
               >
-                <Delta now={matrix.grandTotal(kind)} before={before.grandTotal(kind)} />
+                <Delta
+                  now={matrix.grandTotal(kind)}
+                  before={before.grandTotal(kind)}
+                  against={comparison.full}
+                />
               </td>
             )}
             {matrix.buckets.map((start) => (
               <td
                 key={start}
                 title={exactly(matrix.bucketTotal(start, kind))}
-                className="bg-secondary sticky bottom-0 z-20 border-t px-3 py-1.5 text-right font-mono font-medium tabular-nums"
+                className="bg-secondary sticky bottom-0 z-20 border-t px-3 pt-1.5 text-right font-mono font-medium tabular-nums"
               >
                 {show(matrix.bucketTotal(start, kind))}
               </td>
             ))}
           </tr>
+          {/* The fleet gets the same two rows as the shops above it, for the
+              same reason: a total is only a comparison if you can see what it
+              is being compared with. */}
+          {before !== undefined && (
+            <tr className="text-muted-foreground">
+              <th
+                scope="row"
+                className="bg-secondary sticky bottom-0 left-0 z-30 border-r px-3 pb-1.5 text-left font-normal"
+                style={{ width: SHOP_COLUMN, minWidth: SHOP_COLUMN }}
+              >
+                <span className="block truncate text-[10.5px]">{comparison.full}</span>
+              </th>
+              <td
+                className="bg-secondary sticky bottom-0 z-30 border-r px-3 pb-1.5 text-right font-mono tabular-nums"
+                style={{ left: SHOP_COLUMN, width: TOTAL_COLUMN, minWidth: TOTAL_COLUMN }}
+              >
+                {show(before.grandTotal(kind), true)}
+              </td>
+              {matrix.buckets.map((start, index) => {
+                const wasBucket = before.buckets[index]
+                return (
+                  <td
+                    key={start}
+                    className="bg-secondary sticky bottom-0 z-20 px-3 pb-1.5 text-right font-mono text-[11px] tabular-nums"
+                  >
+                    {wasBucket === undefined ? (
+                      <span className="text-muted-foreground/40">·</span>
+                    ) : (
+                      show(before.bucketTotal(wasBucket, kind))
+                    )}
+                  </td>
+                )
+              })}
+            </tr>
+          )}
         </tfoot>
       </table>
     </div>

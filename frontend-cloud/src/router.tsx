@@ -280,6 +280,15 @@ const financePeriodsRoute = createRoute({
   component: PeriodsScreen,
 })
 
+/// A `YYYY-MM-DD` out of a query string, or nothing.
+///
+/// Shape-checked rather than passed through: these two reach the server as a
+/// date span, and `Deserialize` on a `NaiveDate` would answer a hand-edited
+/// URL with a 400 that says less than showing the default span would.
+function isoDay(value: unknown): string | undefined {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined
+}
+
 /// What the shops sold. The counterpart to `/commercial`, which says what they
 /// are charging — this says what anybody paid.
 ///
@@ -303,6 +312,15 @@ const salesRoute = createRoute({
         : undefined,
     shop:
       typeof search.shop === "string" && search.shop !== "" ? search.shop : undefined,
+    // What the figures are measured against. Narrowed like the rest: a
+    // hand-edited URL should not be able to ask for a comparison mode the
+    // screen has no code for.
+    cmp:
+      search.cmp === "prev" || search.cmp === "year" || search.cmp === "custom"
+        ? search.cmp
+        : undefined,
+    cmpFrom: isoDay(search.cmpFrom),
+    cmpTo: isoDay(search.cmpTo),
   }),
   component: SalesView,
 })

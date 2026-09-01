@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip } from "@/components/ui/chart"
 import { compactMoney, money, units } from "@/lib/money"
-import type { SalesBucket } from "@/lib/sales"
+import type { Comparison, SalesBucket } from "@/lib/sales"
 import { bucketLabel, bucketTitle } from "@/lib/sales"
 import { cn } from "@/lib/utils"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
@@ -22,15 +22,17 @@ import { Delta } from "@/components/sales/delta"
 export function SalesChart({
   matrix,
   before,
+  comparison,
   bucket,
   kind,
   onKindChange,
 }: {
   matrix: SalesMatrix
-  /// The same shops over the span immediately before this one, or undefined
-  /// while it is still being fetched. The figures render either way — a
-  /// comparison that has not arrived must not hold up the number itself.
+  /// The same shops over the span being compared against, or undefined while
+  /// it is still being fetched. The figures render either way — a comparison
+  /// that has not arrived must not hold up the number itself.
   before?: SalesMatrix
+  comparison: Comparison
   bucket: SalesBucket
   kind: SalesSeriesKind
   onKindChange: (kind: SalesSeriesKind) => void
@@ -99,6 +101,7 @@ export function SalesChart({
                 <Delta
                   now={matrix.grandTotal(option.kind)}
                   before={before.grandTotal(option.kind)}
+                  against={comparison.full}
                 />
               )}
             </button>

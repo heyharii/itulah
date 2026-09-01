@@ -13,10 +13,14 @@ import { cn } from "@/lib/utils"
 export function Delta({
   now,
   before,
+  against,
   className,
 }: {
   now: number
   before: number
+  /// The span being compared against, named in full for the tooltip. Without
+  /// it a percentage is a number with no denominator anybody can see.
+  against?: string
   className?: string
 }) {
   const fraction = growth(now, before)
@@ -26,7 +30,14 @@ export function Delta({
   // either infinity or a lie.
   if (fraction === null) {
     return (
-      <span className={cn("text-muted-foreground text-[10.5px]", className)}>
+      <span
+        className={cn("text-muted-foreground text-[10.5px]", className)}
+        title={
+          against === undefined
+            ? undefined
+            : `Nothing was sold in ${against}, so there is nothing to compare against`
+        }
+      >
         {now > 0 ? "new" : "—"}
       </span>
     )
@@ -44,7 +55,7 @@ export function Delta({
             : "text-rose-700 dark:text-rose-400",
         className,
       )}
-      title={`${growthLabel(fraction)} against the period before`}
+      title={`${growthLabel(fraction)} against ${against ?? "the period before"}`}
     >
       <span aria-hidden>{flat ? "→" : fraction > 0 ? "↑" : "↓"}</span>{" "}
       {flat ? "0%" : growthLabel(fraction)}

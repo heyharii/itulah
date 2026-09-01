@@ -10,11 +10,17 @@ import {
 import { Delta } from "@/components/sales/delta"
 import { Skeleton } from "@/components/ui/skeleton"
 import { money, units } from "@/lib/money"
-import type { PaymentMethod, SaleTransaction, SalesWindow } from "@/lib/sales"
+import type {
+  Comparison,
+  PaymentMethod,
+  SaleTransaction,
+  SalesRange,
+  SalesWindow,
+} from "@/lib/sales"
 import {
+  comparableWindow,
   PAYMENT_LABELS,
   PAYMENT_METHODS,
-  previousWindow,
   saleDetail,
   saleDetailKey,
   salesWindow,
@@ -33,6 +39,12 @@ export interface SalesScope {
   /// What the reader clicked, said back to them — "Bandung · Week of 24 Aug"
   /// rather than a pair of dates they have to recognise.
   readonly title: string
+  /// The span the screen is showing, and what it is measuring against. Carried
+  /// in so this cell compares the same way the table behind it does: a reader
+  /// who set the screen to last Ramadan expects the cell to answer about last
+  /// Ramadan too, not about the day before.
+  readonly range: SalesRange
+  readonly comparison: Comparison
 }
 
 /// One shop over one period, down to the receipts.
@@ -62,11 +74,14 @@ function SalesPanel({ scope }: { scope: SalesScope }) {
     queryKey: salesWindowKey(scope),
     queryFn: ({ signal }) => salesWindow(scope, signal),
   })
-  // The equivalent span immediately before, so every headline figure can say
-  // which way it is moving. A second request rather than a wider response: the
-  // comparison is worth nothing if it delays the number it qualifies, and this
-  // way the panel paints as soon as the first one lands.
-  const beforeScope = { siteId: scope.siteId, ...previousWindow(scope.from, scope.to) }
+  // The same cell in the span the screen is comparing against, offset by the
+  // distance between the two spans' starts. A second request rather than a
+  // wider response: the comparison is worth nothing if it delays the number it
+  // qualifies, and this way the panel paints as soon as the first one lands.
+  const beforeScope = {
+    siteId: scope.siteId,
+    ...comparableWindow({ from: scope.from, to: scope.to }, scope.range, scope.comparison),
+  }
   const before = useQuery({
     queryKey: salesWindowKey(beforeScope),
     queryFn: ({ signal }) => salesWindow(beforeScope, signal),
@@ -97,7 +112,11 @@ function SalesPanel({ scope }: { scope: SalesScope }) {
             : "The sales figures could not be read."}
         </ScreenState>
       ) : (
-        <SalesReport report={report.data} before={before.data} />
+        <SalesReport
+          report={report.data}
+          before={before.data}
+          against={beforeScope}
+        />
       )}
     </>
   )
@@ -106,10 +125,14 @@ function SalesPanel({ scope }: { scope: SalesScope }) {
 function SalesReport({
   report,
   before,
+  against,
 }: {
   report: SalesWindow
   before?: SalesWindow
+  against: { from: string; to: string }
 }) {
+  const againstLabel =
+    against.from === against.to ? against.from : `${against.from} → ${against.to}`
   const tendered = new Map(report.tenders.map((tender) => [tender.method, tender]))
   const refunded = new Map(
     report.returns.by_method.map((refund) => [refund.method, refund.amount_minor]),
@@ -130,24 +153,28 @@ function SalesReport({
           value={units(report.sales.count)}
           now={report.sales.count}
           before={before?.sales.count}
+          against={againstLabel}
         />
         <Stat
           label="Average sale"
           value={money(report.sales.average_minor)}
           now={report.sales.average_minor}
           before={before?.sales.average_minor}
+          against={againstLabel}
         />
         <Stat
           label="Revenue"
           value={money(report.sales.gross_minor)}
           now={report.sales.gross_minor}
           before={before?.sales.gross_minor}
+          against={againstLabel}
         />
         <Stat
           label="Units"
           value={units(report.sales.units_sold)}
           now={report.sales.units_sold}
           before={before?.sales.units_sold}
+          against={againstLabel}
         />
       </div>
 
@@ -456,18 +483,20 @@ function Stat({
   value,
   now,
   before,
+  against,
 }: {
   label: string
   value: string
   now: number
   before?: number
+  against: string
 }) {
   return (
     <div className="bg-card px-3.5 py-2.5">
       <div className="text-muted-foreground text-[11px]">{label}</div>
       <div className="mt-0.5 font-mono text-sm font-semibold tabular-nums">{value}</div>
       {before !== undefined && (
-        <Delta now={now} before={before} className="mt-0.5 block" />
+        <Delta now={now} before={before} against={against} className="mt-0.5 block" />
       )}
     </div>
   )
