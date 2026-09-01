@@ -1212,8 +1212,8 @@ pub async fn create_catalog_purchase_order(
                   unit_price_minor, line_amount_minor, promised_date,
                   supplier_item_id, supplier_item_code_snapshot,
                   supplier_item_name_snapshot, supplier_item_image_snapshot,
-                  supplier_item_version, currency)
-             VALUES ($1,$2,$3,$4,$15,$16,$14,$7,$8,$9,$10,$11,$4,$5,$6,$12,$13)",
+                  supplier_item_version, currency, supplier_item_price_snapshot)
+             VALUES ($1,$2,$3,$4,$15,$16,$14,$7,$8,$9,$10,$11,$4,$5,$6,$12,$13,$17)",
         )
         .bind(po_line_id)
         .bind(purchase_order_id)
@@ -1234,6 +1234,10 @@ pub async fn create_catalog_purchase_order(
         .bind(&item.division_code)
         .bind(&item.ordered_name)
         .bind(&item.ordered_image_url)
+        // What the catalogue was asking. Equal to the bound price above when
+        // the buyer accepted it; different when they did not, and that
+        // difference is the only record of the negotiation.
+        .bind(item.unit_price_minor)
         .execute(&mut *transaction)
         .await
         .map_err(|error| map_catalog_purchase_error(error, &po_number))?;
