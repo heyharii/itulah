@@ -40,9 +40,7 @@ impl Bucket {
             None | Some("") | Some("day") => Ok(Self::Day),
             Some("week") => Ok(Self::Week),
             Some("month") => Ok(Self::Month),
-            Some(other) => Err(format!(
-                "bucket must be day, week or month, not {other:?}"
-            )),
+            Some(other) => Err(format!("bucket must be day, week or month, not {other:?}")),
         }
     }
 
@@ -140,18 +138,30 @@ mod tests {
     #[test]
     fn a_week_starts_on_monday() {
         // 2026-09-01 is a Tuesday.
-        assert_eq!(Bucket::Week.start_of(date("2026-09-01")), date("2026-08-31"));
+        assert_eq!(
+            Bucket::Week.start_of(date("2026-09-01")),
+            date("2026-08-31")
+        );
         // A Monday is its own week.
-        assert_eq!(Bucket::Week.start_of(date("2026-08-31")), date("2026-08-31"));
+        assert_eq!(
+            Bucket::Week.start_of(date("2026-08-31")),
+            date("2026-08-31")
+        );
         // A Sunday belongs to the week that began six days earlier, not to the
         // one starting tomorrow.
-        assert_eq!(Bucket::Week.start_of(date("2026-09-06")), date("2026-08-31"));
+        assert_eq!(
+            Bucket::Week.start_of(date("2026-09-06")),
+            date("2026-08-31")
+        );
     }
 
     #[test]
     fn a_month_rolls_over_the_year() {
         assert_eq!(Bucket::Month.next(date("2026-12-01")), date("2027-01-01"));
-        assert_eq!(Bucket::Month.start_of(date("2026-12-31")), date("2026-12-01"));
+        assert_eq!(
+            Bucket::Month.start_of(date("2026-12-31")),
+            date("2026-12-01")
+        );
     }
 
     /// The axis covers the whole span even where the span starts mid-bucket,
@@ -171,7 +181,8 @@ mod tests {
     /// day after is not.
     #[test]
     fn the_window_includes_the_day_it_names() {
-        let (start, end) = window_of(date("2026-09-01"), date("2026-09-01"), 420).expect("a window");
+        let (start, end) =
+            window_of(date("2026-09-01"), date("2026-09-01"), 420).expect("a window");
         assert_eq!(start.to_rfc3339(), "2026-08-31T17:00:00+00:00");
         assert_eq!(end.to_rfc3339(), "2026-09-01T17:00:00+00:00");
     }

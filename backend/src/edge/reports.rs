@@ -122,7 +122,9 @@ pub struct SalesWindow {
 fn bucket_sql(bucket: Bucket) -> &'static str {
     match bucket {
         Bucket::Day => "date(local)",
-        Bucket::Week => "date(local, '-' || ((CAST(strftime('%w', local) AS INTEGER) + 6) % 7) || ' days')",
+        Bucket::Week => {
+            "date(local, '-' || ((CAST(strftime('%w', local) AS INTEGER) + 6) % 7) || ' days')"
+        }
         Bucket::Month => "date(local, 'start of month')",
     }
 }
@@ -143,7 +145,8 @@ pub fn sales_series(
 ) -> Result<SalesSeries, EdgeError> {
     let bucket = Bucket::parse(query.bucket.as_deref()).map_err(EdgeError::Validation)?;
     let offset_minutes = offset_of(query.utc_offset_minutes);
-    let (start, end) = window_of(query.from, query.to, offset_minutes).map_err(EdgeError::Validation)?;
+    let (start, end) =
+        window_of(query.from, query.to, offset_minutes).map_err(EdgeError::Validation)?;
     // `completed_at` is RFC3339 in UTC with a `Z` (see `sqlite.rs`), so the
     // range compares as text and `datetime()` parses it. Shifting by the
     // offset gives the shop's own wall clock, which is the only reading of
@@ -230,7 +233,8 @@ pub fn sales_window(
     query: SalesWindowQuery,
 ) -> Result<SalesWindow, EdgeError> {
     let offset_minutes = offset_of(query.utc_offset_minutes);
-    let (start, end) = window_of(query.from, query.to, offset_minutes).map_err(EdgeError::Validation)?;
+    let (start, end) =
+        window_of(query.from, query.to, offset_minutes).map_err(EdgeError::Validation)?;
     let limit = query.limit.unwrap_or(200).clamp(1, 1000);
 
     let (count, gross, paid, change) = connection
@@ -270,21 +274,18 @@ pub fn sales_window(
             )
             .map_err(db)?;
         let rows = statement
-            .query_map(
-                rusqlite::params![stamp(start), stamp(end), limit],
-                |row| {
-                    Ok(SalesReceipt {
-                        id: row.get(0)?,
-                        total_minor: row.get(1)?,
-                        paid_minor: row.get(2)?,
-                        change_minor: row.get(3)?,
-                        actor_id: row.get(4)?,
-                        completed_at: row.get(5)?,
-                        line_count: row.get(6)?,
-                        units: row.get(7)?,
-                    })
-                },
-            )
+            .query_map(rusqlite::params![stamp(start), stamp(end), limit], |row| {
+                Ok(SalesReceipt {
+                    id: row.get(0)?,
+                    total_minor: row.get(1)?,
+                    paid_minor: row.get(2)?,
+                    change_minor: row.get(3)?,
+                    actor_id: row.get(4)?,
+                    completed_at: row.get(5)?,
+                    line_count: row.get(6)?,
+                    units: row.get(7)?,
+                })
+            })
             .map_err(db)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db)?
     };

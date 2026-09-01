@@ -18,6 +18,18 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // The calendar and the arithmetic both surfaces read a sales screen
+      // through. Its own entry rather than part of the generated barrel,
+      // because that barrel is written by `make contract` and hand-written
+      // code must not live in it.
+      "@itulah/contract/money": path.resolve(
+        __dirname,
+        "../frontend-contract/src/money/index.ts",
+      ),
+      "@itulah/contract/reporting": path.resolve(
+        __dirname,
+        "../frontend-contract/src/reporting/index.ts",
+      ),
       "@itulah/contract/client": path.resolve(
         __dirname,
         "../frontend-contract/src/client/index.ts",

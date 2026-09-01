@@ -270,8 +270,14 @@ pub fn store_router_with_sync(
         .route("/api/v1/store/movements", post(move_stock))
         .route("/api/v1/store/sales", post(store_sale))
         .route("/api/v1/store/catalog", get(store_catalog))
-        .route("/api/v1/store/reports/sales/series", get(store_sales_series))
-        .route("/api/v1/store/reports/sales/window", get(store_sales_window))
+        .route(
+            "/api/v1/store/reports/sales/series",
+            get(store_sales_series),
+        )
+        .route(
+            "/api/v1/store/reports/sales/window",
+            get(store_sales_window),
+        )
         .fallback_service(ServeDir::new(frontend_dir).append_index_html_on_directories(true))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

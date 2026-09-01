@@ -24,7 +24,9 @@
     "paths": {
       "@/*": ["./src/*"],
       "@itulah/contract": ["../frontend-contract/src/index.ts"],
-      "@itulah/contract/client": ["../frontend-contract/src/client/index.ts"]
+      "@itulah/contract/client": ["../frontend-contract/src/client/index.ts"],
+      "@itulah/contract/money": ["../frontend-contract/src/money/index.ts"],
+      "@itulah/contract/reporting": ["../frontend-contract/src/reporting/index.ts"]
     }
   },
   "include": ["src", "../frontend-contract/src"]

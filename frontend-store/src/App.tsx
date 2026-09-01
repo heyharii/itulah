@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useState } from "react"
 
+import { CatalogueView } from "@/components/catalogue"
 import { LoginForm } from "@/components/login-form"
 import { Outbox } from "@/components/outbox"
 import { Button } from "@/components/ui/button"
@@ -10,6 +11,23 @@ import {
   type NodeIdentity,
 } from "@itulah/contract/client"
 
+/// Loaded only when somebody asks for it.
+///
+/// This is not a till screen — a cashier ringing up a sale has no use for a
+/// month of history. Splitting it out is not tidiness: the reporting screen
+/// pulls in a charting library and a date picker, and a till that never opens
+/// it should never download them.
+const SalesScreen = lazy(() =>
+  import("@/components/sales/sales-screen").then((module) => ({
+    default: module.SalesScreen,
+  })),
+)
+
+/// Which of the shop's two jobs is on screen.
+///
+/// The till is the default and always will be: it is what the device is for.
+type Area = "till" | "prices" | "sales"
+
 export function App() {
   // Three states, not two. `undefined` means the session has not been checked
   // yet: showing a login box during that moment makes an already-signed-in
@@ -19,6 +37,7 @@ export function App() {
   )
   const [where, setWhere] = useState<NodeIdentity | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const [area, setArea] = useState<Area>("till")
 
   useEffect(() => {
     const controller = new AbortController()
@@ -101,7 +120,9 @@ export function App() {
   }
 
   return (
-    <main className="flex min-h-svh flex-col">
+    // `h-svh`, not `min-h-svh`: the catalogue scrolls inside itself, and a
+    // page that grew instead would put a second scrollbar around the lot.
+    <main className="flex h-svh flex-col">
       <header className="flex items-center gap-4 border-b px-6 py-4">
         <div className="min-w-0">
           <p className="truncate font-medium">{identity.display_name}</p>
@@ -120,9 +141,51 @@ export function App() {
           </Button>
         </div>
       </header>
-      <div className="p-6">
-        <Outbox className="max-w-md" />
-      </div>
+      {/* Three places, not a menu. A shop has a till, a price to look up, and
+          a manager's view of what it took; a device that offered more choices
+          than that is one somebody gets lost in mid-transaction. */}
+      <nav className="flex gap-1 border-b px-4 py-2" aria-label="Areas">
+        {(["till", "prices", "sales"] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            aria-pressed={area === option}
+            onClick={() => setArea(option)}
+            className={
+              "cursor-pointer rounded-4xl px-4 py-2 text-sm font-medium capitalize transition-colors " +
+              (area === option
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted")
+            }
+          >
+            {option}
+          </button>
+        ))}
+      </nav>
+
+      {area === "till" ? (
+        <div className="p-6">
+          <Outbox className="max-w-md" />
+        </div>
+      ) : area === "prices" ? (
+        /* What this shop charges, read from this shop's own price book. An
+           assistant asked "how much is this" can answer without walking to a
+           till, and be right — the number comes from the same resident book the
+           counter reads. */
+        <div className="flex min-h-0 flex-1 flex-col p-6">
+          <CatalogueView />
+        </div>
+      ) : (
+        <Suspense
+          fallback={
+            <p className="text-muted-foreground p-8 text-center text-sm">
+              Loading the figures…
+            </p>
+          }
+        >
+          <SalesScreen />
+        </Suspense>
+      )}
     </main>
   )
 }
