@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { LoginForm } from "@/components/login-form"
+import { Outbox } from "@/components/outbox"
 import { Button } from "@/components/ui/button"
 import { auth, node } from "@/lib/api"
 import {
@@ -119,8 +120,8 @@ export function App() {
           </Button>
         </div>
       </header>
-      <div className="p-6 text-sm">
-        <p>Signed in. This node&apos;s screens go here.</p>
+      <div className="p-6">
+        <Outbox className="max-w-md" />
       </div>
     </main>
   )

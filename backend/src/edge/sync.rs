@@ -60,6 +60,7 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 /// Render a group of shop ids for storage, or nothing at all.
@@ -2538,10 +2539,77 @@ impl EdgeSyncConfig {
 /// The edge runs the SAME cycle the cloud runs — `sync::run_cycle` over this
 /// module's [`SqliteSyncStore`] — so a behaviour proven in
 /// `tests/sync_conformance.rs` is proven for both.
+fn persistence(error: rusqlite::Error) -> crate::edge::EdgeError {
+    crate::edge::EdgeError::Persistence(error.to_string())
+}
+
+/// A running Edge sync agent, and the two things a screen needs from it: what
+/// the outbox looks like, and a way to say "go now".
+///
+/// Held by the HTTP router so `/api/v1/sync/status` and `/api/v1/sync/trigger`
+/// can reach the agent that is already running, rather than starting a second
+/// one. There is deliberately no way to stop it from here — an operator who
+/// could switch off the upload could hide a day of sales by accident.
+pub struct EdgeSyncHandle {
+    wake: Notify,
+    connection: Arc<Mutex<Connection>>,
+    upload_url: String,
+    interval_seconds: i64,
+}
+
+impl EdgeSyncHandle {
+    /// Wake the sender now instead of waiting out its interval.
+    ///
+    /// Coalescing rather than queueing: several presses during one cycle
+    /// collapse into a single extra cycle. That is the honest behaviour — the
+    /// backlog drains in order, and asking twice does not drain it twice.
+    ///
+    /// This does NOT bypass an open breaker. A node that has been failing is
+    /// still in its cooldown, and the status this returns alongside says so;
+    /// pretending a button could shorten it would only hide the outage.
+    pub fn trigger(&self) {
+        self.wake.notify_one();
+    }
+
+    /// Blocking: reads SQLite. Call it from `run_blocking`.
+    pub fn status(&self) -> Result<crate::contract::EdgeSyncStatus, crate::edge::EdgeError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| crate::edge::EdgeError::Persistence("edge sync store poisoned".into()))?;
+        let origin: Option<(String, i64)> = connection
+            .query_row(
+                "SELECT origin_id, generation FROM sync_origin WHERE singleton=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(persistence)?;
+        let (watermark, pending, dead) = backlog(&connection).map_err(persistence)?;
+        let sender = read_sender_state(&connection)
+            .map_err(|error| crate::edge::EdgeError::Persistence(error.to_string()))?;
+        Ok(crate::contract::EdgeSyncStatus {
+            origin_id: origin.as_ref().map(|(id, _)| id.clone()),
+            generation: origin.map_or(0, |(_, generation)| generation),
+            pending_facts: pending,
+            durable_through: watermark,
+            dead_lettered: dead,
+            consecutive_failures: sender.consecutive_failures,
+            breaker_open_until: sender.breaker_open_until,
+            last_success_at: sender.last_success_at,
+            last_error: sender.last_error,
+            last_error_at: sender.last_error_at,
+            sender_enabled: true,
+            upload_url: Some(self.upload_url.clone()),
+            interval_seconds: Some(self.interval_seconds),
+        })
+    }
+}
+
 pub fn spawn_agent(
     edge: &crate::edge::SqliteEdge,
     config: EdgeSyncConfig,
-) -> Result<(), crate::edge::EdgeError> {
+) -> Result<Arc<EdgeSyncHandle>, crate::edge::EdgeError> {
     if config.upload_key.trim().chars().count() < crate::security::MIN_SYNC_KEY_LENGTH {
         return Err(crate::edge::EdgeError::Configuration(format!(
             "SYNC_UPLOAD_KEY must be at least {} characters when the sync sender is enabled",
@@ -2568,6 +2636,13 @@ pub fn spawn_agent(
             "edge sync sender requires a Tokio runtime: {error}"
         ))
     })?;
+    let handle = Arc::new(EdgeSyncHandle {
+        wake: Notify::new(),
+        connection: edge.connection(),
+        upload_url: config.upload_url.clone(),
+        interval_seconds: config.interval_seconds as i64,
+    });
+    let agent = Arc::clone(&handle);
     runtime.spawn(async move {
         let interval = std::time::Duration::from_secs(config.interval_seconds);
         let mut last_purge = std::time::Instant::now();
@@ -2578,7 +2653,11 @@ pub fn spawn_agent(
             "edge sync agent started"
         );
         loop {
-            tokio::time::sleep(interval).await;
+            // Either the interval elapses or somebody pressed "send now".
+            tokio::select! {
+                () = tokio::time::sleep(interval) => {}
+                () = agent.wake.notified() => {}
+            }
             match crate::sync::run_cycle(&store, &cycle, &transport).await {
                 Ok(outcome) => {
                     if let crate::sync::CycleReport::Advanced {
@@ -2616,7 +2695,7 @@ pub fn spawn_agent(
             }
         }
     });
-    Ok(())
+    Ok(handle)
 }
 
 #[cfg(test)]

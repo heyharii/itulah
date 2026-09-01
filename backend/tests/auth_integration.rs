@@ -1404,3 +1404,115 @@ async fn an_administrator_can_promote_somebody_but_never_themselves(pool: PgPool
     assert_eq!(after.status, StatusCode::OK);
     assert_eq!(after.body["user"]["role"], json!("SUPERVISOR"));
 }
+
+/// An Edge can be asked about its own outbox, and told to send it now.
+///
+/// Cloud has eleven /sync endpoints and an Edge had none, so a site could
+/// trade all day with nothing leaving the building and no symptom anybody
+/// would notice — the sync agent only logs a cycle that advanced, so a sender
+/// failing for hours looked exactly like one with nothing to send.
+///
+/// This router is built without a sender, which is the honest shape of a node
+/// whose SYNC_UPLOAD_URL is unset: capture still runs, the backlog is still
+/// durable, and the status must say plainly that nothing is being uploaded
+/// rather than reporting a healthy idle sender.
+#[tokio::test]
+async fn an_edge_reports_its_outbox_and_says_so_when_it_has_no_sender() {
+    let dc_node = node(EdgeRole::Dc, "dc-01");
+    let edge = Arc::new(
+        SqliteEdge::open_in_memory(dc_node.clone())
+            .unwrap_or_else(|error| panic!("DC Edge: {error}")),
+    );
+    let auth = Arc::new(
+        EdgeAuth::new(
+            edge.connection(),
+            dc_node,
+            edge_auth_config(Some("edge-admin-password")),
+        )
+        .unwrap_or_else(|error| panic!("DC auth: {error}")),
+    );
+    let app = dc_router_with_auth(edge, auth, frontend_dir())
+        .unwrap_or_else(|error| panic!("DC router: {error}"));
+
+    // The outbox is not public: it says how far behind this site is.
+    assert_eq!(
+        send(app.clone(), "GET", "/api/v1/sync/status", vec![], None)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send(app.clone(), "POST", "/api/v1/sync/trigger", vec![], None)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+
+    let login = send(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/login",
+        vec![],
+        json_body(json!({"username":"admin","password":"edge-admin-password"})),
+    )
+    .await;
+    assert_eq!(login.status, StatusCode::OK);
+    let (cookie, csrf) = browser_cookie_header(&login.set_cookies);
+
+    let status = send(
+        app.clone(),
+        "GET",
+        "/api/v1/sync/status",
+        vec![("cookie".into(), cookie.clone())],
+        None,
+    )
+    .await;
+    assert_eq!(status.status, StatusCode::OK);
+    assert_eq!(
+        status.body["sender_enabled"],
+        json!(false),
+        "a node with no upload address must not look like a healthy idle sender"
+    );
+    // Not asserted as zero: a freshly opened Edge has already captured its
+    // first fact by the time anyone can ask, so pinning the number here would
+    // be testing the bootstrap rather than the reporting.
+    assert!(
+        status.body["pending_facts"]
+            .as_i64()
+            .is_some_and(|n| n >= 0),
+        "pending_facts must be a real count, got {}",
+        status.body["pending_facts"]
+    );
+    assert_eq!(status.body["dead_lettered"], json!(0));
+    assert_eq!(status.body["upload_url"], json!(null));
+
+    // A write still needs the CSRF header, outbox or not.
+    assert_eq!(
+        send(
+            app.clone(),
+            "POST",
+            "/api/v1/sync/trigger",
+            vec![("cookie".into(), cookie.clone())],
+            json_body(json!({})),
+        )
+        .await
+        .status,
+        StatusCode::FORBIDDEN
+    );
+
+    let triggered = send(
+        app.clone(),
+        "POST",
+        "/api/v1/sync/trigger",
+        vec![("cookie".into(), cookie), ("x-csrf-token".into(), csrf)],
+        json_body(json!({})),
+    )
+    .await;
+    assert_eq!(triggered.status, StatusCode::OK);
+    assert_eq!(
+        triggered.body["triggered"],
+        json!(false),
+        "a button that silently does nothing is worse than one that says so"
+    );
+    assert!(triggered.body["reason"].is_string());
+}

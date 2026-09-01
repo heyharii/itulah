@@ -1,11 +1,13 @@
-use crate::contract::{EdgeMe, LoginRequest, LoginResponse, SessionUser};
+use crate::contract::{
+    EdgeMe, EdgeSyncStatus, EdgeSyncTriggered, LoginRequest, LoginResponse, SessionUser,
+};
 use crate::edge::{
-    AdvanceKoliRequest, CreateKoliShipmentRequest, DeviceProof, EdgeAuth, EdgeAuthConfig,
-    EdgeError, EdgeInventory, EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole, IntakeRequest,
-    MoveRequest, NodeContext, OfficialCountEntriesRequest, OfficialCountSubmitRequest,
-    OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest, PickRequest, PoolBalance,
-    PurchaseCountRequest, PurchaseVerifyRequest, ReceiveRequest, RecordInvoiceRequest, SaleRequest,
-    TaggingConfirmRequest, RFID_OBSERVATION_PATH,
+    sync::EdgeSyncHandle, AdvanceKoliRequest, CreateKoliShipmentRequest, DeviceProof, EdgeAuth,
+    EdgeAuthConfig, EdgeError, EdgeInventory, EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole,
+    IntakeRequest, MoveRequest, NodeContext, OfficialCountEntriesRequest,
+    OfficialCountSubmitRequest, OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest,
+    PickRequest, PoolBalance, PurchaseCountRequest, PurchaseVerifyRequest, ReceiveRequest,
+    RecordInvoiceRequest, SaleRequest, TaggingConfirmRequest, RFID_OBSERVATION_PATH,
 };
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
 use axum::{
@@ -28,6 +30,11 @@ struct EdgeState {
     inventory: Arc<dyn EdgeInventory>,
     auth: Arc<EdgeAuth>,
     rfid: Arc<EdgeRfid>,
+    /// The running sync agent, when this node has one. `None` means
+    /// SYNC_UPLOAD_URL was unset: capture still runs and the backlog is still
+    /// durable, but nothing is being uploaded — and the status endpoint says
+    /// exactly that rather than reporting a healthy idle sender.
+    sync: Option<Arc<EdgeSyncHandle>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -52,6 +59,17 @@ pub fn dc_router_with_auth(
     auth: Arc<EdgeAuth>,
     frontend_dir: PathBuf,
 ) -> Result<Router, EdgeError> {
+    dc_router_with_sync(inventory, auth, frontend_dir, None)
+}
+
+/// As above, plus the running sync agent, so the warehouse screen can see its
+/// own outbox and ask for it to be sent now.
+pub fn dc_router_with_sync(
+    inventory: Arc<dyn EdgeInventory>,
+    auth: Arc<EdgeAuth>,
+    frontend_dir: PathBuf,
+    sync: Option<Arc<EdgeSyncHandle>>,
+) -> Result<Router, EdgeError> {
     if inventory.node().role != EdgeRole::Dc {
         return Err(EdgeError::Configuration(
             "DC router requires a DC Edge inventory adapter".into(),
@@ -63,6 +81,7 @@ pub fn dc_router_with_auth(
         inventory,
         auth,
         rfid,
+        sync,
     };
     Ok(common_router()
         .route("/api/v1/dc/intake", post(dc_intake))
@@ -209,6 +228,17 @@ pub fn store_router_with_auth(
     auth: Arc<EdgeAuth>,
     frontend_dir: PathBuf,
 ) -> Result<Router, EdgeError> {
+    store_router_with_sync(inventory, auth, frontend_dir, None)
+}
+
+/// As above, plus the running sync agent, so the till can see whether today's
+/// sales have actually reached head office.
+pub fn store_router_with_sync(
+    inventory: Arc<dyn EdgeInventory>,
+    auth: Arc<EdgeAuth>,
+    frontend_dir: PathBuf,
+    sync: Option<Arc<EdgeSyncHandle>>,
+) -> Result<Router, EdgeError> {
     if inventory.node().role != EdgeRole::Store {
         return Err(EdgeError::Configuration(
             "Store router requires a Store Edge inventory adapter".into(),
@@ -220,6 +250,7 @@ pub fn store_router_with_auth(
         inventory,
         auth,
         rfid,
+        sync,
     };
     Ok(common_router()
         .route("/api/v1/store/receive", post(store_receive))
@@ -246,6 +277,8 @@ fn common_router() -> Router<EdgeState> {
         .route(RFID_OBSERVATION_PATH, post(rfid_observations))
         .route("/api/v1/inventory/pools", get(pools))
         .route("/api/v1/inventory/movements", get(movements))
+        .route("/api/v1/sync/status", get(sync_status))
+        .route("/api/v1/sync/trigger", post(sync_trigger))
 }
 
 async fn health(State(state): State<EdgeState>) -> Json<Value> {
@@ -1136,6 +1169,80 @@ async fn login(
     append_cookie(&mut response, session_cookie)?;
     append_cookie(&mut response, csrf_cookie)?;
     Ok(response)
+}
+
+/// What this node's outbox is doing.
+///
+/// Readable by any signed-in operator rather than a supervisor only: the
+/// person who most needs to know whether today's takings have left the
+/// building is the one standing at the till when the line goes down.
+async fn sync_status(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<EdgeSyncStatus>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    if let Some(handle) = state.sync.clone() {
+        return Ok(Json(run_blocking(move || handle.status()).await?));
+    }
+    // No sender configured. Capture still runs and the backlog is still
+    // durable, so the counts are real and worth showing — what is missing is
+    // anywhere for them to go, and saying "0 failures" here would read as
+    // healthy.
+    let connection = state.auth.connection();
+    let status = run_blocking(move || {
+        let connection = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        let (durable_through, pending_facts, dead_lettered) =
+            crate::edge::sync::backlog(&connection)
+                .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+        Ok(EdgeSyncStatus {
+            origin_id: None,
+            generation: 0,
+            pending_facts,
+            durable_through,
+            dead_lettered,
+            consecutive_failures: 0,
+            breaker_open_until: None,
+            last_success_at: None,
+            last_error: None,
+            last_error_at: None,
+            sender_enabled: false,
+            upload_url: None,
+            interval_seconds: None,
+        })
+    })
+    .await?;
+    Ok(Json(status))
+}
+
+/// Send the backlog now instead of waiting out the interval.
+///
+/// Answers whether it did anything rather than always reporting success: on a
+/// node with no sender there is nothing to wake, and a button that silently
+/// does nothing is worse than one that says so.
+async fn sync_trigger(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<EdgeSyncTriggered>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    Ok(Json(match state.sync.as_ref() {
+        Some(handle) => {
+            handle.trigger();
+            EdgeSyncTriggered {
+                triggered: true,
+                reason: None,
+            }
+        }
+        None => EdgeSyncTriggered {
+            triggered: false,
+            reason: Some(
+                "this node has no sync sender: SYNC_UPLOAD_URL is unset, so capture \
+                 continues locally and nothing is uploaded"
+                    .into(),
+            ),
+        },
+    }))
 }
 
 async fn me(Extension(principal): Extension<EdgePrincipal>) -> Json<EdgeMe> {

@@ -50,6 +50,12 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("EdgeMe: {e}"));
     inventory_backend::contract::Role::export_all(&config).unwrap_or_else(|e| panic!("Role: {e}"));
 
+    // What an Edge says about its own outbox, and what "send it now" answers.
+    inventory_backend::contract::EdgeSyncStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("EdgeSyncStatus: {e}"));
+    inventory_backend::contract::EdgeSyncTriggered::export_all(&config)
+        .unwrap_or_else(|e| panic!("EdgeSyncTriggered: {e}"));
+
     // Each of these is something a browser is handed by an HTTP route. The
     // list is the contract; anything not on it is server-side only.
     inventory_backend::edge::SaleRequest::export_all(&config)

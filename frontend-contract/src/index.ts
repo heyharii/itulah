@@ -12,6 +12,8 @@ export type { CreateSupplierItemRequest } from "./contract/CreateSupplierItemReq
 export type { CreateSupplierRequest } from "./contract/CreateSupplierRequest";
 export type { EdgeMe } from "./contract/EdgeMe";
 export type { EdgeOfficialCountSummary } from "./contract/EdgeOfficialCountSummary";
+export type { EdgeSyncStatus } from "./contract/EdgeSyncStatus";
+export type { EdgeSyncTriggered } from "./contract/EdgeSyncTriggered";
 export type { GoodsReceiptView } from "./contract/GoodsReceiptView";
 export type { GrantedLine } from "./contract/GrantedLine";
 export type { LoginRequest } from "./contract/LoginRequest";

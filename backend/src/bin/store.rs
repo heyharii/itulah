@@ -1,5 +1,5 @@
 use inventory_backend::edge::{
-    store_router_with_auth, EdgeAuth, EdgeAuthConfig, EdgeRole, NodeContext, SiteId, SqliteEdge,
+    store_router_with_sync, EdgeAuth, EdgeAuthConfig, EdgeRole, NodeContext, SiteId, SqliteEdge,
 };
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 use tracing_subscriber::EnvFilter;
@@ -30,14 +30,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     inventory.configure_sync_generation(generation)?;
     // Capture is always enabled. The optional sender uploads the durable
     // backlog and receives downstream commands over the shared cycle.
-    match inventory_backend::edge::sync::EdgeSyncConfig::from_env()? {
-        Some(sync) => inventory_backend::edge::sync::spawn_agent(&inventory, sync)?,
-        None => tracing::warn!(
-            "SYNC_UPLOAD_URL is unset: capture continues locally and only the sender is disabled"
-        ),
-    }
+    let sync = match inventory_backend::edge::sync::EdgeSyncConfig::from_env()? {
+        Some(config) => Some(inventory_backend::edge::sync::spawn_agent(
+            &inventory, config,
+        )?),
+        None => {
+            tracing::warn!(
+                "SYNC_UPLOAD_URL is unset: capture continues locally and only the sender is disabled"
+            );
+            None
+        }
+    };
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(%bind, "Store Edge running independently with SQLite");
-    axum::serve(listener, store_router_with_auth(inventory, auth, frontend)?).await?;
+    axum::serve(
+        listener,
+        store_router_with_sync(inventory, auth, frontend, sync)?,
+    )
+    .await?;
     Ok(())
 }
