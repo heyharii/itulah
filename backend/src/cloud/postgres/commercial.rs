@@ -1556,6 +1556,17 @@ pub async fn article_prices(
     .fetch_all(pool)
     .await?;
 
+    // How many styles there are, against how many were priced. A cap that does
+    // not say it capped reads as "this is all of them", and a merchandiser who
+    // cannot find a style would go looking for a pricing fault rather than for
+    // the next page.
+    let total_styles: i64 = sqlx::query_scalar(
+        "SELECT count(DISTINCT a.id) FROM article a
+           JOIN sku s ON s.article_id = a.id AND s.active",
+    )
+    .fetch_one(pool)
+    .await?;
+
     struct Style {
         article_code: String,
         article_name: String,
@@ -1576,6 +1587,14 @@ pub async fn article_prices(
         })
         .collect();
 
+    // What a product IS does not change from shop to shop, so it is read once
+    // rather than once per shop. Inside the loop it was thirty reads of one
+    // answer — invisible against two shops and the whole cost of the screen
+    // against thirty.
+    let mut tx = pool.begin().await?;
+    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
+    tx.commit().await?;
+
     // article_code -> site_id -> the collapsed stack
     let mut by_style: std::collections::BTreeMap<String, Vec<Value>> =
         std::collections::BTreeMap::new();
@@ -1592,7 +1611,6 @@ pub async fn article_prices(
         let mut tx = pool.begin().await?;
         let pricing =
             super::pricing::load_site_pricing(&mut tx, &site_id, channel.as_str(), at).await?;
-        let merchandise = super::pricing::load_merchandise(&mut tx).await?;
         tx.commit().await?;
         let context = PricingContext::new(&site_id, channel.as_str(), at);
 
@@ -1641,6 +1659,7 @@ pub async fn article_prices(
         "as_of": at,
         "shops": shop_list,
         "article_count": items.len(),
+        "total_article_count": total_styles,
         "items": items,
     }))
 }
@@ -1669,6 +1688,11 @@ fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
         max_minor: i64,
         sku_count: i64,
         in_force_for: i64,
+        /// The distinct amounts inside the range, and which products carry
+        /// each. A range is a summary and somebody eventually has to ask which
+        /// size is the expensive one; answering that from the same rung means
+        /// the detail can never disagree with the summary above it.
+        points: std::collections::BTreeMap<i64, (Vec<String>, i64)>,
         effective_from: DateTime<Utc>,
         effective_to: Option<DateTime<Utc>>,
     }
@@ -1697,6 +1721,7 @@ fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
                 max_minor: candidate.unit_price.minor,
                 sku_count: 0,
                 in_force_for: 0,
+                points: std::collections::BTreeMap::new(),
                 effective_from: candidate.effective_from,
                 effective_to: candidate.effective_to,
             });
@@ -1706,6 +1731,14 @@ fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
             entry.sku_count += 1;
             if candidate.in_force {
                 entry.in_force_for += 1;
+            }
+            let point = entry
+                .points
+                .entry(candidate.unit_price.minor)
+                .or_insert_with(|| (Vec::new(), 0));
+            point.0.push(stack.sku_code.clone());
+            if candidate.in_force {
+                point.1 += 1;
             }
         }
     }
@@ -1741,6 +1774,13 @@ fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
                 "max_unit_price_minor": row.max_minor,
                 "sku_count": row.sku_count,
                 "in_force_for": row.in_force_for,
+                // Cheapest first, so opening a range reads down from the price
+                // the shelf edge advertises.
+                "points": row.points.iter().map(|(minor, (sku_codes, in_force_for))| json!({
+                    "unit_price_minor": minor,
+                    "sku_codes": sku_codes,
+                    "in_force_for": in_force_for,
+                })).collect::<Vec<Value>>(),
                 "effective_from": row.effective_from,
                 "effective_to": row.effective_to,
             })

@@ -590,6 +590,15 @@ export interface PriceRung {
   readonly min_unit_price_minor: number
   readonly max_unit_price_minor: number
   readonly sku_count: number
+  /// The distinct amounts inside the range, cheapest first, and which products
+  /// carry each. A range is a summary, and somebody eventually asks which size
+  /// is the expensive one — answered from the same rung, so the detail can
+  /// never disagree with the summary above it.
+  readonly points: readonly {
+    readonly unit_price_minor: number
+    readonly sku_codes: readonly string[]
+    readonly in_force_for: number
+  }[]
   /// How many of this style's products this rung actually wins — not always
   /// all of them. A shop price on one size beats the company price on that size
   /// alone, and the company rung is then in force for the rest. A boolean would
@@ -620,7 +629,12 @@ export interface ArticlePricePage {
   readonly channel: CommercialChannel
   readonly as_of: string
   readonly shops: readonly { readonly site_id: string; readonly label: string }[]
+  /// How many styles came back.
   readonly article_count: number
+  /// How many there are. Larger than `article_count` means the page was
+  /// capped — a cap that does not say so reads as "this is all of them", and
+  /// somebody who cannot find a style goes looking for a pricing fault.
+  readonly total_article_count: number
   readonly items: readonly ArticlePrices[]
 }
 

@@ -11,12 +11,20 @@ import {
   localInstantToIso,
   rungPrice,
 } from "@/lib/commercial"
-import { units } from "@/lib/money"
+import { money, units } from "@/lib/money"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { BookOpen, Clock, FlaskConical, Radio, RotateCcw, Search } from "lucide-react"
+import {
+  BookOpen,
+  ChevronRight,
+  Clock,
+  FlaskConical,
+  Radio,
+  RotateCcw,
+  Search,
+} from "lucide-react"
 import { useMemo, useState } from "react"
 
 /// How many styles are drawn before the rest wait behind a button.
@@ -88,6 +96,10 @@ export function PricesView() {
 
   const cleared = items.filter(isCleared).length
   const shopCount = page.data?.shops.length ?? 0
+  // The server prices a bounded number of styles, because the work is styles
+  // times shops. Said out loud rather than left to be discovered.
+  const total = page.data?.total_article_count ?? 0
+  const capped = total > all.length
 
   return (
     <AppShell
@@ -151,6 +163,13 @@ export function PricesView() {
         </Button>
       </ScreenHeader>
 
+      {capped && (
+        <div className="text-muted-foreground border-b px-3.5 py-1.5 text-[11.5px]">
+          Pricing the first {units(all.length)} of {units(total)} styles. The work is
+          styles times shops, so the rest wait — narrow the range to reach them.
+        </div>
+      )}
+
       {at !== "" && (
         /* A price screen showing a moment other than now is the one thing on it
            that can be misread as fact, so it says so rather than leaving the
@@ -199,12 +218,10 @@ export function PricesView() {
             <table className="w-full border-collapse text-left">
               <thead className="bg-muted/50 sticky top-0 z-10">
                 <tr className="border-b">
-                  <Th className="w-[26%]">Style</Th>
-                  <Th className="w-[12%]">Shop</Th>
-                  <Th className="w-[16%] text-right">Price</Th>
-                  <Th className="w-[13%]">Applies to</Th>
-                  <Th className="w-[9%]">Book</Th>
-                  <Th>Standing</Th>
+                  <Th className="w-[30%]">Style</Th>
+                  <Th className="w-[16%]">Shop</Th>
+                  <Th className="w-[22%] text-right">Price</Th>
+                  <Th>Which price</Th>
                 </tr>
               </thead>
               {items.slice(0, drawn).map((article) => (
@@ -359,7 +376,7 @@ function ArticleGroup({ article }: { article: ArticlePrices }) {
           <Td className="align-top">
             <Style article={article} />
           </Td>
-          <Td colSpan={5} className="text-muted-foreground text-[11.5px]">
+          <Td colSpan={3} className="text-muted-foreground text-[11.5px]">
             No shop has a published price for this style on this channel.
           </Td>
         </tr>
@@ -392,30 +409,11 @@ function ArticleGroup({ article }: { article: ArticlePrices }) {
                 prices, which is the opposite of what it means. */}
             <span className={cn("text-xs", !first && "invisible")}>{shop.label}</span>
           </Td>
-          <Td className="text-right align-top">
-            <span
-              className={cn(
-                "font-mono text-xs tabular-nums whitespace-nowrap",
-                rung.source === "MARKDOWN" &&
-                  rung.in_force_for > 0 &&
-                  "font-medium text-amber-700 dark:text-amber-500",
-                rung.in_force_for === 0 && "line-through",
-              )}
-            >
-              {rungPrice(rung)}
-            </span>
-            {rung.sku_count > 1 && (
-              <span className="text-muted-foreground block text-[10px]">
-                {units(rung.sku_count)} sizes
-              </span>
-            )}
-          </Td>
-          <Td className="align-top text-[11px]">{describeLevel(rung.applies_to)}</Td>
-          <Td className="text-muted-foreground align-top font-mono text-[10.5px]">
-            v{rung.publication_version}
+          <Td className="align-top">
+            <Price rung={rung} />
           </Td>
           <Td className="align-top">
-            <Standing rung={rung} />
+            <WhichPrice rung={rung} />
           </Td>
         </tr>
       ))}
@@ -470,30 +468,130 @@ function Style({ article }: { article: ArticlePrices }) {
   )
 }
 
-/// Whether this rung is the one being charged, and what it is.
+/// The amount, and — when the sizes disagree about it — the sizes.
 ///
-/// `in_force_for` is a count and not a flag on purpose: a shop price on one
-/// size beats the company price on that size alone, and the company rung is
-/// then in force for the rest. Saying "in force" or "superseded" would have to
-/// pick one of those and be wrong about the other.
-function Standing({ rung }: { rung: PriceRung }) {
-  const all = rung.in_force_for === rung.sku_count
-  if (rung.in_force_for === 0) {
-    return (
-      <span className="text-muted-foreground text-[11px]">
-        superseded{rung.source === "MARKDOWN" ? " markdown" : ""}
-      </span>
-    )
-  }
+/// A range is a summary of several prices, and the question it provokes is
+/// always "which size is the expensive one". Answered by opening the same rung
+/// rather than by a second screen, so the detail cannot drift from the summary
+/// it sits under.
+function Price({ rung }: { rung: PriceRung }) {
+  const [open, setOpen] = useState(false)
+  const spread = rung.points.length > 1
+  const superseded = rung.in_force_for === 0
+  const amount = (
+    <span
+      className={cn(
+        "font-mono text-xs tabular-nums whitespace-nowrap",
+        rung.source === "MARKDOWN" && !superseded && "font-medium text-amber-700 dark:text-amber-500",
+        superseded && "line-through",
+      )}
+    >
+      {rungPrice(rung)}
+    </span>
+  )
   return (
-    <span className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
-      <span className="text-emerald-700 dark:text-emerald-400">
-        {all ? "charged" : `charged on ${units(rung.in_force_for)} of ${units(rung.sku_count)}`}
+    <div className="flex flex-col items-end gap-0.5">
+      {spread ? (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-1 hover:underline"
+          aria-expanded={open}
+        >
+          <ChevronRight
+            aria-hidden
+            className={cn("size-3 transition-transform", open && "rotate-90")}
+          />
+          {amount}
+        </button>
+      ) : (
+        amount
+      )}
+
+      {/* How many products this rung is actually charged on, not how many it
+          covers. When a shop price takes one size, the company rung under it
+          reads "2 of 3 sizes" — the number that would be a lie as a boolean. */}
+      {rung.sku_count > 1 && (
+        <span className="text-muted-foreground text-[10px]">
+          {superseded
+            ? `${units(rung.sku_count)} sizes`
+            : rung.in_force_for === rung.sku_count
+              ? `${units(rung.sku_count)} sizes`
+              : `${units(rung.in_force_for)} of ${units(rung.sku_count)} sizes`}
+        </span>
+      )}
+
+      {open && (
+        <ul className="mt-1 flex w-full flex-col items-end gap-0.5 border-t pt-1">
+          {rung.points.map((point) => {
+            // A size the rung does not actually win is struck here too. The
+            // summary above already says "2 of 3", and an opened list that
+            // showed all three the same way would take that back — the reader
+            // would leave believing the medium is charged at this price when a
+            // shop price took it.
+            const taken = superseded || point.in_force_for === 0
+            return (
+              <li
+                key={point.unit_price_minor}
+                className="flex w-full items-baseline justify-end gap-2"
+              >
+                <span className="text-muted-foreground truncate font-mono text-[10px]">
+                  {point.sku_codes.join(", ")}
+                </span>
+                <span
+                  className={cn(
+                    "font-mono text-[10.5px] tabular-nums",
+                    taken && "text-muted-foreground line-through",
+                  )}
+                >
+                  {money(point.unit_price_minor, rung.currency)}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/// Which of the shop\'s prices this row is.
+///
+/// This replaced three columns — a scope, a book version and a word nobody
+/// could read ("Standing") — which between them answered one question: what
+/// kind of price is this, and is it the one being taken. Splitting one answer
+/// across three columns is how a table gets wide without getting clearer.
+///
+/// Whether it is charged is not said in words here: the amount beside it is
+/// struck through and the row is greyed when it is not. Saying it twice would
+/// be the fourth column.
+function WhichPrice({ rung }: { rung: PriceRung }) {
+  const superseded = rung.in_force_for === 0
+  const scope = describeLevel(rung.applies_to)
+  const what =
+    rung.source === "MARKDOWN"
+      ? "clearance"
+      : rung.applies_to.level === "COMPANY"
+        ? "company price"
+        : rung.applies_to.level === "SITE"
+          ? "price for this shop"
+          : rung.applies_to.level === "SITE_GROUP"
+            ? `price for ${scope}`
+            : `price for ${scope}`
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-1.5 text-[11px]">
+      <span className={cn(!superseded && rung.source === "MARKDOWN" && "text-amber-700 dark:text-amber-500")}>
+        {what}
       </span>
       {rung.markdown_id !== null && (
         <span className="text-muted-foreground font-mono text-[10px]">{rung.markdown_id}</span>
       )}
-    </span>
+      {/* The book that decided it, kept as a footnote rather than a column: it
+          is what you follow when a price is wrong, and not what you scan for. */}
+      <span className="text-muted-foreground font-mono text-[10px]">
+        v{rung.publication_version}
+      </span>
+    </div>
   )
 }
 
