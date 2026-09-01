@@ -258,6 +258,39 @@ pub enum PriceSource {
     ManualOverride,
 }
 
+impl PriceSource {
+    /// The one name each source has on the wire.
+    ///
+    /// Here rather than at each caller, because it was written twice and the
+    /// two did not agree: a shop rendered `COMPANY_PRICE` through a private
+    /// helper while the centre rendered `CompanyPrice` through `Debug`. Same
+    /// enum, same value, two words — so a screen reading one of them showed an
+    /// empty badge against the other node, and any report grouping by this
+    /// column counted the same price twice under different names.
+    ///
+    /// `Debug` is the wrong tool for a wire value in particular. It is derived
+    /// for a person reading a stack trace, it is explicitly not stable, and
+    /// nothing warns you when renaming a variant silently changes what a
+    /// browser receives. This matches the `serde` renaming above, so the string
+    /// and the serialised form are the same word by construction.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SitePrice => "SITE_PRICE",
+            Self::SiteGroupPrice => "SITE_GROUP_PRICE",
+            Self::TierPrice => "TIER_PRICE",
+            Self::CompanyPrice => "COMPANY_PRICE",
+            Self::Markdown => "MARKDOWN",
+            Self::ManualOverride => "MANUAL_OVERRIDE",
+        }
+    }
+}
+
+impl std::fmt::Display for PriceSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// One priced line, and the reasoning behind it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineResult {
@@ -381,6 +414,43 @@ pub struct PricingResult {
     pub total: Money,
 }
 
+/// One price that could have applied, and whether it did.
+///
+/// The cascade normally answers with a single number, which is all a till
+/// needs and less than a merchandiser needs. "Why is this shop charging 99?"
+/// is answered by the losers as much as the winner: a company price of 169
+/// superseded by a clearance, or a shop price that lost to a newer book.
+///
+/// Ordered by the same comparator that decides the answer, never a second one
+/// written beside it — a screen that showed the cascade in a different order
+/// from the order that decides it would look authoritative and be wrong.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PriceCandidate {
+    pub source: PriceSource,
+    /// Who this price is for: everyone, a group of shops, a tier, one shop.
+    pub applies_to: PriceLevel,
+    pub unit_price: Money,
+    pub currency: Currency,
+    pub tax_category: String,
+    pub publication_version: i64,
+    /// Named when this candidate is a markdown.
+    pub markdown_id: Option<String>,
+    pub effective_from: DateTime<Utc>,
+    pub effective_to: Option<DateTime<Utc>>,
+    /// True for the one that is actually charged. Exactly one candidate in a
+    /// non-empty stack carries it.
+    pub in_force: bool,
+}
+
+/// Every price that could apply to one product, best first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProductStack {
+    pub sku_code: String,
+    /// Empty when nothing prices this product here — which is not an error and
+    /// not a zero price: it means the product cannot be sold at this shop.
+    pub candidates: Vec<PriceCandidate>,
+}
+
 /// What a shop may sell, and for how much.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogEntry {
@@ -449,6 +519,21 @@ pub fn price_catalog(
     products: &[CartLine],
 ) -> Vec<CatalogEntry> {
     engine::catalog(snapshot, context, products)
+}
+
+/// Every price that could apply to each product, best first.
+///
+/// The same index and the same ordering [`price_catalog`] uses, reporting the
+/// losers as well as the winner. Built once for the whole list rather than per
+/// product: a stack per SKU that rebuilt the index each time would be quadratic
+/// on a catalogue, which is the difference between a screen that opens and one
+/// that hangs.
+pub fn price_stacks(
+    snapshot: &PricingSnapshot,
+    context: &PricingContext,
+    products: &[CartLine],
+) -> Vec<ProductStack> {
+    engine::stacks(snapshot, context, products)
 }
 
 /// Whether a coupon code would be accepted, before there is a basket to price.

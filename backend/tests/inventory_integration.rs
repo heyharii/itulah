@@ -4,11 +4,12 @@ use http::Request;
 use inventory_backend::cloud::{
     application::{
         AddSaleLineRequest, AddSalePaymentRequest, AllotmentQuery, AvailabilityQuery,
-        CancelAllotmentRequest, CommandRequest, CommercialOfferRuleInput, CommercialTaxRuleInput,
-        CorruptProjectionRequest, CreateAllotmentLineInput, CreateAllotmentRequest,
-        CreateCommercialPublicationRequest, CreateCountRequest, CreateMovementRequest,
-        CreateSaleRequest, ExecuteAllotmentRequest, MissingResolutionRequest, MovementLineRequest,
-        ObservationBatchRequest, ReplayRequest, ReplayScope, RepostRequest, ResolveOfferQuery,
+        CancelAllotmentRequest, CommandRequest, CommercialMarkdownInput, CommercialOfferRuleInput,
+        CommercialTaxRuleInput, CorruptProjectionRequest, CreateAllotmentLineInput,
+        CreateAllotmentRequest, CreateCommercialPublicationRequest, CreateCountRequest,
+        CreateMovementRequest, CreateSaleRequest, ExecuteAllotmentRequest,
+        MissingResolutionRequest, MovementLineRequest, ObservationBatchRequest, ReplayRequest,
+        ReplayScope, RepostRequest, ResolveOfferQuery,
     },
     domain::{AllotmentType, CommercialChannel, CountKind, DestinationType, RfidRead},
     http as api_http, postgres as infrastructure, AppConfig, AppState,
@@ -119,6 +120,8 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
             bootstrap_admin_password: None,
             cors_allowed_origins: None,
             media: None,
+            attachments: None,
+            default_destination_site_id: "dc".into(),
         },
     ));
     let health = app
@@ -729,6 +732,8 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
             bootstrap_admin_password: None,
             cors_allowed_origins: None,
             media: None,
+            attachments: None,
+            default_destination_site_id: "dc".into(),
         },
     ));
     let offers_response = app
@@ -1501,6 +1506,8 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
             bootstrap_admin_password: None,
             cors_allowed_origins: None,
             media: None,
+            attachments: None,
+            default_destination_site_id: "dc".into(),
         },
     ));
     for uri in [
@@ -1531,4 +1538,264 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     .await
     .unwrap_or_else(|e| panic!("Allotment replay: {e}"));
     assert_eq!(replay["status"], "MATCH");
+}
+
+/// A clearance on a whole style clears every size of it, at the centre too.
+///
+/// The companion to the shop-side test of the same name. The engine matches an
+/// article-wide markdown on `CartLine::article_code`, and it is *told* that
+/// field rather than deriving it from the SKU code — but nothing told it. Every
+/// caller built its lines with `CartLine::new`, which leaves the style empty,
+/// so a range-wide markdown matched nothing: not at a till, and not on the
+/// screen a merchandiser opens to check a price.
+///
+/// The failure had no symptom. The markdown was accepted, stored, published and
+/// delivered; it simply never applied. This test fails against that build and
+/// is the reason the centre now loads what a product IS alongside what it costs.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_clearance_on_a_whole_style_clears_every_size_of_it(pool: PgPool) {
+    // The seed gives every SKU a company-wide STORE price, so a book that only
+    // adds a markdown still satisfies the publish check.
+    let (any_sku, article): (Uuid, String) = sqlx::query_as(
+        "SELECT s.id, a.article_code FROM sku s JOIN article a ON a.id = s.article_id
+          WHERE s.active ORDER BY s.sku_code LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("a seeded style: {e}"));
+
+    let siblings: Vec<String> = sqlx::query_scalar(
+        "SELECT s.sku_code FROM sku s JOIN article a ON a.id = s.article_id
+          WHERE a.article_code = $1 AND s.active ORDER BY s.sku_code",
+    )
+    .bind(&article)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("the sizes of {article}: {e}"));
+    assert!(
+        siblings.len() > 1,
+        "a style with one size in it cannot show that the markdown reached the others"
+    );
+
+    const CLEARANCE: i64 = 49_000;
+    let created = infrastructure::create_commercial_publication(
+        &pool,
+        CreateCommercialPublicationRequest {
+            version: 900,
+            name: "Cuci gudang satu style".into(),
+            effective_from: Utc::now() - Duration::days(1),
+            effective_to: None,
+            tax_rules: vec![CommercialTaxRuleInput {
+                tax_category: "STANDARD".into(),
+                rate_bps: 1_100,
+                tax_inclusive: true,
+            }],
+            // One price, restated, because a book must carry at least one.
+            offer_rules: vec![CommercialOfferRuleInput {
+                sku_id: any_sku,
+                site_id: None,
+                site_ids: None,
+                tier: None,
+                channel: CommercialChannel::Store,
+                sellable: true,
+                currency: "IDR".into(),
+                unit_price_minor: 200_000,
+                tax_category: "STANDARD".into(),
+            }],
+            markdowns: vec![CommercialMarkdownInput {
+                markdown_id: "MD-STYLE".into(),
+                sku_id: None,
+                sku_code: None,
+                article_code: Some(article.clone()),
+                site_id: None,
+                site_ids: None,
+                tier: None,
+                replacement_unit_price_minor: CLEARANCE,
+                priority: 10,
+                effective_from: Utc::now() - Duration::days(1),
+                effective_to: None,
+            }],
+            rules: Vec::new(),
+            coupons: Vec::new(),
+            campaigns: Vec::new(),
+            actor_id: "merchandiser".into(),
+            idempotency_key: "style-clearance-draft".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("draft: {e}"));
+    let publication_id: Uuid = created["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no publication id: {created}"))
+        .parse()
+        .unwrap_or_else(|e| panic!("publication id: {e}"));
+    infrastructure::publish_commercial_publication(
+        &pool,
+        publication_id,
+        CommandRequest {
+            actor_id: "merchandiser".into(),
+            idempotency_key: "style-clearance-publish".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("publish: {e}"));
+
+    let offers = infrastructure::list_resolved_offers(
+        &pool,
+        "store-07",
+        CommercialChannel::Store,
+        Utc::now(),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("offers: {e}"));
+    let items = offers["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no offers: {offers}"));
+    let quoted = |code: &str| -> serde_json::Value {
+        items
+            .iter()
+            .find(|item| item["sku_code"] == serde_json::json!(code))
+            .unwrap_or_else(|| panic!("{code} is missing from the centre's list"))
+            .clone()
+    };
+
+    for sku_code in &siblings {
+        assert_eq!(
+            quoted(sku_code)["unit_price_minor"],
+            serde_json::json!(CLEARANCE),
+            "{sku_code} is in {article}, so the style-wide clearance must reach it"
+        );
+        assert_eq!(quoted(sku_code)["price_source"], "MARKDOWN");
+        assert_eq!(quoted(sku_code)["markdown_id"], "MD-STYLE");
+    }
+
+    // And nothing outside the style moved.
+    let untouched = items
+        .iter()
+        .find(|item| item["article_code"] != serde_json::json!(article))
+        .unwrap_or_else(|| panic!("the seed has only one style: {offers}"));
+    assert_eq!(
+        untouched["price_source"], "COMPANY_PRICE",
+        "a markdown naming one style must not touch another"
+    );
+}
+
+/// The what-if says why a promotion did not come off.
+///
+/// Pricing a basket that is not being sold is the only way to ask "why is my
+/// rule not applying" without a customer standing at the counter. The engine
+/// never throws for a rule that cannot apply — it records the reason — and
+/// that record had nowhere to go: `price_cart` was called only at a till, so
+/// the centre could author a promotion and had no way to test one.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_what_if_prices_a_basket_and_explains_what_did_not_apply(pool: PgPool) {
+    let sku_code: String =
+        sqlx::query_scalar("SELECT sku_code FROM sku WHERE active ORDER BY sku_code LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("a seeded SKU: {e}"));
+
+    let priced = infrastructure::simulate(
+        &pool,
+        inventory_backend::cloud::application::SimulateRequest {
+            site_id: "store-07".into(),
+            channel: CommercialChannel::Store,
+            at: None,
+            lines: vec![inventory_backend::cloud::application::SimulateLineInput {
+                sku_code: sku_code.clone(),
+                quantity: 2,
+                manual_unit_price_minor: None,
+            }],
+            coupon_codes: Vec::new(),
+            customer_id: None,
+            customer_tier: None,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("simulate: {e}"));
+
+    assert_eq!(priced["lines"].as_array().map(Vec::len), Some(1));
+    assert_eq!(priced["lines"][0]["sku_code"], serde_json::json!(sku_code));
+    assert_eq!(priced["lines"][0]["quantity"], serde_json::json!(2));
+    assert_eq!(priced["lines"][0]["price_source"], "COMPANY_PRICE");
+    assert!(
+        priced["total_minor"].as_i64().unwrap_or_default() > 0,
+        "a basket of two priced items comes to something"
+    );
+    assert!(
+        priced["trace_id"].as_str().is_some_and(|id| !id.is_empty()),
+        "the fingerprint is what lets this answer be reproduced later"
+    );
+
+    // Nothing was recorded. A what-if that left a sale behind would be worse
+    // than no what-if at all.
+    let sales: i64 = sqlx::query_scalar("SELECT count(*) FROM sale")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("sale count: {e}"));
+    assert_eq!(sales, 0, "pricing a hypothetical basket must sell nothing");
+
+    // A coupon nobody issued is refused in words, not by failing the request.
+    let with_code = infrastructure::simulate(
+        &pool,
+        inventory_backend::cloud::application::SimulateRequest {
+            site_id: "store-07".into(),
+            channel: CommercialChannel::Store,
+            at: None,
+            lines: vec![inventory_backend::cloud::application::SimulateLineInput {
+                sku_code,
+                quantity: 1,
+                manual_unit_price_minor: None,
+            }],
+            coupon_codes: vec!["TIDAK-ADA".into()],
+            customer_id: None,
+            customer_tier: None,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("simulate with a bad coupon: {e}"));
+    assert!(
+        with_code["total_minor"].as_i64().unwrap_or_default() > 0,
+        "an unknown coupon must not stop the basket being priced"
+    );
+}
+
+/// Every shop appears on the fleet list, including the one that never reported.
+///
+/// That row is the whole point and the easiest to leave out: a shop missing
+/// from a list of activations reads as "no news", when what it means is that no
+/// price book has ever gone into service there.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_fleet_list_names_a_shop_that_has_never_activated_a_price_book(pool: PgPool) {
+    sqlx::query(
+        "INSERT INTO sync_origin_credential
+             (origin_id, ingest_key_sha256, active_generation, node_role, site_id,
+              label, inventory_enabled)
+         VALUES ('store-07-till', 'not-a-real-key', 1, 'STORE', 'store-07',
+                 'Toko 07', true)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("register a shop: {e}"));
+
+    let fleet = infrastructure::commercial_activation(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("activation: {e}"));
+    let items = fleet["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no shops: {fleet}"));
+    let shop = items
+        .iter()
+        .find(|row| row["origin_id"] == serde_json::json!("store-07-till"))
+        .unwrap_or_else(|| panic!("the shop is missing from the fleet list: {fleet}"));
+
+    assert_eq!(shop["has_ever_activated"], serde_json::json!(false));
+    assert!(
+        shop["version"].is_null(),
+        "it is charging from no book at all"
+    );
+    assert!(
+        shop["behind_by"].is_null(),
+        "how far behind a shop that never started is, is not a number"
+    );
 }

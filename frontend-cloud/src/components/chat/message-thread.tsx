@@ -5,7 +5,7 @@ import { attachmentUrl } from "@/lib/chat"
 import { clock, dayOf } from "@/lib/collaboration"
 import { cn } from "@/lib/utils"
 import type { ChatMessage, StoredFile } from "@itulah/contract"
-import { useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 /// A message this browser has drawn but the server has not confirmed.
 ///
@@ -42,17 +42,16 @@ export function MessageThread({
   me,
   messages,
   pending,
-  unreadFrom,
+  lastReadSeq,
   onRetry,
 }: {
   conversationId: string
   me: string | undefined
   messages: ChatMessage[]
   pending: PendingMessage[]
-  /// Where this reader had got to when they opened the conversation. Frozen at
-  /// that moment on purpose — the read mark moves to the bottom a beat later,
-  /// and a line that followed it would vanish before it was any use.
-  unreadFrom: number | undefined
+  /// The read mark as it stood when this component mounted. Read once; see
+  /// below.
+  lastReadSeq: number
   onRetry: (message: PendingMessage) => void
 }) {
   const scroller = useRef<HTMLDivElement>(null)
@@ -62,10 +61,48 @@ export function MessageThread({
     box.scrollTop = box.scrollHeight
   }, [conversationId, messages.length, pending.length])
 
-  const seen = new Set<number>()
-  let previousAuthor: string | null = null
-  let previousDay: string | null = null
-  let drewUnreadLine = false
+  /// Where this reader had got to when the conversation opened.
+  ///
+  /// Read once, at mount, and never again — which is why this component is
+  /// keyed by the conversation. The read mark moves to the bottom a moment
+  /// after the thread appears, so a line drawn from the live value would
+  /// vanish in the same breath as it was drawn. The server sent a position;
+  /// this keeps it long enough to be worth having.
+  const [unreadFrom] = useState(lastReadSeq)
+
+  /// The thread's shape, worked out once rather than while it is being drawn.
+  ///
+  /// Whether a message opens a new day, whether it continues the previous
+  /// speaker, and where the unread line falls are all questions about a
+  /// message's neighbours, so each one is answered by looking at them.
+  const rows = useMemo(() => {
+    // The first message this reader had not got to, and not their own — coming
+    // back to your own last word is not an unread message.
+    const unreadIndex = messages.findIndex(
+      (message) => message.seq > unreadFrom && message.author !== me,
+    )
+    return messages.map((message, index) => {
+      const previous = index === 0 ? undefined : messages[index - 1]
+      const day = dayOf(message.sent_at)
+      const newDay = previous === undefined || dayOf(previous.sent_at) !== day
+      const unreadHere = index === unreadIndex
+      const grouped =
+        !newDay && !unreadHere && previous !== undefined && previous.author === message.author
+      const quoted =
+        message.reply_to_seq === null
+          ? undefined
+          : messages.find((other) => other.seq === message.reply_to_seq)
+      return {
+        message,
+        day,
+        newDay,
+        unreadHere,
+        grouped,
+        quoted:
+          quoted === undefined ? undefined : `${quoted.author}: ${quoted.body.slice(0, 60)}`,
+      }
+    })
+  }, [messages, me, unreadFrom])
 
   return (
     <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
@@ -74,46 +111,23 @@ export function MessageThread({
           Nothing has been said here yet.
         </p>
       )}
-      {messages.map((message) => {
-        seen.add(message.seq)
-        const day = dayOf(message.sent_at)
-        const newDay = day !== previousDay
-        previousDay = day
-        const unreadHere =
-          !drewUnreadLine &&
-          unreadFrom !== undefined &&
-          message.seq > unreadFrom &&
-          message.author !== me
-        if (unreadHere) drewUnreadLine = true
-        const grouped = !newDay && !unreadHere && previousAuthor === message.author
-        previousAuthor = message.author
-        const quoted =
-          message.reply_to_seq === null
-            ? undefined
-            : messages.find((other) => other.seq === message.reply_to_seq)
-
-        return (
-          <div key={message.message_id}>
-            {newDay && <DayDivider day={day} />}
-            {unreadHere && <UnreadLine />}
-            <Bubble
-              mine={message.author === me}
-              author={message.author}
-              at={clock(message.sent_at)}
-              seq={message.seq}
-              grouped={grouped}
-              quoted={
-                quoted === undefined
-                  ? undefined
-                  : `${quoted.author}: ${quoted.body.slice(0, 60)}`
-              }
-              body={message.body}
-              attachments={message.attachments}
-              conversationId={conversationId}
-            />
-          </div>
-        )
-      })}
+      {rows.map((row) => (
+        <div key={row.message.message_id}>
+          {row.newDay && <DayDivider day={row.day} />}
+          {row.unreadHere && <UnreadLine />}
+          <Bubble
+            mine={row.message.author === me}
+            author={row.message.author}
+            at={clock(row.message.sent_at)}
+            seq={row.message.seq}
+            grouped={row.grouped}
+            quoted={row.quoted}
+            body={row.message.body}
+            attachments={row.message.attachments}
+            conversationId={conversationId}
+          />
+        </div>
+      ))}
 
       {pending.map((message) => (
         <Bubble

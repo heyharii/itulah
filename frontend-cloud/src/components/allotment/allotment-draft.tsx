@@ -1,4 +1,13 @@
 import { AppShell, ScreenHeader } from "@/components/app-shell"
+import {
+  FilterSheet,
+  PurchaseOrderSheet,
+} from "@/components/allotment/allotment-filters"
+import {
+  activeFilterCount,
+  NO_FILTERS,
+  type AllotmentFilters,
+} from "@/lib/allotment-filters"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,12 +21,13 @@ import {
 import { useIdentity } from "@/lib/identity"
 import { units } from "@/lib/money"
 import { listPools, sitesOf } from "@/lib/pools"
+import { listPurchaseOrders } from "@/lib/purchase-orders"
 import { cn } from "@/lib/utils"
 import { useVocabulary } from "@/lib/vocabulary"
 import { ApiError } from "@itulah/contract/client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { ChevronRight, Search, X } from "lucide-react"
+import { ChevronRight, ListFilter, Receipt, Search, X } from "lucide-react"
 import { Fragment, useMemo, useRef, useState } from "react"
 
 /// How wide the three columns that never scroll are. Named here because the
@@ -34,6 +44,7 @@ interface ArticleRow {
   readonly image: string | null
   readonly division: string | null
   readonly tags: readonly string[]
+  readonly orders: readonly string[]
   readonly skus: readonly AvailabilityItem[]
   readonly on_hand: number
   readonly stock: number
@@ -68,6 +79,7 @@ export function AllotmentDraft() {
   const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState("")
+  const [filters, setFilters] = useState<AllotmentFilters>(NO_FILTERS)
 
   // One key per attempt at THIS allotment, held across retries and rotated only
   // once one has actually been raised: the server replays its first answer for
@@ -94,6 +106,17 @@ export function AllotmentDraft() {
     enabled: source !== null,
   })
 
+  // Under the same key the sheet reads, so naming the chosen order on the
+  // button does not cost a second fetch of the list it came from.
+  const orders = useQuery({
+    queryKey: ["purchase-orders"],
+    queryFn: ({ signal }) => listPurchaseOrders(signal),
+    staleTime: 60_000,
+  })
+  const order = (orders.data ?? []).find(
+    (row) => row.purchase_order_id === filters.purchaseOrder
+  )
+
   const articles = useMemo<ArticleRow[]>(() => {
     const byArticle = new Map<string, AvailabilityItem[]>()
     for (const item of stock.data?.items ?? []) {
@@ -111,6 +134,7 @@ export function AllotmentDraft() {
         image: skus[0].image_url,
         division: skus[0].division_code,
         tags: skus[0].tags,
+        orders: skus[0].purchase_order_ids,
         skus,
         on_hand: skus.reduce((sum, sku) => sum + sku.on_hand_qty, 0),
         stock: skus.reduce((sum, sku) => sum + sku.stock_qty, 0),
@@ -118,14 +142,73 @@ export function AllotmentDraft() {
       .sort((left, right) => left.name.localeCompare(right.name))
   }, [stock.data])
 
+  /// The divisions and tags actually present, so the filter offers what this
+  /// warehouse holds rather than the whole vocabulary. A division nothing is
+  /// filed under is a tick that can only ever empty the screen.
+  const divisions = useMemo(
+    () =>
+      [
+        ...new Set(
+          articles
+            .map((article) => article.division)
+            .filter((code): code is string => code !== null)
+        ),
+      ].sort((left, right) =>
+        vocabulary.division(left).localeCompare(vocabulary.division(right))
+      ),
+    [articles, vocabulary]
+  )
+  const tagCodes = useMemo(
+    () =>
+      [...new Set(articles.flatMap((article) => article.tags))].sort(
+        (left, right) =>
+          vocabulary.tag(left).localeCompare(vocabulary.tag(right))
+      ),
+    [articles, vocabulary]
+  )
+
   const needle = search.trim().toLowerCase()
+  /// Search is a different act from filtering, so it is a different control:
+  /// searching is looking for one thing you already have in mind, filtering is
+  /// cutting the list down to a shape. They compose — a row has to survive
+  /// both — but the search stays on the toolbar where it can be typed into
+  /// without opening anything.
   const shown = articles.filter((article) => {
-    if (needle === "") return true
-    const division =
-      article.division === null ? "" : vocabulary.division(article.division)
-    const tags = article.tags.map((tag) => vocabulary.tag(tag)).join(" ")
-    return `${article.name} ${division} ${tags}`.toLowerCase().includes(needle)
+    if (needle !== "") {
+      const division =
+        article.division === null ? "" : vocabulary.division(article.division)
+      const tags = article.tags.map((tag) => vocabulary.tag(tag)).join(" ")
+      const matched = `${article.name} ${division} ${tags}`
+        .toLowerCase()
+        .includes(needle)
+      if (!matched) return false
+    }
+    if (
+      filters.divisions.length > 0 &&
+      (article.division === null ||
+        !filters.divisions.includes(article.division))
+    ) {
+      return false
+    }
+    // Any of the ticked tags, not all of them: a person ticking Kaos and Jaket
+    // is asking for both kinds of thing, not for a garment that is somehow both.
+    if (
+      filters.tags.length > 0 &&
+      !article.tags.some((tag) => filters.tags.includes(tag))
+    ) {
+      return false
+    }
+    if (filters.stock === "in" && article.on_hand <= 0) return false
+    if (filters.stock === "out" && article.on_hand > 0) return false
+    if (
+      filters.purchaseOrder !== "" &&
+      !article.orders.includes(filters.purchaseOrder)
+    ) {
+      return false
+    }
+    return true
   })
+  const filterCount = activeFilterCount(filters)
 
   const quantityOf = (skuId: string, storeId: string) =>
     quantities[`${skuId}|${storeId}`] ?? 0
@@ -308,6 +391,12 @@ export function AllotmentDraft() {
             {units(stock.data.stock_qty)}
           </span>
         )}
+        {shown.length !== articles.length && (
+          <span className="text-[11px] text-muted-foreground">
+            of {articles.length}
+          </span>
+        )}
+
         <label className="relative ml-auto">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -318,6 +407,36 @@ export function AllotmentDraft() {
             className="h-7 w-56 pl-7 text-xs"
           />
         </label>
+
+        <PurchaseOrderSheet
+          selected={filters.purchaseOrder}
+          onSelect={(purchaseOrder) =>
+            setFilters({ ...filters, purchaseOrder })
+          }
+        >
+          <Button variant="outline" size="sm" className="h-7">
+            <Receipt className="size-3.5" />
+            {order === undefined ? "Order" : order.po_number}
+          </Button>
+        </PurchaseOrderSheet>
+
+        <FilterSheet
+          filters={filters}
+          divisions={divisions}
+          tags={tagCodes}
+          vocabulary={vocabulary}
+          onChange={setFilters}
+        >
+          <Button variant="outline" size="sm" className="h-7">
+            <ListFilter className="size-3.5" />
+            Filters
+            {filterCount > 0 && (
+              <span className="ml-0.5 rounded-full bg-foreground px-1.5 font-mono text-[10px] text-background">
+                {filterCount}
+              </span>
+            )}
+          </Button>
+        </FilterSheet>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
@@ -335,6 +454,30 @@ export function AllotmentDraft() {
               ? stock.error.message
               : "The warehouse's stock could not be read."}
           </p>
+        ) : shown.length === 0 ? (
+          // Said plainly rather than shown as an empty grid: thirteen columns
+          // of blank cells look exactly like a warehouse with nothing in it,
+          // and the reason here is a filter the person set.
+          <div className="px-3.5 py-10 text-center">
+            <p className="text-xs text-muted-foreground">
+              {articles.length === 0
+                ? "The warehouse holds nothing to promise."
+                : "No article matches what you are asking for."}
+            </p>
+            {articles.length > 0 && (filterCount > 0 || needle !== "") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2"
+                onClick={() => {
+                  setFilters(NO_FILTERS)
+                  setSearch("")
+                }}
+              >
+                Show all {articles.length} articles
+              </Button>
+            )}
+          </div>
         ) : (
           <table className="border-separate border-spacing-0 text-sm">
             <thead>

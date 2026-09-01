@@ -92,6 +92,8 @@ fn cloud_config() -> AppConfig {
         bootstrap_admin_password: None,
         cors_allowed_origins: None,
         media: None,
+        attachments: None,
+        default_destination_site_id: "dc".into(),
     }
 }
 

@@ -12,8 +12,8 @@
 
 use chrono::{DateTime, Utc};
 use pricing_engine::{
-    Campaign, CampaignStatus, Caps, Coupon, Currency, Markdown, Money, PriceEntry, PriceLevel,
-    PricingSnapshot, Rule,
+    Campaign, CampaignStatus, Caps, CartLine, Coupon, Currency, Markdown, Money, PriceEntry,
+    PriceLevel, PricingSnapshot, Rule,
 };
 use serde_json::Value;
 use sqlx::{Postgres, Row, Transaction};
@@ -116,11 +116,7 @@ pub async fn load_site_pricing(
         sku_id_by_code.insert(sku_code.clone(), sku_id);
         entries.push(PriceEntry {
             sku_code,
-            applies_to: level_of(
-                row.get("site_id"),
-                row.get("site_ids"),
-                row.get("tier"),
-            ),
+            applies_to: level_of(row.get("site_id"), row.get("site_ids"), row.get("tier")),
             channel: row.get("channel"),
             sellable: row.get("sellable"),
             currency: Currency(row.get::<String, _>("currency").trim().to_string()),
@@ -135,7 +131,8 @@ pub async fn load_site_pricing(
 
     let markdowns = sqlx::query(
         "SELECT m.markdown_id, m.sku_code, m.article_code, m.site_id, m.site_ids, m.tier,
-                m.replacement_unit_price_minor, m.priority, m.effective_from, m.effective_to
+                m.replacement_unit_price_minor, m.priority, p.version,
+                m.effective_from, m.effective_to
            FROM commercial_markdown m
            JOIN commercial_publication p ON p.id = m.publication_id
           WHERE p.status = 'PUBLISHED'
@@ -153,6 +150,7 @@ pub async fn load_site_pricing(
         applies_to: level_of(row.get("site_id"), row.get("site_ids"), row.get("tier")),
         replacement_unit_price: Money::new(row.get::<i64, _>("replacement_unit_price_minor")),
         priority: i64::from(row.get::<i32, _>("priority")),
+        publication_version: row.get("version"),
         effective_from: row.get("effective_from"),
         effective_to: row.get("effective_to"),
     })
@@ -243,4 +241,79 @@ pub async fn load_site_pricing(
         sku_code_by_id,
         sku_id_by_code,
     })
+}
+
+/// What a product *is*, as the rules that price a whole range need to know it.
+///
+/// The engine matches a markdown or a promotion on the article, the division or
+/// a tag — and it is told these, never deriving them from the SKU code, because
+/// an engine that knew how a SKU code is built would break the day that format
+/// changed (see `CartLine::article_code`).
+///
+/// Nothing told it. Every caller built its cart lines with `CartLine::new`,
+/// which leaves all three empty, so an article-wide clearance was authored,
+/// validated, stored, shipped to every shop, loaded into the snapshot — and
+/// then matched nothing, in the centre and at the till alike. This is the half
+/// that was missing.
+pub struct Merchandise {
+    pub article_code: String,
+    pub article_name: String,
+    pub division_code: Option<String>,
+    pub tags: Vec<String>,
+}
+
+/// Every catalogued product, by the code the engine names it by.
+pub async fn load_merchandise(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<BTreeMap<String, Merchandise>, AppError> {
+    let rows = sqlx::query(
+        "SELECT s.sku_code, a.article_code, a.name article_name, a.division_code,
+                COALESCE(
+                    array_agg(t.tag_code ORDER BY t.tag_code)
+                        FILTER (WHERE t.tag_code IS NOT NULL),
+                    '{}'
+                ) tags
+           FROM sku s
+           JOIN article a ON a.id = s.article_id
+           LEFT JOIN article_tag t ON t.article_id = a.id
+          WHERE s.active
+          GROUP BY s.sku_code, a.article_code, a.name, a.division_code",
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.get::<String, _>("sku_code"),
+                Merchandise {
+                    article_code: row.get("article_code"),
+                    article_name: row.get("article_name"),
+                    division_code: row.get("division_code"),
+                    tags: row.get("tags"),
+                },
+            )
+        })
+        .collect())
+}
+
+/// One line for the engine, carrying what the product is as well as its code.
+///
+/// A product the merchandise map does not know still gets a line — priced by
+/// its SKU code alone, matching nothing that targets a range. That is the
+/// honest degradation: an unknown article means a range rule cannot be judged
+/// to apply, and inventing an article code to make one apply would be worse
+/// than the rule not applying.
+pub fn cart_line(
+    sku_code: &str,
+    quantity: i64,
+    merchandise: &BTreeMap<String, Merchandise>,
+) -> CartLine {
+    let mut line = CartLine::new(sku_code.to_string(), quantity);
+    if let Some(facts) = merchandise.get(sku_code) {
+        line.article_code = Some(facts.article_code.clone());
+        line.division = facts.division_code.clone();
+        line.tags = facts.tags.clone();
+    }
+    line
 }

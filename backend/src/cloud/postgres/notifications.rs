@@ -206,7 +206,11 @@ pub async fn unread_notification_count(pool: &PgPool, username: &str) -> Result<
 /// `read_at IS NULL` in the WHERE rather than an unconditional UPDATE: two
 /// tabs marking the same row should agree on when it was read, and the first
 /// answer is the true one.
-pub async fn mark_notification_read(pool: &PgPool, username: &str, notification_id: Uuid) -> Result<(), AppError> {
+pub async fn mark_notification_read(
+    pool: &PgPool,
+    username: &str,
+    notification_id: Uuid,
+) -> Result<(), AppError> {
     let updated = sqlx::query(
         "UPDATE notification_recipient SET read_at = now()
           WHERE notification_id = $1 AND username = $2 AND read_at IS NULL",

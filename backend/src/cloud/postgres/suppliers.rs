@@ -2,8 +2,7 @@ use super::{begin_idempotent, complete_idempotent, inventory_dc_owner_tx, issue_
 use crate::cloud::{
     application::AppError,
     domain::{
-        normalize_supplier_code, normalize_tag_codes, optional_supplier_text,
-        parse_purchase_order,
+        normalize_supplier_code, normalize_tag_codes, optional_supplier_text, parse_purchase_order,
         required_supplier_text, validate_supplier_item_price, PurchaseOrderLinePayload, Supplier,
         SupplierItem, SupplierStatus, COMMAND_PURCHASE_ORDER_ACTIVATE,
     },
@@ -215,7 +214,10 @@ fn supplier_item_from_row(row: PgRow) -> Result<SupplierItem, AppError> {
         // Tags come from a join table, so a plain row read cannot carry them.
         // Empty here means "this reader did not fetch them", and every caller
         // that shows tags fetches them — see `search_supplier_items`.
-        tags: row.try_get::<Option<Vec<String>>, _>("tags").unwrap_or_default().unwrap_or_default(),
+        tags: row
+            .try_get::<Option<Vec<String>>, _>("tags")
+            .unwrap_or_default()
+            .unwrap_or_default(),
         status: SupplierStatus::from_str(&status).map_err(validation)?,
         version: row.try_get("version")?,
         created_by: row.try_get("created_by")?,
@@ -585,8 +587,9 @@ impl SourcingCursor {
     }
 
     fn decode(raw: &str) -> Result<Self, AppError> {
-        let bytes = hex::decode(raw)
-            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))?;
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
         serde_json::from_slice(&bytes)
             .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
     }
@@ -639,7 +642,11 @@ pub async fn search_supplier_items(
     let suppliers = (!scope.supplier_ids.is_empty()).then_some(scope.supplier_ids);
     let divisions = (!scope.division_codes.is_empty()).then_some(scope.division_codes);
     let tags = (!scope.tag_codes.is_empty()).then_some(scope.tag_codes);
-    let cursor = scope.cursor.as_deref().map(SourcingCursor::decode).transpose()?;
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(SourcingCursor::decode)
+        .transpose()?;
     // A page, not the catalogue. The browser asks for the next one when the
     // buyer reaches the bottom, which is the only way a 2806-item range can be
     // shown without handing a laptop 2806 photographs at once.
@@ -1135,6 +1142,17 @@ pub struct CatalogPurchaseLineRequest {
     pub article_name: Option<String>,
     #[serde(default)]
     pub image_url: Option<String>,
+    /// What this order says the goods are, when the catalogue is wrong or
+    /// silent. The classification travels to goods receipt and becomes the
+    /// article's own, so correcting it here is correcting it at the only
+    /// moment somebody has the garment and the paperwork in front of them.
+    #[serde(default)]
+    pub division_code: Option<String>,
+    /// Absent keeps the catalogue's tags; present replaces them for this order.
+    /// An empty list therefore means "no tags", which is a thing a buyer may
+    /// legitimately say about a line.
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1142,7 +1160,11 @@ pub struct CatalogPurchaseLineRequest {
 pub struct CatalogPurchaseOrderRequest {
     pub po_number: String,
     pub supplier_id: Uuid,
-    pub destination_site_id: String,
+    /// Where the goods land. Absent takes the node's configured default, which
+    /// is the ordinary case while the company runs one DC — asking a buyer to
+    /// choose between one option is a question with no information in it.
+    #[serde(default)]
+    pub destination_site_id: Option<String>,
     #[serde(default)]
     pub notes: Option<String>,
     /// Agreed reduction on the whole order, in the order currency's minor
@@ -1222,9 +1244,11 @@ pub async fn create_catalog_purchase_order(
 ) -> Result<CatalogPurchaseOrderReceipt, AppError> {
     let actor = required_supplier_text("actor", actor).map_err(validation)?;
     let po_number = required_supplier_text("po_number", request.po_number).map_err(validation)?;
-    let destination_site_id =
-        required_supplier_text("destination_site_id", request.destination_site_id)
-            .map_err(validation)?;
+    let destination_site_id = required_supplier_text(
+        "destination_site_id",
+        request.destination_site_id.unwrap_or_default(),
+    )
+    .map_err(validation)?;
     let notes = optional_supplier_text(request.notes);
     if request.lines.is_empty() {
         return Err(AppError::Validation(
@@ -1343,8 +1367,14 @@ pub async fn create_catalog_purchase_order(
             version: row.try_get("version")?,
             quantity: line.quantity,
             promised_date: line.promised_date,
-            division_code: row.try_get("division_code")?,
-            tags: row.try_get("tags")?,
+            division_code: match optional_supplier_text(line.division_code) {
+                Some(code) => Some(code),
+                None => row.try_get("division_code")?,
+            },
+            tags: match line.tags {
+                Some(tags) => normalize_tag_codes(tags).map_err(validation)?,
+                None => row.try_get("tags")?,
+            },
             ordered_price_minor: match line.unit_price_minor {
                 Some(price) if price < 0 => {
                     return Err(AppError::Validation(

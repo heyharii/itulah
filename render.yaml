@@ -94,6 +94,25 @@ services:
         value: catalogue
       - key: R2_SUPPLIER_PREFIX
         value: supplier
+      # Attachments on conversations and discussions, in a bucket of their own.
+      #
+      # NOT the `images` bucket. That one is served through R2_PUBLIC_BASE_URL
+      # so a till can fetch a photograph unsigned, and an attachment written
+      # there is readable by anybody holding its file id — permanently, with no
+      # session. `cloud::attachments` therefore has its own store with no
+      # public base URL and no method that returns one.
+      #
+      # Unset is a supported state: attachments go to Postgres instead. They
+      # are never written to `images` as a fallback.
+      - key: R2_ATTACHMENT_BUCKET
+        value: files
+      # Optional, and worth setting: a token scoped to the attachment bucket
+      # alone means the key that serves catalogue photographs cannot read
+      # anybody's correspondence. Falls back to the pair above when unset.
+      - key: R2_ATTACHMENT_ACCESS_KEY_ID
+        sync: false
+      - key: R2_ATTACHMENT_SECRET_ACCESS_KEY
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           # NOT renamed, deliberately. A web service's name is just an address;

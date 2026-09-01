@@ -91,11 +91,24 @@ impl Shop {
         assert_eq!(report.applied, 1, "{command_type} did not apply");
     }
 
-    /// Deliver the centre's product list.
+    /// Deliver the centre's product list, each product its own style.
     async fn deliver_catalogue(&mut self, skus: &[(&str, &str)]) {
-        let items: Vec<CatalogItem> = skus
+        let owned: Vec<(String, &str, &str)> = skus
             .iter()
-            .map(|(sku, name)| CatalogItem {
+            .map(|(sku, name)| (format!("ART-{sku}"), *sku, *name))
+            .collect();
+        self.deliver_styled_catalogue(&owned).await;
+    }
+
+    /// The same, with the style said out loud.
+    ///
+    /// Several SKUs under one `article_code` is the ordinary case — a shirt in
+    /// three sizes is three SKUs and one style — and it is the only way to
+    /// exercise a markdown written against a range.
+    async fn deliver_styled_catalogue(&mut self, rows: &[(String, &str, &str)]) {
+        let items: Vec<CatalogItem> = rows
+            .iter()
+            .map(|(article, sku, name)| CatalogItem {
                 sku_code: (*sku).into(),
                 name: (*name).into(),
                 uom: "EA".into(),
@@ -103,6 +116,9 @@ impl Shop {
                 tax_category: "STANDARD".into(),
                 active: true,
                 base_price_minor: Some(INTAKE_PRICE),
+                article_code: Some(article.clone()),
+                division_code: Some("MENSWEAR".into()),
+                tags: Vec::new(),
             })
             .collect();
         let payload = json!({
@@ -497,6 +513,19 @@ fn markdown(sku: &str, minor: i64) -> serde_json::Value {
     })
 }
 
+/// A clearance written against a whole style, not one product.
+fn article_markdown(article: &str, minor: i64) -> serde_json::Value {
+    json!({
+        "markdown_id": format!("MD-{article}"),
+        "article_code": article,
+        "site_id": null,
+        "replacement_unit_price_minor": minor,
+        "priority": 0,
+        "effective_from": "2020-01-01T00:00:00Z",
+        "effective_to": null,
+    })
+}
+
 fn percent_off(id: &str, bps: i64) -> serde_json::Value {
     json!({
         "rule_id": id,
@@ -794,7 +823,9 @@ async fn the_centre_is_told_what_was_charged_not_what_the_unit_cost_at_intake() 
     assert_eq!(lines[0]["price_source"], "COMPANY_PRICE");
     assert_eq!(lines[0]["publication_version"], 1);
     assert!(
-        fact["pricing_trace_id"].as_str().is_some_and(|id| !id.is_empty()),
+        fact["pricing_trace_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty()),
         "a disputed receipt must be reproducible, not arguable"
     );
 }
@@ -808,10 +839,7 @@ async fn the_centre_accepts_the_sale_it_is_told_about() {
         .await;
     shop.deliver_commercial(
         1,
-        vec![
-            rule("KEM001", None, 200_000),
-            rule("CEL001", None, 300_000),
-        ],
+        vec![rule("KEM001", None, 200_000), rule("CEL001", None, 300_000)],
         vec![markdown("KEM001", 150_000)],
         vec![percent_off("R1", 1_000)],
         vec![],
@@ -835,9 +863,7 @@ async fn the_centre_accepts_the_sale_it_is_told_about() {
     assert_eq!(sale.total_minor, 405_000);
 
     let parsed = inventory_backend::cloud::domain::parse_sales_completed(&sale_fact(&shop))
-        .unwrap_or_else(|error| {
-            panic!("the centre would have refused this sale: {error}")
-        });
+        .unwrap_or_else(|error| panic!("the centre would have refused this sale: {error}"));
     assert_eq!(parsed.total_minor, 405_000);
     assert_eq!(parsed.discount_total_minor, 45_000);
 }
@@ -1172,7 +1198,10 @@ async fn a_refused_coupon_is_not_reported_as_redeemed() {
 
     shop.stock_one("EPC40000002", "KEM001");
     let sale = shop.sell("EPC40000002", 200_000, &["LEBARAN"]);
-    assert_eq!(sale.total_minor, 200_000, "an inactive coupon opens nothing");
+    assert_eq!(
+        sale.total_minor, 200_000,
+        "an inactive coupon opens nothing"
+    );
 
     let fact = sale_fact(&shop);
     assert!(
@@ -1282,4 +1311,72 @@ async fn a_campaign_budget_actually_runs_out() {
         third.promotions[0].reason.as_deref(),
         Some("the promotion budget is used up")
     );
+}
+
+/// A clearance on a whole style reaches every size in it.
+///
+/// This is a regression test for a fault that was total and silent. The engine
+/// matches an article-wide markdown on `CartLine::article_code`, and it is told
+/// that field rather than deriving it from the SKU code — deliberately, because
+/// an engine that knew how a SKU code is built would break the day the format
+/// changed. But nothing told it: every caller in the system built its lines
+/// with `CartLine::new`, which leaves the style empty.
+///
+/// So a range-wide markdown was authored, validated, stored, published,
+/// delivered to every shop, loaded into the snapshot — and then matched
+/// nothing, at the centre and at the till alike. Nothing failed. The clearance
+/// simply did not happen, and the only evidence was a shelf ticket disagreeing
+/// with a receipt.
+#[tokio::test]
+async fn a_clearance_on_a_whole_style_reaches_every_size_in_it() {
+    let mut shop = Shop::open();
+    shop.deliver_styled_catalogue(&[
+        ("ART-KEMEJA".to_string(), "KEM-S", "Kemeja Putih S"),
+        ("ART-KEMEJA".to_string(), "KEM-M", "Kemeja Putih M"),
+        ("ART-CELANA".to_string(), "CEL-M", "Celana Chino M"),
+    ])
+    .await;
+    shop.deliver_commercial(
+        1,
+        vec![
+            rule("KEM-S", None, 200_000),
+            rule("KEM-M", None, 200_000),
+            rule("CEL-M", None, 300_000),
+        ],
+        vec![article_markdown("ART-KEMEJA", 99_000)],
+        vec![],
+        vec![],
+    )
+    .await;
+
+    let catalogue = shop
+        .edge
+        .store_catalog()
+        .unwrap_or_else(|e| panic!("catalogue: {e}"));
+    let priced = |sku: &str| {
+        catalogue
+            .iter()
+            .find(|row| row.sku_code == sku)
+            .unwrap_or_else(|| panic!("{sku} is not in the catalogue"))
+            .clone()
+    };
+
+    let small = priced("KEM-S");
+    assert_eq!(
+        small.unit_price_minor, 99_000,
+        "the small shirt is in the style being cleared"
+    );
+    assert_eq!(small.price_source, "MARKDOWN");
+    assert_eq!(
+        priced("KEM-M").unit_price_minor,
+        99_000,
+        "so is the medium — a style is every size of it, or the markdown is a \
+         rule nobody can predict"
+    );
+    assert_eq!(
+        priced("CEL-M").unit_price_minor,
+        300_000,
+        "the trousers are a different style and must be untouched"
+    );
+    assert_eq!(priced("CEL-M").price_source, "COMPANY_PRICE");
 }

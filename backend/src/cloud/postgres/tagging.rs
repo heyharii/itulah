@@ -806,14 +806,8 @@ pub async fn issue_setup_session(
 
     // The setup's own price book, published and on its way to the shops before
     // the tagging job leaves. A garment cannot arrive somewhere unsellable.
-    let _price_book_version = publish_setup_prices(
-        &mut tx,
-        &job_lines,
-        &currency,
-        &article_name,
-        issued_by,
-    )
-    .await?;
+    let _price_book_version =
+        publish_setup_prices(&mut tx, &job_lines, &currency, &article_name, issued_by).await?;
 
     let payload = json!({
         "job_id": job_id,

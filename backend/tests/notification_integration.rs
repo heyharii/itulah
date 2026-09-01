@@ -70,9 +70,8 @@ async fn send(
     let body = if bytes.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&bytes).unwrap_or_else(|_| {
-            json!({ "raw": String::from_utf8_lossy(&bytes).to_string() })
-        })
+        serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| json!({ "raw": String::from_utf8_lossy(&bytes).to_string() }))
     };
     Response {
         status,
@@ -137,6 +136,8 @@ fn config() -> AppConfig {
         bootstrap_admin_password: None,
         cors_allowed_origins: None,
         media: None,
+        attachments: None,
+        default_destination_site_id: "dc".into(),
     }
 }
 

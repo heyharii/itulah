@@ -54,7 +54,11 @@ async fn put_head_get_presign_delete_round_trip() {
     let via_url = reqwest::get(&url)
         .await
         .unwrap_or_else(|e| panic!("presigned fetch: {e}"));
-    assert!(via_url.status().is_success(), "presigned GET {}", via_url.status());
+    assert!(
+        via_url.status().is_success(),
+        "presigned GET {}",
+        via_url.status()
+    );
     let bytes = via_url.bytes().await.unwrap_or_default().to_vec();
     assert_eq!(bytes, body);
     println!("presign ok");

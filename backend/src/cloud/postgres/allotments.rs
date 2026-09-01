@@ -1327,11 +1327,31 @@ WITH ledger_delta AS (
 ), article_tags AS (
     SELECT article_id,array_agg(tag_code ORDER BY tag_code) codes
     FROM article_tag GROUP BY article_id
+-- Which orders this article has actually arrived on.
+--
+-- Joined on OUR article code rather than on `article.created_by_session_id`,
+-- and the difference matters: that column records only the setup session that
+-- first minted the article, so a second delivery of the same shirt on a later
+-- order would still trace back to the first one. An article belongs to every
+-- order that ever brought it in.
+--
+-- The order line's own `article_code` cannot be used for this at all — it is
+-- the supplier's code, and two suppliers reuse each other's. The setup session
+-- is the only place the supplier's string and ours are tied together, and it
+-- is tied there by a human deciding what the goods are.
+), article_orders AS (
+    SELECT setup.article_code,
+           array_agg(DISTINCT line.purchase_order_id) purchase_order_ids
+    FROM article_setup_session setup
+    JOIN goods_receipt_line receipt ON receipt.receipt_line_id=setup.receipt_line_id
+    JOIN purchase_order_line line ON line.po_line_id=receipt.po_line_id
+    GROUP BY setup.article_code
 )
 SELECT sku.id sku_id,sku.sku_code,article.id article_id,
        article.article_code,article.name article_name,
        article.division_code,article.image_url,
        COALESCE(tags.codes,ARRAY[]::text[]) tags,
+       COALESCE(orders.purchase_order_ids,ARRAY[]::uuid[]) purchase_order_ids,
        sku.color colour,sku.size size,
        (COALESCE(ledger.normal_quantity,0)+COALESCE(ledger.missing_quantity,0))::bigint stock_quantity,
        COALESCE(allotted.allotted_quantity,0)::bigint allotted_quantity,
@@ -1341,6 +1361,7 @@ FROM sku JOIN article ON article.id=sku.article_id
 LEFT JOIN ledger_balance ledger ON ledger.sku_id=sku.id
 LEFT JOIN allotted_balance allotted ON allotted.sku_id=sku.id
 LEFT JOIN article_tags tags ON tags.article_id=article.id
+LEFT JOIN article_orders orders ON orders.article_code=article.article_code
 WHERE sku.active ORDER BY article.article_code,sku.sku_code
 "#)
         .bind(at)
@@ -1359,6 +1380,7 @@ WHERE sku.active ORDER BY article.article_code,sku.sku_code
                 "division_code":row.get::<Option<String>,_>("division_code"),
                 "image_url":row.get::<Option<String>,_>("image_url"),
                 "tags":row.get::<Vec<String>,_>("tags"),
+                "purchase_order_ids":row.get::<Vec<Uuid>,_>("purchase_order_ids"),
                 "colour":row.get::<Option<String>,_>("colour"),
                 "size":row.get::<Option<String>,_>("size"),
                 "stock_qty":row.get::<i64,_>("stock_quantity"),

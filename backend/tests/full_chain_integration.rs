@@ -112,6 +112,8 @@ fn cloud_config() -> AppConfig {
         bootstrap_admin_password: None,
         cors_allowed_origins: None,
         media: None,
+        attachments: None,
+        default_destination_site_id: "dc".into(),
     }
 }
 
@@ -345,7 +347,10 @@ impl Fleet {
                 .await
                 .unwrap_or_else(|e| panic!("cycle for {key}: {e}"));
             if let Some(blocked) = outcome.commands_blocked {
-                panic!("{} could not apply a command: {blocked:?}", edge.node().node_id);
+                panic!(
+                    "{} could not apply a command: {blocked:?}",
+                    edge.node().node_id
+                );
             }
             if matches!(outcome.upstream, CycleReport::Idle) && outcome.commands_applied == 0 {
                 break;
@@ -409,7 +414,15 @@ async fn provision(pool: &PgPool, origin: &str, key: &str, site: &str, role: &st
 
 async fn fleet(pool: PgPool) -> Fleet {
     provision(&pool, DC_ORIGIN, DC_KEY, DC_SITE, "DC", "DC 01").await;
-    provision(&pool, STORE_ORIGIN, STORE_KEY, STORE_SITE, "STORE", "Toko 01").await;
+    provision(
+        &pool,
+        STORE_ORIGIN,
+        STORE_KEY,
+        STORE_SITE,
+        "STORE",
+        "Toko 01",
+    )
+    .await;
 
     let dc_site = SiteId::new(DC_SITE).unwrap_or_else(|e| panic!("dc site: {e}"));
     let dc_node =
@@ -420,7 +433,9 @@ async fn fleet(pool: PgPool) -> Fleet {
 
     Fleet {
         cloud: AppState::new(pool, cloud_config()),
-        dc: Arc::new(SqliteEdge::open_in_memory(dc_node).unwrap_or_else(|e| panic!("dc edge: {e}"))),
+        dc: Arc::new(
+            SqliteEdge::open_in_memory(dc_node).unwrap_or_else(|e| panic!("dc edge: {e}")),
+        ),
         store: Arc::new(
             SqliteEdge::open_in_memory(store_node).unwrap_or_else(|e| panic!("store edge: {e}")),
         ),
@@ -547,7 +562,6 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
     // sellable — which is the point: a garment must not arrive at a shop
     // unsellable because a separate price book never mentioned it.
     fleet.sync().await;
-
 
     // --- 05 · The warehouse tags the goods --------------------------------
     let jobs = fleet.dc_get("/api/v1/dc/tagging-jobs").await;
@@ -702,7 +716,10 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
         .as_str()
         .unwrap_or_else(|| panic!("no publication id: {draft}"))
         .to_string();
-    assert_eq!(draft["status"], "DRAFT", "nothing is live until it is published");
+    assert_eq!(
+        draft["status"], "DRAFT",
+        "nothing is live until it is published"
+    );
 
     let published = fleet
         .cloud_post(
@@ -741,7 +758,8 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
     assert_eq!(on_shelf(&other_sku_code)["unit_price_minor"], CLEARANCE);
     assert_eq!(on_shelf(&other_sku_code)["price_source"], "MARKDOWN");
     assert_eq!(
-        on_shelf(&other_sku_code)["base_unit_price_minor"], COMPANY_PRICE,
+        on_shelf(&other_sku_code)["base_unit_price_minor"],
+        COMPANY_PRICE,
         "a shelf edge shows what it was as well as what it is"
     );
 
@@ -800,7 +818,15 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
         json!(CLEARANCE),
         "the cleared size must not show at its list price to head office"
     );
-    assert_eq!(quoted(&other_sku_code)["price_source"], "Markdown");
+    // One spelling, both ends. This read `"Markdown"` while the centre rendered
+    // the enum with `Debug` and a shop rendered it `MARKDOWN` through a helper
+    // of its own — so the assertion passed and the two nodes disagreed anyway.
+    assert_eq!(quoted(&other_sku_code)["price_source"], "MARKDOWN");
+    assert_eq!(
+        quoted(&other_sku_code)["price_source"],
+        on_shelf(&other_sku_code)["price_source"],
+        "head office and the shop must say the same word for where a price came from"
+    );
 
     // =====================================================================
     // 07 · The centre sends some of it to the shop
@@ -1140,14 +1166,22 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
     // chain is a report nobody can open.
     let takings = cloud::sales_by_site(
         &fleet.cloud.db,
-        "2020-01-01T00:00:00Z".parse().unwrap_or_else(|e| panic!("from: {e}")),
-        "2030-01-01T00:00:00Z".parse().unwrap_or_else(|e| panic!("to: {e}")),
+        "2020-01-01T00:00:00Z"
+            .parse()
+            .unwrap_or_else(|e| panic!("from: {e}")),
+        "2030-01-01T00:00:00Z"
+            .parse()
+            .unwrap_or_else(|e| panic!("to: {e}")),
     )
     .await
     .unwrap_or_else(|e| panic!("takings: {e}"));
     let row = takings["sites"]
         .as_array()
-        .and_then(|sites| sites.iter().find(|site| site["site_id"] == json!(STORE_SITE)))
+        .and_then(|sites| {
+            sites
+                .iter()
+                .find(|site| site["site_id"] == json!(STORE_SITE))
+        })
         .unwrap_or_else(|| panic!("this shop is missing from the takings: {takings}"));
     assert_eq!(row["sale_count"], 1);
     assert_eq!(
@@ -1158,9 +1192,7 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn a_price_book_may_change_a_few_prices_but_not_open_a_channel_half_priced(
-    pool: PgPool,
-) {
+async fn a_price_book_may_change_a_few_prices_but_not_open_a_channel_half_priced(pool: PgPool) {
     // The check that used to force whole-book authoring is now a safety net,
     // and it still catches the thing it exists for: a channel where some
     // products have a price and others have none is a channel that will refuse

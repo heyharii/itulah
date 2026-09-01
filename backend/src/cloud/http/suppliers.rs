@@ -404,7 +404,7 @@ pub async fn create_catalog_purchase_order(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     headers: HeaderMap,
-    Json(request): Json<CatalogPurchaseOrderRequest>,
+    Json(mut request): Json<CatalogPurchaseOrderRequest>,
 ) -> Result<
     (
         StatusCode,
@@ -412,6 +412,13 @@ pub async fn create_catalog_purchase_order(
     ),
     AppError,
 > {
+    // Resolved before the digest is taken, so a request that relied on the
+    // default and one that named the same site explicitly hash alike — an
+    // idempotency key replayed across a config change then still answers for
+    // the order it actually created.
+    if request.destination_site_id.is_none() {
+        request.destination_site_id = Some(state.config.default_destination_site_id.clone());
+    }
     let key = idempotency_key(&headers)?;
     let request_digest = digest(&json!({
         "actor": &principal.username,
@@ -436,5 +443,7 @@ pub async fn create_catalog_purchase_order(
 pub async fn list_purchase_destinations(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<infrastructure::PurchaseDestination>>, AppError> {
-    Ok(Json(infrastructure::purchase_destinations(&state.db).await?))
+    Ok(Json(
+        infrastructure::purchase_destinations(&state.db).await?,
+    ))
 }

@@ -20,8 +20,15 @@ import { useSyncExternalStore } from "react"
 /// sockets per origin — three of them held open forever by three components
 /// listening to the same thing is how a screen ends up unable to load a table.
 
-/// What the connection is doing, in the three states worth telling apart.
-export type StreamStatus = "live" | "reconnecting" | "offline"
+/// What the connection is doing, in the four states worth telling apart.
+///
+/// `connecting` is separate from `reconnecting` because they are different
+/// news. One is "we have never been through"; the other is "we were through
+/// and lost it, and here is where we are resuming from". Collapsing them was
+/// the first version of this, and it opened every screen with a red OFFLINE
+/// badge for the second before the first frame arrived — a lie, and an
+/// alarming one.
+export type StreamStatus = "connecting" | "live" | "reconnecting" | "offline"
 
 export interface StreamState {
   readonly status: StreamStatus
@@ -60,6 +67,9 @@ class CollaborationStream {
   private readonly watchers = new Set<Listener>()
   private readonly handlers = new Map<string, Set<EventListener>>()
   private state: StreamState = { status: "offline", lastEventId: 0 }
+  /// Set when the last watcher leaves, cleared if one arrives before it fires.
+  /// See `close`.
+  private closing: ReturnType<typeof setTimeout> | null = null
 
   snapshot = (): StreamState => this.state
 
@@ -68,10 +78,14 @@ class CollaborationStream {
   /// does not care about live traffic is not holding a socket open.
   watch = (listener: Listener): (() => void) => {
     this.watchers.add(listener)
+    if (this.closing !== null) {
+      clearTimeout(this.closing)
+      this.closing = null
+    }
     if (this.watchers.size === 1) this.open()
     return () => {
       this.watchers.delete(listener)
-      if (this.watchers.size === 0) this.close()
+      if (this.watchers.size === 0) this.scheduleClose()
     }
   }
 
@@ -99,6 +113,7 @@ class CollaborationStream {
 
   private open() {
     if (this.source !== null) return
+    this.set({ status: this.state.lastEventId > 0 ? "reconnecting" : "connecting" })
     // No `after` on a first connection. The screen already has the current
     // contents from its own queries, and replaying the day at it would be
     // work with nothing to show for it. A reconnection is the opposite case,
@@ -135,7 +150,7 @@ class CollaborationStream {
     if (Number.isFinite(eventId) && eventId > this.state.lastEventId) {
       this.set({ status: "live", lastEventId: eventId })
     }
-    let payload: unknown = null
+    let payload: unknown
     try {
       payload = JSON.parse(message.data) as unknown
     } catch {
@@ -165,6 +180,21 @@ class CollaborationStream {
       this.timer = null
       if (this.watchers.size > 0) this.open()
     }, wait)
+  }
+
+  /// Let go of the connection, but not at once.
+  ///
+  /// Every screen renders its own nav, so a route change unmounts the whole
+  /// tree and mounts a new one — watchers briefly reach zero on a navigation
+  /// that is not going anywhere. Closing on that dropped the stream and
+  /// reopened it on every click, which showed up on screen as the badge going
+  /// red each time somebody moved between two screens that both want it.
+  private scheduleClose() {
+    if (this.closing !== null) return
+    this.closing = setTimeout(() => {
+      this.closing = null
+      if (this.watchers.size === 0) this.close()
+    }, 5_000)
   }
 
   private close() {

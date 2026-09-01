@@ -14,4 +14,17 @@ unit_price_minor: number | null,
  * A corrected description for this order only. It does not rename the
  * supplier item: one order's wording is not a catalogue edit.
  */
-article_name: string | null, image_url: string | null, };
+article_name: string | null, image_url: string | null, 
+/**
+ * What this order says the goods are, when the catalogue is wrong or
+ * silent. The classification travels to goods receipt and becomes the
+ * article's own, so correcting it here is correcting it at the only
+ * moment somebody has the garment and the paperwork in front of them.
+ */
+division_code: string | null, 
+/**
+ * Absent keeps the catalogue's tags; present replaces them for this order.
+ * An empty list therefore means "no tags", which is a thing a buyer may
+ * legitimately say about a line.
+ */
+tags: Array<string> | null, };

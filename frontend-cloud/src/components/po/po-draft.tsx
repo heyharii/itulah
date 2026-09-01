@@ -8,21 +8,22 @@ import {
   TableRow,
 } from "@/components/custom/table"
 import { Nav } from "@/components/nav"
-import { Thumb } from "@/components/sourcing/columns"
-import { toSourcingRow, type SourcingRow } from "@/components/sourcing/rows"
+import { Tag, Thumb } from "@/components/sourcing/columns"
+import { useVocabulary } from "@/lib/vocabulary"
+import { UNCLASSIFIED, toSourcingRow, type SourcingRow } from "@/components/sourcing/rows"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { money, units } from "@/lib/money"
-import { useBasket, useBasketActions, useDestinations } from "@/lib/basket"
+import { useBasket, useBasketActions } from "@/lib/basket"
 import { createCatalogPurchaseOrder } from "@/lib/purchase-orders"
 import { searchSourcedItems } from "@/lib/sourcing"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { Minus, Plus, Search, X } from "lucide-react"
+import { Check, Minus, Pencil, Plus, Search, X } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 /// A purchase order in the making.
@@ -62,7 +63,6 @@ export function PoDraft() {
     queryKey: ["sourcing", "supplier", supplierId],
     queryFn: ({ signal }) => searchSourcedItems({ supplierIds: [supplierId], limit: 200 }, signal),
   })
-  const destinations = useDestinations()
   const { remove: removeFromBasket } = useBasketActions()
 
   const rows = useMemo<SourcingRow[]>(
@@ -79,7 +79,6 @@ export function PoDraft() {
   const lineQuantities = quantities ?? seedQuantities
   const lineOrder = order ?? Object.keys(seedQuantities)
   const [poNumber, setPoNumber] = useState(suggestPoNumber)
-  const [destination, setDestination] = useState("")
   const [promisedDate, setPromisedDate] = useState("")
   const [notes, setNotes] = useState("")
   /// Prices agreed for THIS order, keyed by supplier item id. Absent means the
@@ -87,6 +86,18 @@ export function PoDraft() {
   /// line sends nothing and the server takes its own figure rather than one
   /// the browser echoed back at it.
   const [agreedPrices, setAgreedPrices] = useState<Record<string, number>>({})
+  /// Descriptions corrected for this order. Same rule as the price: absent
+  /// means the catalogue's own wording stands, so a line nobody touched sends
+  /// nothing and the snapshot beside it keeps its meaning.
+  const [agreedNames, setAgreedNames] = useState<Record<string, string>>({})
+  /// Classification corrected for this order. It travels to goods receipt and
+  /// becomes the article's own, so this is the last moment somebody has the
+  /// garment and the paperwork in front of them at once.
+  const [agreedDivisions, setAgreedDivisions] = useState<Record<string, string>>({})
+  /// Which line is open for editing. One at a time: a table where every row is
+  /// a form is a table nobody can read.
+  const [editing, setEditing] = useState<string | null>(null)
+  const vocabulary = useVocabulary()
   /// One discount on the order, in whole rupiah. Not per line: it is
   /// negotiated once and a supplier invoices it once.
   const [discount, setDiscount] = useState("")
@@ -105,6 +116,8 @@ export function PoDraft() {
   const currencies = new Set(lines.map((line) => line.row.currency))
   const currency = currencies.size === 1 ? [...currencies][0] : null
   const priceOf = (row: SourcingRow) => agreedPrices[row.id] ?? row.price
+  const nameOf = (row: SourcingRow) => agreedNames[row.id] ?? row.name
+  const divisionOf = (row: SourcingRow) => agreedDivisions[row.id] ?? row.division
   const grossMinor = lines.reduce((sum, line) => sum + priceOf(line.row) * line.quantity, 0)
   const discountMinor = discount.trim() === "" ? 0 : Math.max(0, Number(discount) || 0)
   const totalMinor = grossMinor - discountMinor
@@ -120,7 +133,6 @@ export function PoDraft() {
     problems.push(
       "The discount is more than the order is worth. A reduction larger than the order is a credit, which this is not.",
     )
-  if (destination === "") problems.push("Choose where the delivery goes.")
   if (currency === null && lines.length > 0)
     problems.push(
       "These items are quoted in more than one currency. An order carries one currency, so they cannot go on the same one.",
@@ -132,7 +144,10 @@ export function PoDraft() {
         {
           po_number: poNumber.trim(),
           supplier_id: supplierId,
-          destination_site_id: destination,
+          // Not asked for. The company runs one DC, and the node names it —
+          // a required choice between a single option is a question with no
+          // information in it and one more thing to get wrong on every order.
+          destination_site_id: null,
           notes: notes.trim() === "" ? null : notes.trim(),
           discount_minor: discountMinor === 0 ? null : discountMinor,
           // The new optional fields — an agreed price, a corrected name — are
@@ -146,8 +161,11 @@ export function PoDraft() {
             // own price back would record every line as a negotiated one and
             // make the snapshot beside it meaningless.
             unit_price_minor: agreedPrices[line.row.id] ?? null,
-            article_name: null,
+            article_name: agreedNames[line.row.id] ?? null,
             image_url: null,
+            division_code: agreedDivisions[line.row.id] ?? null,
+            // Not offered per line yet; the catalogue's tags stand.
+            tags: null,
           })),
         },
         idempotencyKey.current,
@@ -280,42 +298,6 @@ export function PoDraft() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="po-destination" className="text-xs">
-              Deliver to
-            </Label>
-            <select
-              id="po-destination"
-              value={destination}
-              onChange={(event) => setDestination(event.target.value)}
-              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-            >
-              <option value="">Choose a site…</option>
-              {(destinations.data ?? []).map((site) => (
-                <option key={site.site_id} value={site.site_id}>
-                  {site.label} · {site.node_role}
-                </option>
-              ))}
-            </select>
-            {destinations.isError ? (
-              // A refusal and an empty register are different problems with
-              // different fixes, and telling a buyer "nothing is registered"
-              // when the truth is "you may not see it" sends them to register
-              // sites that already exist.
-              <p className="text-destructive text-[10.5px]">
-                {destinations.error instanceof ApiError
-                  ? destinations.error.message
-                  : "The delivery sites could not be loaded."}
-              </p>
-            ) : (
-              destinations.data?.length === 0 && (
-                <p className="text-[10.5px] text-amber-600">
-                  No site is registered to receive deliveries yet.
-                </p>
-              )
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
             <Label htmlFor="po-promised" className="text-xs">
               Promised date
             </Label>
@@ -369,12 +351,16 @@ export function PoDraft() {
             Nothing on this order yet. Add a line from the supplier's catalogue below.
           </ScreenState>
         ) : (
-          <Table>
+          // Fixed layout. Without it every column renegotiates its width the
+          // moment one cell's content grows, so typing a fourth digit into a
+          // quantity shifted the table and the header above it sideways
+          // mid-keystroke.
+          <Table className="table-fixed">
             <TableHeader className="bg-muted/50">
               <TableRow className="hover:bg-transparent">
                 <TableHead>Item</TableHead>
                 <TableHead className="text-right">Unit</TableHead>
-                <TableHead className="w-36 text-right">Quantity</TableHead>
+                <TableHead className="w-40 text-right">Quantity</TableHead>
                 <TableHead className="text-right">Line total</TableHead>
                 {step === "lines" && <TableHead className="w-10" />}
               </TableRow>
@@ -385,13 +371,89 @@ export function PoDraft() {
                   <TableCell>
                     <div className="flex min-w-0 items-center gap-2.5">
                       <Thumb row={line.row} />
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium">{line.row.name}</div>
-                        <div className="text-muted-foreground truncate font-mono text-[10.5px]">
-                          {line.row.code}
-                          {line.row.division !== "" && ` · ${line.row.division}`}
-                        </div>
+                      <div className="min-w-0 flex-1">
+                        {editing === line.row.id ? (
+                          <div className="flex flex-col gap-1">
+                            <Input
+                              value={nameOf(line.row)}
+                              aria-label={`Description for ${line.row.name}`}
+                              autoFocus
+                              onChange={(event) => {
+                                const value = event.target.value
+                                setAgreedNames((current) => {
+                                  const next = { ...current }
+                                  // Back to the catalogue's own wording rather
+                                  // than a copy of it, so an untouched line
+                                  // stays untouched on the wire.
+                                  if (value.trim() === "" || value === line.row.name) {
+                                    delete next[line.row.id]
+                                  } else {
+                                    next[line.row.id] = value
+                                  }
+                                  return next
+                                })
+                              }}
+                              className="h-7 text-[13px]"
+                            />
+                            <select
+                              value={divisionOf(line.row)}
+                              aria-label={`Division for ${line.row.name}`}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                setAgreedDivisions((current) => {
+                                  const next = { ...current }
+                                  if (value === line.row.division) delete next[line.row.id]
+                                  else next[line.row.id] = value
+                                  return next
+                                })
+                              }}
+                              className="border-input bg-background h-7 rounded-md border px-2 text-[11.5px]"
+                            >
+                              {vocabulary.divisionOrder.map((code) => (
+                                <option key={code} value={code}>
+                                  {vocabulary.division(code)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="truncate text-[13px] font-medium">
+                              {nameOf(line.row)}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                              {divisionOf(line.row) !== UNCLASSIFIED && (
+                                <span className="bg-foreground/85 text-background inline-flex h-5 shrink-0 items-center rounded-md px-1.5 text-[11px] font-medium">
+                                  {vocabulary.division(divisionOf(line.row))}
+                                </span>
+                              )}
+                              {line.row.tags.slice(0, 3).map((tag) => (
+                                <Tag key={tag}>{vocabulary.tag(tag)}</Tag>
+                              ))}
+                            </div>
+                          </>
+                        )}
                       </div>
+                      {step === "lines" && (
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          aria-label={
+                            editing === line.row.id
+                              ? `Done editing ${line.row.name}`
+                              : `Edit ${line.row.name}`
+                          }
+                          onClick={() =>
+                            setEditing(editing === line.row.id ? null : line.row.id)
+                          }
+                        >
+                          {editing === line.row.id ? (
+                            <Check className="size-3.5" />
+                          ) : (
+                            <Pencil className="size-3.5" />
+                          )}
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
@@ -462,7 +524,11 @@ export function PoDraft() {
                             const parsed = Number.parseInt(event.target.value, 10)
                             setQuantity(line.row.id, Number.isFinite(parsed) ? parsed : 1)
                           }}
-                          className="h-7 w-16 text-center font-mono text-xs"
+                          // Fixed width and tabular figures: the column used
+                          // to grow as digits were typed, which shoved the
+                          // table and everything above it sideways while
+                          // somebody was still typing.
+                          className="h-7 w-20 shrink-0 text-center font-mono text-xs tabular-nums"
                         />
                         <Button
                           size="icon-xs"

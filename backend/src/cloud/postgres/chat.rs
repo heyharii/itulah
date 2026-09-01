@@ -249,7 +249,10 @@ pub async fn read_messages(
     .fetch_all(db)
     .await?;
 
-    let seqs: Vec<i64> = rows.iter().filter_map(|row| row.try_get("seq").ok()).collect();
+    let seqs: Vec<i64> = rows
+        .iter()
+        .filter_map(|row| row.try_get("seq").ok())
+        .collect();
     let attachment_rows = sqlx::query(&format!(
         "SELECT a.seq, {FILE_COLUMNS}
            FROM chat_message_attachment a
@@ -482,12 +485,11 @@ pub async fn send_message(
     .execute(&mut *tx)
     .await?;
 
-    let audience: Vec<String> = sqlx::query_scalar(
-        "SELECT username FROM chat_participant WHERE conversation_id = $1",
-    )
-    .bind(conversation_id)
-    .fetch_all(&mut *tx)
-    .await?;
+    let audience: Vec<String> =
+        sqlx::query_scalar("SELECT username FROM chat_participant WHERE conversation_id = $1")
+            .bind(conversation_id)
+            .fetch_all(&mut *tx)
+            .await?;
     record_event(
         &mut tx,
         "chat.message",

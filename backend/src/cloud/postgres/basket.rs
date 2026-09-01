@@ -170,12 +170,11 @@ pub async fn add_to_basket(
     // are different refusals and a buyer should be told which. An INACTIVE
     // candidate cannot be ordered, so letting it into the basket would only
     // defer the refusal to the moment the order is raised.
-    let status: Option<String> = sqlx::query_scalar(
-        "SELECT status FROM supplier_item WHERE supplier_item_id = $1",
-    )
-    .bind(request.supplier_item_id)
-    .fetch_optional(pool)
-    .await?;
+    let status: Option<String> =
+        sqlx::query_scalar("SELECT status FROM supplier_item WHERE supplier_item_id = $1")
+            .bind(request.supplier_item_id)
+            .fetch_optional(pool)
+            .await?;
     match status.as_deref() {
         None => return Err(AppError::NotFound("supplier item".to_owned())),
         Some(value) if value != SupplierStatus::Active.as_str() => {
@@ -186,12 +185,11 @@ pub async fn add_to_basket(
         Some(_) => {}
     }
 
-    let held: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM sourcing_basket_line WHERE owner_username = $1",
-    )
-    .bind(owner)
-    .fetch_one(pool)
-    .await?;
+    let held: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM sourcing_basket_line WHERE owner_username = $1")
+            .bind(owner)
+            .fetch_one(pool)
+            .await?;
     let already_held = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM sourcing_basket_line
                         WHERE owner_username = $1 AND supplier_item_id = $2)",

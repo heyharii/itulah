@@ -44,6 +44,7 @@ fn markdown(sku: &str, price: i64) -> Markdown {
         applies_to: PriceLevel::Company,
         replacement_unit_price: Money::new(price),
         priority: 0,
+        publication_version: 1,
         effective_from: at(1),
         effective_to: None,
     }
@@ -1523,8 +1524,8 @@ fn a_group_of_shops_can_share_a_price_the_company_does_not() {
         ],
         vec![],
     );
-    let inside = resolve_price(&snap, &context(), "SKU1")
-        .unwrap_or_else(|| panic!("nothing resolved"));
+    let inside =
+        resolve_price(&snap, &context(), "SKU1").unwrap_or_else(|| panic!("nothing resolved"));
     assert_eq!(inside.unit_price, Money::new(85_000));
 
     let outside = PricingContext::new("store-09", "STORE", at(5));
@@ -1965,4 +1966,121 @@ fn a_price_book_need_not_restate_what_an_earlier_one_already_said() {
         "a newer book that says nothing about this product must not unprice it"
     );
     assert_eq!(result.lines[1].line_total, Money::new(250_000));
+}
+
+/// The name a source has in code and the name it has on the wire are the same
+/// name.
+///
+/// This is the guard the system did not have. `as_str` and the `serde` renaming
+/// are two renderings of one enum, and when they were allowed to differ — a
+/// shop saying `COMPANY_PRICE`, the centre saying `CompanyPrice` — nothing
+/// failed anywhere; a badge just went blank on one screen and a report quietly
+/// counted one price under two names. Renaming a variant now breaks this test
+/// rather than a browser.
+#[test]
+fn a_price_source_is_spelled_the_same_way_everywhere() {
+    for source in [
+        PriceSource::SitePrice,
+        PriceSource::SiteGroupPrice,
+        PriceSource::TierPrice,
+        PriceSource::CompanyPrice,
+        PriceSource::Markdown,
+        PriceSource::ManualOverride,
+    ] {
+        let serialised = serde_json::to_string(&source)
+            .unwrap_or_else(|e| panic!("serialising {source:?}: {e}"));
+        assert_eq!(
+            serialised,
+            format!("\"{}\"", source.as_str()),
+            "as_str and the wire form must agree for {source:?}"
+        );
+    }
+}
+
+/// The stack reports the losers, in the order they lost.
+///
+/// `price_catalog` answers with one number, which is what a shelf edge needs
+/// and less than a merchandiser needs: "why is this 99 and not 200" is answered
+/// by the candidate that was beaten. The order has to be the engine's own — a
+/// screen showing the cascade in a different order from the order that decides
+/// it would look authoritative and be wrong.
+#[test]
+fn a_price_stack_names_the_winner_and_everything_it_beat() {
+    let mut shop_price = entry("SKU1", Level::Site, Some("store-01"), 150_000);
+    shop_price.publication_version = 2;
+    let snapshot = PricingSnapshot {
+        publication_version: 2,
+        entries: vec![entry("SKU1", Level::Company, None, 200_000), shop_price],
+        markdowns: vec![markdown("SKU1", 99_000)],
+        ..Default::default()
+    };
+
+    let stacks = price_stacks(&snapshot, &context(), &[CartLine::new("SKU1", 1)]);
+    let candidates = &stacks[0].candidates;
+    assert_eq!(candidates.len(), 3, "a markdown and both price levels");
+
+    // A markdown REPLACES the base, so it heads the stack and the price it
+    // replaced is a loser. Booking that relationship the other way round is how
+    // a markdown comes to be reported as a discount.
+    assert_eq!(candidates[0].source, PriceSource::Markdown);
+    assert_eq!(candidates[0].unit_price, Money::new(99_000));
+    assert!(candidates[0].in_force);
+
+    // Then the cascade, narrowest first — and only one candidate in the whole
+    // stack is in force.
+    assert_eq!(candidates[1].source, PriceSource::SitePrice);
+    assert_eq!(candidates[1].unit_price, Money::new(150_000));
+    assert!(!candidates[1].in_force);
+    assert_eq!(candidates[2].source, PriceSource::CompanyPrice);
+    assert!(!candidates[2].in_force);
+    assert_eq!(
+        candidates.iter().filter(|candidate| candidate.in_force).count(),
+        1,
+        "exactly one price is charged"
+    );
+}
+
+/// Without a markdown the head of the stack is what the catalogue charges.
+///
+/// The guard against the stack and the answer drifting apart: they are two
+/// readings of one index, and if they ever disagreed the screen explaining a
+/// price would be explaining a price nobody pays.
+#[test]
+fn the_head_of_the_stack_is_the_price_the_catalogue_gives() {
+    let mut shop_price = entry("SKU1", Level::Site, Some("store-01"), 150_000);
+    shop_price.publication_version = 2;
+    let snapshot = PricingSnapshot {
+        publication_version: 2,
+        entries: vec![entry("SKU1", Level::Company, None, 200_000), shop_price],
+        ..Default::default()
+    };
+    let products = [CartLine::new("SKU1", 1)];
+    let priced = price_catalog(&snapshot, &context(), &products);
+    let stacks = price_stacks(&snapshot, &context(), &products);
+    let head = &stacks[0].candidates[0];
+    assert!(head.in_force);
+    assert_eq!(head.unit_price, priced[0].unit_price);
+    assert_eq!(head.source, priced[0].source);
+}
+
+/// A markdown on a product the book does not price is not a price.
+///
+/// There is nothing for it to replace, so nothing is charged from it. Reporting
+/// it as in force would put a number on screen that no till would ever take.
+#[test]
+fn a_markdown_with_no_price_under_it_charges_nothing() {
+    let snapshot = PricingSnapshot {
+        publication_version: 1,
+        markdowns: vec![markdown("SKU-NOT-PRICED", 99_000)],
+        ..Default::default()
+    };
+    let stacks = price_stacks(
+        &snapshot,
+        &context(),
+        &[CartLine::new("SKU-NOT-PRICED", 1)],
+    );
+    assert!(
+        stacks[0].candidates.is_empty(),
+        "no price under it means no price at all, not a free-standing 99,000"
+    );
 }

@@ -75,19 +75,6 @@ export function ChatView() {
     enabled: conversationId !== undefined,
   })
 
-  /// Where this reader had got to when the conversation was opened.
-  ///
-  /// Frozen per room, for one reason: the read mark is moved to the bottom a
-  /// moment after the thread appears, and a line drawn from the live value
-  /// would disappear in the same breath. The server sent a position; this is
-  /// the screen keeping it long enough to be worth having drawn.
-  const boundaries = useRef(new Map<string, number>())
-  if (conversation !== undefined && !boundaries.current.has(conversation.conversation_id)) {
-    boundaries.current.set(conversation.conversation_id, conversation.last_read_seq)
-  }
-  const unreadFrom =
-    conversationId === undefined ? undefined : boundaries.current.get(conversationId)
-
   const read = useMutation({
     mutationFn: (input: { conversationId: string; seq: number }) =>
       markRead(input.conversationId, input.seq),
@@ -103,12 +90,7 @@ export function ChatView() {
       conversationId: conversation.conversation_id,
       seq: conversation.latest_message_seq,
     })
-  }, [
-    conversation?.conversation_id,
-    conversation?.latest_message_seq,
-    conversation?.last_read_seq,
-    readMutate,
-  ])
+  }, [conversation, readMutate])
 
   const send = useMutation({
     mutationFn: (message: Outgoing) =>
@@ -118,6 +100,18 @@ export function ChatView() {
         reply_to_seq: message.replyToSeq,
         attachments: message.attachments.map((file) => file.file_id),
       }),
+    // Drawn the moment it is sent, and marked as not yet landed. This is also
+    // where a resend clears its earlier failure, so the flag and the request
+    // can never disagree about whether one is in flight.
+    onMutate: (message: Outgoing) => {
+      setOutgoing((current) =>
+        current.some((other) => other.key === message.key)
+          ? current.map((other) =>
+              other.key === message.key ? { ...other, failed: false } : other,
+            )
+          : [...current, message],
+      )
+    },
     onSuccess: (_written, message) => {
       setOutgoing((current) => current.filter((other) => other.key !== message.key))
       void queryClient.invalidateQueries({ queryKey: messagesKey(message.conversationId) })
@@ -135,27 +129,22 @@ export function ChatView() {
   })
   const sendMutate = send.mutate
 
-  const outgoingRef = useRef(outgoing)
-  outgoingRef.current = outgoing
   const wasStatus = useRef(status)
   useEffect(() => {
-    const before = wasStatus.current
+    // Only on the change back to live, never for as long as it stays there.
+    // Resending on every render that finds a failed message would be a loop:
+    // the failure sets the flag, and the flag is what this reads.
+    if (wasStatus.current === status) return
     wasStatus.current = status
+    if (status !== "live") return
     // Coming back from an outage is the moment to resend what did not get out.
-    // Safe to do without asking because every one of these carries the key it
+    // Safe to do without asking, because every one of these carries the key it
     // was minted with: the server returns the message it already wrote rather
     // than writing a second one.
-    if (status !== "live" || before === "live") return
-    for (const message of outgoingRef.current) {
-      if (!message.failed) continue
-      setOutgoing((current) =>
-        current.map((other) =>
-          other.key === message.key ? { ...other, failed: false } : other,
-        ),
-      )
-      sendMutate({ ...message, failed: false })
+    for (const message of outgoing) {
+      if (message.failed) sendMutate(message)
     }
-  }, [status, sendMutate])
+  }, [status, outgoing, sendMutate])
 
   const compose = (input: { body: string; attachments: StoredFile[] }) => {
     if (conversationId === undefined) return
@@ -170,7 +159,6 @@ export function ChatView() {
       replyToSeq: null,
       failed: false,
     }
-    setOutgoing((current) => [...current, message])
     sendMutate(message)
   }
 
@@ -265,21 +253,17 @@ export function ChatView() {
                 </ScreenState>
               ) : (
                 <MessageThread
+                  // Keyed by the room, so the unread line is read afresh every
+                  // time one is opened rather than carried in from the last.
+                  key={conversation.conversation_id}
                   conversationId={conversation.conversation_id}
                   me={me}
                   messages={messages.data ?? []}
                   pending={outgoing.filter(
                     (message) => message.conversationId === conversation.conversation_id,
                   )}
-                  unreadFrom={unreadFrom}
-                  onRetry={(message) => {
-                    setOutgoing((current) =>
-                      current.map((other) =>
-                        other.key === message.key ? { ...other, failed: false } : other,
-                      ),
-                    )
-                    sendMutate({ ...(message as Outgoing), failed: false })
-                  }}
+                  lastReadSeq={conversation.last_read_seq}
+                  onRetry={(message) => sendMutate(message as Outgoing)}
                 />
               )}
 

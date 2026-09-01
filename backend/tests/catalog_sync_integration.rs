@@ -26,6 +26,9 @@ fn item(sku: &str, name: &str) -> CatalogItem {
         tax_category: "STANDARD".into(),
         active: true,
         base_price_minor: Some(100_000),
+        article_code: Some(format!("ART-{sku}")),
+        division_code: Some("MENSWEAR".into()),
+        tags: vec!["LEBARAN".into()],
     }
 }
 

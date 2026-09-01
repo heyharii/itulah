@@ -327,4 +327,68 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("StoredFile: {e}"));
     inventory_backend::cloud::postgres::FileInContext::export_all(&config)
         .unwrap_or_else(|e| panic!("FileInContext: {e}"));
+
+    // Finance.
+    //
+    // The chart of accounts is the client's own — 7,528 accounts, imported
+    // verbatim — so `LedgerAccount.name` is Indonesian and stays that way. A
+    // browser that translated it would be showing an account the accountant
+    // cannot find in their own books.
+    //
+    // `SemanticKeyDoc` is the one that has to be generated rather than
+    // hand-written: it is the list of meanings the posting rules ask for, and
+    // the Account Map screen renders it directly. A copy that drifted would
+    // quietly stop asking somebody to map a key, and the failure would arrive
+    // weeks later as a refused posting.
+    inventory_backend::cloud::postgres::LedgerAccount::export_all(&config)
+        .unwrap_or_else(|e| panic!("LedgerAccount: {e}"));
+    inventory_backend::cloud::postgres::AccountBalance::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountBalance: {e}"));
+    inventory_backend::cloud::postgres::TrialBalance::export_all(&config)
+        .unwrap_or_else(|e| panic!("TrialBalance: {e}"));
+    inventory_backend::cloud::postgres::TrialBalanceRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TrialBalanceRow: {e}"));
+    inventory_backend::cloud::postgres::AccountMapping::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountMapping: {e}"));
+    inventory_backend::cloud::postgres::SetAccountMappingRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetAccountMappingRequest: {e}"));
+    inventory_backend::cloud::postgres::SemanticKeyDoc::export_all(&config)
+        .unwrap_or_else(|e| panic!("SemanticKeyDoc: {e}"));
+    inventory_backend::cloud::postgres::BookLocation::export_all(&config)
+        .unwrap_or_else(|e| panic!("BookLocation: {e}"));
+    inventory_backend::cloud::postgres::FiscalPeriod::export_all(&config)
+        .unwrap_or_else(|e| panic!("FiscalPeriod: {e}"));
+    inventory_backend::cloud::postgres::JournalEntryRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("JournalEntryRow: {e}"));
+    inventory_backend::cloud::postgres::JournalLineView::export_all(&config)
+        .unwrap_or_else(|e| panic!("JournalLineView: {e}"));
+    inventory_backend::cloud::postgres::JournalEntryDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("JournalEntryDetail: {e}"));
+    inventory_backend::cloud::postgres::GeneralLedger::export_all(&config)
+        .unwrap_or_else(|e| panic!("GeneralLedger: {e}"));
+    inventory_backend::cloud::postgres::GeneralLedgerRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GeneralLedgerRow: {e}"));
+    inventory_backend::cloud::http::finance::AccountDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountDetail: {e}"));
+    inventory_backend::cloud::http::finance::PeriodRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PeriodRequest: {e}"));
+    // Employment. `export_all` pulls the nested views in with each root, so the
+    // list below is the set of things a screen actually fetches rather than
+    // every struct in the module.
+    //
+    // Both profiles are here on purpose: they are different shapes, at
+    // different routes, behind different grants. A generated pair is what stops
+    // the browser confusing them the way the hand-written proposal did.
+    inventory_backend::cloud::postgres::EmployeeSummary::export_all(&config)
+        .unwrap_or_else(|e| panic!("EmployeeSummary: {e}"));
+    inventory_backend::cloud::postgres::ExpiringContract::export_all(&config)
+        .unwrap_or_else(|e| panic!("ExpiringContract: {e}"));
+    inventory_backend::cloud::http::employment::EmployeeView::export_all(&config)
+        .unwrap_or_else(|e| panic!("EmployeeView: {e}"));
+    inventory_backend::cloud::http::employment::EmploymentProfileView::export_all(&config)
+        .unwrap_or_else(|e| panic!("EmploymentProfileView: {e}"));
+    inventory_backend::cloud::http::employment::PersonalDataView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PersonalDataView: {e}"));
+    inventory_backend::cloud::http::employment::ContractsView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ContractsView: {e}"));
 }

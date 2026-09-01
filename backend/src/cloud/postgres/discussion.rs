@@ -193,12 +193,42 @@ pub async fn list_threads(
           LIMIT 200"
     ))
     .bind(username)
-    .bind(query.subject_kind.as_deref().map(str::trim).filter(|v| !v.is_empty()))
-    .bind(query.subject_id.as_deref().map(str::trim).filter(|v| !v.is_empty()))
-    .bind(query.tag.as_deref().map(str::trim).filter(|v| !v.is_empty()))
-    .bind(query.status.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(
+        query
+            .subject_kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
+    .bind(
+        query
+            .subject_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
+    .bind(
+        query
+            .tag
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
+    .bind(
+        query
+            .status
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
     .bind(query.q.as_deref().map(str::trim).filter(|v| !v.is_empty()))
-    .bind(query.feed.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(
+        query
+            .feed
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
     .fetch_all(db)
     .await?;
     rows.iter().map(thread_from_row).collect()
@@ -297,9 +327,7 @@ pub async fn open_thread(
     let title = request.title.trim().to_string();
     let body = request.body.trim().to_string();
     if subject_id.is_empty() {
-        return Err(AppError::Validation(
-            "name the record this is about".into(),
-        ));
+        return Err(AppError::Validation("name the record this is about".into()));
     }
     if title.is_empty() || body.is_empty() {
         return Err(AppError::Validation(
@@ -319,7 +347,13 @@ pub async fn open_thread(
     .bind(thread_id)
     .bind(&subject_kind)
     .bind(&subject_id)
-    .bind(request.subject_note.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(
+        request
+            .subject_note
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
     .bind(&title)
     .bind(author)
     .execute(&mut *tx)
@@ -385,13 +419,12 @@ pub async fn reply(
     let mut tx = db.begin().await?;
     // Locked means the argument is over and continues elsewhere. Enforced
     // where the write happens, not only where the button is drawn.
-    let status: String = sqlx::query_scalar(
-        "SELECT status FROM discussion_thread WHERE thread_id = $1 FOR UPDATE",
-    )
-    .bind(thread_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("no discussion {thread_id}")))?;
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM discussion_thread WHERE thread_id = $1 FOR UPDATE")
+            .bind(thread_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("no discussion {thread_id}")))?;
     if status == "locked" {
         return Err(AppError::Conflict(
             "this discussion is locked; it was continued somewhere else".into(),
@@ -494,10 +527,12 @@ pub async fn accept_solution(
             "only whoever opened the discussion can say what answered it".into(),
         ));
     }
-    sqlx::query("UPDATE discussion_post SET is_solution = false WHERE thread_id = $1 AND is_solution")
-        .bind(thread_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE discussion_post SET is_solution = false WHERE thread_id = $1 AND is_solution",
+    )
+    .bind(thread_id)
+    .execute(&mut *tx)
+    .await?;
     let updated = sqlx::query(
         "UPDATE discussion_post SET is_solution = true
           WHERE thread_id = $1 AND post_id = $2",

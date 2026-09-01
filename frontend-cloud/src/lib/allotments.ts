@@ -317,6 +317,10 @@ export interface AvailabilityItem {
   readonly division_code: string | null
   readonly image_url: string | null
   readonly tags: readonly string[]
+  /// Every order this article has arrived on, so the grid can be narrowed to
+  /// one delivery. Several, not one: an article ordered again is the same
+  /// article, and the second order brought in real stock too.
+  readonly purchase_order_ids: readonly string[]
   readonly colour: string | null
   readonly size: string | null
   readonly stock_qty: number

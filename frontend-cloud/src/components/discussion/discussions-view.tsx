@@ -70,7 +70,7 @@ export function DiscussionsView() {
     queryFn: ({ signal }) => subjectCounts(signal),
   })
 
-  const rows = threads.data ?? []
+  const rows = useMemo(() => threads.data ?? [], [threads.data])
 
   // Tags come from the threads on screen, because the server counts subjects
   // and not tags. Said plainly rather than dressed up as a global tag cloud:

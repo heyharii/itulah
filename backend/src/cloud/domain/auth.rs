@@ -76,6 +76,25 @@ pub fn required_role(method: &str, path: &str) -> Role {
     if admin_prefixes.iter().any(|p| path.starts_with(p)) {
         return Role::Admin;
     }
+    // Finance, before the blanket GET rule below.
+    //
+    // That rule makes every read a CASHIER read, which is right for stock and
+    // sales and quite wrong here: a till operator has no business reading the
+    // general ledger, the supplier balances, or what the company owes. So the
+    // whole surface is SUPERVISOR to read, and the acts that move money or seal
+    // a month are ADMIN.
+    //
+    // Riding the existing three roles is a compromise and worth naming as one.
+    // A real accountant wants their own role and a maker/checker split — the
+    // `counted_by <> verified_by` constraint on `goods_receipt_line` is the
+    // pattern — but `Role` is on the wire that Edge and Store speak, so
+    // widening it is a change with a blast radius this does not need yet.
+    if path.starts_with("/api/v1/finance") {
+        if method.eq_ignore_ascii_case("GET") {
+            return Role::Supervisor;
+        }
+        return Role::Admin;
+    }
     if method.eq_ignore_ascii_case("GET") {
         return Role::Cashier;
     }
@@ -183,6 +202,23 @@ mod tests {
     #[test]
     fn node_administration_is_admin_even_for_reads() {
         assert_eq!(required_role("GET", "/api/v1/auth/users"), Role::Admin);
+        // A cashier may read stock; a cashier may not read the books.
+        assert_eq!(
+            required_role("GET", "/api/v1/inventory/pools"),
+            Role::Cashier
+        );
+        assert_eq!(
+            required_role("GET", "/api/v1/finance/trial-balance"),
+            Role::Supervisor
+        );
+        assert_eq!(
+            required_role("POST", "/api/v1/finance/journal"),
+            Role::Admin
+        );
+        assert_eq!(
+            required_role("POST", "/api/v1/finance/periods/close"),
+            Role::Admin
+        );
         assert_eq!(
             required_role("POST", "/api/v1/inventory/control/corrupt-projection"),
             Role::Admin

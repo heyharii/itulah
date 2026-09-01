@@ -65,6 +65,7 @@ pub async fn mark_all_read(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<Value>, AppError> {
-    let cleared = infrastructure::mark_all_notifications_read(&state.db, &principal.username).await?;
+    let cleared =
+        infrastructure::mark_all_notifications_read(&state.db, &principal.username).await?;
     Ok(Json(json!({ "cleared": cleared, "unread": 0 })))
 }

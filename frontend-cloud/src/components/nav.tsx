@@ -5,12 +5,24 @@ import {
 import { BasketRailIcon, BasketSheet, useBasketPieces } from "@/components/sourcing/basket-sheet"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { allotmentListKey, listAllotments } from "@/lib/allotments"
+import { conversationsKey, listConversations } from "@/lib/chat"
 import { listPriceBooks, priceBooksKey } from "@/lib/commercial"
 import { pendingPriceAmendments } from "@/lib/purchase-orders"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useRouterState } from "@tanstack/react-router"
-import { ClipboardList, ClipboardX, Shirt, Tag, Truck } from "lucide-react"
+import {
+  ClipboardList,
+  ClipboardX,
+  Files,
+  MessagesSquare,
+  Shirt,
+  Tag,
+  TrendingUp,
+  Truck,
+  Users,
+  Wallet,
+} from "lucide-react"
 
 /// Where the buyer can go, and what is waiting for them there.
 ///
@@ -55,6 +67,17 @@ export function Nav() {
   // A book written and not published is a price decided and not charged. It is
   // the only unfinished work Commercial has that nothing else would show.
   const unpublished = (books.data ?? []).filter((book) => book.status === "DRAFT").length
+  // The same key and request the conversations screen makes, so opening it
+  // does not fetch the list twice. No poll: the collaboration stream wakes this
+  // up, and the screen itself keeps a slow refetch under that as a floor.
+  const conversations = useQuery({
+    queryKey: conversationsKey(),
+    queryFn: ({ signal }) => listConversations(signal),
+  })
+  const unread = (conversations.data ?? []).reduce(
+    (total, conversation) => total + conversation.unread_count,
+    0,
+  )
 
   // Orders, one order, and a draft are three routes but one place as far as
   // somebody reading the nav is concerned.
@@ -105,6 +128,53 @@ export function Nav() {
           icon={<Tag className={cn("size-5", unpublished > 0 && "text-amber-600")} />}
           active={path.startsWith("/commercial")}
           count={unpublished}
+        />
+
+        {/* The other half of a price. `/commercial` is what the shops are
+            asking; this is what anybody actually paid, by shop and by week.
+            Next to each other on purpose — the two are read together whenever
+            a repricing is being judged. */}
+        <RailLink
+          to="/sales"
+          label="Sales"
+          icon={<TrendingUp className="size-5" />}
+          active={path.startsWith("/sales")}
+        />
+
+        {/* Talking. Two places, not one, because a conversation and a
+            discussion are different things: one is private to the people in
+            it, the other hangs off a record and outlives everyone who argued
+            about it. Files is a third, and it is not a file system — it lists
+            what is attached in rooms this person can already reach. */}
+        <RailLink
+          to="/chat"
+          label="Conversations"
+          icon={<Users className={cn("size-5", unread > 0 && "text-amber-600")} />}
+          active={path.startsWith("/chat")}
+          count={unread}
+        />
+        <RailLink
+          to="/discussions"
+          label="Discussions"
+          icon={<MessagesSquare className="size-5" />}
+          active={path.startsWith("/discussions")}
+        />
+        <RailLink to="/files" label="Files" icon={<Files className="size-5" />} />
+
+        {/* The books. A different job from everything above it — those are all
+            about goods moving, this is about what the goods cost and what is
+            owed for them — so it sits after a gap rather than in the run.
+
+            No badge yet. The unfinished work finance has is unset account
+            mappings and unclosed months, and both are answered on the screen
+            behind this icon rather than by a number that would sit at zero for
+            weeks and then jump. */}
+        <div className="my-1 h-px w-6 bg-border" aria-hidden />
+        <RailLink
+          to="/finance"
+          label="Finance"
+          icon={<Wallet className="size-5" />}
+          active={path.startsWith("/finance")}
         />
 
         {/* Also not a destination, and for a different reason than the basket:

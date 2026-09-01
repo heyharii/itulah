@@ -11,10 +11,7 @@
 //! developer's laptop and every node deployed without R2, and a file feature
 //! that only exists in production is a file feature nobody can test.
 
-use crate::cloud::{
-    application::{AppError, AppState},
-    media::CatalogueMedia,
-};
+use crate::cloud::application::{AppError, AppState};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -74,6 +71,15 @@ pub fn file_from_row(row: &sqlx::postgres::PgRow) -> Result<StoredFile, AppError
 pub const FILE_COLUMNS: &str = "f.file_id, f.file_name, f.content_type, f.byte_size,
      f.sha256, f.uploaded_by, f.uploaded_at, f.available";
 
+/// The same columns, unqualified, for reading them back out of a derived table.
+///
+/// [`FILE_COLUMNS`] names `f`, which exists only inside the query that joined
+/// `stored_file`. Selecting it again from a subquery's result is
+/// `missing FROM-clause entry for table "f"` — the alias does not survive the
+/// parentheses.
+const FILE_COLUMNS_UNQUALIFIED: &str = "file_id, file_name, content_type, byte_size,
+     sha256, uploaded_by, uploaded_at, available";
+
 /// The bytes themselves, on their way out to a browser.
 pub struct FileContent {
     pub file_name: String,
@@ -111,11 +117,18 @@ pub async fn store_file(
 
     // Which storage is decided here and recorded in the row, so a node that
     // gains object storage later still serves the files it took before.
+    //
+    // `state.attachments`, never `state.media`. The catalogue store is
+    // configured with a public base URL so a till can fetch a photograph
+    // without a signature; writing correspondence there made every attachment
+    // readable at a permanent public URL by anyone holding the file id. See
+    // `cloud::attachments`. With no attachment bucket configured these bytes
+    // go to Postgres, which is slower and entirely private.
     let (storage, object_key, row_bytes): (&str, Option<String>, Option<Vec<u8>>) =
-        match state.media.as_ref() {
-            Some(media) => {
+        match state.attachments.as_ref() {
+            Some(store) => {
                 let key = attachment_key(file_id, &file_name);
-                put_object(media, &key, bytes, &content_type).await?;
+                store.put(&key, bytes, &content_type).await?;
                 ("OBJECT", Some(key), None)
             }
             None => ("DATABASE", None, Some(bytes)),
@@ -160,19 +173,20 @@ pub async fn read_file(state: &AppState, file_id: Uuid) -> Result<FileContent, A
     let content_type: String = row.try_get("content_type")?;
     let storage: String = row.try_get("storage")?;
     let bytes = match storage.as_str() {
-        "DATABASE" => row.try_get::<Option<Vec<u8>>, _>("bytes")?.unwrap_or_default(),
+        "DATABASE" => row
+            .try_get::<Option<Vec<u8>>, _>("bytes")?
+            .unwrap_or_default(),
         _ => {
             let key: Option<String> = row.try_get("object_key")?;
-            let key = key.ok_or_else(|| {
-                AppError::Configuration("stored file has no object key".into())
-            })?;
-            let media = state.media.as_ref().ok_or_else(|| {
+            let key =
+                key.ok_or_else(|| AppError::Configuration("stored file has no object key".into()))?;
+            let store = state.attachments.as_ref().ok_or_else(|| {
                 AppError::NotFound(
                     "this file lives in object storage, which this node is not configured for"
                         .into(),
                 )
             })?;
-            match media.get_object(&key).await {
+            match store.get(&key).await {
                 Ok(bytes) => bytes,
                 Err(error) => {
                     // The row outlives the object. Record that and answer with
@@ -206,12 +220,10 @@ pub async fn require_files_exist(db: &PgPool, file_ids: &[Uuid]) -> Result<(), A
     if file_ids.is_empty() {
         return Ok(());
     }
-    let found: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM stored_file WHERE file_id = ANY($1)",
-    )
-    .bind(file_ids)
-    .fetch_one(db)
-    .await?;
+    let found: i64 = sqlx::query_scalar("SELECT count(*) FROM stored_file WHERE file_id = ANY($1)")
+        .bind(file_ids)
+        .fetch_one(db)
+        .await?;
     if found != file_ids.len() as i64 {
         return Err(AppError::Validation(
             "one of the attachments has not been uploaded".into(),
@@ -244,7 +256,7 @@ pub async fn list_files(
     limit: i64,
 ) -> Result<Vec<FileInContext>, AppError> {
     let rows = sqlx::query(&format!(
-        "SELECT {FILE_COLUMNS}, source_kind, source_id, source_title
+        "SELECT {FILE_COLUMNS_UNQUALIFIED}, source_kind, source_id, source_title
            FROM (
              SELECT {FILE_COLUMNS}, 'CONVERSATION' AS source_kind,
                     c.conversation_id AS source_id,
@@ -344,21 +356,17 @@ fn safe_content_type(raw: &str) -> String {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/msword",
     ];
-    let value = raw.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let value = raw
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     if ALLOWED.contains(&value.as_str()) {
         value
     } else {
         "application/octet-stream".to_string()
     }
-}
-
-async fn put_object(
-    media: &CatalogueMedia,
-    key: &str,
-    bytes: Vec<u8>,
-    content_type: &str,
-) -> Result<(), AppError> {
-    media.put_bytes(key, bytes, content_type).await.map(|_| ())
 }
 
 #[cfg(test)]

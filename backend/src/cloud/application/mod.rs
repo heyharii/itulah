@@ -57,6 +57,18 @@ pub struct AppConfig {
     /// Object storage for catalogue imagery. None means this node serves no
     /// images, which is a valid deployment rather than a misconfiguration.
     pub media: Option<crate::cloud::media::MediaConfig>,
+    /// The bucket private attachments go to. Separate from `media` on purpose;
+    /// see `cloud::attachments`.
+    pub attachments: Option<crate::cloud::attachments::AttachmentConfig>,
+    /// Where a purchase order goes when nobody says otherwise.
+    ///
+    /// One DC today, so the buying screens do not ask: a required choice
+    /// between a single option is a question with no information in it, and it
+    /// is one more thing to get wrong on every order. It stays configurable
+    /// rather than hard-coded because the second DC is a business decision,
+    /// not a code change — and an order still names its destination on the
+    /// wire, so nothing downstream has to learn about this default.
+    pub default_destination_site_id: String,
 }
 
 impl AppConfig {
@@ -146,6 +158,9 @@ impl AppConfig {
             bootstrap_admin_password: env_opt("INVENTORY_BOOTSTRAP_ADMIN_PASSWORD"),
             cors_allowed_origins: env_opt("INVENTORY_CORS_ALLOWED_ORIGINS"),
             media: crate::cloud::media::MediaConfig::from_env(),
+            attachments: crate::cloud::attachments::AttachmentConfig::from_env(),
+            default_destination_site_id: env_opt("INVENTORY_DEFAULT_DESTINATION_SITE_ID")
+                .unwrap_or_else(|| "dc".into()),
         })
     }
 }
@@ -175,6 +190,9 @@ pub struct AppState {
     /// Present only when object storage is configured; handlers that need it
     /// answer 404 rather than 500 when it is absent.
     pub media: Option<Arc<crate::cloud::media::CatalogueMedia>>,
+    /// Where conversation and discussion attachments go. Absent means they go
+    /// into the database — never into `media`, which is publicly readable.
+    pub attachments: Option<Arc<crate::cloud::attachments::AttachmentStore>>,
     /// Wakes the sync sender outside its interval (`POST /api/v1/sync/trigger`).
     pub sync_wake: Arc<tokio::sync::Notify>,
 }
@@ -192,9 +210,24 @@ impl AppState {
                 }
             }
         });
+        // Same rule as the catalogue store: a config that will not construct
+        // is worth shouting about but not worth refusing to serve over. The
+        // consequence here is that attachments land in the database, which is
+        // a working node — not a node quietly writing private files somewhere
+        // public.
+        let attachments = config.attachments.as_ref().and_then(|attachment_config| {
+            match crate::cloud::attachments::AttachmentStore::new(attachment_config) {
+                Ok(store) => Some(Arc::new(store)),
+                Err(error) => {
+                    tracing::error!(%error, "attachment store disabled; attachments will be stored in the database");
+                    None
+                }
+            }
+        });
         Self {
             db,
             media,
+            attachments,
             config: Arc::new(config),
             sync_wake: Arc::new(tokio::sync::Notify::new()),
         }
@@ -556,6 +589,56 @@ pub struct SaleQuery {
     pub limit: Option<i64>,
 }
 
+/// One line of a basket somebody wants priced without selling it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SimulateLineInput {
+    pub sku_code: String,
+    pub quantity: i64,
+    /// A price typed in over the book, the way a supervisor overrides at a
+    /// till. Recorded as `MANUAL_OVERRIDE` on the line rather than blended into
+    /// the published price, and promotions still apply on top: an override says
+    /// what the item costs, not that the shopper forfeits every offer.
+    #[serde(default)]
+    pub manual_unit_price_minor: Option<i64>,
+}
+
+/// Price a basket that is not being sold.
+///
+/// The same evaluator, the same snapshot, the same instant — the only
+/// difference from a real sale is that nothing is written. That is what makes
+/// it worth having: a promotion can be checked before it is published, and
+/// "why did this not come off" can be asked without a customer standing there.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SimulateRequest {
+    pub site_id: String,
+    pub channel: CommercialChannel,
+    /// The instant to price at. Omitted is now.
+    #[serde(default)]
+    pub at: Option<DateTime<Utc>>,
+    pub lines: Vec<SimulateLineInput>,
+    /// Codes the shopper would present. A rule gated by a coupon stays shut
+    /// until its code is in here.
+    #[serde(default)]
+    pub coupon_codes: Vec<String>,
+    #[serde(default)]
+    pub customer_id: Option<String>,
+    #[serde(default)]
+    pub customer_tier: Option<String>,
+}
+
+/// Every style, every shop, every price that could apply.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ArticlePriceQuery {
+    pub channel: CommercialChannel,
+    #[serde(default)]
+    pub at: Option<DateTime<Utc>>,
+    /// How many styles to price. Bounded because the work is styles times
+    /// shops: a fleet of thirty and a catalogue of thousands is a request
+    /// nobody meant to make.
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct OfferListQuery {
     pub site_id: String,
@@ -684,6 +767,45 @@ pub struct DailyReportQuery {
     /// Minutes east of UTC for the business-day boundary; defaults to WIB
     /// (UTC+7 = 420) when omitted.
     pub utc_offset_minutes: Option<i32>,
+}
+
+/// Every shop's takings over a span of days, in buckets.
+///
+/// The daily report above answers "how did this shop close today"; this one
+/// answers "how is the fleet trading this month", which is a different
+/// question and cannot be assembled from the first without one request per
+/// shop per day. The bucket is chosen by the reader because the same span
+/// means different things at different resolutions: a month of days shows
+/// which Saturday was quiet, a month of weeks shows whether the trend is up.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SalesSeriesQuery {
+    /// First local business date in the span, inclusive (YYYY-MM-DD).
+    pub from: NaiveDate,
+    /// Last local business date in the span, INCLUSIVE. A reader asking for
+    /// "1 to 30 September" means the thirtieth to be in it.
+    pub to: NaiveDate,
+    /// `day` (default) · `week` (ISO, Monday) · `month`.
+    pub bucket: Option<String>,
+    /// Minutes east of UTC for the business-day boundary; defaults to WIB
+    /// (UTC+7 = 420) when omitted, like the daily report.
+    pub utc_offset_minutes: Option<i32>,
+}
+
+/// One shop over one span, with the receipts.
+///
+/// The counterpart to a cell in the series: the series says a shop took
+/// nineteen million on Tuesday, this says across how many sales, in what
+/// tenders, and which receipts they were.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SalesWindowQuery {
+    pub site_id: String,
+    pub from: NaiveDate,
+    /// Inclusive, as in `SalesSeriesQuery`.
+    pub to: NaiveDate,
+    pub utc_offset_minutes: Option<i32>,
+    /// How many receipts to list. The totals above them are computed over the
+    /// whole span regardless, so a truncated list never makes the summary lie.
+    pub limit: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

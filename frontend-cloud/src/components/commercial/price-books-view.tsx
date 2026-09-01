@@ -16,8 +16,8 @@ import { units } from "@/lib/money"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
-import { AlertTriangle, CheckCircle2, Send, Tag } from "lucide-react"
+import { Link, useNavigate } from "@tanstack/react-router"
+import { AlertTriangle, CheckCircle2, Radio, Send, Tag } from "lucide-react"
 import { useRef, useState } from "react"
 
 /// Every price book the centre has written, and which of them the shops have.
@@ -35,6 +35,7 @@ import { useRef, useState } from "react"
 /// the centre stayed at the centre and the fleet went on selling at whatever it
 /// had been selling at — with nothing on any screen to say so.
 export function PriceBooksView() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const identity = useIdentity()
   const books = useQuery({ queryKey: priceBooksKey(), queryFn: ({ signal }) => listPriceBooks(signal) })
@@ -71,6 +72,15 @@ export function PriceBooksView() {
               (drafts > 0 ? ` · ${units(drafts)} waiting to go out` : "")
         }
       >
+        <Button
+          size="sm"
+          variant="outline"
+          nativeButton={false}
+          render={<Link to="/commercial/fleet" />}
+        >
+          <Radio className="size-3.5" />
+          Fleet
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -133,6 +143,12 @@ export function PriceBooksView() {
                   canPublish={canPublish}
                   busy={publish.isPending && publish.variables === book.id}
                   onPublish={() => publish.mutate(book.id)}
+                  onOpen={() =>
+                    void navigate({
+                      to: "/commercial/books/$publicationId",
+                      params: { publicationId: book.id },
+                    })
+                  }
                 />
               ))}
             </TableBody>
@@ -148,15 +164,28 @@ function BookRow({
   canPublish,
   busy,
   onPublish,
+  onOpen,
 }: {
   book: PriceBook
   canPublish: boolean
   busy: boolean
   onPublish: () => void
+  onOpen: () => void
 }) {
   const draft = book.status === "DRAFT"
   return (
-    <TableRow className={cn(draft && "bg-amber-50/40 dark:bg-amber-950/10")}>
+    <TableRow
+      tabIndex={0}
+      role="button"
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+      className={cn("cursor-pointer", draft && "bg-amber-50/40 dark:bg-amber-950/10")}
+    >
       <TableCell className="font-mono text-xs font-medium">v{book.version}</TableCell>
       <TableCell className="max-w-64 truncate text-xs">{book.name}</TableCell>
       <TableCell>
@@ -190,7 +219,17 @@ function BookRow({
       </TableCell>
       <TableCell className="text-right">
         {draft && (
-          <Button size="sm" disabled={!canPublish || busy} onClick={onPublish}>
+          <Button
+            size="sm"
+            disabled={!canPublish || busy}
+            // The row opens the book; this button publishes it. Without this
+            // the click would do both, and the second thing it did would be
+            // irreversible.
+            onClick={(event) => {
+              event.stopPropagation()
+              onPublish()
+            }}
+          >
             <Send className="size-3.5" />
             {busy ? "Sending…" : "Publish"}
           </Button>

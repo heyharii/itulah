@@ -813,7 +813,12 @@ pub fn parse_activate_publication(payload: &Value) -> Result<ActivatePublication
     }
     for markdown in &parsed.markdowns {
         let levels = u8::from(markdown.site_id.is_some())
-            + u8::from(markdown.site_ids.as_ref().is_some_and(|ids| !ids.is_empty()))
+            + u8::from(
+                markdown
+                    .site_ids
+                    .as_ref()
+                    .is_some_and(|ids| !ids.is_empty()),
+            )
             + u8::from(markdown.tier.is_some());
         if levels > 1 {
             return Err(format!(
@@ -1218,6 +1223,23 @@ pub struct CatalogItem {
     /// for a newly discovered Official Count gain EPC.
     #[serde(default)]
     pub base_price_minor: Option<i64>,
+    /// The style this is a variant of, and what it is filed under.
+    ///
+    /// Carried so a shop can tell the pricing engine what a product IS, not
+    /// only what it is called. A markdown or promotion written against a whole
+    /// style, a division or a tag matches on these; without them it matches
+    /// nothing, which is what every till in the fleet was doing.
+    ///
+    /// `default` on all three, so a node running an older build applies a newer
+    /// catalogue without failing, and a newer node accepts an older payload. It
+    /// prices correctly either way — it simply cannot see range-wide markdowns
+    /// until both ends have been updated.
+    #[serde(default)]
+    pub article_code: Option<String>,
+    #[serde(default)]
+    pub division_code: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1241,12 +1263,27 @@ pub struct CatalogChunkPayload {
 /// Deliberately not `serde_json::to_string` of the whole payload — that would
 /// fold in chunk boundaries, so re-chunking the same catalogue would change
 /// its identity.
+///
+/// # The style, division and tags are covered too
+///
+/// They were added after the first six fields, and covering them is a
+/// deliberate choice with an operational cost: a node computing this over six
+/// fields and a centre computing it over nine disagree, so the receiving
+/// validator rejects the catalogue outright with `catalogue content hash
+/// mismatch`. **Shops must be updated before or with the centre.**
+///
+/// The alternative — deliver them outside the hash — buys a painless rollout
+/// and pays for it in the exact currency this system keeps losing: a field that
+/// arrives truncated or empty passes every check, and the only symptom is a
+/// range-wide markdown quietly not applying, weeks later, at one shop. That is
+/// the bug this field exists to fix. A loud refusal that names itself is the
+/// better failure.
 pub fn catalog_content_bytes(items: &[CatalogItem]) -> Vec<u8> {
     let mut bytes = Vec::new();
     for item in items {
         bytes.extend_from_slice(
             format!(
-                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\n",
+                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\n",
                 item.sku_code,
                 item.name,
                 item.uom,
@@ -1255,7 +1292,12 @@ pub fn catalog_content_bytes(items: &[CatalogItem]) -> Vec<u8> {
                 item.active,
                 item.base_price_minor
                     .map(|value| value.to_string())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                item.article_code.as_deref().unwrap_or(""),
+                item.division_code.as_deref().unwrap_or(""),
+                // A separator that is not the field separator, so a tag list
+                // can never be read as extra fields.
+                item.tags.join("\u{1e}")
             )
             .as_bytes(),
         );
@@ -1332,6 +1374,9 @@ mod catalog_tests {
             tax_category: "STANDARD".into(),
             active: true,
             base_price_minor: Some(10_000),
+            article_code: Some("ART-1".into()),
+            division_code: Some("MENSWEAR".into()),
+            tags: vec!["LEBARAN".into()],
         }
     }
 
@@ -1441,9 +1486,7 @@ pub struct PublicationActivatedPayload {
     pub price_rule_count: i64,
 }
 
-pub fn parse_publication_activated(
-    payload: &Value,
-) -> Result<PublicationActivatedPayload, String> {
+pub fn parse_publication_activated(payload: &Value) -> Result<PublicationActivatedPayload, String> {
     let parsed: PublicationActivatedPayload = serde_json::from_value(payload.clone())
         .map_err(|e| format!("malformed {FACT_PUBLICATION_ACTIVATED} payload: {e}"))?;
     if parsed.version <= 0 {
@@ -1577,7 +1620,10 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
         }
         let amount = line.charged()?;
         if amount < 0 {
-            return Err(format!("sale line {} was charged a negative amount", line.epc));
+            return Err(format!(
+                "sale line {} was charged a negative amount",
+                line.epc
+            ));
         }
         computed = computed
             .checked_add(amount)

@@ -16,7 +16,9 @@ pub mod basket;
 pub mod chat;
 pub mod customer;
 pub mod discussion;
+pub mod employment;
 pub mod files;
+pub mod finance;
 pub mod notifications;
 pub mod suppliers;
 
@@ -121,11 +123,31 @@ pub fn router(state: AppState) -> Router {
             get(commercial_publications).post(create_commercial_publication),
         )
         .route(
+            "/api/v1/commercial/publications/{id}",
+            get(commercial_publication_detail),
+        )
+        .route(
             "/api/v1/commercial/publications/{id}/publish",
             post(publish_commercial_publication),
         )
+        // Which shop is charging which book, and what the promotions have cost.
+        // Both tables have been written for a while and read by nothing: a shop
+        // whose sync had stalled looked exactly like one that was up to date.
+        .route("/api/v1/commercial/activation", get(commercial_activation))
+        .route("/api/v1/commercial/usage", get(commercial_usage))
+        .route(
+            "/api/v1/commercial/usage/publish",
+            post(publish_commercial_usage),
+        )
+        // Price a basket without selling it. A write in shape only — nothing is
+        // recorded — so that a promotion can be checked before it is published
+        // rather than discovered at a counter.
+        .route("/api/v1/commercial/simulate", post(commercial_simulate))
         .route("/api/v1/commercial/offers/resolve", get(resolve_offer))
         .route("/api/v1/commercial/offers", get(commercial_offers))
+        // Styles rather than products, every shop side by side, and the losing
+        // candidates as well as the winner.
+        .route("/api/v1/commercial/article-prices", get(article_prices))
         .route(
             "/api/v1/suppliers",
             get(suppliers::list_suppliers).post(suppliers::create_supplier),
@@ -192,6 +214,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/returns", get(sale_returns))
         .route("/api/v1/returns/{id}", get(sale_return_detail))
         .route("/api/v1/reports/sales/daily", get(daily_report))
+        .route("/api/v1/reports/sales/series", get(sales_series))
+        .route("/api/v1/reports/sales/window", get(sales_window))
         // What a member is allowed to see about themselves. Read-only: points
         // are earned by buying something at a till, and the surface a shopper
         // holds is the last place that should be able to change them.
@@ -320,7 +344,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/chat/conversations/{id}/messages",
             get(chat::read_messages).post(chat::send_message),
         )
-        .route("/api/v1/chat/conversations/{id}/read", post(chat::mark_read))
+        .route(
+            "/api/v1/chat/conversations/{id}/read",
+            post(chat::mark_read),
+        )
         .route(
             "/api/v1/chat/conversations/{id}/files",
             get(chat::conversation_files),
@@ -338,6 +365,89 @@ pub fn router(state: AppState) -> Router {
         // Work that found a person. Read-only plus two ways to say "dealt
         // with": nothing here can raise one, because a notification exists
         // only as a consequence of something that actually happened.
+        // Finance. Reads are projections; the only writer is `poster::post`.
+        .route("/api/v1/finance/accounts", get(finance::accounts))
+        .route(
+            "/api/v1/finance/accounts/{code}",
+            get(finance::account_detail),
+        )
+        .route(
+            "/api/v1/finance/accounts/{code}/ledger",
+            get(finance::account_ledger),
+        )
+        .route("/api/v1/finance/trial-balance", get(finance::trial_balance))
+        .route(
+            "/api/v1/finance/account-map",
+            get(finance::account_map).post(finance::set_account_map),
+        )
+        .route(
+            "/api/v1/finance/periods",
+            get(finance::periods).post(finance::open_period),
+        )
+        .route("/api/v1/finance/periods/close", post(finance::close_period))
+        .route(
+            "/api/v1/finance/journal",
+            get(finance::journal).post(finance::post_manual_entry),
+        )
+        .route("/api/v1/finance/journal/{id}", get(finance::journal_entry))
+        .route(
+            "/api/v1/finance/journal/{id}/reverse",
+            post(finance::reverse_entry),
+        )
+        // Who works here, under what contract, and where they are posted.
+        //
+        // `{id}` accepts `me`, which the handler resolves from the session:
+        // the employee app asks about its own holder on every screen, and a
+        // round trip just to learn one's own id would be on every one of them.
+        .route(
+            "/api/v1/employees",
+            get(employment::list).post(employment::register),
+        )
+        // Above `{id}` for reading only — the router ranks a static segment
+        // over a dynamic one itself, so "contracts" here is never an id.
+        .route(
+            "/api/v1/employees/contracts/expiring",
+            get(employment::expiring),
+        )
+        .route("/api/v1/employees/{id}", get(employment::detail))
+        .route(
+            "/api/v1/employees/{id}/employment",
+            post(employment::transition),
+        )
+        .route(
+            "/api/v1/employees/{id}/code",
+            post(employment::correct_code),
+        )
+        .route(
+            "/api/v1/employees/{id}/assignments",
+            post(employment::assign),
+        )
+        .route(
+            "/api/v1/employees/{id}/account",
+            post(employment::link_account),
+        )
+        // Who somebody is at work: number, job, place, joining date. What the
+        // employee app means when it says profile.
+        .route(
+            "/api/v1/employees/{id}/profile",
+            get(employment::employment_profile),
+        )
+        // And personal data, on its own route because it is its own privilege.
+        // A rota and a NIK are different questions with different audiences,
+        // and one route answering both is how the second leaks through the
+        // first.
+        .route(
+            "/api/v1/employees/{id}/personal-data",
+            get(employment::read_personal_data).post(employment::enrol_personal_data),
+        )
+        .route(
+            "/api/v1/employees/{id}/personal-data/amendments",
+            post(employment::amend_personal_data),
+        )
+        .route(
+            "/api/v1/employees/{id}/contracts",
+            get(employment::read_contracts).post(employment::add_contract),
+        )
         .route("/api/v1/notifications", get(notifications::list))
         .route(
             "/api/v1/notifications/read-all",
@@ -351,7 +461,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/discussions",
             get(discussion::list_threads).post(discussion::open_thread),
         )
-        .route("/api/v1/discussions/subjects", get(discussion::subject_counts))
+        .route(
+            "/api/v1/discussions/subjects",
+            get(discussion::subject_counts),
+        )
         .route("/api/v1/discussions/{id}", get(discussion::read_thread))
         .route(
             "/api/v1/discussions/{id}/posts",
@@ -361,7 +474,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/discussions/{id}/solution",
             post(discussion::accept_solution),
         )
-        .route("/api/v1/discussions/{id}/status", post(discussion::set_status))
+        .route(
+            "/api/v1/discussions/{id}/status",
+            post(discussion::set_status),
+        )
         .route(
             "/api/v1/discussions/{id}/bookmark",
             post(discussion::set_bookmark),
@@ -763,6 +879,54 @@ async fn publish_commercial_publication(
     ))
 }
 
+async fn article_prices(
+    State(s): State<AppState>,
+    Query(q): Query<ArticlePriceQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::article_prices(
+            &s.db,
+            q.channel,
+            q.at.unwrap_or_else(chrono::Utc::now),
+            q.limit.unwrap_or(200),
+        )
+        .await?,
+    ))
+}
+
+async fn commercial_publication_detail(
+    State(s): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::commercial_publication_detail(&s.db, id).await?,
+    ))
+}
+
+async fn commercial_activation(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::commercial_activation(&s.db).await?))
+}
+
+async fn commercial_usage(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::commercial_usage(&s.db).await?))
+}
+
+async fn publish_commercial_usage(
+    State(s): State<AppState>,
+    Json(r): Json<CommandRequest>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::publish_commercial_usage_to_fleet(&s.db, r.actor_id.trim()).await?,
+    ))
+}
+
+async fn commercial_simulate(
+    State(s): State<AppState>,
+    Json(r): Json<SimulateRequest>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::simulate(&s.db, r).await?))
+}
+
 async fn resolve_offer(
     State(s): State<AppState>,
     Query(q): Query<ResolveOfferQuery>,
@@ -884,6 +1048,22 @@ async fn daily_report(
     Query(q): Query<DailyReportQuery>,
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(infrastructure::daily_sales_report(&s.db, q).await?))
+}
+
+/// Every shop's takings over a span, bucketed by day, week or month.
+async fn sales_series(
+    State(s): State<AppState>,
+    Query(q): Query<SalesSeriesQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::sales_series(&s.db, q).await?))
+}
+
+/// One shop over one span, down to the receipts.
+async fn sales_window(
+    State(s): State<AppState>,
+    Query(q): Query<SalesWindowQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::sales_window(&s.db, q).await?))
 }
 
 // ---- Ordered edge->cloud sync -------------------------------------------

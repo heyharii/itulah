@@ -16,7 +16,7 @@
 use chrono::{DateTime, Utc};
 use pricing_engine::{
     price_cart, price_catalog, Campaign, CampaignStatus, Caps, CartLine, CatalogEntry, Coupon,
-    Currency, Markdown, Money, PriceEntry, PriceLevel, PriceSource, PricingContext, PricingError,
+    Currency, Markdown, Money, PriceEntry, PriceLevel, PricingContext, PricingError,
     PricingSnapshot, Rule,
 };
 use rusqlite::{params, Connection};
@@ -337,17 +337,18 @@ fn load_markdowns(
                 .map(|index| format!("?{}", index + 2))
                 .collect::<Vec<_>>()
                 .join(",");
-            format!(" AND (sku_code IS NULL OR sku_code IN ({slots}))")
+            format!(" AND (m.sku_code IS NULL OR m.sku_code IN ({slots}))")
         }
-        Some(_) => " AND sku_code IS NULL".to_string(),
+        Some(_) => " AND m.sku_code IS NULL".to_string(),
         None => String::new(),
     };
     let sql = format!(
-        "SELECT markdown_id, sku_code, article_code, site_id,
-                replacement_unit_price_minor, priority, effective_from, effective_to,
-                site_ids_json, tier
-           FROM commercial_markdown
-          WHERE (site_id IS NULL OR site_id = ?1){narrowing}"
+        "SELECT m.markdown_id, m.sku_code, m.article_code, m.site_id,
+                m.replacement_unit_price_minor, m.priority, m.effective_from, m.effective_to,
+                m.site_ids_json, m.tier, COALESCE(p.version, 0)
+           FROM commercial_markdown m
+           LEFT JOIN commercial_publication p ON p.id = m.publication_id
+          WHERE (m.site_id IS NULL OR m.site_id = ?1){narrowing}"
     );
     let mut bound: Vec<&dyn rusqlite::ToSql> = vec![&site_id];
     if let Some(codes) = sku_codes {
@@ -369,6 +370,7 @@ fn load_markdowns(
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
+                row.get::<_, i64>(10)?,
             ))
         })
         .map_err(db)?;
@@ -386,6 +388,7 @@ fn load_markdowns(
             effective_to,
             site_ids_json,
             tier,
+            publication_version,
         ) = row.map_err(db)?;
         markdowns.push(Markdown {
             markdown_id,
@@ -394,6 +397,7 @@ fn load_markdowns(
             applies_to: read_level(row_site, site_ids_json.as_deref(), tier.as_deref())?,
             replacement_unit_price: Money::new(replacement),
             priority,
+            publication_version,
             effective_from: parse_time(&effective_from)?,
             effective_to: effective_to.as_deref().map(parse_time).transpose()?,
         });
@@ -506,15 +510,73 @@ pub struct CatalogRow {
     pub publication_version: i64,
 }
 
-fn source_name(source: PriceSource) -> &'static str {
-    match source {
-        PriceSource::SitePrice => "SITE_PRICE",
-        PriceSource::SiteGroupPrice => "SITE_GROUP_PRICE",
-        PriceSource::TierPrice => "TIER_PRICE",
-        PriceSource::CompanyPrice => "COMPANY_PRICE",
-        PriceSource::Markdown => "MARKDOWN",
-        PriceSource::ManualOverride => "MANUAL_OVERRIDE",
+/// What a product *is*, as a range-wide markdown or promotion needs to know it.
+///
+/// The mirror of `cloud/postgres/pricing.rs::load_merchandise`, against the
+/// resident catalogue. Both exist so the engine is told the style, the division
+/// and the tags rather than deriving them from the SKU code — it deliberately
+/// cannot, because a format change would then silently change what a promotion
+/// matches.
+///
+/// Every caller here used to build lines with `CartLine::new`, which leaves all
+/// three empty. An article-wide clearance therefore matched nothing at any till
+/// in the fleet, and nothing said so.
+fn merchandise(
+    connection: &Connection,
+    sku_codes: Option<&[String]>,
+) -> Result<
+    std::collections::BTreeMap<String, (Option<String>, Option<String>, Vec<String>)>,
+    EdgeError,
+> {
+    let mut statement = connection
+        .prepare("SELECT sku_code, article_code, division_code, tags_json FROM catalog_item")
+        .map_err(db)?;
+    let wanted: Option<std::collections::BTreeSet<&str>> =
+        sku_codes.map(|codes| codes.iter().map(String::as_str).collect());
+    let mut facts = std::collections::BTreeMap::new();
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(db)?;
+    for row in rows {
+        let (sku_code, article_code, division_code, tags_json) = row.map_err(db)?;
+        if wanted
+            .as_ref()
+            .is_some_and(|set| !set.contains(sku_code.as_str()))
+        {
+            continue;
+        }
+        // A tag list this build cannot read costs the tags and nothing else.
+        // Refusing to price a basket because a label was malformed would turn a
+        // cosmetic fault into a shop that cannot sell.
+        let tags: Vec<String> = tags_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok())
+            .unwrap_or_default();
+        facts.insert(sku_code, (article_code, division_code, tags));
     }
+    Ok(facts)
+}
+
+/// One line for the engine, carrying what the product is as well as its code.
+fn line_for(
+    sku_code: &str,
+    quantity: i64,
+    facts: &std::collections::BTreeMap<String, (Option<String>, Option<String>, Vec<String>)>,
+) -> CartLine {
+    let mut line = CartLine::new(sku_code.to_string(), quantity);
+    if let Some((article_code, division_code, tags)) = facts.get(sku_code) {
+        line.article_code = article_code.clone();
+        line.division = division_code.clone();
+        line.tags = tags.clone();
+    }
+    line
 }
 
 /// What this shop may sell today, and for how much.
@@ -553,9 +615,10 @@ pub fn store_catalog(
         .collect::<Result<Vec<_>, _>>()
         .map_err(db)?;
 
+    let facts = merchandise(connection, None)?;
     let products: Vec<CartLine> = items
         .iter()
-        .map(|(code, ..)| CartLine::new(code.clone(), 1))
+        .map(|(code, ..)| line_for(code, 1, &facts))
         .collect();
     let priced: Vec<CatalogEntry> = price_catalog(&snapshot, &context, &products);
 
@@ -579,7 +642,7 @@ pub fn store_catalog(
             base_unit_price_minor: entry.base_unit_price.minor,
             currency: entry.currency.0,
             tax_category: entry.tax_category,
-            price_source: source_name(entry.source).to_string(),
+            price_source: entry.source.as_str().to_string(),
             publication_version: entry.publication_version,
         });
     }
@@ -693,9 +756,12 @@ pub fn quote(
     let mut context = PricingContext::new(site_id, channel, at);
     context.coupon_codes = coupon_codes.to_vec();
     context.customer_id = customer_id.map(str::to_string);
+    // Only the products in the basket. The same narrowing the snapshot already
+    // does: pricing five items has no business reading forty thousand rows.
+    let facts = merchandise(connection, Some(sku_codes))?;
     let cart: Vec<CartLine> = sku_codes
         .iter()
-        .map(|sku_code| CartLine::new(sku_code.clone(), 1))
+        .map(|sku_code| line_for(sku_code, 1, &facts))
         .collect();
     let result = price_cart(&snapshot, &context, &cart).map_err(translate)?;
 
@@ -739,7 +805,7 @@ pub fn quote(
                 base_unit_price_minor: line.base_unit_price.minor,
                 unit_price_minor: line.unit_price.minor,
                 line_total_minor: line.line_total.minor,
-                price_source: source_name(line.source).to_string(),
+                price_source: line.source.as_str().to_string(),
                 publication_version: line.publication_version,
             })
             .collect(),
@@ -776,10 +842,6 @@ fn translate(error: PricingError) -> EdgeError {
         | PricingError::NonPositiveQuantity { .. }
         | PricingError::AmountOverflow => EdgeError::Validation(error.to_string()),
     }
-}
-
-pub fn source_label(source: PriceSource) -> &'static str {
-    source_name(source)
 }
 
 #[cfg(test)]

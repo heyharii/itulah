@@ -630,8 +630,8 @@ fn apply_catalog_chunk(tx: &Transaction<'_>, chunk: &CatalogChunkPayload) -> Res
         tx.execute(
             "INSERT INTO catalog_item
                  (sku_code, name, uom, barcode, tax_category, active, generation,
-                  updated_at, base_price_minor)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                  updated_at, base_price_minor, article_code, division_code, tags_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 item.sku_code,
                 item.name,
@@ -642,6 +642,14 @@ fn apply_catalog_chunk(tx: &Transaction<'_>, chunk: &CatalogChunkPayload) -> Res
                 chunk.generation,
                 now_text(),
                 item.base_price_minor,
+                // What the product is, for the markdowns and promotions that
+                // name a range rather than a product. An older centre sends
+                // none of these; the column is then NULL and a range-wide offer
+                // simply does not match, which is what happened everywhere
+                // before this was carried at all.
+                item.article_code,
+                item.division_code,
+                serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".into()),
             ],
         )
         .map_err(err)?;

@@ -333,8 +333,7 @@ fn validate_publication_request(
             + u8::from(offer.tier.is_some());
         if levels > 1 {
             return Err(AppError::Validation(
-                "an offer may name a shop, a group of shops, or a tier — not more than one"
-                    .into(),
+                "an offer may name a shop, a group of shops, or a tier — not more than one".into(),
             ));
         }
         if let Some(site_ids) = &offer.site_ids {
@@ -421,7 +420,8 @@ pub async fn publish_commercial_publication(
     // Anything it does not mention keeps the price the last book gave it, which
     // is how the pricing engine has always resolved: the newest publication
     // that names a product wins, and one that never names it changes nothing.
-    let incomplete_base = sqlx::query(r#"
+    let incomplete_base = sqlx::query(
+        r#"
 WITH channels AS (
     SELECT DISTINCT channel FROM commercial_price_rule WHERE publication_id=$1
 ), required AS (
@@ -438,11 +438,12 @@ WHERE NOT EXISTS(
           JOIN commercial_publication p ON p.id=ar.publication_id
          WHERE ar.sku_id=r.sku_id AND ar.channel=r.channel AND ar.site_id IS NULL
            AND (ar.publication_id=$1 OR p.status='PUBLISHED'))
-"#)
-        .bind(publication_id)
-        .fetch_one(&mut *tx)
-        .await?
-        .get::<i64, _>("count");
+"#,
+    )
+    .bind(publication_id)
+    .fetch_one(&mut *tx)
+    .await?
+    .get::<i64, _>("count");
     if invalid > 0 || offer_count == 0 || incomplete_base > 0 {
         return Err(AppError::Conflict(
             "a publication needs coherent rules, and every active SKU in each \
@@ -711,21 +712,20 @@ pub async fn publish_commercial_usage(
     targets: &[String],
 ) -> Result<(Uuid, Vec<String>), AppError> {
     let counted_at = Utc::now();
-    let counts: Vec<Value> = sqlx::query(
-        "SELECT kind, key, uses, spent_minor FROM commercial_usage ORDER BY kind, key",
-    )
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|row| {
-        json!({
-            "kind": row.get::<String, _>("kind"),
-            "key": row.get::<String, _>("key"),
-            "uses": row.get::<i64, _>("uses"),
-            "spent_minor": row.get::<i64, _>("spent_minor"),
-        })
-    })
-    .collect();
+    let counts: Vec<Value> =
+        sqlx::query("SELECT kind, key, uses, spent_minor FROM commercial_usage ORDER BY kind, key")
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|row| {
+                json!({
+                    "kind": row.get::<String, _>("kind"),
+                    "key": row.get::<String, _>("key"),
+                    "uses": row.get::<i64, _>("uses"),
+                    "spent_minor": row.get::<i64, _>("spent_minor"),
+                })
+            })
+            .collect();
 
     let payload = json!({ "counted_at": counted_at, "counts": counts });
     super::sync::issue_command(
@@ -753,13 +753,13 @@ pub async fn resolve_offer(pool: &PgPool, query: ResolveOfferQuery) -> Result<Va
     let at = query.at.unwrap_or_else(Utc::now);
     SiteId::new(&query.site_id).map_err(|e| AppError::Validation(e.to_string()))?;
     let mut tx = pool.begin().await?;
-    let pricing = super::pricing::load_site_pricing(
-        &mut tx,
-        &query.site_id,
-        query.channel.as_str(),
-        at,
-    )
-    .await?;
+    let pricing =
+        super::pricing::load_site_pricing(&mut tx, &query.site_id, query.channel.as_str(), at)
+            .await?;
+    // What the product IS, not just what it is called. A markdown or promotion
+    // written against the whole style matches on this, and a line without it
+    // silently qualifies for nothing.
+    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
     tx.commit().await?;
 
     let Some(sku_code) = pricing.sku_code_by_id.get(&query.sku_id).cloned() else {
@@ -771,7 +771,7 @@ pub async fn resolve_offer(pool: &PgPool, query: ResolveOfferQuery) -> Result<Va
     let priced = price_catalog(
         &pricing.snapshot,
         &context,
-        &[CartLine::new(sku_code.clone(), 1)],
+        &[super::pricing::cart_line(&sku_code, 1, &merchandise)],
     );
     let Some(entry) = priced.into_iter().next() else {
         return Err(AppError::NotFound(
@@ -789,7 +789,7 @@ pub async fn resolve_offer(pool: &PgPool, query: ResolveOfferQuery) -> Result<Va
         // What is charged, and what it would have been without the clearance.
         "unit_price_minor": entry.unit_price.minor,
         "base_unit_price_minor": entry.base_unit_price.minor,
-        "price_source": format!("{:?}", entry.source),
+        "price_source": entry.source.as_str(),
         "markdown_id": entry.markdown_id,
         "tax_category": entry.tax_category,
         "as_of": at,
@@ -885,38 +885,26 @@ pub async fn list_resolved_offers(
     let mut tx = pool.begin().await?;
     let pricing = super::pricing::load_site_pricing(&mut tx, site_id, channel.as_str(), at).await?;
 
-    // Names for the screen. The engine deals in codes and prices; what a person
-    // reads is the article and its name.
-    let named: std::collections::BTreeMap<String, (String, String)> = sqlx::query(
-        "SELECT s.sku_code, a.article_code, a.name FROM sku s
-           JOIN article a ON a.id = s.article_id WHERE s.active",
-    )
-    .fetch_all(&mut *tx)
-    .await?
-    .into_iter()
-    .map(|row| {
-        (
-            row.get::<String, _>("sku_code"),
-            (row.get("article_code"), row.get("name")),
-        )
-    })
-    .collect();
+    // What each product is: its style, its division, its tags. This carries the
+    // names the screen prints AND the facts a range-wide markdown matches on —
+    // one query, because they are the same facts, and fetching them twice is
+    // how a screen and an engine come to disagree about what a garment is.
+    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
     tx.commit().await?;
 
     let context = PricingContext::new(site_id, channel.as_str(), at);
     let products: Vec<CartLine> = pricing
         .sku_id_by_code
         .keys()
-        .map(|code| CartLine::new(code.clone(), 1))
+        .map(|code| super::pricing::cart_line(code, 1, &merchandise))
         .collect();
 
     let items: Vec<Value> = price_catalog(&pricing.snapshot, &context, &products)
         .into_iter()
         .map(|entry| {
-            let (article_code, article_name) = named
-                .get(&entry.sku_code)
-                .cloned()
-                .unwrap_or_else(|| (String::new(), String::new()));
+            let facts = merchandise.get(&entry.sku_code);
+            let article_code = facts.map(|f| f.article_code.as_str()).unwrap_or_default();
+            let article_name = facts.map(|f| f.article_name.as_str()).unwrap_or_default();
             json!({
                 "sku_id": pricing.sku_id_by_code.get(&entry.sku_code),
                 "sku_code": entry.sku_code,
@@ -927,7 +915,7 @@ pub async fn list_resolved_offers(
                 "currency": entry.currency.0,
                 "unit_price_minor": entry.unit_price.minor,
                 "base_unit_price_minor": entry.base_unit_price.minor,
-                "price_source": format!("{:?}", entry.source),
+                "price_source": entry.source.as_str(),
                 "markdown_id": entry.markdown_id,
                 "tax_category": entry.tax_category,
             })
@@ -941,4 +929,821 @@ pub async fn list_resolved_offers(
         "item_count": items.len(),
         "items": items,
     }))
+}
+
+/// Which shop is charging which price book, and how far behind it is.
+///
+/// Reads `commercial_publication_activation`, which shops have been writing
+/// since migration 0036 and which nothing has ever read. That was the whole
+/// point of the table: a shop whose sync had stalled looked exactly like one
+/// that was up to date, and the difference between those two is whether
+/// somebody needs to drive out there.
+///
+/// Every registered shop appears, including one that has never reported. That
+/// row is the most important one on the screen and the easiest to leave out —
+/// a shop missing from a list of activations reads as "no news", when it
+/// actually means no price book has ever gone into service there.
+pub async fn commercial_activation(pool: &PgPool) -> Result<Value, AppError> {
+    let newest: Option<i64> = sqlx::query_scalar(
+        "SELECT max(version) FROM commercial_publication
+          WHERE status = 'PUBLISHED'
+            AND effective_from <= now()
+            AND (effective_to IS NULL OR effective_to > now())",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let rows = sqlx::query(
+        "WITH latest AS (
+             SELECT DISTINCT ON (origin_id)
+                    origin_id, site_id, publication_id, version,
+                    activated_at, reported_at, price_rule_count
+               FROM commercial_publication_activation
+              ORDER BY origin_id, version DESC
+         )
+         SELECT c.origin_id, c.label, c.site_id,
+                l.version, l.activated_at, l.reported_at, l.price_rule_count,
+                p.name book_name
+           FROM sync_origin_credential c
+           LEFT JOIN latest l ON l.origin_id = c.origin_id
+           LEFT JOIN commercial_publication p ON p.id = l.publication_id
+          WHERE c.node_role = 'STORE'
+          ORDER BY c.origin_id",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            let version: Option<i64> = row.get("version");
+            json!({
+                "origin_id": row.get::<String, _>("origin_id"),
+                "label": row.get::<Option<String>, _>("label"),
+                "site_id": row.get::<Option<String>, _>("site_id"),
+                "version": version,
+                "book_name": row.get::<Option<String>, _>("book_name"),
+                // The shop's own clock, and the centre's. The gap between them
+                // is the number worth watching.
+                "activated_at": row.get::<Option<DateTime<Utc>>, _>("activated_at"),
+                "reported_at": row.get::<Option<DateTime<Utc>>, _>("reported_at"),
+                // How much of the book arrived, so a truncated delivery shows
+                // as a number rather than as a wrong price weeks later.
+                "price_rule_count": row.get::<Option<i64>, _>("price_rule_count"),
+                // Not a boolean "up to date": a shop can be behind by one book
+                // published a minute ago, which is ordinary, or by four
+                // published in March, which is not. The screen needs the size.
+                "behind_by": match (newest, version) {
+                    (Some(newest), Some(seen)) => json!((newest - seen).max(0)),
+                    (Some(_), None) => Value::Null,
+                    _ => json!(0),
+                },
+                "has_ever_activated": version.is_some(),
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "newest_published_version": newest,
+        "shop_count": items.len(),
+        "items": items,
+    }))
+}
+
+/// What promotions have actually given away, against what they were allowed to.
+///
+/// The counts come from `commercial_usage`, which is built only from sale facts
+/// the centre has already accepted, so it inherits their idempotency. The limits
+/// come from the publication that declared them — a limit is a decision and is
+/// frozen with the price book; a count is an observation and changes with every
+/// sale. They are joined here and nowhere else.
+///
+/// A rule's caps live inside its stored definition rather than in columns,
+/// because the shape of a rule belongs to the engine and a table mirroring it
+/// would have to be migrated in lockstep. Reading two known fields out of that
+/// document is the price of not having a second definition of what a rule is.
+pub async fn commercial_usage(pool: &PgPool) -> Result<Value, AppError> {
+    let rows = sqlx::query(
+        "SELECT u.kind, u.key, u.uses, u.spent_minor, u.first_used_at, u.last_used_at,
+                CASE u.kind
+                    WHEN 'CAMPAIGN' THEN (
+                        SELECT c.budget_minor FROM commercial_campaign c
+                          JOIN commercial_publication p ON p.id = c.publication_id
+                         WHERE c.campaign_id = u.key AND p.status = 'PUBLISHED'
+                         ORDER BY p.version DESC LIMIT 1)
+                    WHEN 'RULE' THEN (
+                        SELECT (r.definition->'caps'->'budget'->>'minor')::bigint
+                          FROM commercial_rule r
+                          JOIN commercial_publication p ON p.id = r.publication_id
+                         WHERE r.rule_id = u.key AND p.status = 'PUBLISHED'
+                         ORDER BY p.version DESC LIMIT 1)
+                    ELSE NULL
+                END budget_minor,
+                CASE u.kind
+                    WHEN 'CAMPAIGN' THEN (
+                        SELECT c.max_uses::bigint FROM commercial_campaign c
+                          JOIN commercial_publication p ON p.id = c.publication_id
+                         WHERE c.campaign_id = u.key AND p.status = 'PUBLISHED'
+                         ORDER BY p.version DESC LIMIT 1)
+                    WHEN 'COUPON' THEN (
+                        SELECT c.max_uses::bigint FROM commercial_coupon c
+                          JOIN commercial_publication p ON p.id = c.publication_id
+                         WHERE c.code = u.key AND p.status = 'PUBLISHED'
+                         ORDER BY p.version DESC LIMIT 1)
+                    WHEN 'RULE' THEN (
+                        SELECT (r.definition->'caps'->>'max_uses')::bigint
+                          FROM commercial_rule r
+                          JOIN commercial_publication p ON p.id = r.publication_id
+                         WHERE r.rule_id = u.key AND p.status = 'PUBLISHED'
+                         ORDER BY p.version DESC LIMIT 1)
+                    ELSE NULL
+                END max_uses,
+                (SELECT count(*)::bigint FROM commercial_usage_customer uc
+                  WHERE uc.kind = u.kind AND uc.key = u.key) customer_count,
+                CASE u.kind
+                    WHEN 'RULE' THEN (
+                        SELECT r.name FROM commercial_rule r
+                          JOIN commercial_publication p ON p.id = r.publication_id
+                         WHERE r.rule_id = u.key AND p.status = 'PUBLISHED'
+                         ORDER BY p.version DESC LIMIT 1)
+                    WHEN 'CAMPAIGN' THEN (
+                        SELECT c.name FROM commercial_campaign c
+                          JOIN commercial_publication p ON p.id = c.publication_id
+                         WHERE c.campaign_id = u.key AND p.status = 'PUBLISHED'
+                         ORDER BY p.version DESC LIMIT 1)
+                    ELSE NULL
+                END name
+           FROM commercial_usage u
+          ORDER BY u.spent_minor DESC, u.kind, u.key",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "kind": row.get::<String, _>("kind"),
+                "key": row.get::<String, _>("key"),
+                "name": row.get::<Option<String>, _>("name"),
+                "uses": row.get::<i64, _>("uses"),
+                "spent_minor": row.get::<i64, _>("spent_minor"),
+                // Null means unlimited, which is not the same as zero and must
+                // not be rendered as a full bar.
+                "budget_minor": row.get::<Option<i64>, _>("budget_minor"),
+                "max_uses": row.get::<Option<i64>, _>("max_uses"),
+                "customer_count": row.get::<i64, _>("customer_count"),
+                "first_used_at": row.get::<DateTime<Utc>, _>("first_used_at"),
+                "last_used_at": row.get::<DateTime<Utc>, _>("last_used_at"),
+            })
+        })
+        .collect();
+
+    Ok(json!({ "item_count": items.len(), "items": items }))
+}
+
+/// Everything one price book says.
+///
+/// The list endpoint gives headers and a count, which is enough to know a book
+/// exists and nothing about what it does. There was no way to read back a
+/// markdown, a promotion or a coupon once authored — so the only record of what
+/// a published book contained was the JSON somebody had posted, if they kept it.
+///
+/// Deliberately the same shape a shop is sent, minus the per-shop filtering:
+/// what a person reads here is what a till received, rather than a second
+/// rendering that could describe it differently.
+pub async fn commercial_publication_detail(
+    pool: &PgPool,
+    publication_id: Uuid,
+) -> Result<Value, AppError> {
+    let header = sqlx::query(
+        "SELECT id, version, name, status, effective_from, effective_to,
+                created_by, created_at, published_by, published_at
+           FROM commercial_publication WHERE id = $1",
+    )
+    .bind(publication_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("commercial publication".into()))?;
+
+    let tax_rules: Vec<Value> = sqlx::query(
+        "SELECT tax_category, rate_bps, tax_inclusive FROM commercial_tax_rule
+          WHERE publication_id = $1 ORDER BY tax_category",
+    )
+    .bind(publication_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "tax_category": row.get::<String, _>("tax_category"),
+            "rate_bps": row.get::<i32, _>("rate_bps"),
+            "tax_inclusive": row.get::<bool, _>("tax_inclusive"),
+        })
+    })
+    .collect();
+
+    // Price and permission-to-sell are authored together and read together.
+    // One without the other is either a priced product nobody may sell or a
+    // sellable one with no price, and the publish check refuses both.
+    let price_rules: Vec<Value> = sqlx::query(
+        "SELECT s.sku_code, a.article_code, a.name article_name,
+                pr.site_id, pr.site_ids, pr.tier, pr.channel, ar.sellable,
+                pr.currency::text currency, pr.unit_price_minor, pr.tax_category
+           FROM commercial_price_rule pr
+           JOIN sku s ON s.id = pr.sku_id
+           JOIN article a ON a.id = s.article_id
+           LEFT JOIN commercial_assortment_rule ar
+             ON ar.publication_id = pr.publication_id AND ar.sku_id = pr.sku_id
+            AND ar.channel = pr.channel AND ar.site_id IS NOT DISTINCT FROM pr.site_id
+          WHERE pr.publication_id = $1
+          ORDER BY s.sku_code, pr.channel",
+    )
+    .bind(publication_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "sku_code": row.get::<String, _>("sku_code"),
+            "article_code": row.get::<String, _>("article_code"),
+            "article_name": row.get::<String, _>("article_name"),
+            "site_id": row.get::<Option<String>, _>("site_id"),
+            "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
+            "tier": row.get::<Option<String>, _>("tier"),
+            "channel": row.get::<String, _>("channel"),
+            "sellable": row.get::<Option<bool>, _>("sellable"),
+            "currency": row.get::<String, _>("currency").trim(),
+            "unit_price_minor": row.get::<i64, _>("unit_price_minor"),
+            "tax_category": row.get::<String, _>("tax_category"),
+        })
+    })
+    .collect();
+
+    let markdowns: Vec<Value> = sqlx::query(
+        "SELECT markdown_id, sku_code, article_code, site_id, site_ids, tier,
+                replacement_unit_price_minor, priority, effective_from, effective_to
+           FROM commercial_markdown WHERE publication_id = $1 ORDER BY markdown_id",
+    )
+    .bind(publication_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "markdown_id": row.get::<String, _>("markdown_id"),
+            "sku_code": row.get::<Option<String>, _>("sku_code"),
+            "article_code": row.get::<Option<String>, _>("article_code"),
+            "site_id": row.get::<Option<String>, _>("site_id"),
+            "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
+            "tier": row.get::<Option<String>, _>("tier"),
+            "replacement_unit_price_minor": row.get::<i64, _>("replacement_unit_price_minor"),
+            "priority": row.get::<i32, _>("priority"),
+            "effective_from": row.get::<DateTime<Utc>, _>("effective_from"),
+            "effective_to": row.get::<Option<DateTime<Utc>>, _>("effective_to"),
+        })
+    })
+    .collect();
+
+    // The rule as the engine serialised it, handed back whole. Rendering it
+    // field by field here would put a second interpreter of rule semantics in
+    // the system, which is the one thing this design exists to avoid.
+    let rules: Vec<Value> = sqlx::query(
+        "SELECT rule_id, name, status, priority, definition FROM commercial_rule
+          WHERE publication_id = $1 ORDER BY rule_id",
+    )
+    .bind(publication_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "rule_id": row.get::<String, _>("rule_id"),
+            "name": row.get::<String, _>("name"),
+            "status": row.get::<String, _>("status"),
+            "priority": row.get::<i32, _>("priority"),
+            "definition": row.get::<Value, _>("definition"),
+        })
+    })
+    .collect();
+
+    let coupons: Vec<Value> = sqlx::query(
+        "SELECT code, rule_id, active, customer_id, valid_from, valid_to, max_uses
+           FROM commercial_coupon WHERE publication_id = $1 ORDER BY code",
+    )
+    .bind(publication_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "code": row.get::<String, _>("code"),
+            "rule_id": row.get::<String, _>("rule_id"),
+            "active": row.get::<bool, _>("active"),
+            "customer_id": row.get::<Option<String>, _>("customer_id"),
+            "valid_from": row.get::<Option<DateTime<Utc>>, _>("valid_from"),
+            "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
+            "max_uses": row.get::<Option<i32>, _>("max_uses"),
+        })
+    })
+    .collect();
+
+    let campaigns: Vec<Value> = sqlx::query(
+        "SELECT campaign_id, name, status, valid_from, valid_to, budget_minor,
+                max_uses, max_uses_per_customer
+           FROM commercial_campaign WHERE publication_id = $1 ORDER BY campaign_id",
+    )
+    .bind(publication_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "campaign_id": row.get::<String, _>("campaign_id"),
+            "name": row.get::<String, _>("name"),
+            "status": row.get::<String, _>("status"),
+            "valid_from": row.get::<Option<DateTime<Utc>>, _>("valid_from"),
+            "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
+            "budget_minor": row.get::<Option<i64>, _>("budget_minor"),
+            "max_uses": row.get::<Option<i32>, _>("max_uses"),
+            "max_uses_per_customer": row.get::<Option<i32>, _>("max_uses_per_customer"),
+        })
+    })
+    .collect();
+
+    // Who has actually put this book into service. The same reading as the
+    // fleet screen, narrowed to one book, so "published" and "in force" are
+    // visibly different things on the page that shows what a book says.
+    let activated_by: Vec<Value> = sqlx::query(
+        "SELECT origin_id, site_id, activated_at, reported_at, price_rule_count
+           FROM commercial_publication_activation
+          WHERE publication_id = $1 ORDER BY origin_id",
+    )
+    .bind(publication_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "origin_id": row.get::<String, _>("origin_id"),
+            "site_id": row.get::<Option<String>, _>("site_id"),
+            "activated_at": row.get::<DateTime<Utc>, _>("activated_at"),
+            "reported_at": row.get::<DateTime<Utc>, _>("reported_at"),
+            "price_rule_count": row.get::<i64, _>("price_rule_count"),
+        })
+    })
+    .collect();
+
+    Ok(json!({
+        "id": header.get::<Uuid, _>("id"),
+        "version": header.get::<i64, _>("version"),
+        "name": header.get::<String, _>("name"),
+        "status": header.get::<String, _>("status"),
+        "effective_from": header.get::<DateTime<Utc>, _>("effective_from"),
+        "effective_to": header.get::<Option<DateTime<Utc>>, _>("effective_to"),
+        "created_by": header.get::<String, _>("created_by"),
+        "created_at": header.get::<DateTime<Utc>, _>("created_at"),
+        "published_by": header.get::<Option<String>, _>("published_by"),
+        "published_at": header.get::<Option<DateTime<Utc>>, _>("published_at"),
+        "tax_rules": tax_rules,
+        "price_rules": price_rules,
+        "markdowns": markdowns,
+        "rules": rules,
+        "coupons": coupons,
+        "campaigns": campaigns,
+        "activated_by": activated_by,
+    }))
+}
+
+/// Price a basket without selling it.
+///
+/// The engine is a pure function of a snapshot, a context and a cart, so a
+/// what-if is the same call a till makes — not an approximation of it. Nothing
+/// here writes: no sale, no usage count, no reservation. A promotion that would
+/// have exhausted its budget is reported as applying, because it would have.
+///
+/// The value is not really the total. It is `rejected_rules`: every promotion
+/// that could have applied and did not, each carrying the engine's own
+/// explanation in the words a cashier would use. "Your rule is not applying
+/// because its coupon expired on Friday" is the question this endpoint exists
+/// to answer, and until now the only way to ask it was to sell something.
+pub async fn simulate(
+    pool: &PgPool,
+    request: crate::cloud::application::SimulateRequest,
+) -> Result<Value, AppError> {
+    SiteId::new(&request.site_id).map_err(|e| AppError::Validation(e.to_string()))?;
+    if request.lines.is_empty() {
+        return Err(AppError::Validation(
+            "a basket to price needs at least one line".into(),
+        ));
+    }
+    for line in &request.lines {
+        if line.quantity <= 0 {
+            return Err(AppError::Validation(format!(
+                "quantity for {} must be positive",
+                line.sku_code
+            )));
+        }
+        if line.manual_unit_price_minor.is_some_and(|minor| minor < 0) {
+            return Err(AppError::Validation(
+                "a typed-in price cannot be negative".into(),
+            ));
+        }
+    }
+    let at = request.at.unwrap_or_else(Utc::now);
+
+    let mut tx = pool.begin().await?;
+    let pricing =
+        super::pricing::load_site_pricing(&mut tx, &request.site_id, request.channel.as_str(), at)
+            .await?;
+    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
+    tx.commit().await?;
+
+    let mut context = PricingContext::new(&request.site_id, request.channel.as_str(), at);
+    context.coupon_codes = request.coupon_codes.clone();
+    context.customer_id = request.customer_id.clone();
+    context.customer_tier = request.customer_tier.clone();
+
+    let cart: Vec<CartLine> = request
+        .lines
+        .iter()
+        .map(|line| {
+            let mut cart_line =
+                super::pricing::cart_line(&line.sku_code, line.quantity, &merchandise);
+            if let Some(minor) = line.manual_unit_price_minor {
+                cart_line.manual_unit_price = Some(pricing_engine::Money::new(minor));
+            }
+            cart_line
+        })
+        .collect();
+
+    // A basket the engine refuses is a validation answer, not a server fault:
+    // an unknown SKU or a product this shop may not sell is exactly what
+    // somebody is trying to find out.
+    let result = pricing_engine::price_cart(&pricing.snapshot, &context, &cart)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+
+    let lines: Vec<Value> = result
+        .lines
+        .iter()
+        .map(|line| {
+            json!({
+                "sku_code": line.sku_code,
+                "quantity": line.quantity,
+                "price_source": line.source.as_str(),
+                "base_unit_price_minor": line.base_unit_price.minor,
+                "unit_price_minor": line.unit_price.minor,
+                "line_total_minor": line.line_total.minor,
+                "tax_category": line.tax_category,
+                "publication_version": line.publication_version,
+                "markdown_id": line.markdown_id,
+            })
+        })
+        .collect();
+
+    let applied: Vec<Value> = result
+        .applied_rules
+        .iter()
+        .map(|rule| {
+            json!({
+                "rule_id": rule.rule_id,
+                "campaign_id": rule.campaign_id,
+                "name": rule.name,
+                "coupon_code": rule.coupon_code,
+                "benefit_minor": rule.benefit.minor,
+            })
+        })
+        .collect();
+
+    let rejected: Vec<Value> = result
+        .rejected_rules
+        .iter()
+        .map(|rule| {
+            json!({
+                "rule_id": rule.rule_id,
+                "name": rule.name,
+                "reason": rule.reason,
+                // The engine's own words, not a lookup table kept beside it. A
+                // second copy of these strings in a browser is a second copy
+                // that goes stale the day a reason is added.
+                "explanation": rule.explanation,
+                "would_have_saved_minor": rule.would_have_saved.map(|money| money.minor),
+            })
+        })
+        .collect();
+
+    let free_lines: Vec<Value> = result
+        .free_lines
+        .iter()
+        .map(|line| {
+            json!({
+                "sku_code": line.sku_code,
+                "quantity": line.quantity,
+                "unit_price_minor": line.unit_price.minor,
+                "granted_by_rule_id": line.granted_by_rule_id,
+                "value_minor": line.value.minor,
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "site_id": request.site_id,
+        "channel": request.channel.as_str(),
+        "as_of": at,
+        // The same basket, priced against the same book at the same instant,
+        // gives this same id on any machine — which is what lets a disputed
+        // receipt be reproduced rather than argued about.
+        "trace_id": result.trace_id,
+        "publication_version": result.publication_version,
+        "currency": result.currency.0,
+        "lines": lines,
+        "free_lines": free_lines,
+        "applied_rules": applied,
+        "rejected_rules": rejected,
+        "earn_awards": result.earn_awards.iter().map(|award| json!({
+            "rule_id": award.rule_id,
+            "name": award.name,
+            "points": award.points,
+            "basis_amount_minor": award.basis_amount.minor,
+        })).collect::<Vec<Value>>(),
+        "points_earned": result.points_earned,
+        "discount_total_minor": result.discount_total.minor,
+        "total_minor": result.total.minor,
+    }))
+}
+
+/// Send the promotion counts to every shop.
+///
+/// `publish_commercial_usage` has existed since the counts did and nothing ever
+/// called it — so a budget spent at the centre never reached a till, and a
+/// coupon marked single-use went on working everywhere. This is the caller.
+///
+/// The targets are resolved here rather than asked for, because "which shops"
+/// has exactly one right answer and a caller passing a list could quietly miss
+/// one — which is the failure this is meant to end, not repeat.
+///
+/// What a shop enforces from this is always behind, and cannot be otherwise: no
+/// till knows what the other shops sold this morning. A budget is a brake, not
+/// a gate. The number that must not be exceeded is the one at the centre.
+pub async fn publish_commercial_usage_to_fleet(
+    pool: &PgPool,
+    issued_by: &str,
+) -> Result<Value, AppError> {
+    let targets: Vec<String> = sqlx::query_scalar(
+        "SELECT origin_id FROM sync_origin_credential
+          WHERE node_role = 'STORE' AND site_id IS NOT NULL ORDER BY origin_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    if targets.is_empty() {
+        return Err(AppError::Conflict(
+            "no shop is registered to send promotion counts to".into(),
+        ));
+    }
+    let (command_id, sent_to) = publish_commercial_usage(pool, issued_by, &targets).await?;
+    Ok(json!({
+        "command_id": command_id,
+        "sent_to": sent_to,
+        "counted_at": Utc::now(),
+    }))
+}
+
+/// Every price every shop could charge for a style, and which one wins.
+///
+/// The offers list answers "what does this cost here" with one number per SKU,
+/// which is what a shelf edge needs and less than a merchandiser needs. Two
+/// questions it cannot answer at all: what the *other* shops are charging for
+/// the same thing, and why this shop's number is what it is rather than the one
+/// above it in the cascade.
+///
+/// So this is keyed by style rather than by product, carries every shop side by
+/// side, and reports the losing candidates as well as the winner. The ordering
+/// is the engine's own — `price_stacks` — never a second ranking written here:
+/// a screen that showed the cascade in a different order from the order that
+/// decides it would look authoritative and be wrong.
+pub async fn article_prices(
+    pool: &PgPool,
+    channel: CommercialChannel,
+    at: DateTime<Utc>,
+    limit: i64,
+) -> Result<Value, AppError> {
+    let shops = sqlx::query(
+        "SELECT origin_id, site_id, label FROM sync_origin_credential
+          WHERE node_role = 'STORE' AND site_id IS NOT NULL
+          ORDER BY COALESCE(label, site_id), site_id",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // The styles, and the products under each. One query rather than one per
+    // article: a screen that fetched per row would be as slow as the catalogue
+    // is long.
+    let article_rows = sqlx::query(
+        "SELECT a.article_code, a.name article_name, a.image_url, a.division_code,
+                array_agg(s.sku_code ORDER BY s.sku_code) sku_codes,
+                COALESCE(
+                    (SELECT array_agg(t.tag_code ORDER BY t.tag_code)
+                       FROM article_tag t WHERE t.article_id = a.id),
+                    '{}'
+                ) tags
+           FROM article a
+           JOIN sku s ON s.article_id = a.id AND s.active
+          GROUP BY a.id, a.article_code, a.name, a.image_url, a.division_code
+          ORDER BY a.article_code
+          LIMIT $1",
+    )
+    .bind(limit.clamp(1, 2_000))
+    .fetch_all(pool)
+    .await?;
+
+    struct Style {
+        article_code: String,
+        article_name: String,
+        image_url: Option<String>,
+        division_code: Option<String>,
+        tags: Vec<String>,
+        sku_codes: Vec<String>,
+    }
+    let styles: Vec<Style> = article_rows
+        .into_iter()
+        .map(|row| Style {
+            article_code: row.get("article_code"),
+            article_name: row.get("article_name"),
+            image_url: row.get("image_url"),
+            division_code: row.get("division_code"),
+            tags: row.get("tags"),
+            sku_codes: row.get("sku_codes"),
+        })
+        .collect();
+
+    // article_code -> site_id -> the collapsed stack
+    let mut by_style: std::collections::BTreeMap<String, Vec<Value>> =
+        std::collections::BTreeMap::new();
+    let mut shop_list = Vec::with_capacity(shops.len());
+
+    for shop in &shops {
+        let site_id: String = shop.get("site_id");
+        let label: Option<String> = shop.get("label");
+        shop_list.push(json!({
+            "site_id": site_id,
+            "label": label.clone().unwrap_or_else(|| site_id.clone()),
+        }));
+
+        let mut tx = pool.begin().await?;
+        let pricing =
+            super::pricing::load_site_pricing(&mut tx, &site_id, channel.as_str(), at).await?;
+        let merchandise = super::pricing::load_merchandise(&mut tx).await?;
+        tx.commit().await?;
+        let context = PricingContext::new(&site_id, channel.as_str(), at);
+
+        for style in &styles {
+            let products: Vec<CartLine> = style
+                .sku_codes
+                .iter()
+                .map(|code| super::pricing::cart_line(code, 1, &merchandise))
+                .collect();
+            let stacks = pricing_engine::price_stacks(&pricing.snapshot, &context, &products);
+            let collapsed = collapse(&stacks);
+            if collapsed.is_empty() {
+                // This style is not sellable at this shop. Absent rather than
+                // reported as zero: no price is not a price.
+                continue;
+            }
+            by_style
+                .entry(style.article_code.clone())
+                .or_default()
+                .push(json!({
+                    "site_id": site_id,
+                    "label": label.clone().unwrap_or_else(|| site_id.clone()),
+                    "stack": collapsed,
+                }));
+        }
+    }
+
+    let items: Vec<Value> = styles
+        .into_iter()
+        .map(|style| {
+            let shops = by_style.remove(&style.article_code).unwrap_or_default();
+            json!({
+                "article_code": style.article_code,
+                "article_name": style.article_name,
+                "image_url": style.image_url,
+                "division_code": style.division_code,
+                "tags": style.tags,
+                "sku_count": style.sku_codes.len(),
+                "shops": shops,
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "channel": channel.as_str(),
+        "as_of": at,
+        "shops": shop_list,
+        "article_count": items.len(),
+        "items": items,
+    }))
+}
+
+/// Many products' stacks, as one style's rows.
+///
+/// A style is several products and they need not agree: a shirt can be priced
+/// per size, so one level of the cascade covers a RANGE rather than a number.
+/// Collapsing to the cheapest would hide that the large costs more, and listing
+/// every SKU would put the SKU back on a screen that is deliberately about
+/// styles — so a row carries both ends and says how many products it covers.
+///
+/// `in_force_for` counts the products this candidate actually wins, which is
+/// not always all of them: a shop price on one size beats the company price on
+/// that size alone, and the company row is then in force for the rest. A
+/// boolean would have to pick one of those and be wrong about the other.
+fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
+    struct Row {
+        rank: usize,
+        source: &'static str,
+        applies_to: Value,
+        markdown_id: Option<String>,
+        currency: String,
+        publication_version: i64,
+        min_minor: i64,
+        max_minor: i64,
+        sku_count: i64,
+        in_force_for: i64,
+        effective_from: DateTime<Utc>,
+        effective_to: Option<DateTime<Utc>>,
+    }
+    let mut rows: std::collections::BTreeMap<String, Row> = std::collections::BTreeMap::new();
+
+    for stack in stacks {
+        for (rank, candidate) in stack.candidates.iter().enumerate() {
+            let scope = serde_json::to_value(&candidate.applies_to).unwrap_or(Value::Null);
+            // Two candidates are one row when they are the same statement: the
+            // same kind of price, from the same book, for the same audience.
+            let key = format!(
+                "{}|{}|{}|{}",
+                candidate.source.as_str(),
+                candidate.publication_version,
+                candidate.markdown_id.as_deref().unwrap_or(""),
+                scope,
+            );
+            let entry = rows.entry(key).or_insert_with(|| Row {
+                rank,
+                source: candidate.source.as_str(),
+                applies_to: scope.clone(),
+                markdown_id: candidate.markdown_id.clone(),
+                currency: candidate.currency.0.clone(),
+                publication_version: candidate.publication_version,
+                min_minor: candidate.unit_price.minor,
+                max_minor: candidate.unit_price.minor,
+                sku_count: 0,
+                in_force_for: 0,
+                effective_from: candidate.effective_from,
+                effective_to: candidate.effective_to,
+            });
+            entry.rank = entry.rank.min(rank);
+            entry.min_minor = entry.min_minor.min(candidate.unit_price.minor);
+            entry.max_minor = entry.max_minor.max(candidate.unit_price.minor);
+            entry.sku_count += 1;
+            if candidate.in_force {
+                entry.in_force_for += 1;
+            }
+        }
+    }
+
+    let mut ordered: Vec<Row> = rows.into_values().collect();
+    // The engine's order, kept. The tie-breaks below only settle rows the
+    // engine ranked equally, so two shops with the same book always read the
+    // same way round.
+    ordered.sort_by(|left, right| {
+        (
+            left.rank,
+            std::cmp::Reverse(left.in_force_for),
+            left.min_minor,
+        )
+            .cmp(&(
+                right.rank,
+                std::cmp::Reverse(right.in_force_for),
+                right.min_minor,
+            ))
+    });
+
+    ordered
+        .into_iter()
+        .map(|row| {
+            json!({
+                "rank": row.rank,
+                "source": row.source,
+                "applies_to": row.applies_to,
+                "markdown_id": row.markdown_id,
+                "currency": row.currency,
+                "publication_version": row.publication_version,
+                "min_unit_price_minor": row.min_minor,
+                "max_unit_price_minor": row.max_minor,
+                "sku_count": row.sku_count,
+                "in_force_for": row.in_force_for,
+                "effective_from": row.effective_from,
+                "effective_to": row.effective_to,
+            })
+        })
+        .collect()
 }

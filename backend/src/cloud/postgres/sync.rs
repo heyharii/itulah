@@ -4168,8 +4168,7 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             parse_activate_publication(payload).map_err(AppError::Validation)?;
         }
         crate::cloud::domain::COMMAND_COMMERCIAL_USAGE => {
-            crate::cloud::domain::parse_commercial_usage(payload)
-                .map_err(AppError::Validation)?;
+            crate::cloud::domain::parse_commercial_usage(payload).map_err(AppError::Validation)?;
         }
         COMMAND_CATALOG_CHUNK => {
             crate::cloud::domain::parse_catalog_chunk(payload).map_err(AppError::Validation)?;
@@ -5032,7 +5031,8 @@ pub async fn publish_catalog_if_changed(
         return Ok(None);
     }
 
-    let (snapshot_id, _, _) = publish_catalog(pool, generation, &items, issued_by, &targets).await?;
+    let (snapshot_id, _, _) =
+        publish_catalog(pool, generation, &items, issued_by, &targets).await?;
     sqlx::query(
         "INSERT INTO catalog_publication
              (generation, snapshot_id, content_hash, item_count, published_by)
@@ -5054,8 +5054,18 @@ pub async fn publish_catalog_if_changed(
 /// how Postgres felt like returning it.
 async fn catalog_items(pool: &PgPool) -> Result<Vec<CatalogItem>, AppError> {
     let rows = sqlx::query(
-        "SELECT s.sku_code, s.color, s.size, s.active, s.base_price_minor, a.name article_name
-           FROM sku s JOIN article a ON a.id = s.article_id
+        "SELECT s.sku_code, s.color, s.size, s.active, s.base_price_minor,
+                a.name article_name, a.article_code, a.division_code,
+                COALESCE(
+                    array_agg(t.tag_code ORDER BY t.tag_code)
+                        FILTER (WHERE t.tag_code IS NOT NULL),
+                    '{}'
+                ) tags
+           FROM sku s
+           JOIN article a ON a.id = s.article_id
+           LEFT JOIN article_tag t ON t.article_id = a.id
+          GROUP BY s.sku_code, s.color, s.size, s.active, s.base_price_minor,
+                   a.name, a.article_code, a.division_code
           ORDER BY s.sku_code",
     )
     .fetch_all(pool)
@@ -5086,6 +5096,11 @@ async fn catalog_items(pool: &PgPool) -> Result<Vec<CatalogItem>, AppError> {
             tax_category: "STANDARD".into(),
             active: row.get("active"),
             base_price_minor: row.get("base_price_minor"),
+            // What the product is, for the rules that price a range rather
+            // than a product.
+            article_code: row.get("article_code"),
+            division_code: row.get("division_code"),
+            tags: row.get("tags"),
         });
     }
     Ok(items)

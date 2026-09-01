@@ -18,6 +18,9 @@ thiserror = "=2.0.12"
 
 [dev-dependencies]
 proptest = "=1.6.0"
+# Tests only, and only to prove the wire form of an enum matches the name the
+# code renders it by. The kernel itself still serialises nothing.
+serde_json = "=1.0.140"
 
 [lints]
 workspace = true

@@ -146,6 +146,8 @@ fn cloud_config() -> AppConfig {
         bootstrap_admin_password: None,
         cors_allowed_origins: Some("http://127.0.0.1:8080".into()),
         media: None,
+        attachments: None,
+        default_destination_site_id: "dc".into(),
     }
 }
 

@@ -152,6 +152,12 @@ pub(crate) const COMMERCIAL_USAGE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0018_commercial_usage.sql"
 ));
 
+/// The style, division and tags a range-wide markdown matches on.
+pub(crate) const CATALOG_MERCHANDISE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0019_catalog_merchandise_facts.sql"
+));
+
 #[derive(Clone)]
 pub struct SqliteEdge {
     connection: Arc<Mutex<Connection>>,
@@ -401,6 +407,22 @@ impl SqliteEdge {
         if holds_usage == 0 {
             connection
                 .execute_batch(COMMERCIAL_USAGE_SCHEMA)
+                .map_err(db)?;
+        }
+        // Asks after the style, which is the column the engine actually reads.
+        // A catalogue without it prices every product correctly and quietly
+        // ignores every markdown written against a range.
+        let catalogue_knows_its_styles: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('catalog_item')
+                  WHERE name='article_code'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if catalogue_knows_its_styles == 0 {
+            connection
+                .execute_batch(CATALOG_MERCHANDISE_SCHEMA)
                 .map_err(db)?;
         }
         let has_count_movement_groups: i64 = connection

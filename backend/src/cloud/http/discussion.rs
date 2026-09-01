@@ -66,7 +66,9 @@ pub async fn read_posts(
     State(state): State<AppState>,
     Path(thread_id): Path<Uuid>,
 ) -> Result<Json<Vec<DiscussionPost>>, AppError> {
-    Ok(Json(infrastructure::read_posts(&state.db, thread_id).await?))
+    Ok(Json(
+        infrastructure::read_posts(&state.db, thread_id).await?,
+    ))
 }
 
 pub async fn reply(
@@ -92,13 +94,8 @@ pub async fn accept_solution(
     Json(request): Json<AcceptSolutionRequest>,
 ) -> Result<Json<DiscussionThread>, AppError> {
     Ok(Json(
-        infrastructure::accept_solution(
-            &state.db,
-            thread_id,
-            request.post_id,
-            &principal.username,
-        )
-        .await?,
+        infrastructure::accept_solution(&state.db, thread_id, request.post_id, &principal.username)
+            .await?,
     ))
 }
 
@@ -136,13 +133,9 @@ pub async fn set_bookmark(
     Path(thread_id): Path<Uuid>,
     Json(request): Json<SetBookmarkRequest>,
 ) -> Result<Json<SetBookmarkRequest>, AppError> {
-    let marked = infrastructure::set_bookmark(
-        &state.db,
-        thread_id,
-        &principal.username,
-        request.marked,
-    )
-    .await?;
+    let marked =
+        infrastructure::set_bookmark(&state.db, thread_id, &principal.username, request.marked)
+            .await?;
     Ok(Json(SetBookmarkRequest { marked }))
 }
 

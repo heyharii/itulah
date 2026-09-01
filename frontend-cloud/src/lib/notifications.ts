@@ -1,4 +1,5 @@
 import { node } from "@/lib/api"
+import { subscribeToCollaboration } from "@/lib/collaboration"
 import type { Notification, NotificationPage } from "@itulah/contract"
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { useEffect } from "react"
@@ -40,20 +41,14 @@ export function useNotifications(): UseQueryResult<NotificationPage> {
   })
 
   useEffect(() => {
-    // Same stream chat and discussions use. `withCredentials` sends the session
-    // cookie, which is what makes the audience filter mean anything.
-    const source = new EventSource("/api/v1/chat/stream", { withCredentials: true })
-    const wake = () => {
+    // The one stream chat and discussions are on, not a second connection to
+    // it. Its session cookie is what makes the audience filter mean anything,
+    // and the subscription is by kind because that stream carries chat and
+    // discussion traffic too — refetching this list for a message in somebody
+    // else's conversation would be noise.
+    return subscribeToCollaboration("notification", () => {
       void queryClient.invalidateQueries({ queryKey: notificationsKey() })
-    }
-    // Named event, because the stream carries chat and discussion traffic too
-    // and refetching this list for a message in somebody's conversation would
-    // be noise.
-    source.addEventListener("notification", wake)
-    return () => {
-      source.removeEventListener("notification", wake)
-      source.close()
-    }
+    })
   }, [queryClient])
 
   return query

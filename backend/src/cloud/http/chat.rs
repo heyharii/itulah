@@ -101,13 +101,8 @@ pub async fn read_messages(
     Query(query): Query<MessagesQuery>,
 ) -> Result<Json<Vec<ChatMessage>>, AppError> {
     Ok(Json(
-        infrastructure::read_messages(
-            &state.db,
-            conversation_id,
-            &principal.username,
-            query.after,
-        )
-        .await?,
+        infrastructure::read_messages(&state.db, conversation_id, &principal.username, query.after)
+            .await?,
     ))
 }
 

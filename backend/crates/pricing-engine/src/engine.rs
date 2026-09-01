@@ -1072,11 +1072,7 @@ pub(crate) fn catalog(
                 PriceSource::Markdown,
                 Some(markdown.markdown_id.clone()),
             ),
-            None => (
-                entry.unit_price,
-                source_of(&entry.applies_to),
-                None,
-            ),
+            None => (entry.unit_price, source_of(&entry.applies_to), None),
         };
         priced.insert(
             product.sku_code.as_str(),
@@ -1127,4 +1123,76 @@ pub(crate) fn check_coupon_code<'a>(
         (None, _) => {}
     }
     Ok(coupon)
+}
+
+/// Every price that could apply to each product, best first.
+///
+/// The companion to [`catalog`]: that answers "what does this cost", this
+/// answers "and what else could it have cost, and why did that lose". A
+/// merchandiser looking at a price they did not expect needs the second
+/// question answered, and until this existed the only way to answer it was to
+/// read the price book by hand.
+///
+/// A markdown replaces the base rather than reducing it, so a winning markdown
+/// heads the stack and the price list entry beneath it is a loser — which is
+/// exactly how it should read. Booking that relationship the other way round is
+/// how a markdown comes to be reported as a discount.
+pub(crate) fn stacks(
+    snapshot: &crate::PricingSnapshot,
+    context: &crate::PricingContext,
+    products: &[crate::CartLine],
+) -> Vec<crate::ProductStack> {
+    let index = PriceIndex::build(snapshot);
+    products
+        .iter()
+        .map(|product| {
+            let entries = index.ranked(context, &product.sku_code);
+            let markdowns = index.markdowns_ranked(context, product);
+            // A markdown only applies to a product the price book prices. One
+            // marking down something with no price is not a price of its own —
+            // there is nothing to replace — and reporting it as in force would
+            // put a number on screen that no till would ever charge.
+            let base = entries.first();
+            let mut candidates: Vec<crate::PriceCandidate> = Vec::new();
+            if let Some(base) = base {
+                for (rank, markdown) in markdowns.iter().enumerate() {
+                    candidates.push(crate::PriceCandidate {
+                        source: crate::PriceSource::Markdown,
+                        applies_to: markdown.applies_to.clone(),
+                        unit_price: markdown.replacement_unit_price,
+                        currency: base.currency.clone(),
+                        tax_category: base.tax_category.clone(),
+                        // The markdown's own book, not the book the base price
+                        // came out of. A clearance authored in v2 replacing a
+                        // v1 price is two books, and reporting one of them
+                        // twice loses the more interesting half.
+                        publication_version: markdown.publication_version,
+                        markdown_id: Some(markdown.markdown_id.clone()),
+                        effective_from: markdown.effective_from,
+                        effective_to: markdown.effective_to,
+                        in_force: rank == 0,
+                    });
+                }
+            }
+            let markdown_won = !candidates.is_empty();
+            for (rank, entry) in entries.iter().enumerate() {
+                candidates.push(crate::PriceCandidate {
+                    source: source_of(&entry.applies_to),
+                    applies_to: entry.applies_to.clone(),
+                    unit_price: entry.unit_price,
+                    currency: entry.currency.clone(),
+                    tax_category: entry.tax_category.clone(),
+                    publication_version: entry.publication_version,
+                    markdown_id: None,
+                    effective_from: entry.effective_from,
+                    effective_to: entry.effective_to,
+                    in_force: rank == 0 && !markdown_won,
+                });
+            }
+            crate::ProductStack {
+                sku_code: product.sku_code.clone(),
+                candidates,
+            }
+        })
+        .collect()
 }

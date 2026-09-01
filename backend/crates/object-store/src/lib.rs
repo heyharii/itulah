@@ -187,7 +187,14 @@ impl ObjectStore {
             headers.push(SignedHeader::new("cache-control", cache));
         }
         let response = self
-            .send("PUT", key, headers, &payload_hash, Some(body.clone()), Utc::now())
+            .send(
+                "PUT",
+                key,
+                headers,
+                &payload_hash,
+                Some(body.clone()),
+                Utc::now(),
+            )
             .await?;
         let status = response.status();
         if !status.is_success() {
@@ -206,7 +213,14 @@ impl ObjectStore {
     /// for, while a 500 from storage is not.
     pub async fn get(&self, key: &str) -> Result<Vec<u8>, Error> {
         let response = self
-            .send("GET", key, vec![], &sigv4::sha256_hex(b""), None, Utc::now())
+            .send(
+                "GET",
+                key,
+                vec![],
+                &sigv4::sha256_hex(b""),
+                None,
+                Utc::now(),
+            )
             .await?;
         if response.status() == reqwest::StatusCode::NOT_FOUND {
             return Err(Error::NotFound(key.to_string()));
@@ -221,7 +235,14 @@ impl ObjectStore {
     /// bytes. This is what an import run uses to skip what is already there.
     pub async fn head(&self, key: &str) -> Result<Option<ObjectMeta>, Error> {
         let response = self
-            .send("HEAD", key, vec![], &sigv4::sha256_hex(b""), None, Utc::now())
+            .send(
+                "HEAD",
+                key,
+                vec![],
+                &sigv4::sha256_hex(b""),
+                None,
+                Utc::now(),
+            )
             .await?;
         if response.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
@@ -243,7 +264,14 @@ impl ObjectStore {
     /// caller's intent — "this key must not exist" — is already satisfied.
     pub async fn delete(&self, key: &str) -> Result<(), Error> {
         let response = self
-            .send("DELETE", key, vec![], &sigv4::sha256_hex(b""), None, Utc::now())
+            .send(
+                "DELETE",
+                key,
+                vec![],
+                &sigv4::sha256_hex(b""),
+                None,
+                Utc::now(),
+            )
             .await?;
         let status = response.status();
         if status.is_success() || status == reqwest::StatusCode::NOT_FOUND {
@@ -367,7 +395,10 @@ impl ObjectStore {
         let url = format!("{}{}", self.config.endpoint.trim_end_matches('/'), path);
         let mut builder = self
             .http
-            .request(reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET), url)
+            .request(
+                reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET),
+                url,
+            )
             .header("authorization", authorization);
         for header in headers {
             // `host` is set by the transport; sending it twice is a signature
@@ -475,9 +506,13 @@ mod tests {
         let now = Utc::now();
         let store = store();
         #[allow(clippy::expect_used)]
-        let get = store.presign("GET", "catalogue/a.jpg", 900, now).expect("signs");
+        let get = store
+            .presign("GET", "catalogue/a.jpg", 900, now)
+            .expect("signs");
         #[allow(clippy::expect_used)]
-        let put = store.presign("PUT", "catalogue/a.jpg", 900, now).expect("signs");
+        let put = store
+            .presign("PUT", "catalogue/a.jpg", 900, now)
+            .expect("signs");
         assert_ne!(get, put);
     }
 }

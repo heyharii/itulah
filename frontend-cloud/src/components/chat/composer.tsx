@@ -1,10 +1,7 @@
-import {
-  AttachButton,
-  StagedFiles,
-  useStagedUploads,
-} from "@/components/collaboration/staged"
+import { AttachButton, StagedFiles } from "@/components/collaboration/staged"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { useStagedUploads } from "@/lib/uploads"
 import { cn } from "@/lib/utils"
 import type { StoredFile } from "@itulah/contract"
 import { Send } from "lucide-react"

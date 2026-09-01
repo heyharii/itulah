@@ -98,6 +98,15 @@ pub struct Markdown {
     pub replacement_unit_price: Money,
     #[serde(default)]
     pub priority: i64,
+    /// Which publication authored this, so an answer can name its source — the
+    /// same reason [`PriceEntry`] carries it.
+    ///
+    /// `default` because it was added after markdowns were already travelling:
+    /// a node sending an older document reports 0, which reads as "the book is
+    /// not recorded" rather than failing to price. Zero is deliberately not a
+    /// real version — publications start at 1.
+    #[serde(default)]
+    pub publication_version: i64,
     pub effective_from: DateTime<Utc>,
     #[serde(default)]
     pub effective_to: Option<DateTime<Utc>>,
@@ -237,6 +246,78 @@ impl<'a> PriceIndex<'a> {
         best
     }
 
+    /// Every price that applies here, best first.
+    ///
+    /// The same filter and the same comparator as [`Self::price`], which
+    /// returns only the head of this list. Kept as one sort rather than a
+    /// second ranking written beside it: a screen that showed the cascade in a
+    /// different order from the one that decides it would be worse than no
+    /// screen, because it would look authoritative.
+    pub(crate) fn ranked(&self, context: &PricingContext, sku_code: &str) -> Vec<&'a PriceEntry> {
+        let mut applicable: Vec<&PriceEntry> = self
+            .by_sku
+            .get(sku_code)
+            .into_iter()
+            .flatten()
+            .filter(|entry| {
+                entry.channel == context.channel
+                    && entry.applies_to.applies(context)
+                    && covers(context.at, entry.effective_from, entry.effective_to)
+            })
+            .copied()
+            .collect();
+        applicable.sort_by(|left, right| {
+            if better(left, right) {
+                std::cmp::Ordering::Less
+            } else if better(right, left) {
+                std::cmp::Ordering::Greater
+            } else {
+                // Two prices that tie must order the same way on every machine,
+                // or the centre and a till disagree over something neither can
+                // show you. The SKU code is the last stable tie-break.
+                left.sku_code.cmp(&right.sku_code)
+            }
+        });
+        applicable
+    }
+
+    /// Every markdown that applies here, best first.
+    pub(crate) fn markdowns_ranked(
+        &self,
+        context: &PricingContext,
+        line: &CartLine,
+    ) -> Vec<&'a Markdown> {
+        let by_sku = self.markdown_by_sku.get(line.sku_code.as_str());
+        let by_article = line
+            .article_code
+            .as_deref()
+            .and_then(|article| self.markdown_by_article.get(article));
+        // The same precedence [`Self::markdown`] applies: a SKU markdown
+        // outranks an article one whatever their priorities, so when the
+        // narrower list answers, the wider one is not consulted at all.
+        let candidates = match (by_sku, by_article) {
+            (Some(narrow), _) => narrow,
+            (None, Some(wide)) => wide,
+            (None, None) => return Vec::new(),
+        };
+        let mut applicable: Vec<&Markdown> = candidates
+            .iter()
+            .filter(|markdown| {
+                markdown.applies_to.applies(context)
+                    && covers(context.at, markdown.effective_from, markdown.effective_to)
+            })
+            .copied()
+            .collect();
+        applicable.sort_by(|left, right| {
+            (right.priority, right.effective_from, &right.markdown_id).cmp(&(
+                left.priority,
+                left.effective_from,
+                &left.markdown_id,
+            ))
+        });
+        applicable
+    }
+
     pub(crate) fn markdown(
         &self,
         context: &PricingContext,
@@ -281,5 +362,3 @@ impl<'a> PriceIndex<'a> {
         best
     }
 }
-
-

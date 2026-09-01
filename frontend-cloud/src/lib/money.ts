@@ -50,3 +50,23 @@ export function parseMoneyToMinor(text: string, currency = "IDR"): number | null
   if (!Number.isFinite(value) || value < 0) return null
   return Math.round(value * minorPerMajor(currency.toUpperCase()))
 }
+
+/// A price with the digits a chart axis has room for.
+///
+/// `Intl`'s compact notation in `id-ID` gives "12 jt", not "12M" — the reader
+/// of this screen is in Jakarta and rb/jt/M is the shorthand they already use.
+/// Only for axes and totals: a receipt shows every digit.
+export function compactMoney(minor: number, currency = "IDR"): string {
+  const code = currency.toUpperCase()
+  const divisor = ZERO_DECIMAL.has(code) ? 1 : 100
+  try {
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: code,
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(minor / divisor)
+  } catch {
+    return `${code} ${(minor / divisor).toLocaleString("id-ID")}`
+  }
+}
