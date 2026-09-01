@@ -17,13 +17,24 @@ export function AppShell({
   children: React.ReactNode
 }) {
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[248px_minmax(0,1fr)]">
-      <aside className="hidden min-h-0 min-w-0 flex-col overflow-hidden lg:flex">
-        <div className="shrink-0 px-2 pt-2">{nav}</div>
-        {facets !== undefined && (
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">{facets}</div>
-        )}
+    <div
+      className={cn(
+        "grid min-h-0 flex-1 grid-cols-1",
+        // The rail is always the same width; the filter column only exists on
+        // screens that have filters, so a screen without them gets the space.
+        facets === undefined
+          ? "lg:grid-cols-[64px_minmax(0,1fr)]"
+          : "lg:grid-cols-[64px_248px_minmax(0,1fr)]",
+      )}
+    >
+      <aside className="hidden shrink-0 flex-col items-center overflow-y-auto lg:flex">
+        {nav}
       </aside>
+      {facets !== undefined && (
+        <aside className="hidden min-h-0 min-w-0 flex-col overflow-hidden lg:flex">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">{facets}</div>
+        </aside>
+      )}
       <main className="flex min-h-0 min-w-0 flex-col overflow-hidden p-2 lg:pl-0">
         <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border shadow-sm">
           {children}

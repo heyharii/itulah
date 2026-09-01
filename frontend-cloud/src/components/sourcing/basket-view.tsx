@@ -17,15 +17,20 @@ interface BasketGroup {
   lines: { row: SourcingRow; quantity: number }[]
 }
 
-/// The basket: what has been picked out, and the only place it turns into an
-/// order.
+/// The basket's contents, without a screen around them.
+///
+/// Split out so the same list can be a route and a sheet. A buyer adds to the
+/// basket while still scanning the range, and sending them to another route to
+/// look at it throws away the scroll position and the filters they got there
+/// with — so the sheet is the ordinary way in, and the route remains for a
+/// link somebody bookmarked or shared.
 ///
 /// Grouped by supplier and not sorted any other way, because the grouping is
 /// not decoration — a purchase order goes to exactly one supplier, so a basket
 /// spanning three suppliers is three orders. Showing it as one flat list would
 /// invite a buyer to expect one checkout and then explain itself at the last
 /// moment.
-export function BasketView() {
+export function BasketPanel() {
   const navigate = useNavigate()
   const basket = useBasket()
   const { setQuantity, remove, clear } = useBasketActions()
@@ -52,7 +57,7 @@ export function BasketView() {
   const pieceCount = (basket.data ?? []).reduce((sum, line) => sum + line.quantity, 0)
 
   return (
-    <AppShell nav={<Nav />}>
+    <>
       <ScreenHeader
         title="Basket"
         subtitle={
@@ -213,6 +218,15 @@ export function BasketView() {
           })
         )}
       </div>
+    </>
+  )
+}
+
+/// The basket as its own screen, for a bookmarked or shared link.
+export function BasketView() {
+  return (
+    <AppShell nav={<Nav />}>
+      <BasketPanel />
     </AppShell>
   )
 }

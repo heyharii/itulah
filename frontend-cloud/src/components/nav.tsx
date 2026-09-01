@@ -1,19 +1,25 @@
+import { BasketRailIcon, BasketSheet, useBasketPieces } from "@/components/sourcing/basket-sheet"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { allotmentListKey, listAllotments } from "@/lib/allotments"
-import { useBasket } from "@/lib/basket"
 import { pendingPriceAmendments } from "@/lib/purchase-orders"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useRouterState } from "@tanstack/react-router"
-import { ClipboardList, ClipboardX, Shirt, ShoppingBasket, Truck } from "lucide-react"
+import { ClipboardList, ClipboardX, Shirt, Truck } from "lucide-react"
 
 /// Where the buyer can go, and what is waiting for them there.
 ///
+/// A rail of icons rather than a list of words. The buying surface has five
+/// places and a buyer learns them in a day; after that the names are read
+/// past, and the width they cost is width the filters and the range do not
+/// get. The labels are still there on hover and for a screen reader — this
+/// trades reading for space, it does not throw the words away.
+///
 /// The counts are the point as much as the links are: a basket with something
 /// in it and an amendment queue with something in it are both unfinished work,
-/// and a nav that only named the screens would make you go and look.
+/// and a rail that only named the screens would make you go and look.
 export function Nav() {
-  const basket = useBasket()
-  const pieces = (basket.data ?? []).reduce((sum, line) => sum + line.quantity, 0)
+  const pieces = useBasketPieces()
   // Polled rather than fetched once: these arrive from a warehouse mid-shift,
   // and a buyer with the screen open should see one appear without reloading.
   const amendments = useQuery({
@@ -38,80 +44,112 @@ export function Nav() {
   // Orders, one order, and a draft are three routes but one place as far as
   // somebody reading the nav is concerned.
   const path = useRouterState({ select: (state) => state.location.pathname })
-  const onOrders = path.startsWith("/orders")
-  const onAllotments = path.startsWith("/allotments")
 
   return (
-    <nav className="flex flex-col gap-0.5" aria-label="Buying">
-      <NavLink to="/" icon={<Shirt className="size-4" />}>
-        Sourcing
-      </NavLink>
-      <NavLink
-        to="/basket"
-        icon={<ShoppingBasket className={cn("size-4", pieces > 0 && "text-emerald-600")} />}
-        // Pieces, not lines: a basket holding three of one thing is not the
-        // same errand as one of three things, and the piece count is what turns
-        // into ordered quantity.
-        count={pieces}
-      >
-        Basket
-      </NavLink>
-      <NavLink to="/orders" icon={<ClipboardList className="size-4" />} active={onOrders}>
-        Purchase orders
-      </NavLink>
-      <NavLink
-        to="/allotments"
-        icon={<Truck className={cn("size-4", reserving > 0 && "text-amber-600")} />}
-        active={onAllotments}
-        // Allotments with something still reserved: stock promised and not yet
-        // gone, which is the only part of this list anybody has to act on.
-        count={reserving}
-      >
-        Allotments
-      </NavLink>
-      <NavLink
-        to="/amendments"
-        icon={<ClipboardX className={cn("size-4", waiting > 0 && "text-amber-600")} />}
-        count={waiting}
-      >
-        Price amendments
-      </NavLink>
-    </nav>
+    <TooltipProvider>
+      <nav className="flex flex-col items-center gap-1 py-2" aria-label="Buying">
+        <RailLink to="/" label="Sourcing" icon={<Shirt className="size-5" />} />
+
+        {/* Not a destination. Picking things out and looking at what you have
+            picked are one activity, and a route change would discard the
+            filters that made the picking possible. */}
+        <RailItem label="Basket" active={false}>
+          <BasketSheet>
+            <button type="button" className={RAIL_BUTTON} aria-label="Basket">
+              <BasketRailIcon pieces={pieces} />
+            </button>
+          </BasketSheet>
+        </RailItem>
+
+        <RailLink
+          to="/orders"
+          label="Purchase orders"
+          icon={<ClipboardList className="size-5" />}
+          active={path.startsWith("/orders")}
+        />
+        <RailLink
+          to="/allotments"
+          label="Allotments"
+          icon={<Truck className={cn("size-5", reserving > 0 && "text-amber-600")} />}
+          active={path.startsWith("/allotments")}
+          count={reserving}
+        />
+        <RailLink
+          to="/amendments"
+          label="Price amendments"
+          icon={<ClipboardX className={cn("size-5", waiting > 0 && "text-amber-600")} />}
+          count={waiting}
+        />
+      </nav>
+    </TooltipProvider>
   )
 }
 
-function NavLink({
-  to,
-  icon,
-  count,
+const RAIL_BUTTON =
+  "relative grid size-11 place-items-center rounded-2xl transition-all hover:rounded-xl hover:bg-muted"
+
+/// The label, and the pill that marks where you are.
+///
+/// The indicator sits outside the button rather than on it so it survives the
+/// hover shape change, which is what makes the rail feel like a rail and not
+/// like five buttons.
+function RailItem({
+  label,
   active,
   children,
 }: {
-  to: string
-  icon: React.ReactNode
-  count?: number
-  /// Overrides the router's own exact match, for a nav entry that stands for a
-  /// family of routes rather than one.
-  active?: boolean
+  label: string
+  active: boolean
   children: React.ReactNode
 }) {
-  const row =
-    "flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-[13px] transition-colors"
-  const off = "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-  const on = "bg-muted text-foreground font-semibold"
   return (
-    <Link
-      to={to}
-      activeOptions={{ exact: true }}
-      className={cn(row, off)}
-      activeProps={active === false ? undefined : { className: cn(row, on) }}
-      {...(active === true ? { className: cn(row, on) } : {})}
-    >
-      <span className="shrink-0">{icon}</span>
-      <span className="truncate">{children}</span>
-      {count !== undefined && count > 0 && (
-        <span className="ml-auto font-mono text-[10.5px] opacity-70">{count}</span>
-      )}
-    </Link>
+    <div className="relative">
+      <span
+        aria-hidden
+        className={cn(
+          "bg-foreground absolute top-1/2 -left-2 w-1 -translate-y-1/2 rounded-r-full transition-all",
+          active ? "h-6 opacity-100" : "h-0 opacity-0",
+        )}
+      />
+      <Tooltip>
+        <TooltipTrigger render={children as never} />
+        <TooltipContent side="right">{label}</TooltipContent>
+      </Tooltip>
+    </div>
+  )
+}
+
+function RailLink({
+  to,
+  label,
+  icon,
+  count,
+  active,
+}: {
+  to: string
+  label: string
+  icon: React.ReactNode
+  count?: number
+  /// Overrides the router's own exact match, for an entry that stands for a
+  /// family of routes rather than one.
+  active?: boolean
+}) {
+  const path = useRouterState({ select: (state) => state.location.pathname })
+  const here = active ?? (to === "/" ? path === "/" : path.startsWith(to))
+  return (
+    <RailItem label={label} active={here}>
+      <Link
+        to={to}
+        aria-label={label}
+        className={cn(RAIL_BUTTON, here && "bg-muted rounded-xl")}
+      >
+        {icon}
+        {count !== undefined && count > 0 && (
+          <span className="bg-amber-600 absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full px-1 font-mono text-[10px] leading-4 font-medium text-white">
+            {count}
+          </span>
+        )}
+      </Link>
+    </RailItem>
   )
 }
