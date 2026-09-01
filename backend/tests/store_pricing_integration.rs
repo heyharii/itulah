@@ -1380,3 +1380,86 @@ async fn a_clearance_on_a_whole_style_reaches_every_size_in_it() {
     );
     assert_eq!(priced("CEL-M").price_source, "COMPANY_PRICE");
 }
+
+/// Every kind of promotion survives the journey to a shop.
+///
+/// A rule is stored as the engine's own document and read back the same way, so
+/// the round trip ought to be lossless by construction. It had never been
+/// proven for anything but a percentage: `PERCENT` and `EARN_POINTS` were the
+/// only effects any test had sent down the wire, while the engine's own tests
+/// exercise all six against Rust values that never touch JSON.
+///
+/// The gap matters because of how the shop fails. `load_rules` logs a warning
+/// and SKIPS a promotion it cannot parse — the right call, since an unreadable
+/// offer must cost a discount and never the ability to sell — but it means a
+/// merchandiser who authored "buy one get one" would see it accepted at the
+/// centre and simply not happen at any till, with the only evidence in a log
+/// nobody reads.
+#[tokio::test]
+async fn every_kind_of_promotion_reaches_the_shop_intact() {
+    let effects = [
+        ("E-PCT", json!({"kind": "PERCENT", "bps": 1_000})),
+        ("E-AMT", json!({"kind": "AMOUNT", "amount": {"minor": 5_000}})),
+        (
+            "E-FIX",
+            json!({"kind": "FIXED_UNIT_PRICE", "unit_price": {"minor": 80_000}}),
+        ),
+        ("E-MGN", json!({"kind": "MARGIN", "bps": 3_000})),
+        (
+            "E-FREE",
+            json!({"kind": "FREE_ITEM", "quantity": 1, "every_matched_quantity": 2}),
+        ),
+        (
+            "E-PTS",
+            json!({"kind": "EARN_POINTS", "mode": "FIXED_POINTS", "points": 10}),
+        ),
+    ];
+
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    let rules: Vec<serde_json::Value> = effects
+        .iter()
+        .map(|(id, effect)| {
+            let mut rule = percent_off(id, 1_000);
+            rule["effect"] = effect.clone();
+            // Stackable so none of them displaces another: this is a test of
+            // what ARRIVES, not of which offer wins.
+            rule["stacking"] = json!("STACKABLE");
+            rule
+        })
+        .collect();
+    shop.deliver_commercial(1, vec![rule("KEM001", None, 200_000)], vec![], rules, vec![])
+        .await;
+
+    let held: Vec<String> = shop
+        .edge
+        .connection()
+        .lock()
+        .unwrap_or_else(|error| panic!("connection: {error}"))
+        .prepare("SELECT definition_json FROM commercial_rule ORDER BY rule_id")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .and_then(|rows| rows.collect())
+        })
+        .unwrap_or_else(|error| panic!("stored rules: {error}"));
+    assert_eq!(held.len(), effects.len(), "every rule was stored");
+
+    // The shop reads them the way it reads them at a till. Anything this build
+    // cannot parse is skipped there, so a shorter list is the whole failure.
+    let readable: Vec<String> = held
+        .iter()
+        .filter_map(|document| {
+            serde_json::from_str::<pricing_engine::Rule>(document)
+                .ok()
+                .map(|parsed| parsed.rule_id)
+        })
+        .collect();
+    for (id, effect) in &effects {
+        assert!(
+            readable.iter().any(|read| read == id),
+            "the shop cannot read a {} promotion, so it would silently skip it",
+            effect["kind"]
+        );
+    }
+}

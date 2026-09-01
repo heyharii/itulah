@@ -84,10 +84,51 @@ pub async fn load_site_pricing(
     at: DateTime<Utc>,
 ) -> Result<SitePricing, AppError> {
     let mut pricing = load_site_price_book(tx, site_id, channel, at).await?;
-    pricing.snapshot.rules = load_rules(tx).await?;
-    pricing.snapshot.coupons = load_coupons(tx).await?;
-    pricing.snapshot.campaigns = load_campaigns(tx).await?;
+    let usage = load_usage(tx).await?;
+    pricing.snapshot.rules = load_rules(tx, &usage).await?;
+    pricing.snapshot.coupons = load_coupons(tx, &usage).await?;
+    pricing.snapshot.campaigns = load_campaigns(tx, &usage).await?;
     Ok(pricing)
+}
+
+/// What promotions have actually given away, keyed by what they are.
+///
+/// `RULE`/`CAMPAIGN`/`COUPON` and the id or code, to `(uses, spent_minor)`.
+type UsageCounts = BTreeMap<(String, String), (i64, i64)>;
+
+async fn load_usage(tx: &mut Transaction<'_, Postgres>) -> Result<UsageCounts, AppError> {
+    Ok(sqlx::query("SELECT kind, key, uses, spent_minor FROM commercial_usage")
+        .fetch_all(&mut **tx)
+        .await?
+        .into_iter()
+        .map(|row| {
+            (
+                (row.get::<String, _>("kind"), row.get::<String, _>("key")),
+                (row.get::<i64, _>("uses"), row.get::<i64, _>("spent_minor")),
+            )
+        })
+        .collect())
+}
+
+/// Overlay what has actually been spent onto the limits a publication declared.
+///
+/// The mirror of `edge/pricing.rs::with_usage`, and it was missing here — which
+/// is not a tidiness problem. The centre read `spent_minor` and `used` from the
+/// publication row, and nothing has ever written those: migration 0035 moved
+/// counting to `commercial_usage` precisely because a count cannot live inside
+/// a frozen document. So the centre's evaluator saw zero, always.
+///
+/// A budget therefore never ran out at the centre, a coupon was never used up,
+/// and a usage cap was never reached — while every till in the fleet, which
+/// does overlay the counts, had already stopped honouring the offer. Two nodes
+/// reading one concept from two places, which is the fault this whole design
+/// exists to prevent, sitting in the screen built to explain promotions.
+fn with_usage(mut caps: Caps, counted: Option<&(i64, i64)>) -> Caps {
+    if let Some((uses, spent)) = counted {
+        caps.used = *uses;
+        caps.spent = Money::new(*spent);
+    }
+    caps
 }
 
 /// What a product costs here, without the promotions.
@@ -199,7 +240,10 @@ pub async fn load_site_price_book(
 /// Promotions are stored as the engine's own documents. One this build cannot
 /// read is skipped rather than fatal, exactly as at a shop: an unreadable offer
 /// must cost a discount, never the ability to sell.
-async fn load_rules(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Rule>, AppError> {
+async fn load_rules(
+    tx: &mut Transaction<'_, Postgres>,
+    usage: &UsageCounts,
+) -> Result<Vec<Rule>, AppError> {
     let mut rules = Vec::new();
     for row in sqlx::query(
         "SELECT r.definition FROM commercial_rule r
@@ -211,7 +255,13 @@ async fn load_rules(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Rule>, App
     {
         let document: Value = row.get("definition");
         match serde_json::from_value::<Rule>(document) {
-            Ok(rule) => rules.push(rule),
+            Ok(mut rule) => {
+                rule.caps = with_usage(
+                    rule.caps,
+                    usage.get(&("RULE".to_string(), rule.rule_id.clone())),
+                );
+                rules.push(rule);
+            }
             Err(error) => tracing::warn!(
                 %error,
                 "skipping a promotion this build cannot read; prices are unaffected"
@@ -223,7 +273,10 @@ async fn load_rules(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Rule>, App
 }
 
 /// The codes that unlock those promotions.
-async fn load_coupons(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Coupon>, AppError> {
+async fn load_coupons(
+    tx: &mut Transaction<'_, Postgres>,
+    usage: &UsageCounts,
+) -> Result<Vec<Coupon>, AppError> {
     Ok(sqlx::query(
         "SELECT c.code, c.rule_id, c.active, c.customer_id, c.valid_from, c.valid_to,
                 c.max_uses, c.used
@@ -234,21 +287,33 @@ async fn load_coupons(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Coupon>,
     .fetch_all(&mut **tx)
     .await?
     .into_iter()
-    .map(|row| Coupon {
-        code: row.get("code"),
-        rule_id: row.get("rule_id"),
-        active: row.get("active"),
-        customer_id: row.get("customer_id"),
-        valid_from: row.get("valid_from"),
-        valid_to: row.get("valid_to"),
-        max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
-        used: i64::from(row.get::<i32, _>("used")),
+    .map(|row| {
+        let code: String = row.get("code");
+        // A coupon has no `Caps`; its count is one number on the row. The
+        // publication's copy is the one that was true when the book was
+        // written, which is to say never true again.
+        let used = usage
+            .get(&("COUPON".to_string(), code.clone()))
+            .map_or_else(|| i64::from(row.get::<i32, _>("used")), |(uses, _)| *uses);
+        Coupon {
+            code,
+            rule_id: row.get("rule_id"),
+            active: row.get("active"),
+            customer_id: row.get("customer_id"),
+            valid_from: row.get("valid_from"),
+            valid_to: row.get("valid_to"),
+            max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
+            used,
+        }
     })
     .collect())
 }
 
 /// The envelopes those promotions sit in.
-async fn load_campaigns(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Campaign>, AppError> {
+async fn load_campaigns(
+    tx: &mut Transaction<'_, Postgres>,
+    usage: &UsageCounts,
+) -> Result<Vec<Campaign>, AppError> {
     Ok(sqlx::query(
         "SELECT c.campaign_id, c.name, c.status, c.valid_from, c.valid_to,
                 c.budget_minor, c.spent_minor, c.max_uses, c.used, c.max_uses_per_customer
@@ -259,21 +324,27 @@ async fn load_campaigns(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Campai
     .fetch_all(&mut **tx)
     .await?
     .into_iter()
-    .map(|row| Campaign {
-        campaign_id: row.get("campaign_id"),
+    .map(|row| {
+        let campaign_id: String = row.get("campaign_id");
+        Campaign {
+        campaign_id: campaign_id.clone(),
         name: row.get("name"),
         status: campaign_status(&row.get::<String, _>("status")),
         valid_from: row.get("valid_from"),
         valid_to: row.get("valid_to"),
-        caps: Caps {
-            budget: row.get::<Option<i64>, _>("budget_minor").map(Money::new),
-            spent: Money::new(row.get::<i64, _>("spent_minor")),
-            max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
-            used: i64::from(row.get::<i32, _>("used")),
-            max_uses_per_customer: row
-                .get::<Option<i32>, _>("max_uses_per_customer")
-                .map(i64::from),
-        },
+        caps: with_usage(
+            Caps {
+                budget: row.get::<Option<i64>, _>("budget_minor").map(Money::new),
+                spent: Money::new(row.get::<i64, _>("spent_minor")),
+                max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
+                used: i64::from(row.get::<i32, _>("used")),
+                max_uses_per_customer: row
+                    .get::<Option<i32>, _>("max_uses_per_customer")
+                    .map(i64::from),
+            },
+            usage.get(&("CAMPAIGN".to_string(), campaign_id)),
+        ),
+        }
     })
     .collect())
 }

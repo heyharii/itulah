@@ -1799,3 +1799,150 @@ async fn the_fleet_list_names_a_shop_that_has_never_activated_a_price_book(pool:
         "how far behind a shop that never started is, is not a number"
     );
 }
+
+/// A budget spent in the fleet is spent at the centre too.
+///
+/// The centre read `spent_minor` and `used` from the publication row, and
+/// nothing has ever written those — migration 0035 moved counting to
+/// `commercial_usage` precisely because a count cannot live inside a frozen
+/// document. So the centre's evaluator saw zero forever: a budget never ran
+/// out, a coupon was never used up, a usage cap was never reached.
+///
+/// Every till, which does overlay the counts, had already stopped honouring the
+/// offer. Two nodes reading one concept from two places — in the screen built
+/// to explain why a promotion did not apply, which would have answered that
+/// question wrongly for two of its most common causes.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_budget_spent_in_the_fleet_is_spent_at_the_centre_too(pool: PgPool) {
+    let sku: Uuid = sqlx::query_scalar("SELECT id FROM sku WHERE active ORDER BY sku_code LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("a seeded SKU: {e}"));
+    let sku_code: String =
+        sqlx::query_scalar("SELECT sku_code FROM sku WHERE id = $1")
+            .bind(sku)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("its code: {e}"));
+
+    // A campaign with a small budget, and one promotion inside it.
+    let rule = serde_json::json!({
+        "rule_id": "R-BUDGET",
+        "campaign_id": "C-BUDGET",
+        "name": "Diskon 10%",
+        "status": "ACTIVE",
+        "effect": {"kind": "PERCENT", "bps": 1_000},
+        "stacking": "ALONE",
+        "priority": 0,
+    });
+    let created = infrastructure::create_commercial_publication(
+        &pool,
+        CreateCommercialPublicationRequest {
+            version: 800,
+            name: "Kampanye berbudget".into(),
+            effective_from: Utc::now() - Duration::days(1),
+            effective_to: None,
+            tax_rules: vec![CommercialTaxRuleInput {
+                tax_category: "STANDARD".into(),
+                rate_bps: 0,
+                tax_inclusive: true,
+            }],
+            offer_rules: vec![CommercialOfferRuleInput {
+                sku_id: sku,
+                site_id: None,
+                site_ids: None,
+                tier: None,
+                channel: CommercialChannel::Store,
+                sellable: true,
+                currency: "IDR".into(),
+                unit_price_minor: 100_000,
+                tax_category: "STANDARD".into(),
+            }],
+            markdowns: Vec::new(),
+            rules: vec![serde_json::from_value(rule)
+                .unwrap_or_else(|e| panic!("the rule is not a rule: {e}"))],
+            coupons: Vec::new(),
+            campaigns: vec![inventory_backend::cloud::application::CommercialCampaignInput {
+                campaign_id: "C-BUDGET".into(),
+                name: "Kampanye berbudget".into(),
+                status: "ACTIVE".into(),
+                valid_from: None,
+                valid_to: None,
+                budget_minor: Some(50_000),
+                max_uses: None,
+                max_uses_per_customer: None,
+            }],
+            actor_id: "merchandiser".into(),
+            idempotency_key: "budget-draft".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("draft: {e}"));
+    let publication_id: Uuid = created["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no id: {created}"))
+        .parse()
+        .unwrap_or_else(|e| panic!("id: {e}"));
+    infrastructure::publish_commercial_publication(
+        &pool,
+        publication_id,
+        CommandRequest {
+            actor_id: "merchandiser".into(),
+            idempotency_key: "budget-publish".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("publish: {e}"));
+
+    let basket = || inventory_backend::cloud::application::SimulateRequest {
+        site_id: "store-07".into(),
+        channel: CommercialChannel::Store,
+        at: None,
+        lines: vec![inventory_backend::cloud::application::SimulateLineInput {
+            sku_code: sku_code.clone(),
+            quantity: 1,
+            manual_unit_price_minor: None,
+        }],
+        coupon_codes: Vec::new(),
+        customer_id: None,
+        customer_tier: None,
+    };
+
+    let before = infrastructure::simulate(&pool, basket())
+        .await
+        .unwrap_or_else(|e| panic!("simulate: {e}"));
+    assert_eq!(
+        before["applied_rules"].as_array().map(Vec::len),
+        Some(1),
+        "with the budget untouched the promotion applies"
+    );
+
+    // The fleet spends it. This is the table sale facts fill in — the same rows
+    // a shop's own copy is built from.
+    sqlx::query(
+        "INSERT INTO commercial_usage (kind, key, uses, spent_minor)
+         VALUES ('CAMPAIGN', 'C-BUDGET', 40, 50_000)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("count the spend: {e}"));
+
+    let after = infrastructure::simulate(&pool, basket())
+        .await
+        .unwrap_or_else(|e| panic!("simulate again: {e}"));
+    assert!(
+        after["applied_rules"]
+            .as_array()
+            .is_some_and(|applied| applied.is_empty()),
+        "the budget is spent, so the promotion must not apply: {after}"
+    );
+    let refused = after["rejected_rules"]
+        .as_array()
+        .and_then(|rules| rules.first())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        refused["reason"], "BUDGET_SPENT",
+        "and it must say so in the words a cashier would use: {after}"
+    );
+}
