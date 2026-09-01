@@ -1,0 +1,450 @@
+import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/custom/table"
+import { Thumb } from "@/components/sourcing/columns"
+import { toSourcingRow, type SourcingRow } from "@/components/sourcing/rows"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { money, units } from "@/lib/money"
+import { createCatalogPurchaseOrder, listDestinations } from "@/lib/purchase-orders"
+import { searchSourcedItems } from "@/lib/sourcing"
+import { cn } from "@/lib/utils"
+import { ApiError } from "@itulah/contract/client"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Minus, Plus, Search, X } from "lucide-react"
+import { useMemo, useRef, useState } from "react"
+
+/// A purchase order in the making.
+///
+/// Two things this screen does NOT do, both on purpose:
+///
+/// - It does not send prices. `POST /api/v1/purchase-orders/catalog` snapshots
+///   each line's price from the supplier item it names, so a buyer cannot order
+///   at a number the catalogue does not hold. What is shown here is the
+///   catalogue's price, which is what the server will use — not an input.
+/// - It does not let the supplier change. One order goes to one supplier
+///   (`CatalogPurchaseOrderRequest.supplier_id`), so switching supplier means a
+///   different order, and the screen makes you go back and start it.
+export function PoDraft({
+  nav,
+  supplierId,
+  seedItemIds,
+  onCancel,
+  onCreated,
+}: {
+  nav: React.ReactNode
+  supplierId: string
+  seedItemIds: readonly string[]
+  onCancel: () => void
+  onCreated: (purchaseOrderId: string, poNumber: string) => void
+}) {
+  const queryClient = useQueryClient()
+  const catalogue = useQuery({
+    queryKey: ["sourcing", "supplier", supplierId],
+    queryFn: ({ signal }) => searchSourcedItems({ supplierId, limit: 500 }, signal),
+  })
+  const destinations = useQuery({
+    queryKey: ["sync", "destinations"],
+    queryFn: ({ signal }) => listDestinations(signal),
+  })
+
+  const rows = useMemo<SourcingRow[]>(
+    () => (catalogue.data ?? []).map(toSourcingRow),
+    [catalogue.data],
+  )
+  const byId = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
+
+  const [step, setStep] = useState<"lines" | "review">("lines")
+  const [quantities, setQuantities] = useState<Record<string, number>>(() =>
+    Object.fromEntries(seedItemIds.map((id) => [id, 1])),
+  )
+  const [order, setOrder] = useState<string[]>([...seedItemIds])
+  const [poNumber, setPoNumber] = useState(suggestPoNumber)
+  const [destination, setDestination] = useState("")
+  const [promisedDate, setPromisedDate] = useState("")
+  const [notes, setNotes] = useState("")
+  const [search, setSearch] = useState("")
+
+  // One key per attempt at THIS order, held across retries: the server stores
+  // it with a digest of the request and replays its first answer, so a retry
+  // after a timeout cannot raise a second order. It is only rotated once an
+  // order has actually been created.
+  const idempotencyKey = useRef(crypto.randomUUID())
+
+  const lines = order
+    .map((id) => ({ row: byId.get(id), quantity: quantities[id] ?? 0 }))
+    .filter((line): line is { row: SourcingRow; quantity: number } => line.row !== undefined)
+
+  const currencies = new Set(lines.map((line) => line.row.currency))
+  const currency = currencies.size === 1 ? [...currencies][0] : null
+  const totalMinor = lines.reduce((sum, line) => sum + line.row.price * line.quantity, 0)
+  const totalUnits = lines.reduce((sum, line) => sum + line.quantity, 0)
+  const supplierName = rows[0]?.supplier ?? supplierId
+
+  const problems: string[] = []
+  if (lines.length === 0) problems.push("An order needs at least one line.")
+  if (lines.some((line) => line.quantity < 1))
+    problems.push("Every line needs a quantity of at least one.")
+  if (poNumber.trim() === "") problems.push("The order needs a PO number.")
+  if (destination === "") problems.push("Choose where the delivery goes.")
+  if (currency === null && lines.length > 0)
+    problems.push(
+      "These items are quoted in more than one currency. An order carries one currency, so they cannot go on the same one.",
+    )
+
+  const create = useMutation({
+    mutationFn: () =>
+      createCatalogPurchaseOrder(
+        {
+          po_number: poNumber.trim(),
+          supplier_id: supplierId,
+          destination_site_id: destination,
+          notes: notes.trim() === "" ? null : notes.trim(),
+          lines: lines.map((line) => ({
+            supplier_item_id: line.row.id,
+            quantity: line.quantity,
+            promised_date: promisedDate === "" ? null : promisedDate,
+          })),
+        },
+        idempotencyKey.current,
+      ),
+    onSuccess: (receipt) => {
+      idempotencyKey.current = crypto.randomUUID()
+      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] })
+      onCreated(receipt.purchase_order_id, receipt.po_number)
+    },
+  })
+
+  const addable = rows.filter(
+    (row) =>
+      !(row.id in quantities) &&
+      (search.trim() === "" ||
+        row.name.toLowerCase().includes(search.trim().toLowerCase()) ||
+        row.code.toLowerCase().includes(search.trim().toLowerCase())),
+  )
+
+  const setQuantity = (id: string, quantity: number) =>
+    setQuantities((current) => ({ ...current, [id]: Math.max(1, quantity) }))
+
+  const addLine = (id: string) => {
+    setQuantities((current) => ({ ...current, [id]: 1 }))
+    setOrder((current) => (current.includes(id) ? current : [...current, id]))
+  }
+
+  const removeLine = (id: string) => {
+    setQuantities((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+    setOrder((current) => current.filter((value) => value !== id))
+  }
+
+  return (
+    <AppShell nav={nav}>
+      <ScreenHeader
+        title={step === "lines" ? "Draft purchase order" : "Review before raising"}
+        subtitle={supplierName}
+      >
+        <div className="mr-2 flex items-center gap-1.5">
+          {(["lines", "review"] as const).map((name, index) => (
+            <span
+              key={name}
+              className={cn(
+                "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[11.5px] font-medium",
+                step === name
+                  ? "bg-foreground text-background"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              <span className="font-mono">{index + 1}</span>
+              {name === "lines" ? "Lines" : "Review"}
+            </span>
+          ))}
+        </div>
+        <span className="text-muted-foreground font-mono text-[11px]">
+          {units(lines.length)} line{lines.length === 1 ? "" : "s"} · {units(totalUnits)} units
+        </span>
+        <span className="font-mono text-xs font-medium tabular-nums">
+          {currency === null ? "—" : money(totalMinor, currency)}
+        </span>
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          <X className="size-3.5" />
+          Discard
+        </Button>
+      </ScreenHeader>
+
+      {catalogue.isError && (
+        <div className="text-destructive border-b px-3.5 py-2 text-[11.5px]">
+          {catalogue.error instanceof ApiError
+            ? catalogue.error.message
+            : "The supplier's catalogue could not be loaded."}
+        </div>
+      )}
+      {create.isError && (
+        <div className="text-destructive border-b px-3.5 py-2 text-[11.5px]">
+          {create.error instanceof ApiError
+            ? create.error.message
+            : "The order could not be raised."}
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="grid gap-3 border-b p-3.5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="po-number" className="text-xs">
+              PO number
+            </Label>
+            <Input
+              id="po-number"
+              value={poNumber}
+              onChange={(event) => setPoNumber(event.target.value)}
+              className="h-8 font-mono text-xs"
+            />
+            {/* Not allocated by the server: the number is whatever is typed
+                here, and two people typing the same one is a conflict the
+                server will report rather than prevent. */}
+            <p className="text-muted-foreground text-[10.5px]">Chosen here, not issued centrally.</p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="po-destination" className="text-xs">
+              Deliver to
+            </Label>
+            <select
+              id="po-destination"
+              value={destination}
+              onChange={(event) => setDestination(event.target.value)}
+              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+            >
+              <option value="">Choose a site…</option>
+              {(destinations.data ?? []).map((origin) => (
+                <option key={origin.origin_id} value={origin.site_id ?? ""}>
+                  {origin.label ?? origin.origin_id} ({origin.site_id})
+                </option>
+              ))}
+            </select>
+            {destinations.data?.length === 0 && (
+              <p className="text-[10.5px] text-amber-600">
+                No node is registered to receive deliveries yet.
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="po-promised" className="text-xs">
+              Promised date
+            </Label>
+            <Input
+              id="po-promised"
+              type="date"
+              value={promisedDate}
+              onChange={(event) => setPromisedDate(event.target.value)}
+              className="h-8 text-xs"
+            />
+            <p className="text-muted-foreground text-[10.5px]">Applied to every line.</p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="po-notes" className="text-xs">
+              Notes
+            </Label>
+            <Textarea
+              id="po-notes"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              rows={2}
+              className="min-h-8 text-xs"
+            />
+          </div>
+        </div>
+
+        {lines.length === 0 ? (
+          <ScreenState>
+            Nothing on this order yet. Add a line from the supplier's catalogue below.
+          </ScreenState>
+        ) : (
+          <Table>
+            <TableHeader className="bg-muted/50">
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Item</TableHead>
+                <TableHead className="text-right">Unit</TableHead>
+                <TableHead className="w-36 text-right">Quantity</TableHead>
+                <TableHead className="text-right">Line total</TableHead>
+                {step === "lines" && <TableHead className="w-10" />}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lines.map((line) => (
+                <TableRow key={line.row.id}>
+                  <TableCell>
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <Thumb row={line.row} />
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] font-medium">{line.row.name}</div>
+                        <div className="text-muted-foreground truncate font-mono text-[10.5px]">
+                          {line.row.code}
+                          {line.row.division !== "" && ` · ${line.row.division}`}
+                        </div>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs tabular-nums">
+                    {money(line.row.price, line.row.currency)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {step === "lines" ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="icon-xs"
+                          variant="outline"
+                          aria-label={`One fewer ${line.row.name}`}
+                          onClick={() => setQuantity(line.row.id, line.quantity - 1)}
+                        >
+                          <Minus className="size-3" />
+                        </Button>
+                        <Input
+                          value={line.quantity}
+                          inputMode="numeric"
+                          aria-label={`Quantity of ${line.row.name}`}
+                          onChange={(event) => {
+                            const parsed = Number.parseInt(event.target.value, 10)
+                            setQuantity(line.row.id, Number.isFinite(parsed) ? parsed : 1)
+                          }}
+                          className="h-7 w-16 text-center font-mono text-xs"
+                        />
+                        <Button
+                          size="icon-xs"
+                          variant="outline"
+                          aria-label={`One more ${line.row.name}`}
+                          onClick={() => setQuantity(line.row.id, line.quantity + 1)}
+                        >
+                          <Plus className="size-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="font-mono text-xs tabular-nums">
+                        {units(line.quantity)}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs font-medium tabular-nums">
+                    {money(line.row.price * line.quantity, line.row.currency)}
+                  </TableCell>
+                  {step === "lines" && (
+                    <TableCell>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label={`Remove ${line.row.name}`}
+                        onClick={() => removeLine(line.row.id)}
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        {step === "lines" && (
+          <section className="border-t">
+            <div className="flex h-11 items-center gap-3 px-3.5">
+              <span className="text-xs font-semibold">Add from {supplierName}</span>
+              <label className="relative ml-auto">
+                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Item or code…"
+                  aria-label="Search this supplier's catalogue"
+                  className="h-7 w-52 pl-7 text-xs"
+                />
+              </label>
+            </div>
+            {catalogue.isPending ? (
+              <p className="text-muted-foreground px-3.5 pb-4 text-xs">Loading the catalogue…</p>
+            ) : addable.length === 0 ? (
+              <p className="text-muted-foreground px-3.5 pb-4 text-xs">
+                Everything this supplier offers is already on the order.
+              </p>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(178px,1fr))] gap-2.5 px-3.5 pb-4">
+                {addable.slice(0, 24).map((row) => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => addLine(row.id)}
+                    className="hover:border-foreground/30 flex items-center gap-2 rounded-lg border p-2 text-left transition-colors"
+                  >
+                    <Thumb row={row} className="size-9" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium">{row.name}</span>
+                      <span className="text-muted-foreground block truncate font-mono text-[10.5px]">
+                        {money(row.price, row.currency)}
+                      </span>
+                    </span>
+                    <Plus className="text-muted-foreground size-3.5 shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+      </div>
+
+      <div className="flex shrink-0 items-center gap-3 border-t px-3.5 py-2.5">
+        {problems.length > 0 && (
+          <span className="text-muted-foreground truncate text-[11.5px]">{problems[0]}</span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {step === "review" && (
+            <Button variant="outline" size="sm" onClick={() => setStep("lines")}>
+              Back to lines
+            </Button>
+          )}
+          {step === "lines" ? (
+            <Button size="sm" disabled={problems.length > 0} onClick={() => setStep("review")}>
+              Review
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={problems.length > 0 || create.isPending}
+              onClick={() => create.mutate()}
+            >
+              {create.isPending ? "Raising…" : "Raise order"}
+            </Button>
+          )}
+        </div>
+      </div>
+    </AppShell>
+  )
+}
+
+/// A first guess at the number, not an allocation.
+///
+/// Dated and random rather than sequential: this browser cannot know what the
+/// last number was, and a counter that only one client can see would hand two
+/// buyers the same number. The buyer is expected to overwrite it with whatever
+/// their own numbering says.
+function suggestPoNumber(): string {
+  const now = new Date()
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("")
+  const tail = crypto.randomUUID().slice(0, 4).toUpperCase()
+  return `PO-${stamp}-${tail}`
+}
