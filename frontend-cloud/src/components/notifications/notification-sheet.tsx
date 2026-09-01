@@ -66,7 +66,9 @@ function NotificationPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-3 border-b px-3.5 py-3">
+      {/* Right padding leaves the sheet's own close button somewhere to be:
+          without it "Mark all read" sits underneath the X. */}
+      <div className="flex items-center justify-between gap-3 border-b py-3 pr-11 pl-3.5">
         <div className="min-w-0">
           <h2 className="text-sm font-medium">Notifications</h2>
           <p className="text-muted-foreground text-[11px]">

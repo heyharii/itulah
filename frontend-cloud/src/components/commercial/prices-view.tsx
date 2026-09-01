@@ -165,9 +165,7 @@ export function PricesView() {
                 ? "pick a shop"
                 : prices.isPending
                   ? "loading…"
-                  : `${units(visible.length)} product${visible.length === 1 ? "" : "s"}` +
-                    (markedDown > 0 ? ` · ${units(markedDown)} marked down` : "") +
-                    (newestBook > 0 ? ` · book v${newestBook}` : "")
+                  : `${units(visible.length)} product${visible.length === 1 ? "" : "s"}`
             }
           >
             <select
@@ -334,15 +332,25 @@ export function PricesView() {
             )}
           </div>
 
-          {markedDown > 0 && (
+          {/* The two facts that belong to the whole list rather than to a row.
+              Down here rather than beside the title because the title strip is
+              where the controls live, and a subtitle that grows with the answer
+              squeezes the name of the screen off it. */}
+          {newestBook > 0 && (
             <div className="text-muted-foreground flex shrink-0 items-center gap-3 border-t px-3.5 py-2 text-[11.5px]">
-              <span>
-                {units(markedDown)} of {units(visible.length)} on markdown
-              </span>
-              <span aria-hidden>·</span>
-              <span>
-                {money(given, currency)} off per set of one, across everything in view
-              </span>
+              <span>Newest book in force here: v{newestBook}</span>
+              {markedDown > 0 && (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>
+                    {units(markedDown)} of {units(visible.length)} on markdown
+                  </span>
+                  <span aria-hidden>·</span>
+                  <span>
+                    {money(given, currency)} off per set of one, across everything in view
+                  </span>
+                </>
+              )}
             </div>
           )}
         </AppShell>

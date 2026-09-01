@@ -82,6 +82,14 @@ export function PoDraft() {
   const [destination, setDestination] = useState("")
   const [promisedDate, setPromisedDate] = useState("")
   const [notes, setNotes] = useState("")
+  /// Prices agreed for THIS order, keyed by supplier item id. Absent means the
+  /// catalogue's price stands — which is the ordinary case, so an untouched
+  /// line sends nothing and the server takes its own figure rather than one
+  /// the browser echoed back at it.
+  const [agreedPrices, setAgreedPrices] = useState<Record<string, number>>({})
+  /// One discount on the order, in whole rupiah. Not per line: it is
+  /// negotiated once and a supplier invoices it once.
+  const [discount, setDiscount] = useState("")
   const [search, setSearch] = useState("")
 
   // One key per attempt at THIS order, held across retries: the server stores
@@ -96,7 +104,10 @@ export function PoDraft() {
 
   const currencies = new Set(lines.map((line) => line.row.currency))
   const currency = currencies.size === 1 ? [...currencies][0] : null
-  const totalMinor = lines.reduce((sum, line) => sum + line.row.price * line.quantity, 0)
+  const priceOf = (row: SourcingRow) => agreedPrices[row.id] ?? row.price
+  const grossMinor = lines.reduce((sum, line) => sum + priceOf(line.row) * line.quantity, 0)
+  const discountMinor = discount.trim() === "" ? 0 : Math.max(0, Number(discount) || 0)
+  const totalMinor = grossMinor - discountMinor
   const totalUnits = lines.reduce((sum, line) => sum + line.quantity, 0)
   const supplierName = rows[0]?.supplier ?? supplierId
 
@@ -105,6 +116,10 @@ export function PoDraft() {
   if (lines.some((line) => line.quantity < 1))
     problems.push("Every line needs a quantity of at least one.")
   if (poNumber.trim() === "") problems.push("The order needs a PO number.")
+  if (discountMinor > grossMinor)
+    problems.push(
+      "The discount is more than the order is worth. A reduction larger than the order is a credit, which this is not.",
+    )
   if (destination === "") problems.push("Choose where the delivery goes.")
   if (currency === null && lines.length > 0)
     problems.push(
@@ -119,7 +134,7 @@ export function PoDraft() {
           supplier_id: supplierId,
           destination_site_id: destination,
           notes: notes.trim() === "" ? null : notes.trim(),
-          discount_minor: null,
+          discount_minor: discountMinor === 0 ? null : discountMinor,
           // The new optional fields — an agreed price, a corrected name — are
           // not offered by this screen yet, so they go null and the catalogue's
           // own values stand.
@@ -127,7 +142,10 @@ export function PoDraft() {
             supplier_item_id: line.row.id,
             quantity: line.quantity,
             promised_date: promisedDate === "" ? null : promisedDate,
-            unit_price_minor: null,
+            // Only when the buyer actually moved it. Sending the catalogue's
+            // own price back would record every line as a negotiated one and
+            // make the snapshot beside it meaningless.
+            unit_price_minor: agreedPrices[line.row.id] ?? null,
             article_name: null,
             image_url: null,
           })),
@@ -198,8 +216,18 @@ export function PoDraft() {
         <span className="text-muted-foreground font-mono text-[11px]">
           {units(lines.length)} line{lines.length === 1 ? "" : "s"} · {units(totalUnits)} units
         </span>
-        <span className="font-mono text-xs font-medium tabular-nums">
-          {currency === null ? "—" : money(totalMinor, currency)}
+        {/* Gross struck through beside the net, so a discount is visible in
+            the header rather than only in the arithmetic. A total that quietly
+            shrank is a total nobody trusts. */}
+        <span className="flex items-baseline gap-1.5 font-mono text-xs tabular-nums">
+          {discountMinor > 0 && currency !== null && (
+            <span className="text-muted-foreground text-[10.5px] line-through">
+              {money(grossMinor, currency)}
+            </span>
+          )}
+          <span className="font-medium">
+            {currency === null ? "—" : money(totalMinor, currency)}
+          </span>
         </span>
         {/* Back where this draft was started from. A draft opened by naming a
             supplier on the orders screen has no basket behind it, and sending
@@ -302,6 +330,27 @@ export function PoDraft() {
           </div>
 
           <div className="flex flex-col gap-1.5">
+            <Label htmlFor="po-discount" className="text-xs">
+              Discount
+            </Label>
+            <Input
+              id="po-discount"
+              value={discount}
+              inputMode="numeric"
+              placeholder="0"
+              onChange={(event) => setDiscount(event.target.value.replace(/[^0-9]/g, ""))}
+              className="h-8 font-mono text-xs"
+            />
+            {/* On the order, not the lines. Splitting it across them would
+                invent per-line figures nobody agreed to and would not add back
+                up, so the invoice would fail to reconcile on rounding we
+                created ourselves. */}
+            <p className="text-muted-foreground text-[10.5px]">
+              Taken off the whole order, the way it is agreed and invoiced.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
             <Label htmlFor="po-notes" className="text-xs">
               Notes
             </Label>
@@ -345,8 +394,54 @@ export function PoDraft() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-right font-mono text-xs tabular-nums">
-                    {money(line.row.price, line.row.currency)}
+                  <TableCell className="text-right">
+                    {step === "lines" ? (
+                      <div className="flex flex-col items-end gap-0.5">
+                        <Input
+                          value={String(priceOf(line.row))}
+                          inputMode="numeric"
+                          aria-label={`Agreed unit price for ${line.row.name}`}
+                          onChange={(event) => {
+                            const parsed = Number.parseInt(
+                              event.target.value.replace(/[^0-9]/g, ""),
+                              10,
+                            )
+                            setAgreedPrices((current) => {
+                              const next = { ...current }
+                              // Back to the catalogue's own figure rather than
+                              // a copy of it, so an untouched line stays
+                              // untouched on the wire.
+                              if (!Number.isFinite(parsed) || parsed === line.row.price) {
+                                delete next[line.row.id]
+                              } else {
+                                next[line.row.id] = Math.max(0, parsed)
+                              }
+                              return next
+                            })
+                          }}
+                          className="h-7 w-24 text-right font-mono text-xs"
+                        />
+                        {/* Said out loud, because a price that quietly differs
+                            from the catalogue is how a buyer discovers on the
+                            invoice that they typed a digit wrong. */}
+                        {agreedPrices[line.row.id] !== undefined && (
+                          <span className="text-muted-foreground text-[10px] whitespace-nowrap">
+                            catalogue {money(line.row.price, line.row.currency)}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-end">
+                        <span className="font-mono text-xs tabular-nums">
+                          {money(priceOf(line.row), line.row.currency)}
+                        </span>
+                        {agreedPrices[line.row.id] !== undefined && (
+                          <span className="text-muted-foreground text-[10px] whitespace-nowrap line-through">
+                            {money(line.row.price, line.row.currency)}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {step === "lines" ? (
@@ -385,7 +480,7 @@ export function PoDraft() {
                     )}
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs font-medium tabular-nums">
-                    {money(line.row.price * line.quantity, line.row.currency)}
+                    {money(priceOf(line.row) * line.quantity, line.row.currency)}
                   </TableCell>
                   {step === "lines" && (
                     <TableCell>
