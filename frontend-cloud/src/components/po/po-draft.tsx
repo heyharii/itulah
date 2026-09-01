@@ -7,6 +7,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/custom/table"
+import { Nav } from "@/components/nav"
 import { Thumb } from "@/components/sourcing/columns"
 import { toSourcingRow, type SourcingRow } from "@/components/sourcing/rows"
 import { Button } from "@/components/ui/button"
@@ -14,12 +15,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { money, units } from "@/lib/money"
-import { useBasketActions, useDestinations } from "@/lib/basket"
+import { useBasket, useBasketActions, useDestinations } from "@/lib/basket"
 import { createCatalogPurchaseOrder } from "@/lib/purchase-orders"
 import { searchSourcedItems } from "@/lib/sourcing"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate, useParams } from "@tanstack/react-router"
 import { Minus, Plus, Search, X } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
@@ -34,24 +36,28 @@ import { useMemo, useRef, useState } from "react"
 /// - It does not let the supplier change. One order goes to one supplier
 ///   (`CatalogPurchaseOrderRequest.supplier_id`), so switching supplier means a
 ///   different order, and the screen makes you go back and start it.
-export function PoDraft({
-  nav,
-  supplierId,
-  seedQuantities,
-  onCancel,
-  onCreated,
-}: {
-  nav: React.ReactNode
-  supplierId: string
-  /// The basket lines for this supplier, as `supplier_item_id -> quantity`.
-  /// The quantities come from the basket rather than being reset to one here:
-  /// deciding how many is part of picking, and asking again at the last step
-  /// is how the two numbers end up disagreeing.
-  seedQuantities: Record<string, number>
-  onCancel: () => void
-  onCreated: (purchaseOrderId: string, poNumber: string) => void
-}) {
+export function PoDraft() {
+  const { supplierId } = useParams({ from: "/orders/new/$supplierId" })
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const basket = useBasket()
+
+  /// This supplier's basket lines, as `supplier_item_id -> quantity`.
+  ///
+  /// Read from the basket rather than handed in by whoever opened the draft, so
+  /// that following this link tomorrow shows the basket as it is tomorrow. The
+  /// quantities come from the basket rather than being reset to one: deciding
+  /// how many is part of picking, and asking again at the last step is how the
+  /// two numbers end up disagreeing.
+  const seedQuantities = useMemo(
+    () =>
+      Object.fromEntries(
+        (basket.data ?? [])
+          .filter((line) => line.item.supplier_id === supplierId)
+          .map((line) => [line.item.supplier_item_id, line.quantity]),
+      ),
+    [basket.data, supplierId],
+  )
   const catalogue = useQuery({
     queryKey: ["sourcing", "supplier", supplierId],
     queryFn: ({ signal }) => searchSourcedItems({ supplierId, limit: 500 }, signal),
@@ -66,10 +72,12 @@ export function PoDraft({
   const byId = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
 
   const [step, setStep] = useState<"lines" | "review">("lines")
-  const [quantities, setQuantities] = useState<Record<string, number>>(() => ({
-    ...seedQuantities,
-  }))
-  const [order, setOrder] = useState<string[]>(() => Object.keys(seedQuantities))
+  // Seeded once the basket has actually loaded, and keyed on that: a draft
+  // opened from a cold cache would otherwise start empty and stay empty.
+  const [quantities, setQuantities] = useState<Record<string, number> | null>(null)
+  const [order, setOrder] = useState<string[] | null>(null)
+  const lineQuantities = quantities ?? seedQuantities
+  const lineOrder = order ?? Object.keys(seedQuantities)
   const [poNumber, setPoNumber] = useState(suggestPoNumber)
   const [destination, setDestination] = useState("")
   const [promisedDate, setPromisedDate] = useState("")
@@ -82,8 +90,8 @@ export function PoDraft({
   // order has actually been created.
   const idempotencyKey = useRef(crypto.randomUUID())
 
-  const lines = order
-    .map((id) => ({ row: byId.get(id), quantity: quantities[id] ?? 0 }))
+  const lines = lineOrder
+    .map((id) => ({ row: byId.get(id), quantity: lineQuantities[id] ?? 0 }))
     .filter((line): line is { row: SourcingRow; quantity: number } => line.row !== undefined)
 
   const currencies = new Set(lines.map((line) => line.row.currency))
@@ -128,37 +136,38 @@ export function PoDraft({
       for (const line of lines) {
         removeFromBasket.mutate(line.row.id)
       }
-      onCreated(receipt.purchase_order_id, receipt.po_number)
+      void navigate({
+        to: "/orders/$purchaseOrderId",
+        params: { purchaseOrderId: receipt.purchase_order_id },
+      })
     },
   })
 
   const addable = rows.filter(
     (row) =>
-      !(row.id in quantities) &&
+      !(row.id in lineQuantities) &&
       (search.trim() === "" ||
         row.name.toLowerCase().includes(search.trim().toLowerCase()) ||
         row.code.toLowerCase().includes(search.trim().toLowerCase())),
   )
 
   const setQuantity = (id: string, quantity: number) =>
-    setQuantities((current) => ({ ...current, [id]: Math.max(1, quantity) }))
+    setQuantities({ ...lineQuantities, [id]: Math.max(1, quantity) })
 
   const addLine = (id: string) => {
-    setQuantities((current) => ({ ...current, [id]: 1 }))
-    setOrder((current) => (current.includes(id) ? current : [...current, id]))
+    setQuantities({ ...lineQuantities, [id]: 1 })
+    setOrder(lineOrder.includes(id) ? lineOrder : [...lineOrder, id])
   }
 
   const removeLine = (id: string) => {
-    setQuantities((current) => {
-      const next = { ...current }
-      delete next[id]
-      return next
-    })
-    setOrder((current) => current.filter((value) => value !== id))
+    const next = { ...lineQuantities }
+    delete next[id]
+    setQuantities(next)
+    setOrder(lineOrder.filter((value) => value !== id))
   }
 
   return (
-    <AppShell nav={nav}>
+    <AppShell nav={<Nav />}>
       <ScreenHeader
         title={step === "lines" ? "Draft purchase order" : "Review before raising"}
         subtitle={supplierName}
@@ -185,7 +194,7 @@ export function PoDraft({
         <span className="font-mono text-xs font-medium tabular-nums">
           {currency === null ? "—" : money(totalMinor, currency)}
         </span>
-        <Button variant="ghost" size="sm" onClick={onCancel}>
+        <Button variant="ghost" size="sm" onClick={() => void navigate({ to: "/basket" })}>
           <X className="size-3.5" />
           Discard
         </Button>

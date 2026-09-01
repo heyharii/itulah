@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { LoginForm } from "@/components/login-form"
-import { Workspace } from "@/components/workspace"
+import { router } from "@/router"
+import { RouterProvider } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
 import { auth, node } from "@/lib/api"
 import {
@@ -123,7 +124,10 @@ export function App() {
           </Button>
         </div>
       </header>
-      <Workspace />
+      {/* Mounted only once there is a session. The buying routes all read
+          the signed-in user's own data, so a router running behind the login
+          screen would fire a page of requests that can only answer 401. */}
+      <RouterProvider router={router} />
     </main>
   )
 }

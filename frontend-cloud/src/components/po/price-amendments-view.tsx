@@ -1,4 +1,5 @@
 import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useIdentity } from "@/lib/identity"
@@ -20,7 +21,7 @@ import { useState } from "react"
 /// order, and it asked. Until somebody answers, the question sits here and the
 /// DC has an open count it cannot finish. That is why this is a screen and not
 /// a report: the queue is a queue of blocked work, not a list of curiosities.
-export function PriceAmendmentsView({ nav }: { nav: React.ReactNode }) {
+export function PriceAmendmentsView() {
   const queryClient = useQueryClient()
   const identity = useIdentity()
   const amendments = useQuery({
@@ -53,7 +54,7 @@ export function PriceAmendmentsView({ nav }: { nav: React.ReactNode }) {
   const rows = amendments.data ?? []
 
   return (
-    <AppShell nav={nav}>
+    <AppShell nav={<Nav />}>
       <ScreenHeader
         title="Price amendments"
         subtitle={

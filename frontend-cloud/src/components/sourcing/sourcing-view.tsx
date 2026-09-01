@@ -1,4 +1,5 @@
 import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { Nav } from "@/components/nav"
 import {
   Table,
   TableBody,
@@ -24,6 +25,7 @@ import { dataTableFeatures } from "@/lib/table/features"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import type {
   ColumnFiltersState,
   ColumnVisibilityState,
@@ -46,13 +48,8 @@ import { quoteTotal, toSourcingRow, type SourcingRow } from "./rows"
 /// page, which reads as the facets of the catalogue and is not.
 const PAGE = 500
 
-export function SourcingView({
-  nav,
-  onOpenBasket,
-}: {
-  nav: React.ReactNode
-  onOpenBasket: () => void
-}) {
+export function SourcingView() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState("")
   const query = useDebounce(search, 250)
   const [layout, setLayout] = useState<"grid" | "table">("grid")
@@ -149,7 +146,7 @@ export function SourcingView({
         columnVisibility={columnVisibility}
         isLoading={items.isPending}
       >
-        <AppShell nav={nav} facets={<DataTableFilterControls />}>
+        <AppShell nav={<Nav />} facets={<DataTableFilterControls />}>
           <ScreenHeader
             title="Sourcing"
             subtitle={
@@ -304,7 +301,11 @@ export function SourcingView({
                   <ShoppingBasket className="size-3.5" />
                   Add {orderable.length} to basket
                 </Button>
-                <Button size="sm" variant="outline" onClick={onOpenBasket}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void navigate({ to: "/basket" })}
+                >
                   Open basket
                 </Button>
               </>

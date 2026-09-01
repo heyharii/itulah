@@ -10,6 +10,7 @@ import {
 import { DataTableFilterControls } from "@/components/data-table/data-table-filter-controls"
 import { DataTableProvider } from "@/components/data-table/data-table-provider"
 import { DataTableResetButton } from "@/components/data-table/data-table-reset-button"
+import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import { listPurchaseOrders } from "@/lib/purchase-orders"
 import { useMemoryAdapter } from "@/lib/store/adapters/memory"
@@ -17,6 +18,7 @@ import { DataTableStoreProvider } from "@/lib/store/provider/DataTableStoreProvi
 import { dataTableFeatures } from "@/lib/table/features"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import type { ColumnFiltersState, SortingState } from "@tanstack/react-table"
 import { flexRender, useTable } from "@tanstack/react-table"
 import { Plus } from "lucide-react"
@@ -26,15 +28,10 @@ import { orderColumns, orderFilterFields, orderFilterSchema } from "./columns"
 const PAGE = 500
 
 /// The buyer's list of orders, and the way into any one of them.
-export function PurchaseOrdersView({
-  nav,
-  onOpen,
-  onNew,
-}: {
-  nav: React.ReactNode
-  onOpen: (purchaseOrderId: string) => void
-  onNew: () => void
-}) {
+export function PurchaseOrdersView() {
+  const navigate = useNavigate()
+  const open = (purchaseOrderId: string) =>
+    void navigate({ to: "/orders/$purchaseOrderId", params: { purchaseOrderId } })
   const orders = useQuery({
     queryKey: ["purchase-orders"],
     queryFn: ({ signal }) => listPurchaseOrders(signal),
@@ -80,7 +77,7 @@ export function PurchaseOrdersView({
         sorting={sorting}
         isLoading={orders.isPending}
       >
-        <AppShell nav={nav} facets={<DataTableFilterControls />}>
+        <AppShell nav={<Nav />} facets={<DataTableFilterControls />}>
           <ScreenHeader
             title="Purchase orders"
             subtitle={
@@ -90,7 +87,7 @@ export function PurchaseOrdersView({
             }
           >
             <DataTableResetButton />
-            <Button size="sm" onClick={onNew}>
+            <Button size="sm" onClick={() => void navigate({ to: "/" })}>
               <Plus className="size-3.5" />
               New PO
             </Button>
@@ -139,11 +136,11 @@ export function PurchaseOrdersView({
                       key={row.id}
                       tabIndex={0}
                       role="button"
-                      onClick={() => onOpen(row.original.purchase_order_id)}
+                      onClick={() => open(row.original.purchase_order_id)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault()
-                          onOpen(row.original.purchase_order_id)
+                          open(row.original.purchase_order_id)
                         }
                       }}
                       className="cursor-pointer"

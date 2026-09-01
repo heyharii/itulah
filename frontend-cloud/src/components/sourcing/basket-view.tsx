@@ -1,9 +1,11 @@
 import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useBasket, useBasketActions } from "@/lib/basket"
 import { money, units } from "@/lib/money"
 import { ApiError } from "@itulah/contract/client"
+import { useNavigate } from "@tanstack/react-router"
 import { Minus, Plus, X } from "lucide-react"
 import { useMemo } from "react"
 import { Thumb } from "./columns"
@@ -23,13 +25,8 @@ interface BasketGroup {
 /// spanning three suppliers is three orders. Showing it as one flat list would
 /// invite a buyer to expect one checkout and then explain itself at the last
 /// moment.
-export function BasketView({
-  nav,
-  onDraft,
-}: {
-  nav: React.ReactNode
-  onDraft: (supplierId: string, quantities: Record<string, number>) => void
-}) {
+export function BasketView() {
+  const navigate = useNavigate()
   const basket = useBasket()
   const { setQuantity, remove, clear } = useBasketActions()
 
@@ -55,7 +52,7 @@ export function BasketView({
   const pieceCount = (basket.data ?? []).reduce((sum, line) => sum + line.quantity, 0)
 
   return (
-    <AppShell nav={nav}>
+    <AppShell nav={<Nav />}>
       <ScreenHeader
         title="Basket"
         subtitle={
@@ -125,12 +122,10 @@ export function BasketView({
                     size="sm"
                     className="ml-auto h-7"
                     onClick={() =>
-                      onDraft(
-                        group.supplierId,
-                        Object.fromEntries(
-                          group.lines.map((line) => [line.row.id, line.quantity]),
-                        ),
-                      )
+                      void navigate({
+                        to: "/orders/new/$supplierId",
+                        params: { supplierId: group.supplierId },
+                      })
                     }
                   >
                     Draft PO

@@ -7,6 +7,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/custom/table"
+import { Nav } from "@/components/nav"
 import { Tag } from "@/components/sourcing/columns"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,6 +16,7 @@ import { money, units } from "@/lib/money"
 import { closePurchaseLineShort, purchaseOrderDetail } from "@/lib/purchase-orders"
 import { ApiError } from "@itulah/contract/client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useParams } from "@tanstack/react-router"
 import { ArrowLeft } from "lucide-react"
 import { useState } from "react"
 import { OrderStatus } from "./columns"
@@ -25,15 +27,8 @@ import { OrderStatus } from "./columns"
 /// `Payable` is what the deliveries earned, derived from receipts. A line that
 /// arrived short has to show both, because settling at the ordered value would
 /// pay a supplier for goods that never came.
-export function OrderDetail({
-  nav,
-  purchaseOrderId,
-  onBack,
-}: {
-  nav: React.ReactNode
-  purchaseOrderId: string
-  onBack: () => void
-}) {
+export function OrderDetail() {
+  const { purchaseOrderId } = useParams({ from: "/orders/$purchaseOrderId" })
   const queryClient = useQueryClient()
   const identity = useIdentity()
   const order = useQuery({
@@ -57,8 +52,10 @@ export function OrderDetail({
     },
   })
 
+  // A link, not a button: "back to the list" is a place, and a middle-click or
+  // a bookmark should behave like one.
   const back = (
-    <Button variant="ghost" size="sm" onClick={onBack}>
+    <Button variant="ghost" size="sm" render={<Link to="/orders" />}>
       <ArrowLeft className="size-3.5" />
       Orders
     </Button>
@@ -66,7 +63,7 @@ export function OrderDetail({
 
   if (order.isPending) {
     return (
-      <AppShell nav={nav}>
+      <AppShell nav={<Nav />}>
         <ScreenHeader title="Purchase order">{back}</ScreenHeader>
         <ScreenState>Loading the order…</ScreenState>
       </AppShell>
@@ -75,7 +72,7 @@ export function OrderDetail({
 
   if (order.isError) {
     return (
-      <AppShell nav={nav}>
+      <AppShell nav={<Nav />}>
         <ScreenHeader title="Purchase order">{back}</ScreenHeader>
         <ScreenState
           tone="problem"
@@ -97,7 +94,7 @@ export function OrderDetail({
   const ordered = detail.lines.reduce((sum, line) => sum + line.ordered_value_minor, 0)
 
   return (
-    <AppShell nav={nav}>
+    <AppShell nav={<Nav />}>
       <ScreenHeader
         title={<span className="font-mono">{detail.po_number}</span>}
         subtitle={`${detail.supplier_name ?? detail.supplier_id} · ${detail.destination_site_id}`}
