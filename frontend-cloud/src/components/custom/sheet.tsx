@@ -22,7 +22,7 @@ function SheetOverlay({
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
       className={cn(
-        "bg-background/40 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50",
+        "bg-[var(--os-scrim,rgba(255,255,255,0.72))] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50",
         className,
       )}
       {...props}
@@ -31,7 +31,7 @@ function SheetOverlay({
 }
 
 const sheetVariants = cva(
-  "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 gap-4 p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
+  "bg-[var(--os-canvas,#fff)] data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 gap-4 p-6 shadow-[var(--os-shadow-float,0_14px_40px_rgba(20,20,25,.1))] transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
   {
     variants: {
       side: {
@@ -122,7 +122,7 @@ function SheetTitle({
   return (
     <SheetPrimitive.Title
       data-slot="sheet-title"
-      className={cn("text-foreground text-lg font-semibold", className)}
+      className={cn("text-[0.9375rem] font-semibold tracking-[-0.015em] text-[var(--os-ink,#1d1d1f)]", className)}
       {...props}
     />
   );
@@ -135,7 +135,7 @@ function SheetDescription({
   return (
     <SheetPrimitive.Description
       data-slot="sheet-description"
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn("text-[0.8125rem] text-[var(--os-body,#74747b)]", className)}
       {...props}
     />
   );

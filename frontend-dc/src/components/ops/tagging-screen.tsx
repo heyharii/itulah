@@ -8,7 +8,6 @@ import {
   RowNumber,
   RowText,
 } from "@/components/ops/parts"
-import { useAction } from "@/lib/action"
 import {
   Note,
   Pill,
@@ -25,7 +24,8 @@ import { keys } from "@/lib/queries"
 import { useActor } from "@/lib/session"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { PrintSessionSummary, TaggingWorkJob } from "@itulah/contract"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useForm, useStore } from "@tanstack/react-form"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 /// Tagging: labels the centre has already minted, printed here and then
 /// declared to be on the goods.
@@ -93,12 +93,8 @@ export function TaggingScreen() {
 function JobDetail({ job }: { job: TaggingWorkJob }) {
   const actor = useActor()
   const client = useQueryClient()
-  const action = useAction()
-  const [printer, setPrinter] = useState<Printer>(loadPrinter)
+  // Not a field but a result: what the last press of a button reported.
   const [report, setReport] = useState<string | null>(null)
-  const [scanned, setScanned] = useState("")
-  const [fromSeq, setFromSeq] = useState("")
-  const [toSeq, setToSeq] = useState("")
 
   /// The run belongs to the job, not to this tab.
   ///
@@ -118,6 +114,21 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
   })
 
   const session = run.data ?? null
+
+  /// Which machine is in front of this person.
+  ///
+  /// A form because these three are typed and then sent — they are what a run
+  /// is opened against. The device remembers them on every keystroke rather
+  /// than on a submit, because there is no submit: walking to another bench is
+  /// how this changes, and nobody would press "save printer" first.
+  const bench = useForm({
+    defaultValues: loadPrinter(),
+    listeners: {
+      onChange: ({ formApi }) => savePrinter(formApi.state.values as Printer),
+    },
+  })
+  const printer = useStore(bench.store, (state) => state.values)
+
   // The run carries its own printer. If it is not the one in front of this
   // person, the labels are coming out in another room and saying so is the
   // only way they find out without walking there.
@@ -129,14 +140,9 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
   const refresh = () =>
     client.invalidateQueries({ queryKey: keys.jobPrintSession(job.job_id) })
 
-  const remember = (next: Printer) => {
-    setPrinter(next)
-    savePrinter(next)
-  }
-
-  const startPrinting = () =>
-    void action.run(async () => {
-      await dc.openPrintSession({
+  const startPrinting = useMutation({
+    mutationFn: () =>
+      dc.openPrintSession({
         job_id: job.job_id,
         printer_host: printer.host,
         printer_port: printer.port,
@@ -144,35 +150,32 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
         label_height_mm: printer.heightMm,
         chunk_size: printer.chunk,
         actor_id: actor,
-      })
+      }),
+    onSuccess: () => {
       setReport(null)
-      await refresh()
-    })
+      void refresh()
+    },
+  })
 
-  const moveHere = () =>
-    void action.run(async () => {
-      if (session === null) {
-        return
-      }
-      await dc.repointPrintSession(session.session_id, {
+  const moveHere = useMutation({
+    mutationFn: () =>
+      dc.repointPrintSession(session?.session_id as string, {
         printer_host: printer.host,
         printer_port: printer.port,
         chunk_size: printer.chunk,
-      })
-      await refresh()
-    })
+      }),
+    onSuccess: () => void refresh(),
+  })
 
-  const runChunk = () =>
-    void action.run(async () => {
-      if (session === null) {
-        return
-      }
-      const chunk = await dc.runPrintChunk(session.session_id)
+  const runChunk = useMutation({
+    mutationFn: () => dc.runPrintChunk(session?.session_id as string),
+    onSuccess: (chunk) => {
       setReport(
-        `${chunk.printed} printed, ${chunk.failed} refused of ${chunk.attempted} attempted`,
+        `${chunk.printed} printed, ${chunk.failed} refused of ${chunk.attempted} attempted`
       )
-      await refresh()
-    })
+      void refresh()
+    },
+  })
 
   /// Put labels that already printed back in the queue.
   ///
@@ -180,34 +183,47 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
   /// ways: a tag whose print smeared still reads, so the chip gives the EPC;
   /// a tag the jam destroyed reads nothing, and all anybody has left is where
   /// it sat in the run.
-  const reprint = (request: { epcs: string[]; from: string; to: string }) =>
-    void action.run(async () => {
-      if (session === null) {
-        return
-      }
-      const before = session.pending_count
-      const after = await dc.reprintLabels(session.session_id, {
+  const reprint = useMutation({
+    mutationFn: (request: { epcs: string[]; from: string; to: string }) =>
+      dc.reprintLabels(session?.session_id as string, {
         epcs: request.epcs,
         from_seq: request.from === "" ? null : Number(request.from),
         to_seq: request.to === "" ? null : Number(request.to),
-      })
-      setScanned("")
-      setFromSeq("")
-      setToSeq("")
+      }),
+    onSuccess: (after) => {
+      const before = session?.pending_count ?? 0
+      lost.reset()
       setReport(`${units(after.pending_count - before)} back in the queue`)
-      await refresh()
-    })
+      void refresh()
+    },
+  })
 
-  const confirm = () =>
-    void action.run(async () => {
-      await dc.confirmTagging({
+  const lost = useForm({
+    defaultValues: { scanned: "", fromSeq: "", toSeq: "" },
+  })
+
+  const confirm = useMutation({
+    mutationFn: () =>
+      dc.confirmTagging({
         job_id: job.job_id,
         actor_id: actor,
         idempotency_key: idempotencyKey(),
-      })
+      }),
+    // Confirming is what turns counted pieces into tracked units in the
+    // warehouse, so it empties this queue and fills the racks behind it.
+    onSuccess: () => {
       setReport(null)
       void client.invalidateQueries({ queryKey: ["dc"] })
-    })
+      void client.invalidateQueries({ queryKey: keys.pools() })
+    },
+  })
+
+  const pending =
+    startPrinting.isPending ||
+    moveHere.isPending ||
+    runChunk.isPending ||
+    reprint.isPending ||
+    confirm.isPending
 
   return (
     <div className="flex flex-col gap-4">
@@ -238,35 +254,52 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
         }
       >
         <div className="flex flex-wrap gap-2 px-4 py-3">
-          <Input
-            value={printer.host}
-            placeholder="Printer host"
-            className="h-(--tap) min-w-40 flex-1 font-mono"
-            onChange={(event) => remember({ ...printer, host: event.target.value })}
-          />
-          <Input
-            value={String(printer.port)}
-            inputMode="numeric"
-            className="h-(--tap) w-24 font-mono"
-            aria-label="Printer port"
-            onChange={(event) =>
-              remember({ ...printer, port: Number(event.target.value) })
-            }
-          />
-          <Input
-            value={String(printer.chunk)}
-            inputMode="numeric"
-            className="h-(--tap) w-24 font-mono"
-            aria-label="Labels per pass"
-            onChange={(event) =>
-              remember({ ...printer, chunk: Number(event.target.value) })
-            }
-          />
+          <bench.Field name="host">
+            {(field) => (
+              <Input
+                value={field.state.value}
+                placeholder="Printer host"
+                className="h-(--tap) min-w-40 flex-1 font-mono"
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            )}
+          </bench.Field>
+          <bench.Field name="port">
+            {(field) => (
+              <Input
+                value={String(field.state.value)}
+                inputMode="numeric"
+                className="h-(--tap) w-24 font-mono"
+                aria-label="Printer port"
+                onBlur={field.handleBlur}
+                onChange={(event) =>
+                  field.handleChange(Number(event.target.value))
+                }
+              />
+            )}
+          </bench.Field>
+          <bench.Field name="chunk">
+            {(field) => (
+              <Input
+                value={String(field.state.value)}
+                inputMode="numeric"
+                className="h-(--tap) w-24 font-mono"
+                aria-label="Labels per pass"
+                onBlur={field.handleBlur}
+                onChange={(event) =>
+                  field.handleChange(Number(event.target.value))
+                }
+              />
+            )}
+          </bench.Field>
         </div>
 
         {run.isPending && <ScreenState>Looking for a run…</ScreenState>}
         {run.isError && (
-          <ScreenState tone="problem">{(run.error as Error).message}</ScreenState>
+          <ScreenState tone="problem">
+            {(run.error as Error).message}
+          </ScreenState>
         )}
 
         {run.isSuccess &&
@@ -274,8 +307,8 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
             <div className="border-t px-4 py-3">
               <Button
                 className="h-(--tap) w-full"
-                disabled={action.pending}
-                onClick={startPrinting}
+                disabled={pending}
+                onClick={() => startPrinting.mutate()}
               >
                 Queue {units(job.total_quantity)} labels
               </Button>
@@ -285,7 +318,7 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
               <PrintProgress summary={session} />
               {elsewhere && (
                 <div className="flex flex-col gap-2 border-t px-4 py-3">
-                  <p className="text-muted-foreground text-xs">
+                  <p className="text-xs text-muted-foreground">
                     This run prints at{" "}
                     <span className="font-mono">
                       {session.printer_host}:{session.printer_port}
@@ -296,8 +329,8 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
                   <Button
                     variant="outline"
                     className="h-(--tap)"
-                    disabled={action.pending}
-                    onClick={moveHere}
+                    disabled={pending}
+                    onClick={() => moveHere.mutate()}
                   >
                     Print from this bench instead
                   </Button>
@@ -306,97 +339,150 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
               <div className="border-t px-4 py-3">
                 <Button
                   className="h-(--tap) w-full"
-                  disabled={action.pending || session.pending_count === 0}
-                  onClick={runChunk}
+                  disabled={pending || session.pending_count === 0}
+                  onClick={() => runChunk.mutate()}
                 >
                   {session.pending_count === 0
                     ? "Every label has printed"
                     : `Print the next ${units(
-                        Math.min(session.chunk_size, session.pending_count),
+                        Math.min(session.chunk_size, session.pending_count)
                       )}`}
                 </Button>
               </div>
               {session.printed_count > 0 && (
                 <div className="flex flex-col gap-3 border-t px-4 py-3">
-                  <p className="text-muted-foreground text-xs">
+                  <p className="text-xs text-muted-foreground">
                     A tag that printed and was then lost — smeared, torn off,
                     eaten by a jam — goes back in the queue carrying the same
                     EPC. Never a fresh one: that unit is already on the floor
                     and already in the ledger.
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    <Input
-                      value={scanned}
-                      placeholder="Read the chip, or paste EPCs"
-                      aria-label="EPCs to reprint"
-                      className="h-(--tap) min-w-48 flex-1 font-mono"
-                      onChange={(event) => setScanned(event.target.value)}
-                    />
-                    <Button
-                      variant="outline"
-                      className="h-(--tap)"
-                      disabled={action.pending || scanned.trim() === ""}
-                      onClick={() =>
-                        reprint({
-                          epcs: scanned.split(/[\s,]+/).filter((epc) => epc !== ""),
-                          from: "",
-                          to: "",
-                        })
-                      }
-                    >
-                      Queue those again
-                    </Button>
+                    <lost.Field name="scanned">
+                      {(field) => (
+                        <Input
+                          value={field.state.value}
+                          placeholder="Read the chip, or paste EPCs"
+                          aria-label="EPCs to reprint"
+                          className="h-(--tap) min-w-48 flex-1 font-mono"
+                          onBlur={field.handleBlur}
+                          onChange={(event) =>
+                            field.handleChange(event.target.value)
+                          }
+                        />
+                      )}
+                    </lost.Field>
+                    <lost.Subscribe selector={(state) => state.values.scanned}>
+                      {(scanned) => (
+                        <Button
+                          variant="outline"
+                          className="h-(--tap)"
+                          disabled={pending || scanned.trim() === ""}
+                          onClick={() =>
+                            reprint.mutate({
+                              epcs: scanned
+                                .split(/[\s,]+/)
+                                .filter((epc) => epc !== ""),
+                              from: "",
+                              to: "",
+                            })
+                          }
+                        >
+                          Queue those again
+                        </Button>
+                      )}
+                    </lost.Subscribe>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-muted-foreground text-xs">
+                    <span className="text-xs text-muted-foreground">
                       …or by position in the run
                     </span>
-                    <Input
-                      value={fromSeq}
-                      inputMode="numeric"
-                      aria-label="From label number"
-                      className="h-(--tap) w-20 font-mono"
-                      onChange={(event) => setFromSeq(event.target.value)}
-                    />
-                    <span className="text-muted-foreground text-xs">to</span>
-                    <Input
-                      value={toSeq}
-                      inputMode="numeric"
-                      aria-label="To label number"
-                      className="h-(--tap) w-20 font-mono"
-                      onChange={(event) => setToSeq(event.target.value)}
-                    />
-                    <Button
-                      variant="outline"
-                      className="h-(--tap)"
-                      disabled={
-                        action.pending || fromSeq.trim() === "" || toSeq.trim() === ""
-                      }
-                      onClick={() => reprint({ epcs: [], from: fromSeq, to: toSeq })}
+                    <lost.Field name="fromSeq">
+                      {(field) => (
+                        <Input
+                          value={field.state.value}
+                          inputMode="numeric"
+                          aria-label="From label number"
+                          className="h-(--tap) w-20 font-mono"
+                          onBlur={field.handleBlur}
+                          onChange={(event) =>
+                            field.handleChange(event.target.value)
+                          }
+                        />
+                      )}
+                    </lost.Field>
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <lost.Field name="toSeq">
+                      {(field) => (
+                        <Input
+                          value={field.state.value}
+                          inputMode="numeric"
+                          aria-label="To label number"
+                          className="h-(--tap) w-20 font-mono"
+                          onBlur={field.handleBlur}
+                          onChange={(event) =>
+                            field.handleChange(event.target.value)
+                          }
+                        />
+                      )}
+                    </lost.Field>
+                    <lost.Subscribe
+                      selector={(state) => ({
+                        from: state.values.fromSeq,
+                        to: state.values.toSeq,
+                      })}
                     >
-                      Queue that range
-                    </Button>
+                      {(range) => (
+                        <Button
+                          variant="outline"
+                          className="h-(--tap)"
+                          disabled={
+                            pending ||
+                            range.from.trim() === "" ||
+                            range.to.trim() === ""
+                          }
+                          onClick={() =>
+                            reprint.mutate({
+                              epcs: [],
+                              from: range.from,
+                              to: range.to,
+                            })
+                          }
+                        >
+                          Queue that range
+                        </Button>
+                      )}
+                    </lost.Subscribe>
                   </div>
                 </div>
               )}
               {report !== null && (
-                <p className="text-muted-foreground px-4 pb-3 text-xs">{report}</p>
+                <p className="px-4 pb-3 text-xs text-muted-foreground">
+                  {report}
+                </p>
               )}
             </>
           ))}
-        <Problem error={action.error} />
+        <Problem
+          error={
+            startPrinting.error ??
+            moveHere.error ??
+            runChunk.error ??
+            reprint.error
+          }
+        />
       </Panel>
 
       <Panel title="The tags are on the goods">
         <div className="flex flex-col gap-3 px-4 py-4">
-          <p className="text-muted-foreground text-xs">
+          <p className="text-xs text-muted-foreground">
             One confirmation for the whole job, given by the person who attached
             them.
           </p>
           <ConfirmButton
             label={`Confirm ${units(job.total_quantity)} units tagged`}
             className="h-(--tap)"
-            disabled={action.pending}
+            disabled={pending}
             title="Confirm the tags are attached"
             description={
               <>
@@ -406,8 +492,9 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
               </>
             }
             confirmLabel="They are on"
-            onConfirm={confirm}
+            onConfirm={() => confirm.mutate()}
           />
+          <Problem error={confirm.error} />
         </div>
       </Panel>
 
@@ -426,9 +513,9 @@ function PrintProgress({ summary }: { summary: PrintSessionSummary }) {
   const share = summary.total_items === 0 ? 0 : done / summary.total_items
   return (
     <div className="flex flex-col gap-2 border-t px-4 py-3">
-      <div className="bg-muted h-2 overflow-hidden rounded-full">
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
         <div
-          className="bg-primary h-full rounded-full transition-[width]"
+          className="h-full rounded-full bg-primary transition-[width]"
           style={{ width: `${Math.round(share * 100)}%` }}
         />
       </div>

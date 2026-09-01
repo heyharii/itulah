@@ -1,18 +1,18 @@
-use super::{begin_idempotent, complete_idempotent, payload_digest, resolve_subject};
+use super::{begin_idempotent, complete_idempotent, payload_digest};
 use crate::cloud::{
     application::{
         AppError, CorrectPlacementRequest, CreateMovementRequest, MissingResolutionRequest,
         MovementLineRequest, MovementQuery,
     },
     domain::{
-        validate_command, MovementCause, MovementCommand, MovementGroupId, MovementLine, Place,
-        SubjectId, SubjectType,
+        validate_command, MovementCause, MovementCommand, MovementGroupId, MovementLine, SubjectId,
+        SubjectType,
     },
 };
 use chrono::Utc;
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 use uuid::Uuid;
 
 const TO_STORE_SOURCE_PLACE_ID: &str = "dc.warehouse:on_hand";
@@ -105,9 +105,53 @@ async fn create_movement_with_cause(
             .map_err(|e| AppError::Validation(e.to_string()))?,
     );
     let group_id = Uuid::new_v4();
+    let requested_ids: Vec<Uuid> = request
+        .lines
+        .iter()
+        .filter_map(|line| line.subject_id)
+        .collect();
+    let requested_epcs: Vec<String> = request
+        .lines
+        .iter()
+        .filter_map(|line| line.epc.as_deref())
+        .map(|epc| epc.trim().to_ascii_uppercase())
+        .filter(|epc| !epc.is_empty())
+        .collect();
+    if request.lines.iter().any(|line| {
+        line.subject_id.is_none() && line.epc.as_deref().map(str::trim).unwrap_or("").is_empty()
+    }) {
+        return Err(AppError::Validation("subject_id or epc is required".into()));
+    }
+    let subject_rows = sqlx::query(
+        "SELECT id,epc FROM inventory_subject
+         WHERE id = ANY($1) OR epc = ANY($2)
+         FOR UPDATE",
+    )
+    .bind(&requested_ids)
+    .bind(&requested_epcs)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut by_id = std::collections::HashSet::new();
+    let mut by_epc = HashMap::new();
+    for row in subject_rows {
+        let id: Uuid = row.get("id");
+        by_id.insert(id);
+        if let Some(epc) = row.get::<Option<String>, _>("epc") {
+            by_epc.insert(epc, id);
+        }
+    }
     let mut lines = Vec::with_capacity(request.lines.len());
     for line in &request.lines {
-        let subject = resolve_subject(&mut tx, line.subject_id, line.epc.as_deref(), true).await?;
+        let subject = if let Some(id) = line.subject_id {
+            by_id.contains(&id).then_some(id)
+        } else {
+            line.epc
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_uppercase)
+                .and_then(|epc| by_epc.get(&epc).copied())
+        }
+        .ok_or_else(|| AppError::NotFound("inventory subject".into()))?;
         lines.push(MovementLine {
             subject_id: SubjectId(subject),
             quantity: line.quantity,
@@ -176,9 +220,16 @@ pub(super) async fn apply_lines(
     digest: &str,
 ) -> Result<Vec<Uuid>, AppError> {
     let mut ids = Vec::with_capacity(command.lines.len());
+    let mut unit_subjects = std::collections::BTreeSet::new();
     for line in &command.lines {
-        ids.push(apply_line(tx, command, line, idempotency_key, digest).await?);
+        let (id, is_unit) = apply_line(tx, command, line, idempotency_key, digest).await?;
+        ids.push(id);
+        if is_unit {
+            unit_subjects.insert(line.subject_id.0);
+        }
     }
+    refresh_projection_positions(tx, &command.lines).await?;
+    validate_unique_company_placements(tx, &unit_subjects.into_iter().collect::<Vec<_>>()).await?;
     Ok(ids)
 }
 
@@ -188,7 +239,7 @@ async fn apply_line(
     line: &MovementLine,
     idempotency_key: &str,
     digest: &str,
-) -> Result<Uuid, AppError> {
+) -> Result<(Uuid, bool), AppError> {
     let subject =
         sqlx::query("SELECT subject_type, quantity FROM inventory_subject WHERE id=$1 FOR UPDATE")
             .bind(line.subject_id.0)
@@ -233,16 +284,109 @@ async fn apply_line(
         .bind(line.from.id()).bind(line.to.id()).bind(command.cause.as_str()).bind(&command.reference_type)
         .bind(&command.reference_id).bind(idempotency_key).bind(digest).bind(&command.actor_id).bind(command.occurred_at)
         .execute(&mut **tx).await?;
-    refresh_projection_position(tx, line.subject_id.0, &line.from).await?;
-    refresh_projection_position(tx, line.subject_id.0, &line.to).await?;
-    if subject_type == SubjectType::Unit
-        && company_placement_count(tx, line.subject_id.0).await? > 1
-    {
+    Ok((movement_id, subject_type == SubjectType::Unit))
+}
+
+async fn refresh_projection_positions(
+    tx: &mut Transaction<'_, Postgres>,
+    lines: &[MovementLine],
+) -> Result<(), AppError> {
+    let mut affected = std::collections::BTreeSet::new();
+    for line in lines {
+        for place in [&line.from, &line.to] {
+            if place.is_company() {
+                affected.insert((line.subject_id.0, place.id()));
+            }
+        }
+    }
+    if affected.is_empty() {
+        return Ok(());
+    }
+    let payload: Vec<Value> = affected
+        .into_iter()
+        .map(|(subject_id, place_id)| json!({"subject_id":subject_id,"place_id":place_id}))
+        .collect();
+    sqlx::query(
+        "WITH affected AS (
+             SELECT * FROM jsonb_to_recordset($1::jsonb)
+                 AS row(subject_id uuid,place_id text)
+         ), balance AS (
+             SELECT affected.subject_id,affected.place_id,
+                    COALESCE(SUM(CASE WHEN movement.to_place_id=affected.place_id
+                                      THEN movement.quantity
+                                      WHEN movement.from_place_id=affected.place_id
+                                      THEN -movement.quantity ELSE 0 END),0)::bigint quantity,
+                    COALESCE(MAX(movement.fact_sequence),0)::bigint sequence
+             FROM affected LEFT JOIN movement
+               ON movement.subject_id=affected.subject_id
+              AND (movement.from_place_id=affected.place_id OR movement.to_place_id=affected.place_id)
+             GROUP BY affected.subject_id,affected.place_id
+         )
+         INSERT INTO inventory_projection(subject_id,place_id,quantity,last_fact_sequence,updated_at)
+         SELECT subject_id,place_id,quantity,sequence,now() FROM balance WHERE quantity>0
+         ON CONFLICT(subject_id,place_id) DO UPDATE
+         SET quantity=EXCLUDED.quantity,last_fact_sequence=EXCLUDED.last_fact_sequence,updated_at=now()",
+    )
+    .bind(Value::Array(payload.clone()))
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "WITH affected AS (
+             SELECT * FROM jsonb_to_recordset($1::jsonb)
+                 AS row(subject_id uuid,place_id text)
+         ), live AS (
+             SELECT affected.subject_id,affected.place_id,
+                    COALESCE(SUM(CASE WHEN movement.to_place_id=affected.place_id
+                                      THEN movement.quantity
+                                      WHEN movement.from_place_id=affected.place_id
+                                      THEN -movement.quantity ELSE 0 END),0)::bigint quantity
+             FROM affected LEFT JOIN movement
+               ON movement.subject_id=affected.subject_id
+              AND (movement.from_place_id=affected.place_id OR movement.to_place_id=affected.place_id)
+             GROUP BY affected.subject_id,affected.place_id
+         )
+         DELETE FROM inventory_projection projection USING live
+         WHERE projection.subject_id=live.subject_id AND projection.place_id=live.place_id
+           AND live.quantity<=0",
+    )
+    .bind(Value::Array(payload))
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn validate_unique_company_placements(
+    tx: &mut Transaction<'_, Postgres>,
+    subject_ids: &[Uuid],
+) -> Result<(), AppError> {
+    if subject_ids.is_empty() {
+        return Ok(());
+    }
+    let duplicate: Option<Uuid> = sqlx::query_scalar(
+        "WITH delta AS (
+             SELECT subject_id,to_place_id place_id,quantity delta FROM movement
+             WHERE subject_id=ANY($1)
+             UNION ALL
+             SELECT subject_id,from_place_id,-quantity FROM movement
+             WHERE subject_id=ANY($1)
+         ), balance AS (
+             SELECT subject_id,place_id,SUM(delta) quantity FROM delta
+             GROUP BY subject_id,place_id
+         )
+         SELECT balance.subject_id FROM balance
+         JOIN inventory_place place ON place.id=balance.place_id
+         WHERE place.is_company AND balance.quantity>0
+         GROUP BY balance.subject_id HAVING COUNT(*)>1 LIMIT 1",
+    )
+    .bind(subject_ids)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if duplicate.is_some() {
         return Err(AppError::Conflict(
             "UNIT/EPC would have more than one company placement".into(),
         ));
     }
-    Ok(movement_id)
+    Ok(())
 }
 
 async fn ledger_balance(
@@ -388,34 +532,6 @@ async fn company_placement_count(
     let row = sqlx::query("WITH d AS (SELECT to_place_id place_id, quantity q FROM movement WHERE subject_id=$1 UNION ALL SELECT from_place_id, -quantity FROM movement WHERE subject_id=$1), b AS (SELECT place_id,sum(q) qty FROM d GROUP BY place_id) SELECT count(*)::bigint count FROM b JOIN inventory_place p ON p.id=b.place_id WHERE p.is_company AND b.qty>0")
         .bind(subject_id).fetch_one(&mut **tx).await?;
     Ok(row.get("count"))
-}
-
-// pub(super): the sync applier replays movement facts from other origins and
-// must maintain the projection with the same logic as local writes.
-pub(super) async fn refresh_projection_position(
-    tx: &mut Transaction<'_, Postgres>,
-    subject_id: Uuid,
-    place: &Place,
-) -> Result<(), AppError> {
-    if !place.is_company() {
-        return Ok(());
-    }
-    let place_id = place.id();
-    let row = sqlx::query("SELECT COALESCE(SUM(CASE WHEN to_place_id=$2 THEN quantity WHEN from_place_id=$2 THEN -quantity ELSE 0 END),0)::bigint balance, COALESCE(MAX(fact_sequence),0)::bigint seq FROM movement WHERE subject_id=$1 AND (from_place_id=$2 OR to_place_id=$2)")
-        .bind(subject_id).bind(&place_id).fetch_one(&mut **tx).await?;
-    let balance: i64 = row.get("balance");
-    let sequence: i64 = row.get("seq");
-    if balance > 0 {
-        sqlx::query("INSERT INTO inventory_projection(subject_id,place_id,quantity,last_fact_sequence,updated_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT(subject_id,place_id) DO UPDATE SET quantity=EXCLUDED.quantity,last_fact_sequence=EXCLUDED.last_fact_sequence,updated_at=now()")
-            .bind(subject_id).bind(&place_id).bind(balance).bind(sequence).execute(&mut **tx).await?;
-    } else {
-        sqlx::query("DELETE FROM inventory_projection WHERE subject_id=$1 AND place_id=$2")
-            .bind(subject_id)
-            .bind(&place_id)
-            .execute(&mut **tx)
-            .await?;
-    }
-    Ok(())
 }
 
 pub async fn list_movements(pool: &PgPool, query: MovementQuery) -> Result<Value, AppError> {

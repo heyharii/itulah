@@ -25,7 +25,13 @@ use super::ids::{ActorId, ReasonText};
 use crate::cloud::domain::Role;
 use chrono::{DateTime, Utc};
 
-/// Action keys this module understands.
+/// The HR action keys — all of them, not only employment's.
+///
+/// One key space and one [`required_role`], deliberately. Attendance policy
+/// lives here rather than beside the attendance domain because the moment there
+/// are two mappings from "what somebody is trying to do" to "which rung that
+/// needs", there are two answers to "may they" — and the one that drifts is
+/// always the one nobody is looking at.
 ///
 /// Kept beside the state machine rather than in the HTTP layer because
 /// [`Authorization::authorizes_employment_change`] is a *domain* rule: which
@@ -51,6 +57,12 @@ pub mod actions {
     pub const PROFILE_CHANGE: &str = "people.profile.change";
     /// Sign, renew or amend an employment contract.
     pub const CONTRACT_CHANGE: &str = "people.contract.change";
+    /// Decide what counts as late, early, or overtime.
+    ///
+    /// Reading the policy needs no key at all — somebody being measured against
+    /// a tolerance is entitled to know it, and a rule kept from the people it
+    /// governs is a trap rather than a rule. Setting it is head office's.
+    pub const ATTENDANCE_POLICY_SET: &str = "people.attendance_policy.set";
 
     /// The keys that may move the employment state machine.
     pub const EMPLOYMENT_CHANGING: &[&str] = &[EMPLOYMENT_CHANGE];
@@ -180,22 +192,22 @@ mod tests {
 
     #[test]
     fn only_the_employment_key_moves_employment() {
-        let at = DateTime::from_timestamp(1_780_000_000, 0).expect("instant");
+        let at = DateTime::from_timestamp(1_780_000_000, 0).unwrap_or_else(|| panic!("instant"));
         let change =
             Authorization::try_new("hr.dewi", actions::EMPLOYMENT_CHANGE, at, "mulai kerja")
-                .expect("authorization");
+                .unwrap_or_else(|error| panic!("authorization: {error}"));
         assert!(change.authorizes_employment_change());
         assert!(!change.authorizes_profile_change());
 
         let read = Authorization::try_new("hr.dewi", actions::EMPLOYEE_READ, at, "melihat")
-            .expect("authorization");
+            .unwrap_or_else(|error| panic!("authorization: {error}"));
         assert!(!read.authorizes_employment_change());
     }
 
     /// The reason is the caller's to state, and a blank one is not a reason.
     #[test]
     fn a_decision_without_a_reason_is_not_representable() {
-        let at = DateTime::from_timestamp(1_780_000_000, 0).expect("instant");
+        let at = DateTime::from_timestamp(1_780_000_000, 0).unwrap_or_else(|| panic!("instant"));
         assert!(Authorization::try_new("hr.dewi", actions::EMPLOYMENT_CHANGE, at, "   ").is_err());
         assert!(Authorization::try_new("", actions::EMPLOYMENT_CHANGE, at, "alasan").is_err());
     }

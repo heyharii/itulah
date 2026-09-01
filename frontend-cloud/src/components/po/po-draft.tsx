@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import {
   Table,
   TableBody,
@@ -21,6 +21,7 @@ import { createCatalogPurchaseOrder } from "@/lib/purchase-orders"
 import { searchSourcedItems } from "@/lib/sourcing"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
+import { useForm, useStore } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { Check, Minus, Pencil, Plus, Search, X } from "lucide-react"
@@ -84,42 +85,66 @@ export function PoDraftPanel({
   )
   const byId = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
 
+  /// Which of the two steps is showing, and which line is open for editing.
+  /// Neither is sent anywhere: they are where the buyer is standing, not what
+  /// they have decided. One line edits at a time — a table where every row is a
+  /// form is a table nobody can read.
   const [step, setStep] = useState<"lines" | "review">("lines")
-  // Seeded once the basket has actually loaded, and keyed on that: a draft
-  // opened from a cold cache would otherwise start empty and stay empty.
-  const [quantities, setQuantities] = useState<Record<string, number> | null>(null)
-  const [order, setOrder] = useState<string[] | null>(null)
-  const lineQuantities = quantities ?? seedQuantities
-  const lineOrder = order ?? Object.keys(seedQuantities)
-  const [poNumber, setPoNumber] = useState(suggestPoNumber)
-  const [promisedDate, setPromisedDate] = useState("")
-  const [notes, setNotes] = useState("")
-  /// Prices agreed for THIS order, keyed by supplier item id. Absent means the
-  /// catalogue's price stands — which is the ordinary case, so an untouched
-  /// line sends nothing and the server takes its own figure rather than one
-  /// the browser echoed back at it.
-  const [agreedPrices, setAgreedPrices] = useState<Record<string, number>>({})
-  /// Descriptions corrected for this order. Same rule as the price: absent
-  /// means the catalogue's own wording stands, so a line nobody touched sends
-  /// nothing and the snapshot beside it keeps its meaning.
-  const [agreedNames, setAgreedNames] = useState<Record<string, string>>({})
-  /// Classification corrected for this order. It travels to goods receipt and
-  /// becomes the article's own, so this is the last moment somebody has the
-  /// garment and the paperwork in front of them at once.
-  const [agreedDivisions, setAgreedDivisions] = useState<Record<string, string>>({})
-  /// Tags corrected for this order, as a whole set rather than additions.
-  /// The server replaces rather than merges, so what is held here is what the
-  /// line will carry — and an empty set is a buyer saying "none of these", not
-  /// "leave it alone".
-  const [agreedTags, setAgreedTags] = useState<Record<string, string[]>>({})
-  /// Which line is open for editing. One at a time: a table where every row is
-  /// a form is a table nobody can read.
   const [editing, setEditing] = useState<string | null>(null)
-  const vocabulary = useVocabulary()
-  /// One discount on the order, in whole rupiah. Not per line: it is
-  /// negotiated once and a supplier invoices it once.
-  const [discount, setDiscount] = useState("")
+  /// Searching the supplier's catalogue for something to add. It narrows what
+  /// is offered below and goes nowhere near the order.
   const [search, setSearch] = useState("")
+  const vocabulary = useVocabulary()
+
+  /// Suggested once, and never again.
+  ///
+  /// The form takes its defaults on every render and adopts them while nothing
+  /// has been typed yet, so a number minted per render would rewrite itself
+  /// under the buyer's eyes between one keystroke elsewhere and the next.
+  const suggested = useMemo(() => suggestPoNumber(), [])
+
+  /// The order being written, all of it in one place.
+  ///
+  /// Everything here is typed and then sent. The four record fields hold only
+  /// what a buyer actually moved: an absent key means the catalogue's own
+  /// figure, wording, division or tags stand, so an untouched line sends
+  /// nothing and the server takes its own values rather than ones the browser
+  /// echoed back at it.
+  const form = useForm({
+    defaultValues: {
+      poNumber: suggested,
+      promisedDate: "",
+      notes: "",
+      /// One discount on the order, in whole rupiah. Not per line: it is
+      /// negotiated once and a supplier invoices it once.
+      discount: "",
+      /// Null until the buyer touches a quantity, and read through the basket
+      /// until then: a draft opened from a cold cache would otherwise start
+      /// empty and stay empty.
+      quantities: null as Record<string, number> | null,
+      order: null as string[] | null,
+      agreedPrices: {} as Record<string, number>,
+      agreedNames: {} as Record<string, string>,
+      agreedDivisions: {} as Record<string, string>,
+      agreedTags: {} as Record<string, string[]>,
+    },
+    onSubmit: () => {
+      create.mutate()
+    },
+  })
+  const values = useStore(form.store, (state) => state.values)
+  const {
+    poNumber,
+    promisedDate,
+    notes,
+    discount,
+    agreedPrices,
+    agreedNames,
+    agreedDivisions,
+    agreedTags,
+  } = values
+  const lineQuantities = values.quantities ?? seedQuantities
+  const lineOrder = values.order ?? Object.keys(seedQuantities)
 
   // One key per attempt at THIS order, held across retries: the server stores
   // it with a digest of the request and replays its first answer, so a retry
@@ -213,23 +238,27 @@ export function PoDraftPanel({
   )
 
   const setQuantity = (id: string, quantity: number) =>
-    setQuantities({ ...lineQuantities, [id]: Math.max(1, quantity) })
+    form.setFieldValue("quantities", { ...lineQuantities, [id]: Math.max(1, quantity) })
 
   const addLine = (id: string) => {
-    setQuantities({ ...lineQuantities, [id]: 1 })
-    setOrder(lineOrder.includes(id) ? lineOrder : [...lineOrder, id])
+    form.setFieldValue("quantities", { ...lineQuantities, [id]: 1 })
+    form.setFieldValue("order", lineOrder.includes(id) ? lineOrder : [...lineOrder, id])
   }
 
   const removeLine = (id: string) => {
     const next = { ...lineQuantities }
     delete next[id]
-    setQuantities(next)
-    setOrder(lineOrder.filter((value) => value !== id))
+    form.setFieldValue("quantities", next)
+    form.setFieldValue(
+      "order",
+      lineOrder.filter((value) => value !== id),
+    )
   }
 
   return (
     <>
       <ScreenHeader
+        eyebrow="Purchase orders"
         title={step === "lines" ? "Draft purchase order" : "Review before raising"}
         subtitle={supplierName}
       >
@@ -293,18 +322,23 @@ export function PoDraftPanel({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="grid gap-3 border-b p-3.5 sm:grid-cols-2 lg:grid-cols-4">
+      <ScreenBody>
+        <div className="grid gap-3 border-b border-[var(--os-hairline,#eeeef1)] p-3.5 sm:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="po-number" className="text-xs">
               PO number
             </Label>
-            <Input
-              id="po-number"
-              value={poNumber}
-              onChange={(event) => setPoNumber(event.target.value)}
-              className="h-8 font-mono text-xs"
-            />
+            <form.Field name="poNumber">
+              {(field) => (
+                <Input
+                  id="po-number"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  className="h-8 font-mono text-xs"
+                />
+              )}
+            </form.Field>
             {/* Not allocated by the server: the number is whatever is typed
                 here, and two people typing the same one is a conflict the
                 server will report rather than prevent. */}
@@ -315,13 +349,18 @@ export function PoDraftPanel({
             <Label htmlFor="po-promised" className="text-xs">
               Promised date
             </Label>
-            <Input
-              id="po-promised"
-              type="date"
-              value={promisedDate}
-              onChange={(event) => setPromisedDate(event.target.value)}
-              className="h-8 text-xs"
-            />
+            <form.Field name="promisedDate">
+              {(field) => (
+                <Input
+                  id="po-promised"
+                  type="date"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  className="h-8 text-xs"
+                />
+              )}
+            </form.Field>
             <p className="text-muted-foreground text-[10.5px]">Applied to every line.</p>
           </div>
 
@@ -329,14 +368,21 @@ export function PoDraftPanel({
             <Label htmlFor="po-discount" className="text-xs">
               Discount
             </Label>
-            <Input
-              id="po-discount"
-              value={discount}
-              inputMode="numeric"
-              placeholder="0"
-              onChange={(event) => setDiscount(event.target.value.replace(/[^0-9]/g, ""))}
-              className="h-8 font-mono text-xs"
-            />
+            <form.Field name="discount">
+              {(field) => (
+                <Input
+                  id="po-discount"
+                  value={field.state.value}
+                  inputMode="numeric"
+                  placeholder="0"
+                  onBlur={field.handleBlur}
+                  onChange={(event) =>
+                    field.handleChange(event.target.value.replace(/[^0-9]/g, ""))
+                  }
+                  className="h-8 font-mono text-xs"
+                />
+              )}
+            </form.Field>
             {/* On the order, not the lines. Splitting it across them would
                 invent per-line figures nobody agreed to and would not add back
                 up, so the invoice would fail to reconcile on rounding we
@@ -350,13 +396,18 @@ export function PoDraftPanel({
             <Label htmlFor="po-notes" className="text-xs">
               Notes
             </Label>
-            <Textarea
-              id="po-notes"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              rows={2}
-              className="min-h-8 text-xs"
-            />
+            <form.Field name="notes">
+              {(field) => (
+                <Textarea
+                  id="po-notes"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  rows={2}
+                  className="min-h-8 text-xs"
+                />
+              )}
+            </form.Field>
           </div>
         </div>
 
@@ -394,7 +445,7 @@ export function PoDraftPanel({
                               autoFocus
                               onChange={(event) => {
                                 const value = event.target.value
-                                setAgreedNames((current) => {
+                                form.setFieldValue("agreedNames", (current) => {
                                   const next = { ...current }
                                   // Back to the catalogue's own wording rather
                                   // than a copy of it, so an untouched line
@@ -414,7 +465,7 @@ export function PoDraftPanel({
                               aria-label={`Division for ${line.row.name}`}
                               onChange={(event) => {
                                 const value = event.target.value
-                                setAgreedDivisions((current) => {
+                                form.setFieldValue("agreedDivisions", (current) => {
                                   const next = { ...current }
                                   if (value === line.row.division) delete next[line.row.id]
                                   else next[line.row.id] = value
@@ -441,7 +492,7 @@ export function PoDraftPanel({
                                     type="button"
                                     aria-pressed={on}
                                     onClick={() =>
-                                      setAgreedTags((current) => {
+                                      form.setFieldValue("agreedTags", (current) => {
                                         const held = current[line.row.id] ?? line.row.tags
                                         const next = on
                                           ? held.filter((value) => value !== code)
@@ -514,7 +565,7 @@ export function PoDraftPanel({
                               event.target.value.replace(/[^0-9]/g, ""),
                               10,
                             )
-                            setAgreedPrices((current) => {
+                            form.setFieldValue("agreedPrices", (current) => {
                               const next = { ...current }
                               // Back to the catalogue's own figure rather than
                               // a copy of it, so an untouched line stays
@@ -669,7 +720,7 @@ export function PoDraftPanel({
             )}
           </section>
         )}
-      </div>
+      </ScreenBody>
 
       <div className="flex shrink-0 items-center gap-3 border-t px-3.5 py-2.5">
         {problems.length > 0 && (
@@ -689,7 +740,7 @@ export function PoDraftPanel({
             <Button
               size="sm"
               disabled={problems.length > 0 || create.isPending}
-              onClick={() => create.mutate()}
+              onClick={() => void form.handleSubmit()}
             >
               {create.isPending ? "Raising…" : "Raise order"}
             </Button>
@@ -705,7 +756,7 @@ export function PoDraft() {
   const { supplierId } = useParams({ from: "/orders/new/$supplierId" })
   const navigate = useNavigate()
   return (
-    <AppShell nav={<Nav />}>
+    <AppShell data-cloudhub nav={<Nav />}>
       <PoDraftPanel supplierId={supplierId} onLeave={() => void navigate({ to: "/orders" })} />
     </AppShell>
   )

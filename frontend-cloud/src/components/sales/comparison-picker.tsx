@@ -66,7 +66,7 @@ export function ComparisonPicker({
             <span className="max-w-40 truncate">{comparison.full}</span>
             {uneven && (
               <span
-                className="text-amber-700 dark:text-amber-500"
+                className="text-[var(--os-warn,#b45309)]"
                 title={`${there} days against ${here} — the percentages compare spans of different length`}
               >
                 {there}d

@@ -1,4 +1,5 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { Segmented } from "@/components/custom/segmented"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,6 +15,7 @@ import {
 import { money, units } from "@/lib/money"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
+import { useForm, useStore } from "@tanstack/react-form"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
@@ -53,15 +55,34 @@ const DRAWN = 40
 /// it would promise a number the counter will not honour for one item. Test a
 /// basket instead.
 export function PricesView() {
-  const [channel, setChannel] = useState<CommercialChannel>("STORE")
-  /// Empty means now. The engine takes the instant as an argument, so asking
-  /// what the fleet will charge on the first morning of a campaign is the same
-  /// code path as asking what it charges at this second.
-  const [at, setAt] = useState("")
-  const [search, setSearch] = useState("")
-  const [division, setDivision] = useState("")
-  const [tag, setTag] = useState("")
-  const [onlyMarkdown, setOnlyMarkdown] = useState(false)
+  /// The question this screen is asking, all of it in one place.
+  ///
+  /// It was six `useState`s that were read together every render and never
+  /// meant anything apart: which channel and which instant go to the server,
+  /// and which text, division, tag and markdown flag narrow what comes back.
+  /// Splitting them by where they are enforced is a fact about the
+  /// implementation, not about the question — a merchandiser asking "what are
+  /// we charging for outerwear at Toko 07 on Friday" is asking one thing.
+  ///
+  /// `drawn` below is deliberately not in here. How much of the answer has been
+  /// laid out is not part of the question and must not survive a change to it.
+  const form = useForm({
+    defaultValues: {
+      channel: "STORE" as CommercialChannel,
+      /// Empty means now. The engine takes the instant as an argument, so
+      /// asking what the fleet will charge on the first morning of a campaign
+      /// is the same code path as asking what it charges at this second.
+      at: "",
+      search: "",
+      division: "",
+      tag: "",
+      onlyMarkdown: false,
+    },
+  })
+  const { channel, at, search, division, tag, onlyMarkdown } = useStore(
+    form.store,
+    (state) => state.values,
+  )
   const [drawn, setDrawn] = useState(DRAWN)
 
   const scope = { channel, at: localInstantToIso(at) }
@@ -103,25 +124,27 @@ export function PricesView() {
 
   return (
     <AppShell
+      data-cloudhub
       nav={<Nav />}
       facets={
         <Facets
           search={search}
-          onSearch={setSearch}
+          onSearch={(value) => form.setFieldValue("search", value)}
           divisions={divisions}
           division={division}
-          onDivision={setDivision}
+          onDivision={(value) => form.setFieldValue("division", value)}
           tags={tags}
           tag={tag}
-          onTag={setTag}
+          onTag={(value) => form.setFieldValue("tag", value)}
           onlyMarkdown={onlyMarkdown}
-          onOnlyMarkdown={setOnlyMarkdown}
+          onOnlyMarkdown={(value) => form.setFieldValue("onlyMarkdown", value)}
           cleared={cleared}
         />
       }
     >
       <ScreenHeader
         title="Prices"
+        eyebrow="Commercial"
         subtitle={
           page.isPending
             ? "loading…"
@@ -129,25 +152,21 @@ export function PricesView() {
         }
       >
         {/* What changes the question: which channel, and which instant. */}
-        <div className="bg-muted flex items-center gap-0.5 rounded-md p-0.5">
-          {CHANNELS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setChannel(option)}
-              className={cn(
-                "rounded px-2 py-1 text-[11px] capitalize transition-colors",
-                channel === option
-                  ? "bg-background shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {option.toLowerCase()}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          size="sm"
+          value={channel}
+          onChange={(value) => form.setFieldValue("channel", value)}
+          options={CHANNELS.map((option) => ({
+            id: option,
+            label: option.toLowerCase(),
+          }))}
+        />
 
-        <AsOf value={at} onChange={setAt} />
+        <form.Field name="at">
+          {(field) => (
+            <AsOf value={field.state.value} onChange={(value) => field.handleChange(value)} />
+          )}
+        </form.Field>
 
         <Button size="sm" variant="outline" nativeButton={false} render={<Link to="/commercial/simulate" />}>
           <FlaskConical className="size-3.5" />
@@ -174,19 +193,23 @@ export function PricesView() {
         /* A price screen showing a moment other than now is the one thing on it
            that can be misread as fact, so it says so rather than leaving the
            reader to notice a date box they filled in earlier. */
-        <div className="flex items-center gap-2 border-b bg-sky-50 px-3.5 py-1.5 text-[11.5px] text-sky-800 dark:bg-sky-950/30 dark:text-sky-300">
+        <div className="flex items-center gap-2 border-b bg-[var(--os-info-bg,#ddebfa)] px-3.5 py-1.5 text-[11.5px] text-[var(--os-info,#2f86d8)]">
           <Clock className="size-3.5 shrink-0" />
           <span>
             Priced as of {new Date(at).toLocaleString("id-ID")} — not what the tills are
             charging now.
           </span>
-          <button type="button" onClick={() => setAt("")} className="ml-auto shrink-0 underline">
+          <button
+            type="button"
+            onClick={() => form.setFieldValue("at", "")}
+            className="ml-auto shrink-0 underline"
+          >
             Back to now
           </button>
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScreenBody>
         {page.isPending ? (
           <ScreenState>Pricing every style at every shop…</ScreenState>
         ) : page.isError ? (
@@ -215,8 +238,8 @@ export function PricesView() {
           </ScreenState>
         ) : (
           <>
-            <table className="w-full border-collapse text-left">
-              <thead className="bg-muted/50 sticky top-0 z-10">
+            <table data-os-grid="" className="w-full border-collapse text-left">
+              <thead className="sticky top-0 z-10">
                 <tr className="border-b">
                   <Th className="w-[30%]">Style</Th>
                   <Th className="w-[16%]">Shop</Th>
@@ -240,7 +263,7 @@ export function PricesView() {
             )}
           </>
         )}
-      </div>
+      </ScreenBody>
     </AppShell>
   )
 }
@@ -293,10 +316,10 @@ function Facets({
         type="button"
         onClick={() => onOnlyMarkdown(!onlyMarkdown)}
         className={cn(
-          "flex items-center justify-between rounded-md border px-2.5 py-1.5 text-left text-[11.5px] transition-colors",
+          "flex items-center justify-between rounded-[var(--os-r-inner,9px)] border px-2.5 py-1.5 text-left text-[11.5px] transition-colors",
           onlyMarkdown
-            ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400"
-            : "hover:bg-muted",
+            ? "border-[var(--os-warn,#b7791f)] bg-[var(--os-warn-bg,#f8f1de)] text-[var(--os-warn,#b7791f)]"
+            : "hover:bg-[var(--os-soft-2,#f3f3f5)]",
         )}
       >
         <span>On markdown somewhere</span>
@@ -338,10 +361,10 @@ function Chips({
             type="button"
             onClick={() => onChoose(chosen === value ? "" : value)}
             className={cn(
-              "rounded px-1.5 py-0.5 text-[10.5px] transition-colors",
+              "rounded-full px-1.5 py-0.5 text-[10.5px] font-medium transition-colors",
               chosen === value
-                ? "bg-foreground text-background"
-                : "bg-muted text-muted-foreground hover:text-foreground",
+                ? "bg-[var(--os-accent-bg,#ebedfd)] text-[var(--os-accent,#3c52f0)]"
+                : "bg-[var(--os-soft-2,#f3f3f5)] text-[var(--os-body,#74747b)] hover:text-[var(--os-ink,#1d1d1f)]",
             )}
           >
             {value}
@@ -395,7 +418,7 @@ function ArticleGroup({ article }: { article: ArticlePrices }) {
             rung.in_force_for === 0 && "text-muted-foreground bg-muted/20",
             rung.source === "MARKDOWN" &&
               rung.in_force_for > 0 &&
-              "bg-amber-50/50 dark:bg-amber-950/10",
+              "bg-[var(--os-warn-bg,#f8f1de)]/50",
           )}
         >
           {index === 0 && (
@@ -482,7 +505,7 @@ function Price({ rung }: { rung: PriceRung }) {
     <span
       className={cn(
         "font-mono text-xs tabular-nums whitespace-nowrap",
-        rung.source === "MARKDOWN" && !superseded && "font-medium text-amber-700 dark:text-amber-500",
+        rung.source === "MARKDOWN" && !superseded && "font-medium text-[var(--os-warn,#b45309)]",
         superseded && "line-through",
       )}
     >
@@ -580,7 +603,7 @@ function WhichPrice({ rung }: { rung: PriceRung }) {
             : `price for ${scope}`
   return (
     <div className="flex flex-wrap items-baseline gap-x-1.5 text-[11px]">
-      <span className={cn(!superseded && rung.source === "MARKDOWN" && "text-amber-700 dark:text-amber-500")}>
+      <span className={cn(!superseded && rung.source === "MARKDOWN" && "text-[var(--os-warn,#b45309)]")}>
         {what}
       </span>
       {rung.markdown_id !== null && (
@@ -599,7 +622,7 @@ function Th({ children, className }: { children?: React.ReactNode; className?: s
   return (
     <th
       className={cn(
-        "text-muted-foreground px-3 py-2 text-[11px] font-medium whitespace-nowrap",
+        "px-3 py-2 text-left align-middle whitespace-nowrap uppercase",
         className,
       )}
     >

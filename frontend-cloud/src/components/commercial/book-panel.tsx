@@ -1,4 +1,3 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
 import {
   Table,
   TableBody,
@@ -7,17 +6,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/custom/table"
-import { Nav } from "@/components/nav"
-import { Button } from "@/components/ui/button"
-import type { PriceBookDetail } from "@/lib/commercial"
-import { priceBookDetail, priceBookKey } from "@/lib/commercial"
+import { bookPriceColumns, scope } from "@/components/commercial/columns"
+import {
+  CommercialTable,
+  useCommercialTable,
+} from "@/components/commercial/data-table"
+import type { BookPriceRule, PriceBookDetail } from "@/lib/commercial"
 import { money, units } from "@/lib/money"
-import { priceBookRoute } from "@/router"
 import { cn } from "@/lib/utils"
-import { ApiError } from "@itulah/contract/client"
-import { useQuery } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
-import { BookOpen } from "lucide-react"
+import { useMemo } from "react"
 
 /// Everything one price book says.
 ///
@@ -30,56 +27,16 @@ import { BookOpen } from "lucide-react"
 /// This is deliberately the same data a shop is sent, minus the per-shop
 /// filtering: what you read here is what a till received, rather than a second
 /// rendering that could describe it differently.
-export function BookDetailView() {
-  const { publicationId } = priceBookRoute.useParams()
-  const book = useQuery({
-    queryKey: priceBookKey(publicationId),
-    queryFn: ({ signal }) => priceBookDetail(publicationId, signal),
-  })
-
-  return (
-    <AppShell nav={<Nav />}>
-      <ScreenHeader
-        title={book.data === undefined ? "Price book" : `Book v${book.data.version}`}
-        subtitle={book.data?.name}
-      >
-        <Button
-          size="sm"
-          variant="outline"
-          nativeButton={false}
-          render={<Link to="/commercial/books" />}
-        >
-          <BookOpen className="size-3.5" />
-          All books
-        </Button>
-      </ScreenHeader>
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        {book.isPending ? (
-          <ScreenState>Opening the book…</ScreenState>
-        ) : book.isError ? (
-          <ScreenState
-            tone="problem"
-            action={
-              <Button size="sm" variant="outline" onClick={() => void book.refetch()}>
-                Try again
-              </Button>
-            }
-          >
-            {book.error instanceof ApiError
-              ? book.error.message
-              : "The book could not be read."}
-          </ScreenState>
-        ) : (
-          <Contents book={book.data} />
-        )}
-      </div>
-    </AppShell>
-  )
-}
-
-function Contents({ book }: { book: PriceBookDetail }) {
+export function BookPanel({ book }: { book: PriceBookDetail }) {
   const draft = book.status === "DRAFT"
+  // The only list in a book that can run to thousands, and the only one worth
+  // sorting: checking a book before it goes out means looking for the price
+  // that is wrong, which is a sort by price and not a scroll.
+  const prices = useCommercialTable({
+    data: useMemo(() => [...book.price_rules], [book.price_rules]),
+    columns: bookPriceColumns,
+    getRowId: priceRuleId,
+  })
   return (
     <div className="flex flex-col">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b px-3.5 py-2.5 text-[11.5px]">
@@ -88,7 +45,7 @@ function Contents({ book }: { book: PriceBookDetail }) {
             aria-hidden
             className={cn(
               "size-2 shrink-0 rounded-full",
-              draft ? "bg-amber-500" : "bg-emerald-500",
+              draft ? "bg-[var(--os-warn,#f59e0b)]" : "bg-[var(--os-ok,#10b981)]"
             )}
           />
           {draft ? "Draft" : "Published"}
@@ -120,7 +77,7 @@ function Contents({ book }: { book: PriceBookDetail }) {
       >
         {book.activated_by.length > 0 && (
           <Table>
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Shop</TableHead>
                 <TableHead className="text-right">Prices received</TableHead>
@@ -137,10 +94,10 @@ function Contents({ book }: { book: PriceBookDetail }) {
                   <TableCell className="text-right font-mono text-xs tabular-nums">
                     {units(row.price_rule_count)}
                   </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-[10.5px]">
+                  <TableCell className="font-mono text-[10.5px] text-muted-foreground">
                     {new Date(row.activated_at).toLocaleString("id-ID")}
                   </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-[10.5px]">
+                  <TableCell className="font-mono text-[10.5px] text-muted-foreground">
                     {new Date(row.reported_at).toLocaleString("id-ID")}
                   </TableCell>
                 </TableRow>
@@ -158,40 +115,7 @@ function Contents({ book }: { book: PriceBookDetail }) {
             : "A book is a list of changes. Anything it does not name keeps the price the last book gave it."
         }
       >
-        {book.price_rules.length > 0 && (
-          <Table>
-            <TableHeader className="bg-muted/50">
-              <TableRow className="hover:bg-transparent">
-                <TableHead>SKU</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead>Applies to</TableHead>
-                <TableHead>Channel</TableHead>
-                <TableHead className="text-right">Price</TableHead>
-                <TableHead>Tax class</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {book.price_rules.map((rule) => (
-                <TableRow key={`${rule.sku_code}:${rule.channel}:${rule.site_id ?? "*"}`}>
-                  <TableCell className="font-mono text-[11px]">{rule.sku_code}</TableCell>
-                  <TableCell className="max-w-48 truncate text-xs">
-                    {rule.article_name}
-                  </TableCell>
-                  <TableCell className="text-[11px]">{scope(rule)}</TableCell>
-                  <TableCell className="text-muted-foreground text-[10.5px]">
-                    {rule.channel}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs tabular-nums">
-                    {money(rule.unit_price_minor, rule.currency)}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-[10.5px]">
-                    {rule.tax_category}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+        {book.price_rules.length > 0 && <CommercialTable table={prices} />}
       </Section>
 
       {book.markdowns.length > 0 && (
@@ -200,7 +124,7 @@ function Contents({ book }: { book: PriceBookDetail }) {
           note="A markdown replaces the base price — turun harga, not a discount. Booked as a discount it would inflate both revenue and discount in every report that reads them."
         >
           <Table>
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Markdown</TableHead>
                 <TableHead>On</TableHead>
@@ -212,24 +136,29 @@ function Contents({ book }: { book: PriceBookDetail }) {
             <TableBody>
               {book.markdowns.map((row) => (
                 <TableRow key={row.markdown_id}>
-                  <TableCell className="font-mono text-[11px]">{row.markdown_id}</TableCell>
+                  <TableCell className="font-mono text-[11px]">
+                    {row.markdown_id}
+                  </TableCell>
                   <TableCell className="text-[11px]">
                     {row.sku_code !== null ? (
                       <span className="font-mono">{row.sku_code}</span>
                     ) : row.article_code !== null ? (
                       <span>
                         <span className="font-mono">{row.article_code}</span>
-                        <span className="text-muted-foreground"> · whole style</span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · whole style
+                        </span>
                       </span>
                     ) : (
                       "—"
                     )}
                   </TableCell>
                   <TableCell className="text-[11px]">{scope(row)}</TableCell>
-                  <TableCell className="text-right font-mono text-xs tabular-nums text-amber-700 dark:text-amber-500">
+                  <TableCell className="text-right font-mono text-xs text-[var(--os-warn,#b45309)] tabular-nums">
                     {money(row.replacement_unit_price_minor)}
                   </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-[10.5px] whitespace-nowrap">
+                  <TableCell className="font-mono text-[10.5px] whitespace-nowrap text-muted-foreground">
                     {new Date(row.effective_from).toLocaleDateString("id-ID")}
                     {row.effective_to === null
                       ? " →"
@@ -249,18 +178,22 @@ function Contents({ book }: { book: PriceBookDetail }) {
         >
           <ul className="divide-y">
             {book.campaigns.map((campaign) => (
-              <li key={campaign.campaign_id} className="flex flex-col gap-0.5 px-3.5 py-2">
+              <li
+                key={campaign.campaign_id}
+                className="flex flex-col gap-0.5 px-3.5 py-2"
+              >
                 <span className="text-xs">
                   {campaign.name}{" "}
-                  <span className="text-muted-foreground font-mono text-[10.5px]">
+                  <span className="font-mono text-[10.5px] text-muted-foreground">
                     {campaign.campaign_id} · {campaign.status}
                   </span>
                 </span>
-                <span className="text-muted-foreground text-[11px]">
+                <span className="text-[11px] text-muted-foreground">
                   {campaign.budget_minor === null
                     ? "No budget"
                     : `Budget ${money(campaign.budget_minor)}`}
-                  {campaign.max_uses !== null && ` · at most ${units(campaign.max_uses)} uses`}
+                  {campaign.max_uses !== null &&
+                    ` · at most ${units(campaign.max_uses)} uses`}
                   {campaign.max_uses_per_customer !== null &&
                     ` · ${units(campaign.max_uses_per_customer)} per shopper`}
                 </span>
@@ -277,14 +210,17 @@ function Contents({ book }: { book: PriceBookDetail }) {
         >
           <ul className="divide-y">
             {book.rules.map((rule) => (
-              <li key={rule.rule_id} className="flex flex-col gap-1 px-3.5 py-2">
+              <li
+                key={rule.rule_id}
+                className="flex flex-col gap-1 px-3.5 py-2"
+              >
                 <span className="text-xs">
                   {rule.name}{" "}
-                  <span className="text-muted-foreground font-mono text-[10.5px]">
+                  <span className="font-mono text-[10.5px] text-muted-foreground">
                     {rule.rule_id} · {rule.status}
                   </span>
                 </span>
-                <pre className="bg-muted/50 overflow-x-auto rounded p-2 font-mono text-[10.5px] leading-relaxed">
+                <pre className="overflow-x-auto rounded bg-muted/50 p-2 font-mono text-[10.5px] leading-relaxed">
                   {JSON.stringify(rule.definition, null, 2)}
                 </pre>
               </li>
@@ -305,10 +241,13 @@ function Contents({ book }: { book: PriceBookDetail }) {
                 className="flex items-baseline justify-between gap-3 px-3.5 py-1.5"
               >
                 <span className="font-mono text-[11px]">{coupon.code}</span>
-                <span className="text-muted-foreground text-[11px]">
+                <span className="text-[11px] text-muted-foreground">
                   unlocks {coupon.rule_id}
-                  {coupon.customer_id === null ? " · bearer" : ` · ${coupon.customer_id}`}
-                  {coupon.max_uses !== null && ` · ${units(coupon.max_uses)} uses`}
+                  {coupon.customer_id === null
+                    ? " · bearer"
+                    : ` · ${coupon.customer_id}`}
+                  {coupon.max_uses !== null &&
+                    ` · ${units(coupon.max_uses)} uses`}
                   {!coupon.active && " · inactive"}
                 </span>
               </li>
@@ -320,20 +259,10 @@ function Contents({ book }: { book: PriceBookDetail }) {
   )
 }
 
-/// Which shops or shoppers a row applies to.
-///
-/// One level only — a row claiming to be both a shop price and a tier price has
-/// no single right reading, and the database refuses it.
-function scope(row: {
-  readonly site_id: string | null
-  readonly site_ids: readonly string[] | null
-  readonly tier: string | null
-}): string {
-  if (row.site_id !== null) return row.site_id
-  if (row.site_ids !== null && row.site_ids.length > 0)
-    return `${row.site_ids.length} shops`
-  if (row.tier !== null) return `tier ${row.tier}`
-  return "every shop"
+/// A book names a price once per product, per channel, per scope — which is
+/// the composite the server writes and the one thing here that is unique.
+function priceRuleId(rule: BookPriceRule): string {
+  return `${rule.sku_code}:${rule.channel}:${rule.site_id ?? "*"}`
 }
 
 function Section({
@@ -350,7 +279,7 @@ function Section({
       <div className="px-3.5 pt-2 pb-1">
         <h2 className="text-xs font-semibold">{title}</h2>
         {note !== undefined && (
-          <p className="text-muted-foreground text-[11px]">{note}</p>
+          <p className="text-[11px] text-muted-foreground">{note}</p>
         )}
       </div>
       {children}

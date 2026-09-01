@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useState } from "react"
-
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -10,10 +8,12 @@ import {
 } from "@/components/ui/card"
 import { node } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import type { EdgeSyncStatus } from "@itulah/contract"
 import { ApiError, Sync, syncHealth } from "@itulah/contract/client"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 const sync = new Sync(node)
+
+const STATUS = ["sync", "status"] as const
 
 /// How often to ask. The sender's own cycle is five seconds, so polling much
 /// faster only makes the screen busy without making it more truthful.
@@ -45,6 +45,12 @@ function when(value: string | null): string {
   return `${Math.floor(seconds / 86400)}d ago`
 }
 
+/// The node's own words when it managed to say any, because they name the
+/// thing that went wrong. Anything else means we never reached it at all.
+function describe(error: Error): string {
+  return error instanceof ApiError ? error.message : "could not reach this node"
+}
+
 /// This node's outbox: what has not reached head office yet, and a way to stop
 /// waiting for the next cycle.
 ///
@@ -53,50 +59,38 @@ function when(value: string | null): string {
 /// trade all day with nothing leaving the building and no symptom anybody
 /// would notice — the tills ring up, the stock moves, and the backlog grows.
 export function Outbox({ className }: { className?: string }) {
-  const [status, setStatus] = useState<EdgeSyncStatus | null>(null)
-  const [problem, setProblem] = useState<string | null>(null)
-  const [sending, setSending] = useState(false)
+  const queryClient = useQueryClient()
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    try {
-      setStatus(await sync.status(signal))
-      setProblem(null)
-    } catch (error) {
-      if (signal?.aborted) return
-      setProblem(
-        error instanceof ApiError ? error.message : "could not reach this node",
-      )
-    }
-  }, [])
+  const backlog = useQuery({
+    queryKey: STATUS,
+    queryFn: ({ signal }) => sync.status(signal),
+    refetchInterval: POLL_MS,
+  })
 
-  useEffect(() => {
-    const controller = new AbortController()
-    void refresh(controller.signal)
-    const timer = setInterval(() => void refresh(controller.signal), POLL_MS)
-    return () => {
-      controller.abort()
-      clearInterval(timer)
-    }
-  }, [refresh])
+  const send = useMutation({
+    mutationFn: () => sync.trigger(),
+    // Whether the sender ran or refused to, the backlog on screen was read
+    // before it happened.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: STATUS }),
+  })
 
-  const sendNow = useCallback(async () => {
-    setSending(true)
-    try {
-      const answer = await sync.trigger()
-      if (!answer.triggered) {
-        setProblem(answer.reason ?? "this node has no sender")
-      }
-      await refresh()
-    } catch (error) {
-      setProblem(
-        error instanceof ApiError ? error.message : "could not reach this node",
-      )
-    } finally {
-      setSending(false)
-    }
-  }, [refresh])
+  // A refusal is not a failure: the request reached the node and the node said
+  // no, which is worth reading in the same place as a request that never
+  // arrived.
+  const refusal =
+    send.data === undefined || send.data.triggered
+      ? null
+      : (send.data.reason ?? "this node has no sender")
+  const problem =
+    backlog.error !== null
+      ? describe(backlog.error)
+      : send.error !== null
+        ? describe(send.error)
+        : refusal
 
-  if (status === null) {
+  const status = backlog.data
+
+  if (status === undefined) {
     return (
       <Card className={className}>
         <CardHeader>
@@ -184,10 +178,10 @@ export function Outbox({ className }: { className?: string }) {
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
-            onClick={() => void sendNow()}
-            disabled={sending || !status.sender_enabled}
+            onClick={() => send.mutate()}
+            disabled={send.isPending || !status.sender_enabled}
           >
-            {sending ? "Sending…" : "Send now"}
+            {send.isPending ? "Sending…" : "Send now"}
           </Button>
           {!status.sender_enabled && (
             <span className="text-muted-foreground text-xs">

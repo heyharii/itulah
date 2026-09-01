@@ -12,7 +12,7 @@ import {
   useProfile,
   useSessions,
 } from "@/lib/hr/queries"
-import { useSession } from "@/lib/session"
+import { useSession, useSignOut } from "@/lib/session"
 
 /// Everything about the person that is not a task.
 ///
@@ -27,6 +27,12 @@ export function Me() {
   const holidays = useHolidays()
   const sessions = useSessions()
   const endSession = useEndSession()
+  /// The mutation itself rather than `session.signOut`, which is the bare
+  /// `mutate` and so cannot say whether the request is still in flight. On a
+  /// phone over shop wifi that gap is a second or more of a button that looks
+  /// untouched, and the second tap fires a second logout against a session the
+  /// first one has already ended.
+  const signOut = useSignOut()
   const { theme, setTheme } = useTheme()
 
   return (
@@ -37,20 +43,27 @@ export function Me() {
             <>
               <div className="flex items-start gap-3">
                 <div className="min-w-0">
-                  <p className="text-base font-semibold">{person.full_name}</p>
+                  {/* A record can exist before anybody has typed a name into
+                      it — accepted on Friday, enrolled on Monday. */}
+                  <p className="text-base font-semibold">
+                    {person.full_name ?? person.employee_code}
+                  </p>
                   <p className="text-[13px] text-muted-foreground">
-                    {person.job_title} · {person.department}
+                    {person.job_title ?? "No contract signed yet"}
+                    {person.grade && ` · ${person.grade}`}
                   </p>
                 </div>
                 <StatusPill status={person.status} className="ml-auto" />
               </div>
               <Separator />
-              <Row label="Employee number">{person.employee_number}</Row>
-              <Row label="Works at">{person.place_name}</Row>
-              <Row label="Manager">{person.manager_name ?? "—"}</Row>
-              <Row label="Joined">{longDate(person.joined_on)}</Row>
-              <Row label="Work email">{person.work_email ?? "—"}</Row>
-              <Row label="Phone">{person.phone ?? "—"}</Row>
+              <Row label="Employee number">{person.employee_code}</Row>
+              <Row label="Works at">{person.place_name ?? "—"}</Row>
+              {/* Null until the first HIRE takes effect, and saying so is
+                  better than a formatted "Invalid Date": somebody who has not
+                  started has no joining date yet. */}
+              <Row label="Joined">
+                {person.joined_on ? longDate(person.joined_on) : "Not started"}
+              </Row>
               <p className="text-xs text-muted-foreground">
                 Something wrong here? HR changes it — this screen only shows it.
               </p>
@@ -191,9 +204,10 @@ export function Me() {
           variant="outline"
           size="lg"
           className="h-11 w-full md:w-auto md:self-start"
-          onClick={session.signOut}
+          disabled={signOut.isPending}
+          onClick={() => signOut.mutate()}
         >
-          Sign out
+          {signOut.isPending ? "Signing out…" : "Sign out"}
         </Button>
       </Panel>
     </div>

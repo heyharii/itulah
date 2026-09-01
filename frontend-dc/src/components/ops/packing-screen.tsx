@@ -10,7 +10,6 @@ import {
   ScanField,
   SessionBar,
 } from "@/components/ops/parts"
-import { useAction } from "@/lib/action"
 import {
   Note,
   Pill,
@@ -31,8 +30,10 @@ import type {
   CaptureOutcome,
   FulfillmentProgressResult,
   Koli,
+  OutstandingLine,
 } from "@itulah/contract"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useForm } from "@tanstack/react-form"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 /// Packing, which is where the outbound flow actually decides something.
 ///
@@ -45,8 +46,9 @@ export function PackingScreen() {
   const actor = useActor()
   const client = useQueryClient()
   const [sessionId, setSessionId] = useState<string | null>(null)
+  // Not a form field: nothing is submitted with it. It chooses which store's
+  // outstanding lines are read, and every panel below is drawn from that read.
   const [destination, setDestination] = useState("")
-  const action = useAction()
 
   const sessions = useQuery({
     queryKey: keys.packingSessions(),
@@ -64,6 +66,22 @@ export function PackingScreen() {
     queryFn: ({ signal }) => dc.koli({}, signal),
   })
 
+  const openSession = useMutation({
+    mutationFn: () => dc.openPackingSession({ actor_id: actor, note: null }),
+    onSuccess: (opened) => {
+      setSessionId(opened.session_id)
+      void client.invalidateQueries({ queryKey: keys.packingSessions() })
+    },
+  })
+
+  const closeSession = useMutation({
+    mutationFn: (id: string) => dc.closePackingSession(id),
+    onSuccess: () => {
+      setSessionId(null)
+      void client.invalidateQueries({ queryKey: keys.packingSessions() })
+    },
+  })
+
   // The stores this node has actually packed for. Offered as suggestions, not
   // as a closed list: a store's first ever carton has to be possible to type.
   const knownStores = useMemo(
@@ -73,10 +91,6 @@ export function PackingScreen() {
       ).sort(),
     [boxes.data]
   )
-
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: ["dc"] })
-  }
 
   const unsealed = (boxes.data ?? []).filter((box) => box.sealed_at === null)
 
@@ -94,24 +108,15 @@ export function PackingScreen() {
             onChange={setDestination}
           />
           {destination.trim() !== "" && (
-            <FillBox
-              destination={destination.trim()}
-              actor={actor}
-              onPacked={refresh}
-            />
+            <FillBox destination={destination.trim()} actor={actor} />
           )}
           {destination.trim() !== "" && (
-            <SweepBox
-              destination={destination.trim()}
-              actor={actor}
-              onSwept={refresh}
-            />
+            <SweepBox destination={destination.trim()} actor={actor} />
           )}
           <Boxes
             boxes={boxes.data ?? []}
             loading={boxes.isPending}
             sessionId={sessionId}
-            onChanged={refresh}
           />
         </div>
 
@@ -120,29 +125,10 @@ export function PackingScreen() {
             kind="Packing"
             sessions={sessions.data ?? []}
             activeId={sessionId}
-            pending={action.pending}
+            pending={openSession.isPending || closeSession.isPending}
             onSelect={setSessionId}
-            onOpen={() =>
-              void action.run(async () => {
-                const opened = await dc.openPackingSession({
-                  actor_id: actor,
-                  note: null,
-                })
-                setSessionId(opened.session_id)
-                void client.invalidateQueries({
-                  queryKey: keys.packingSessions(),
-                })
-              })
-            }
-            onClose={(id) =>
-              void action.run(async () => {
-                await dc.closePackingSession(id)
-                setSessionId(null)
-                void client.invalidateQueries({
-                  queryKey: keys.packingSessions(),
-                })
-              })
-            }
+            onOpen={() => openSession.mutate()}
+            onClose={(id) => closeSession.mutate(id)}
           >
             {summary.data !== undefined && (
               <>
@@ -157,7 +143,7 @@ export function PackingScreen() {
             )}
           </SessionBar>
 
-          <Problem error={action.error} />
+          <Problem error={openSession.error ?? closeSession.error} />
 
           <Note>
             <strong className="font-medium text-foreground">
@@ -251,15 +237,33 @@ function Destination({
 function FillBox({
   destination,
   actor,
-  onPacked,
 }: {
   destination: string
   actor: string
-  onPacked: () => void
 }) {
-  const action = useAction()
+  const client = useQueryClient()
+  // Not a form: nothing here is typed or edited. A chip is either in the box
+  // or tapped back out of it, and the last answer below is a result to read.
   const [epcs, setEpcs] = useState<string[]>([])
   const [packed, setPacked] = useState<FulfillmentProgressResult | null>(null)
+
+  const pack = useMutation({
+    mutationFn: () =>
+      dc.packKoli({
+        destination_store_id: destination,
+        epcs,
+        actor_id: actor,
+        idempotency_key: idempotencyKey(),
+      }),
+    onSuccess: (result) => {
+      setPacked(result)
+      setEpcs([])
+      // A packed box changes the boxes on the floor, what this store still has
+      // coming, the round's totals and the outbound pools behind all of them.
+      void client.invalidateQueries({ queryKey: ["dc"] })
+      void client.invalidateQueries({ queryKey: keys.pools() })
+    },
+  })
 
   const add = (value: string) => {
     const epc = value.trim().toUpperCase()
@@ -270,19 +274,6 @@ function FillBox({
     // right here: the alternative is a box that claims more than it holds.
     setEpcs((current) => (current.includes(epc) ? current : [...current, epc]))
   }
-
-  const pack = () =>
-    void action.run(async () => {
-      const result = await dc.packKoli({
-        destination_store_id: destination,
-        epcs,
-        actor_id: actor,
-        idempotency_key: idempotencyKey(),
-      })
-      setPacked(result)
-      setEpcs([])
-      onPacked()
-    })
 
   return (
     <Panel
@@ -310,8 +301,8 @@ function FillBox({
           <div className="border-t px-4 py-3">
             <Button
               className="h-(--tap) w-full"
-              disabled={action.pending}
-              onClick={pack}
+              disabled={pack.isPending}
+              onClick={() => pack.mutate()}
             >
               Pack {epcs.length} into a box for {destination}
             </Button>
@@ -319,7 +310,7 @@ function FillBox({
         </>
       )}
 
-      <Problem error={action.error} />
+      <Problem error={pack.error} />
 
       {packed !== null && (
         <div className="border-t px-4 py-3">
@@ -350,14 +341,12 @@ function Boxes({
   boxes,
   loading,
   sessionId,
-  onChanged,
 }: {
   boxes: readonly Koli[]
   loading: boolean
   sessionId: string | null
-  onChanged: () => void
 }) {
-  const action = useAction()
+  const client = useQueryClient()
   const [openManifest, setOpenManifest] = useState<string | null>(null)
 
   const manifest = useQuery({
@@ -365,6 +354,41 @@ function Boxes({
     queryFn: ({ signal }) => dc.koliManifest(openManifest as string, signal),
     enabled: openManifest !== null,
   })
+
+  const seal = useMutation({
+    mutationFn: (koliId: string) => dc.sealKoli(koliId),
+    // A sealed box leaves the packing queue and joins the shipping one, and
+    // its stock moves with it. Sealing used to leave the row saying "open".
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.koli() })
+      void client.invalidateQueries({ queryKey: keys.packingSessions() })
+      void client.invalidateQueries({ queryKey: ["dc", "packing-session"] })
+      void client.invalidateQueries({ queryKey: keys.pools() })
+    },
+  })
+
+  const claim = useMutation({
+    mutationFn: (input: { koliId: string; sessionId: string }) =>
+      dc.assignKoli(input.koliId, input.sessionId),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.koli() })
+      void client.invalidateQueries({ queryKey: ["dc", "packing-session"] })
+    },
+  })
+
+  // Printing changes nothing a screen reads — the sticker comes out of a
+  // machine — so this is the one write here with nothing to invalidate.
+  const label = useMutation({
+    mutationFn: (koliId: string) => {
+      const printer = loadPrinter()
+      return dc.printKoliLabel(koliId, {
+        printer_host: printer.host,
+        printer_port: printer.port,
+      })
+    },
+  })
+
+  const pending = seal.isPending || claim.isPending || label.isPending
 
   return (
     <Panel title="Boxes" meta={`${boxes.length} on the floor`}>
@@ -384,7 +408,7 @@ function Boxes({
               <ConfirmButton
                 label="Seal"
                 className="h-(--tap)"
-                disabled={action.pending}
+                disabled={pending}
                 title={`Seal ${box.koli_number}`}
                 description={
                   <>
@@ -394,11 +418,7 @@ function Boxes({
                   </>
                 }
                 confirmLabel="Seal it"
-                onConfirm={() =>
-                  void action
-                    .run(() => dc.sealKoli(box.koli_id))
-                    .then((done) => done && onChanged())
-                }
+                onConfirm={() => seal.mutate(box.koli_id)}
               />
             ) : (
               <Pill tone="good">sealed</Pill>
@@ -418,19 +438,11 @@ function Boxes({
               <Button
                 variant="outline"
                 className="h-(--tap)"
-                disabled={action.pending}
-                onClick={() => {
-                  // The sticker's ZPL comes back with the manifest, so the
-                  // label on the outside of the carton and the list of what is
-                  // inside it can never be rendered from two different reads.
-                  const printer = loadPrinter()
-                  void action.run(() =>
-                    dc.printKoliLabel(box.koli_id, {
-                      printer_host: printer.host,
-                      printer_port: printer.port,
-                    })
-                  )
-                }}
+                disabled={pending}
+                // The sticker's ZPL comes back with the manifest, so the label
+                // on the outside of the carton and the list of what is inside
+                // it can never be rendered from two different reads.
+                onClick={() => label.mutate(box.koli_id)}
               >
                 Label
               </Button>
@@ -439,12 +451,8 @@ function Boxes({
               <Button
                 variant="ghost"
                 className="h-(--tap)"
-                disabled={action.pending}
-                onClick={() =>
-                  void action
-                    .run(() => dc.assignKoli(box.koli_id, sessionId))
-                    .then((done) => done && onChanged())
-                }
+                disabled={pending}
+                onClick={() => claim.mutate({ koliId: box.koli_id, sessionId })}
               >
                 Claim
               </Button>
@@ -489,7 +497,7 @@ function Boxes({
           )}
         </div>
       ))}
-      <Problem error={action.error} />
+      <Problem error={seal.error ?? claim.error ?? label.error} />
     </Panel>
   )
 }
@@ -504,17 +512,13 @@ function Boxes({
 function SweepBox({
   destination,
   actor,
-  onSwept,
 }: {
   destination: string
   actor: string
-  onSwept: () => void
 }) {
-  const action = useAction()
+  const client = useQueryClient()
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [target, setTarget] = useState<Record<string, string>>({})
   const [outcome, setOutcome] = useState<CaptureOutcome | null>(null)
-  const [reader, setReader] = useState("")
 
   const outstanding = useQuery({
     queryKey: keys.outstanding(destination),
@@ -522,49 +526,52 @@ function SweepBox({
   })
 
   const box = useQuery({
-    queryKey: ["dc", "packing-box", sessionId ?? ""],
+    queryKey: keys.packingBox(sessionId ?? ""),
     queryFn: ({ signal }) => dc.packingBox(sessionId as string, signal),
     enabled: sessionId !== null,
   })
 
-  const openBox = () => {
-    const lines = Object.entries(target)
-      .map(([sku_code, quantity]) => ({
-        sku_code,
-        target_qty: Number(quantity),
-      }))
-      .filter(
-        (line) => Number.isInteger(line.target_qty) && line.target_qty > 0
-      )
-    if (lines.length === 0) {
-      return
-    }
-    void action.run(async () => {
-      const opened = await dc.openPackingBox({
+  const openBox = useMutation({
+    mutationFn: (target: { sku_code: string; target_qty: number }[]) =>
+      dc.openPackingBox({
         destination_store_id: destination,
-        target: lines,
+        target,
         actor_id: actor,
         note: null,
-      })
+      }),
+    onSuccess: (opened) => {
       setSessionId(opened.session.session_id)
       setOutcome(null)
-    })
-  }
+      void client.invalidateQueries({ queryKey: keys.packingSessions() })
+    },
+  })
 
-  const sweep = () =>
-    void action.run(async () => {
-      if (sessionId === null || reader.trim() === "") {
+  const sweep = useMutation({
+    mutationFn: (reader: string) =>
+      dc.captureBox(sessionId as string, reader.trim()),
+    onSuccess: (result) => {
+      setOutcome(result)
+      if (!result.matched) {
+        // A sweep that disagreed changed nothing: the box is still open and
+        // still wanting the same pieces, and the difference is on screen.
         return
       }
-      const result = await dc.captureBox(sessionId, reader.trim())
-      setOutcome(result)
-      if (result.matched) {
-        setSessionId(null)
-        setTarget({})
-        setReader("")
-        onSwept()
+      setSessionId(null)
+      readerForm.reset()
+      void client.invalidateQueries({ queryKey: ["dc"] })
+      void client.invalidateQueries({ queryKey: keys.pools() })
+    },
+  })
+
+  const readerForm = useForm({
+    defaultValues: { reader: "" },
+    onSubmit: ({ value }) => {
+      if (sessionId === null || value.reader.trim() === "") {
+        return
       }
-    })
+      sweep.mutate(value.reader)
+    },
+  })
 
   return (
     <Panel
@@ -584,39 +591,13 @@ function SweepBox({
           {outstanding.data?.length === 0 && (
             <ScreenState>Nothing to target for this store yet.</ScreenState>
           )}
-          {outstanding.data?.map((line) => (
-            <div
-              key={line.sku_code}
-              className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
-            >
-              <RowText code={line.sku_code}>
-                {line.outstanding} can go now
-              </RowText>
-              <Input
-                value={target[line.sku_code] ?? ""}
-                inputMode="numeric"
-                placeholder="0"
-                className="h-(--tap) w-24 text-center font-mono"
-                onChange={(event) =>
-                  setTarget((current) => ({
-                    ...current,
-                    [line.sku_code]: event.target.value,
-                  }))
-                }
-              />
-            </div>
-          ))}
-          {(outstanding.data?.length ?? 0) > 0 && (
-            <div className="border-t px-4 py-3">
-              <Button
-                variant="secondary"
-                className="h-(--tap) w-full"
-                disabled={action.pending}
-                onClick={openBox}
-              >
-                Open a box with this target
-              </Button>
-            </div>
+          {outstanding.data !== undefined && outstanding.data.length > 0 && (
+            <TargetForm
+              key={destination}
+              lines={outstanding.data}
+              pending={openBox.isPending}
+              onOpen={(target) => openBox.mutate(target)}
+            />
           )}
         </>
       ) : (
@@ -647,21 +628,39 @@ function SweepBox({
             )
           })}
 
-          <div className="flex flex-wrap gap-2 border-t px-4 py-3">
-            <Input
-              value={reader}
-              placeholder="Reader session id"
-              className="h-(--tap) min-w-40 flex-1 font-mono"
-              onChange={(event) => setReader(event.target.value)}
-            />
-            <Button
-              className="h-(--tap)"
-              disabled={action.pending || reader.trim() === ""}
-              onClick={sweep}
+          <form
+            className="flex flex-wrap gap-2 border-t px-4 py-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void readerForm.handleSubmit()
+            }}
+          >
+            <readerForm.Field name="reader">
+              {(field) => (
+                <Input
+                  value={field.state.value}
+                  placeholder="Reader session id"
+                  className="h-(--tap) min-w-40 flex-1 font-mono"
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              )}
+            </readerForm.Field>
+            <readerForm.Subscribe
+              selector={(state) => state.values.reader.trim() === ""}
             >
-              Sweep
-            </Button>
+              {(empty) => (
+                <Button
+                  type="submit"
+                  className="h-(--tap)"
+                  disabled={sweep.isPending || empty}
+                >
+                  Sweep
+                </Button>
+              )}
+            </readerForm.Subscribe>
             <Button
+              type="button"
               variant="ghost"
               className="h-(--tap)"
               onClick={() => {
@@ -671,7 +670,7 @@ function SweepBox({
             >
               Leave it
             </Button>
-          </div>
+          </form>
         </>
       )}
 
@@ -698,7 +697,82 @@ function SweepBox({
           )}
         </div>
       )}
-      <Problem error={action.error} />
+      <Problem error={openBox.error ?? sweep.error} />
     </Panel>
+  )
+}
+
+/// What the box is meant to hold, written down before anything goes in it.
+///
+/// One field per outstanding SKU, mounted from the store's own list — which is
+/// why this is a component of its own: the fields cannot exist before the read
+/// that says what they are.
+function TargetForm({
+  lines,
+  pending,
+  onOpen,
+}: {
+  lines: readonly OutstandingLine[]
+  pending: boolean
+  onOpen: (target: { sku_code: string; target_qty: number }[]) => void
+}) {
+  const form = useForm({
+    defaultValues: {
+      target: lines.map((line) => ({ sku_code: line.sku_code, quantity: "" })),
+    },
+    onSubmit: ({ value }) => {
+      const wanted = value.target
+        .map((line) => ({
+          sku_code: line.sku_code,
+          target_qty: Number(line.quantity),
+        }))
+        .filter(
+          (line) => Number.isInteger(line.target_qty) && line.target_qty > 0
+        )
+      if (wanted.length === 0) {
+        return
+      }
+      onOpen(wanted)
+    },
+  })
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        void form.handleSubmit()
+      }}
+    >
+      {lines.map((line, index) => (
+        <div
+          key={line.sku_code}
+          className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
+        >
+          <RowText code={line.sku_code}>{line.outstanding} can go now</RowText>
+          <form.Field name={`target[${index}].quantity`}>
+            {(field) => (
+              <Input
+                value={field.state.value}
+                inputMode="numeric"
+                placeholder="0"
+                className="h-(--tap) w-24 text-center font-mono"
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            )}
+          </form.Field>
+        </div>
+      ))}
+      <div className="border-t px-4 py-3">
+        <Button
+          type="submit"
+          variant="secondary"
+          className="h-(--tap) w-full"
+          disabled={pending}
+        >
+          Open a box with this target
+        </Button>
+      </div>
+    </form>
   )
 }

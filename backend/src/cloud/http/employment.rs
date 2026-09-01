@@ -136,6 +136,9 @@ fn invalid(error: impl std::fmt::Display) -> AppError {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AssignmentView {
     pub place_id: String,
+    /// The place's own name. Sent because a screen showing `ho` where it means
+    /// "Head Office" is an identifier that has escaped into the interface.
+    pub place_name: Option<String>,
     pub valid_from: NaiveDate,
     pub valid_to: Option<NaiveDate>,
     pub actor: String,
@@ -174,6 +177,7 @@ pub struct EmployeeView {
     /// "still here" and disagrees with the domain.
     pub selectable: bool,
     pub current_place_id: Option<String>,
+    pub current_place_name: Option<String>,
     pub assignments: Vec<AssignmentView>,
     pub history: Vec<EmploymentEventView>,
     pub code_history: Vec<EmployeeCodeCorrectionView>,
@@ -280,6 +284,7 @@ fn assignment_views(record: &EmployeeRecord) -> Vec<AssignmentView> {
         .iter()
         .map(|span| AssignmentView {
             place_id: span.place_id().to_string(),
+            place_name: record.place_names.get(span.place_id().as_str()).cloned(),
             valid_from: span.from(),
             valid_to: span.to(),
             actor: span.authorization().actor().to_string(),
@@ -298,6 +303,10 @@ fn employee_view(record: &EmployeeRecord) -> EmployeeView {
             .assignments
             .current()
             .map(|span| span.place_id().to_string()),
+        current_place_name: record
+            .assignments
+            .current()
+            .and_then(|span| record.place_names.get(span.place_id().as_str()).cloned()),
         assignments: assignment_views(record),
         history: record
             .employee
@@ -643,10 +652,10 @@ pub async fn employment_profile(
 
     let current = record.assignments.current();
     let place_id = current.map(|span| span.place_id().to_string());
-    let place_name = match &place_id {
-        Some(place_id) => infrastructure::place_name(&state.db, place_id).await?,
-        None => None,
-    };
+    // Already loaded beside the timeline, so no second query for one word.
+    let place_name = place_id
+        .as_ref()
+        .and_then(|place_id| record.place_names.get(place_id).cloned());
     let latest = record.contracts.current();
 
     Ok(Json(EmploymentProfileView {

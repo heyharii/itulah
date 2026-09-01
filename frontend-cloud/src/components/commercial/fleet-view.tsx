@@ -1,12 +1,6 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/custom/table"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { exhausted, fleetColumns, usageColumns } from "@/components/commercial/columns"
+import { CommercialTable, useCommercialTable } from "@/components/commercial/data-table"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import type { PromotionUsage, ShopActivation } from "@/lib/commercial"
@@ -18,13 +12,13 @@ import {
   usageKey,
 } from "@/lib/commercial"
 import { useIdentity } from "@/lib/identity"
-import { money, units } from "@/lib/money"
+import { units } from "@/lib/money"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { AlertTriangle, Radio, Tag } from "lucide-react"
-import { useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 
 /// Which shop is charging which price book, and what the promotions have cost.
 ///
@@ -50,7 +44,16 @@ export function FleetView() {
     refetchInterval: 60_000,
   })
 
-  const shops = fleet.data?.items ?? []
+  const shops = useMemo(() => [...(fleet.data?.items ?? [])], [fleet.data])
+  /// Furthest behind first, which is the whole question this screen answers.
+  /// Shops that have never taken up a book sort above the rest — see the note
+  /// on the column, which sorts them with `nullsLast`.
+  const table = useCommercialTable({
+    data: shops,
+    columns: fleetColumns,
+    getRowId: originId,
+    sorting: [{ id: "behind_by", desc: true }],
+  })
   const newest = fleet.data?.newest_published_version ?? null
   // Two different kinds of trouble, and worth counting apart: a shop that is
   // behind has an old price; a shop that has never activated has no price book
@@ -59,8 +62,9 @@ export function FleetView() {
   const never = shops.filter((shop) => !shop.has_ever_activated).length
 
   return (
-    <AppShell nav={<Nav />}>
+    <AppShell data-cloudhub nav={<Nav />}>
       <ScreenHeader
+        eyebrow="Commercial"
         title="Fleet"
         subtitle={
           fleet.isPending
@@ -76,7 +80,7 @@ export function FleetView() {
       </ScreenHeader>
 
       {(behind > 0 || never > 0) && (
-        <div className="flex items-start gap-2 border-b bg-amber-50 px-3.5 py-2 text-[11.5px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
+        <div className="flex items-start gap-2 border-b bg-[var(--os-warn-bg,#f8f1de)] px-3.5 py-2 text-[11.5px] text-[var(--os-warn,#b7791f)]">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           <span>
             {never > 0 && (
@@ -97,7 +101,7 @@ export function FleetView() {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScreenBody>
         {fleet.isPending ? (
           <ScreenState>Asking the shops…</ScreenState>
         ) : fleet.isError ? (
@@ -119,92 +123,35 @@ export function FleetView() {
           </ScreenState>
         ) : (
           <>
-            <Table>
-              <TableHeader className="bg-muted/50">
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Shop</TableHead>
-                  <TableHead>Charging from</TableHead>
-                  <TableHead className="text-right">Behind</TableHead>
-                  <TableHead className="text-right">Prices received</TableHead>
-                  <TableHead>Since</TableHead>
-                  <TableHead>Centre heard</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {shops.map((shop) => (
-                  <ShopRow key={shop.origin_id} shop={shop} />
-                ))}
-              </TableBody>
-            </Table>
+            <CommercialTable
+              table={table}
+              rowClassName={(row) =>
+                cn(
+                  // Two different kinds of trouble, and they do not read the
+                  // same: never activated is a shop with no price book at all.
+                  !row.original.has_ever_activated && "bg-destructive/5",
+                  row.original.has_ever_activated &&
+                    (row.original.behind_by ?? 0) > 0 &&
+                    "bg-[var(--os-warn-bg,#f8f1de)]/40",
+                )
+              }
+            />
             <UsagePanel rows={usage.data ?? []} loading={usage.isPending} />
           </>
         )}
-      </div>
+      </ScreenBody>
     </AppShell>
   )
 }
 
-function ShopRow({ shop }: { shop: ShopActivation }) {
-  const behind = shop.behind_by ?? 0
-  return (
-    <TableRow
-      className={cn(
-        !shop.has_ever_activated && "bg-destructive/5",
-        shop.has_ever_activated && behind > 0 && "bg-amber-50/40 dark:bg-amber-950/10",
-      )}
-    >
-      <TableCell>
-        <div className="flex flex-col">
-          <span className="text-xs">{shop.label ?? shop.origin_id}</span>
-          <span className="text-muted-foreground font-mono text-[10.5px]">
-            {shop.site_id ?? shop.origin_id}
-          </span>
-        </div>
-      </TableCell>
-      <TableCell>
-        {shop.version === null ? (
-          <span className="text-destructive text-xs">nothing, ever</span>
-        ) : (
-          <div className="flex flex-col">
-            <span className="font-mono text-xs">v{shop.version}</span>
-            {shop.book_name !== null && (
-              <span className="text-muted-foreground max-w-48 truncate text-[10.5px]">
-                {shop.book_name}
-              </span>
-            )}
-          </div>
-        )}
-      </TableCell>
-      <TableCell className="text-right">
-        {shop.behind_by === null ? (
-          <span className="text-muted-foreground text-[11px]">—</span>
-        ) : behind === 0 ? (
-          <span className="text-[11px] text-emerald-600">up to date</span>
-        ) : (
-          <span className="font-mono text-xs tabular-nums text-amber-700 dark:text-amber-500">
-            {units(behind)} book{behind === 1 ? "" : "s"}
-          </span>
-        )}
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs tabular-nums">
-        {shop.price_rule_count === null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          units(shop.price_rule_count)
-        )}
-      </TableCell>
-      <TableCell className="text-muted-foreground font-mono text-[10.5px] whitespace-nowrap">
-        {shop.activated_at === null
-          ? "—"
-          : new Date(shop.activated_at).toLocaleString("id-ID")}
-      </TableCell>
-      <TableCell className="text-muted-foreground font-mono text-[10.5px] whitespace-nowrap">
-        {shop.reported_at === null
-          ? "—"
-          : new Date(shop.reported_at).toLocaleString("id-ID")}
-      </TableCell>
-    </TableRow>
-  )
+function originId(shop: ShopActivation): string {
+  return shop.origin_id
+}
+
+/// A rule, a campaign and a coupon can share a key without meaning the same
+/// thing, so the kind is part of the identity.
+function usageId(row: PromotionUsage): string {
+  return `${row.kind}:${row.key}`
 }
 
 /// What promotions have actually given away.
@@ -224,6 +171,16 @@ function UsagePanel({
   const identity = useIdentity()
   const key = useRef(crypto.randomUUID())
   const [sent, setSent] = useState<number | null>(null)
+
+  // Biggest spend first. A promotion that has given away the most is the one
+  // somebody is here about; the alphabetical order the server returns is the
+  // order the rules happened to be written in.
+  const usage = useCommercialTable({
+    data: useMemo(() => [...rows], [rows]),
+    columns: usageColumns,
+    getRowId: usageId,
+    sorting: [{ id: "spent_minor", desc: true }],
+  })
 
   const send = useMutation({
     mutationFn: () => publishUsageToFleet(identity.data?.username ?? "", key.current),
@@ -264,7 +221,7 @@ function UsagePanel({
         </p>
       )}
       {sent !== null && !send.isError && (
-        <p className="px-3.5 pb-2 text-[11.5px] text-emerald-700 dark:text-emerald-400">
+        <p className="px-3.5 pb-2 text-[11.5px] text-[var(--os-ok,#047857)]">
           Queued for {units(sent)} shop{sent === 1 ? "" : "s"}. Each applies it when it next
           syncs.
         </p>
@@ -277,89 +234,13 @@ function UsagePanel({
           No promotion has been used yet. This fills in from sales as they arrive.
         </p>
       ) : (
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Promotion</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead className="text-right">Used</TableHead>
-              <TableHead className="text-right">Given away</TableHead>
-              <TableHead className="text-right">Shoppers</TableHead>
-              <TableHead>Last used</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => (
-              <UsageRow key={`${row.kind}:${row.key}`} row={row} />
-            ))}
-          </TableBody>
-        </Table>
+        <CommercialTable
+          table={usage}
+          rowClassName={(row) =>
+            exhausted(row.original) ? "bg-[var(--os-warn-bg,#f8f1de)]/40" : undefined
+          }
+        />
       )}
     </div>
-  )
-}
-
-function UsageRow({ row }: { row: PromotionUsage }) {
-  // An unlimited budget is not a full bar and not an empty one — there is no
-  // bar. Drawing one would invent a ceiling nobody set.
-  const capped = row.budget_minor !== null && row.budget_minor > 0
-  const share = capped ? Math.min(1, row.spent_minor / (row.budget_minor ?? 1)) : null
-  const spentOut = capped && row.spent_minor >= (row.budget_minor ?? 0)
-  const usedUp = row.max_uses !== null && row.uses >= row.max_uses
-  return (
-    <TableRow className={cn((spentOut || usedUp) && "bg-amber-50/40 dark:bg-amber-950/10")}>
-      <TableCell>
-        <div className="flex flex-col">
-          <span className="text-xs">{row.name ?? row.key}</span>
-          <span className="text-muted-foreground font-mono text-[10.5px]">{row.key}</span>
-        </div>
-      </TableCell>
-      <TableCell>
-        <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10.5px]">
-          {row.kind === "RULE" ? "Rule" : row.kind === "CAMPAIGN" ? "Campaign" : "Coupon"}
-        </span>
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs tabular-nums">
-        {units(row.uses)}
-        {row.max_uses !== null && (
-          <span className={cn("text-muted-foreground", usedUp && "text-amber-700")}>
-            {" / "}
-            {units(row.max_uses)}
-          </span>
-        )}
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex flex-col items-end gap-1">
-          <span
-            className={cn(
-              "font-mono text-xs tabular-nums",
-              spentOut && "font-medium text-amber-700 dark:text-amber-500",
-            )}
-          >
-            {money(row.spent_minor)}
-            {capped && (
-              <span className="text-muted-foreground">
-                {" / "}
-                {money(row.budget_minor ?? 0)}
-              </span>
-            )}
-          </span>
-          {share !== null && (
-            <div className="bg-muted h-1 w-20 overflow-hidden rounded-full">
-              <div
-                className={cn("h-full", spentOut ? "bg-amber-600" : "bg-emerald-500")}
-                style={{ width: `${share * 100}%` }}
-              />
-            </div>
-          )}
-        </div>
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs tabular-nums">
-        {units(row.customer_count)}
-      </TableCell>
-      <TableCell className="text-muted-foreground font-mono text-[10.5px] whitespace-nowrap">
-        {new Date(row.last_used_at).toLocaleString("id-ID")}
-      </TableCell>
-    </TableRow>
   )
 }

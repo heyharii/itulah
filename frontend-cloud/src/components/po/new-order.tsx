@@ -9,7 +9,6 @@ import {
 import { listSuppliers } from "@/lib/sourcing"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
 
 /// Starting an order by naming its supplier.
 ///
@@ -78,13 +77,4 @@ export function SupplierPicker({
       </CommandList>
     </CommandDialog>
   )
-}
-
-/// The picker plus the state it needs, for a header that only wants a button.
-export function useSupplierPicker() {
-  const [open, setOpen] = useState(false)
-  return {
-    open: () => setOpen(true),
-    picker: <SupplierPicker open={open} onOpenChange={setOpen} />,
-  }
 }

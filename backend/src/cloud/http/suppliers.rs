@@ -21,6 +21,10 @@ use uuid::Uuid;
 pub struct CatalogListQuery {
     #[serde(default)]
     status: Option<SupplierStatus>,
+    #[serde(default)]
+    cursor: Option<Uuid>,
+    #[serde(default)]
+    limit: Option<i64>,
 }
 
 /// What a sourcing screen asks for.
@@ -287,9 +291,16 @@ pub async fn list_supplier_items(
     State(state): State<AppState>,
     Path(supplier_id): Path<Uuid>,
     Query(query): Query<CatalogListQuery>,
-) -> Result<Json<Vec<crate::cloud::domain::SupplierItem>>, AppError> {
+) -> Result<Json<serde_json::Value>, AppError> {
     Ok(Json(
-        infrastructure::list_supplier_items(&state.db, supplier_id, query.status).await?,
+        infrastructure::list_supplier_items_page(
+            &state.db,
+            supplier_id,
+            query.status,
+            query.cursor,
+            query.limit,
+        )
+        .await?,
     ))
 }
 

@@ -1,4 +1,5 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { Segmented } from "@/components/custom/segmented"
 import {
   Table,
   TableBody,
@@ -22,17 +23,30 @@ import {
   simulate,
 } from "@/lib/commercial"
 import { money, units } from "@/lib/money"
-import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
+import { useForm, useStore } from "@tanstack/react-form"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { Play, Plus, Tag, X } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 
 interface DraftLine {
   readonly id: string
   readonly sku_code: string
   readonly quantity: number
+}
+
+/// The basket somebody is building, before any of it is sent.
+interface Draft {
+  site: string
+  channel: CommercialChannel
+  /// Blank is now. The engine takes the instant as an argument, so asking what
+  /// the fleet will charge on the first morning of a campaign is the same code
+  /// path as asking what it charges at this second.
+  at: string
+  coupon: string
+  tier: string
+  lines: DraftLine[]
 }
 
 /// Price a basket nobody is buying.
@@ -60,15 +74,37 @@ export function SimulateView() {
     )
   }, [destinations.data])
 
-  const [chosen, setChosen] = useState("")
+  /// Every value on this screen is a field of one request.
+  ///
+  /// It was seven `useState`s and a hand-rolled array editor, which is the
+  /// shape a form takes when nobody has said out loud that it is one. The
+  /// tell was `setLines((current) => current.map(...))` written twice, once
+  /// per editable cell: a form owns that, and gets `pushFieldValue` and
+  /// `removeFieldValue` with it.
+  ///
+  /// The shop is a field too even though it also chooses the catalogue. It is
+  /// sent with the basket — pricing the same basket at two shops is the second
+  /// most common thing done on this screen — so it belongs to the request and
+  /// not to the chrome around it.
+  const form = useForm({
+    defaultValues: {
+      site: "",
+      channel: "STORE",
+      at: "",
+      coupon: "",
+      tier: "",
+      lines: [{ id: crypto.randomUUID(), sku_code: "", quantity: 1 }],
+    } as Draft,
+    onSubmit: ({ value }) => run.mutateAsync(value),
+  })
+
+  const chosen = useStore(form.store, (state) => state.values.site)
+  const channel = useStore(form.store, (state) => state.values.channel)
+  const lines = useStore(form.store, (state) => state.values.lines)
+  // Nothing is chosen until somebody chooses, and the first shop is the one the
+  // screen opens on. Left as a fallback rather than written into the field so
+  // that "not yet chosen" and "chose the first one" stay different states.
   const site = chosen !== "" ? chosen : (shops[0]?.site_id ?? "")
-  const [channel, setChannel] = useState<CommercialChannel>("STORE")
-  const [at, setAt] = useState("")
-  const [coupon, setCoupon] = useState("")
-  const [tier, setTier] = useState("")
-  const [lines, setLines] = useState<DraftLine[]>([
-    { id: crypto.randomUUID(), sku_code: "", quantity: 1 },
-  ])
 
   // The shop's own priced range, so the basket is built by picking real
   // products rather than by typing codes and finding out they were wrong only
@@ -81,113 +117,110 @@ export function SimulateView() {
   const products = catalogue.data?.items ?? []
 
   const run = useMutation({
-    mutationFn: () =>
+    mutationFn: (value: Draft) =>
       simulate({
         site_id: site,
-        channel,
-        at: localInstantToIso(at),
-        lines: lines
+        channel: value.channel,
+        at: localInstantToIso(value.at),
+        lines: value.lines
           .filter((line) => line.sku_code !== "" && line.quantity > 0)
           .map((line) => ({ sku_code: line.sku_code, quantity: line.quantity })),
-        coupon_codes: coupon.trim() === "" ? [] : [coupon.trim()],
-        customer_tier: tier.trim() === "" ? undefined : tier.trim(),
+        coupon_codes: value.coupon.trim() === "" ? [] : [value.coupon.trim()],
+        customer_tier: value.tier.trim() === "" ? undefined : value.tier.trim(),
       }),
   })
 
   const usable = lines.some((line) => line.sku_code !== "" && line.quantity > 0)
 
   return (
-    <AppShell nav={<Nav />}>
+    <AppShell data-cloudhub nav={<Nav />}>
       <ScreenHeader
+        eyebrow="Commercial"
         title="Test a basket"
         subtitle={site === "" ? "pick a shop" : `${units(products.length)} products to pick from`}
       >
-        <select
-          value={site}
-          onChange={(event) => setChosen(event.target.value)}
-          aria-label="Shop"
-          className="border-input bg-background h-8 max-w-40 rounded-md border px-2 text-xs"
-        >
-          {shops.length === 0 && <option value="">No shops</option>}
-          {shops.map((shop) => (
-            <option key={shop.site_id} value={shop.site_id}>
-              {shop.label}
-            </option>
-          ))}
-        </select>
-        <div className="bg-muted flex items-center gap-0.5 rounded-md p-0.5">
-          {CHANNELS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setChannel(option)}
-              className={cn(
-                "rounded px-2 py-1 text-[11px] capitalize transition-colors",
-                channel === option
-                  ? "bg-background shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
+        <form.Field name="site">
+          {(field) => (
+            <select
+              value={site}
+              onChange={(event) => field.handleChange(event.target.value)}
+              aria-label="Shop"
+              className="border-input bg-background h-8 max-w-40 rounded-[var(--os-r-inner,9px)] border px-2 text-xs"
             >
-              {option.toLowerCase()}
-            </button>
-          ))}
-        </div>
+              {shops.length === 0 && <option value="">No shops</option>}
+              {shops.map((shop) => (
+                <option key={shop.site_id} value={shop.site_id}>
+                  {shop.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </form.Field>
+        <form.Field name="channel">
+          {(field) => (
+            <Segmented
+              size="sm"
+              value={field.state.value}
+              onChange={(value) => field.handleChange(value)}
+              options={CHANNELS.map((option) => ({
+                id: option,
+                label: option.toLowerCase(),
+              }))}
+            />
+          )}
+        </form.Field>
         <Button size="sm" variant="outline" nativeButton={false} render={<Link to="/commercial" />}>
           <Tag className="size-3.5" />
           Prices
         </Button>
       </ScreenHeader>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[380px_minmax(0,1fr)]">
-        <div className="min-h-0 overflow-auto border-r p-3.5">
+      <ScreenBody card={false} className="grid min-h-0 flex-1 grid-cols-1 gap-[1.125rem] lg:grid-cols-[380px_minmax(0,1fr)]">
+        <div className="os-card min-h-0 overflow-auto p-3.5">
           <h2 className="mb-2 text-xs font-semibold">The basket</h2>
           <div className="flex flex-col gap-2">
-            {lines.map((line) => (
+            {lines.map((line, index) => (
               <div key={line.id} className="flex items-center gap-1.5">
-                <select
-                  value={line.sku_code}
-                  onChange={(event) =>
-                    setLines((current) =>
-                      current.map((row) =>
-                        row.id === line.id ? { ...row, sku_code: event.target.value } : row,
-                      ),
-                    )
-                  }
-                  aria-label="Product"
-                  className="border-input bg-background h-8 min-w-0 flex-1 rounded-md border px-2 text-xs"
-                >
-                  <option value="">Pick a product…</option>
-                  {products.map((product) => (
-                    <option key={product.sku_code} value={product.sku_code}>
-                      {product.article_name} · {product.sku_code} ·{" "}
-                      {money(product.unit_price_minor, product.currency)}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  type="number"
-                  min={1}
-                  value={line.quantity}
-                  onChange={(event) =>
-                    setLines((current) =>
-                      current.map((row) =>
-                        row.id === line.id
-                          ? { ...row, quantity: Number(event.target.value) || 1 }
-                          : row,
-                      ),
-                    )
-                  }
-                  aria-label="Quantity"
-                  className="h-8 w-16 text-xs"
-                />
+                <form.Field name={`lines[${index}].sku_code`}>
+                  {(field) => (
+                    <select
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      aria-label="Product"
+                      className="border-input bg-background h-8 min-w-0 flex-1 rounded-[var(--os-r-inner,9px)] border px-2 text-xs"
+                    >
+                      <option value="">Pick a product…</option>
+                      {products.map((product) => (
+                        <option key={product.sku_code} value={product.sku_code}>
+                          {product.article_name} · {product.sku_code} ·{" "}
+                          {money(product.unit_price_minor, product.currency)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </form.Field>
+                <form.Field name={`lines[${index}].quantity`}>
+                  {(field) => (
+                    <Input
+                      type="number"
+                      min={1}
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      // A quantity of nought is not a line somebody meant to
+                      // write, and the engine would price it as nothing at all.
+                      onChange={(event) => field.handleChange(Number(event.target.value) || 1)}
+                      aria-label="Quantity"
+                      className="h-8 w-16 text-xs"
+                    />
+                  )}
+                </form.Field>
                 <Button
                   size="icon-sm"
                   variant="ghost"
                   aria-label="Remove line"
                   disabled={lines.length === 1}
-                  onClick={() =>
-                    setLines((current) => current.filter((row) => row.id !== line.id))
-                  }
+                  onClick={() => form.removeFieldValue("lines", index)}
                 >
                   <X className="size-3.5" />
                 </Button>
@@ -200,10 +233,11 @@ export function SimulateView() {
             variant="ghost"
             className="mt-2"
             onClick={() =>
-              setLines((current) => [
-                ...current,
-                { id: crypto.randomUUID(), sku_code: "", quantity: 1 },
-              ])
+              form.pushFieldValue("lines", {
+                id: crypto.randomUUID(),
+                sku_code: "",
+                quantity: 1,
+              })
             }
           >
             <Plus className="size-3.5" />
@@ -211,41 +245,51 @@ export function SimulateView() {
           </Button>
 
           <div className="mt-4 flex flex-col gap-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-muted-foreground text-[11px]">Coupon code</span>
-              <Input
-                value={coupon}
-                onChange={(event) => setCoupon(event.target.value)}
-                placeholder="none"
-                className="h-8 text-xs"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-muted-foreground text-[11px]">Member tier</span>
-              <Input
-                value={tier}
-                onChange={(event) => setTier(event.target.value)}
-                placeholder="walk-in"
-                className="h-8 text-xs"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-muted-foreground text-[11px]">
-                Price as of — blank is now
-              </span>
-              <Input
-                type="datetime-local"
-                value={at}
-                onChange={(event) => setAt(event.target.value)}
-                className="h-8 text-xs"
-              />
-            </label>
+            <form.Field name="coupon">
+              {(field) => (
+                <Ask label="Coupon code">
+                  <Input
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    placeholder="none"
+                    className="h-8 text-xs"
+                  />
+                </Ask>
+              )}
+            </form.Field>
+            <form.Field name="tier">
+              {(field) => (
+                <Ask label="Member tier">
+                  <Input
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    placeholder="walk-in"
+                    className="h-8 text-xs"
+                  />
+                </Ask>
+              )}
+            </form.Field>
+            <form.Field name="at">
+              {(field) => (
+                <Ask label="Price as of — blank is now">
+                  <Input
+                    type="datetime-local"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </Ask>
+              )}
+            </form.Field>
           </div>
 
           <Button
             className="mt-4 w-full"
             disabled={!usable || site === "" || run.isPending}
-            onClick={() => run.mutate()}
+            onClick={() => void form.handleSubmit()}
           >
             <Play className="size-3.5" />
             {run.isPending ? "Pricing…" : "Price it"}
@@ -256,7 +300,7 @@ export function SimulateView() {
           </p>
         </div>
 
-        <div className="min-h-0 overflow-auto">
+        <div className="os-card min-h-0 overflow-auto">
           {run.isError ? (
             <ScreenState tone="problem">
               {run.error instanceof ApiError
@@ -272,8 +316,18 @@ export function SimulateView() {
             <Answer result={run.data} />
           )}
         </div>
-      </div>
+      </ScreenBody>
     </AppShell>
+  )
+}
+
+/// One labelled box in the basket's side panel.
+function Ask({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-muted-foreground text-[11px]">{label}</span>
+      {children}
+    </label>
   )
 }
 
@@ -285,7 +339,7 @@ function Answer({ result }: { result: SimulateResult }) {
           {money(result.total_minor, result.currency)}
         </span>
         {result.discount_total_minor > 0 && (
-          <span className="text-[11.5px] text-amber-700 dark:text-amber-500">
+          <span className="text-[11.5px] text-[var(--os-warn,#b45309)]">
             {money(result.discount_total_minor, result.currency)} off
           </span>
         )}
@@ -300,7 +354,7 @@ function Answer({ result }: { result: SimulateResult }) {
       </div>
 
       <Table>
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead>SKU</TableHead>
             <TableHead className="text-right">Qty</TableHead>
@@ -369,7 +423,7 @@ function Answer({ result }: { result: SimulateResult }) {
                   {rule.coupon_code !== null && ` · ${rule.coupon_code}`}
                 </span>
               </span>
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-emerald-700 dark:text-emerald-400">
+              <span className="shrink-0 font-mono text-[11px] tabular-nums text-[var(--os-ok,#047857)]">
                 −{money(rule.benefit_minor, result.currency)}
               </span>
             </li>
@@ -397,7 +451,7 @@ function Answer({ result }: { result: SimulateResult }) {
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-amber-700 dark:text-amber-500">
+              <p className="text-[11px] text-[var(--os-warn,#b45309)]">
                 {rule.explanation}
               </p>
             </li>

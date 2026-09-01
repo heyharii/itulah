@@ -26,6 +26,7 @@ import {
   tableFeatures,
 } from "@tanstack/react-table";
 import { arrSome, inDateRange } from "./filterfns";
+import { nullsLast } from "./sortfns";
 
 /**
  * The feature set every data-table block is built against.
@@ -107,11 +108,18 @@ export const dataTableFeatures = tableFeatures({
    * `alphanumeric`, or `text`. Unlike filters, an unregistered sort name falls
    * back to `sortFn_basic` — correct for numbers, wrong for dates and mixed
    * alphanumeric strings, so these three are registered.
+   *
+   * Registering a name here is also the only way a column can ask for an order
+   * this file does not already know: `columnDef.sortFn` accepts the keys of
+   * this object, so `nullsLast` is here rather than being smuggled into a
+   * column's `accessorFn`.
    */
   sortFns: {
     datetime: sortFn_datetime,
     alphanumeric: sortFn_alphanumeric,
     text: sortFn_text,
+    // Ours.
+    nullsLast,
   },
 });
 

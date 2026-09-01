@@ -2034,7 +2034,10 @@ fn a_price_stack_names_the_winner_and_everything_it_beat() {
     assert_eq!(candidates[2].source, PriceSource::CompanyPrice);
     assert!(!candidates[2].in_force);
     assert_eq!(
-        candidates.iter().filter(|candidate| candidate.in_force).count(),
+        candidates
+            .iter()
+            .filter(|candidate| candidate.in_force)
+            .count(),
         1,
         "exactly one price is charged"
     );
@@ -2074,11 +2077,7 @@ fn a_markdown_with_no_price_under_it_charges_nothing() {
         markdowns: vec![markdown("SKU-NOT-PRICED", 99_000)],
         ..Default::default()
     };
-    let stacks = price_stacks(
-        &snapshot,
-        &context(),
-        &[CartLine::new("SKU-NOT-PRICED", 1)],
-    );
+    let stacks = price_stacks(&snapshot, &context(), &[CartLine::new("SKU-NOT-PRICED", 1)]);
     assert!(
         stacks[0].candidates.is_empty(),
         "no price under it means no price at all, not a free-standing 99,000"

@@ -8,7 +8,6 @@ import {
   RowNumber,
   RowText,
 } from "@/components/ops/parts"
-import { useAction } from "@/lib/action"
 import {
   Note,
   Pill,
@@ -23,7 +22,8 @@ import { clock, units } from "@/lib/format"
 import { keys } from "@/lib/queries"
 import { useActor } from "@/lib/session"
 import { idempotencyKey } from "@itulah/contract/client"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useForm } from "@tanstack/react-form"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 function toggle(set: ReadonlySet<string>, id: string): Set<string> {
   const next = new Set(set)
@@ -60,15 +60,11 @@ interface Progress {
 export function ShippingScreen() {
   const actor = useActor()
   const client = useQueryClient()
-  const action = useAction()
 
   const [pickedBoxes, setPickedBoxes] = useState<ReadonlySet<string>>(new Set())
   const [pickedShipments, setPickedShipments] = useState<ReadonlySet<string>>(
     new Set()
   )
-  const [carrier, setCarrier] = useState("")
-  const [plate, setPlate] = useState("")
-  const [driver, setDriver] = useState("")
   const [openDispatch, setOpenDispatch] = useState<string | null>(null)
   const [progress, setProgress] = useState<Progress | null>(null)
 
@@ -102,7 +98,15 @@ export function ShippingScreen() {
     enabled: openDispatch !== null,
   })
 
-  const refresh = () => void client.invalidateQueries({ queryKey: ["dc"] })
+  /// Everything downstream of a carton changing stage.
+  ///
+  /// Each of these actions writes a document and then moves stock behind it,
+  /// and every list on this screen is a different view of the same two things
+  /// — so they are re-read together rather than one key at a time.
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["dc"] })
+    void client.invalidateQueries({ queryKey: keys.pools() })
+  }
 
   const boxesOfShipments = (shipmentIds: readonly string[]): string[] =>
     (allBoxes.data ?? [])
@@ -137,8 +141,8 @@ export function ShippingScreen() {
     })
   }
 
-  const buildShipment = () =>
-    void action.run(async () => {
+  const buildShipment = useMutation({
+    mutationFn: async () => {
       const koliIds = [...pickedBoxes]
       const shipment = await dc.createShipment({
         koli_ids: koliIds,
@@ -154,19 +158,26 @@ export function ShippingScreen() {
           idempotency_key: idempotencyKey(),
         })
       )
+    },
+    onSuccess: () => {
       setPickedBoxes(new Set())
       refresh()
-    })
+    },
+  })
 
-  const buildDispatch = () =>
-    void action.run(async () => {
+  const buildDispatch = useMutation({
+    mutationFn: async (value: {
+      carrier: string
+      plate: string
+      driver: string
+    }) => {
       const shipmentIds = [...pickedShipments]
       const koliIds = boxesOfShipments(shipmentIds)
       await dc.createDispatch({
         shipment_ids: shipmentIds,
-        carrier: carrier.trim() === "" ? null : carrier.trim(),
-        vehicle_plate: plate.trim() === "" ? null : plate.trim(),
-        driver_name: driver.trim() === "" ? null : driver.trim(),
+        carrier: value.carrier.trim() === "" ? null : value.carrier.trim(),
+        vehicle_plate: value.plate.trim() === "" ? null : value.plate.trim(),
+        driver_name: value.driver.trim() === "" ? null : value.driver.trim(),
         actor_id: actor,
       })
       await advanceAll(koliIds, "loaded", (koliId) =>
@@ -175,15 +186,21 @@ export function ShippingScreen() {
           idempotency_key: idempotencyKey(),
         })
       )
+    },
+    onSuccess: () => {
       setPickedShipments(new Set())
-      setCarrier("")
-      setPlate("")
-      setDriver("")
+      truck.reset()
       refresh()
-    })
+    },
+  })
 
-  const depart = (dispatchId: string) =>
-    void action.run(async () => {
+  const truck = useForm({
+    defaultValues: { carrier: "", plate: "", driver: "" },
+    onSubmit: ({ value }) => buildDispatch.mutate(value),
+  })
+
+  const depart = useMutation({
+    mutationFn: async (dispatchId: string) => {
       const run = await dc.dispatch(dispatchId)
       const koliIds = boxesOfShipments(
         run.shipments.map((shipment) => shipment.shipment_id)
@@ -195,17 +212,21 @@ export function ShippingScreen() {
           idempotency_key: idempotencyKey(),
         })
       )
-      refresh()
-    })
+    },
+    onSuccess: refresh,
+  })
 
-  const retry = () =>
-    void action.run(async () => {
-      // Whatever stage they failed at, they are still where they were, so the
-      // safe retry is the one the failure came from. Kept simple on purpose:
-      // the operator is told which cartons, and can act on them individually.
-      setProgress(null)
-      refresh()
-    })
+  const pending =
+    buildShipment.isPending || buildDispatch.isPending || depart.isPending
+
+  // Whatever stage they failed at, the stuck cartons are still where they
+  // were, so the safe retry is the one the failure came from. Kept simple on
+  // purpose: the operator is told which cartons, and can act on them
+  // individually.
+  const dismiss = () => {
+    setProgress(null)
+    refresh()
+  }
 
   return (
     <>
@@ -243,8 +264,8 @@ export function ShippingScreen() {
               <div className="border-t px-4 py-3">
                 <Button
                   className="h-(--tap) w-full"
-                  disabled={action.pending}
-                  onClick={buildShipment}
+                  disabled={pending}
+                  onClick={() => buildShipment.mutate()}
                 >
                   Make a consignment of {pickedBoxes.size}
                 </Button>
@@ -279,35 +300,58 @@ export function ShippingScreen() {
               </Row>
             ))}
             {pickedShipments.size > 0 && (
-              <div className="flex flex-col gap-2 border-t px-4 py-3">
+              <form
+                className="flex flex-col gap-2 border-t px-4 py-3"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void truck.handleSubmit()
+                }}
+              >
                 <div className="flex flex-wrap gap-2">
-                  <Input
-                    value={carrier}
-                    placeholder="Carrier"
-                    className="h-(--tap) min-w-32 flex-1"
-                    onChange={(event) => setCarrier(event.target.value)}
-                  />
-                  <Input
-                    value={plate}
-                    placeholder="Plate"
-                    className="h-(--tap) w-32 font-mono"
-                    onChange={(event) => setPlate(event.target.value)}
-                  />
+                  <truck.Field name="carrier">
+                    {(field) => (
+                      <Input
+                        value={field.state.value}
+                        placeholder="Carrier"
+                        className="h-(--tap) min-w-32 flex-1"
+                        onBlur={field.handleBlur}
+                        onChange={(event) =>
+                          field.handleChange(event.target.value)
+                        }
+                      />
+                    )}
+                  </truck.Field>
+                  <truck.Field name="plate">
+                    {(field) => (
+                      <Input
+                        value={field.state.value}
+                        placeholder="Plate"
+                        className="h-(--tap) w-32 font-mono"
+                        onBlur={field.handleBlur}
+                        onChange={(event) =>
+                          field.handleChange(event.target.value)
+                        }
+                      />
+                    )}
+                  </truck.Field>
                 </div>
-                <Input
-                  value={driver}
-                  placeholder="Driver"
-                  className="h-(--tap)"
-                  onChange={(event) => setDriver(event.target.value)}
-                />
-                <Button
-                  className="h-(--tap)"
-                  disabled={action.pending}
-                  onClick={buildDispatch}
-                >
+                <truck.Field name="driver">
+                  {(field) => (
+                    <Input
+                      value={field.state.value}
+                      placeholder="Driver"
+                      className="h-(--tap)"
+                      onBlur={field.handleBlur}
+                      onChange={(event) =>
+                        field.handleChange(event.target.value)
+                      }
+                    />
+                  )}
+                </truck.Field>
+                <Button type="submit" className="h-(--tap)" disabled={pending}>
                   Load {pickedShipments.size} onto a truck
                 </Button>
-              </div>
+              </form>
             )}
           </Panel>
 
@@ -348,7 +392,7 @@ export function ShippingScreen() {
                   <ConfirmButton
                     label="Depart"
                     className="h-(--tap)"
-                    disabled={action.pending}
+                    disabled={pending}
                     title={`Send ${run.dispatch_number} out`}
                     description={
                       <>
@@ -360,7 +404,7 @@ export function ShippingScreen() {
                       </>
                     }
                     confirmLabel="It has left"
-                    onConfirm={() => depart(run.dispatch_id)}
+                    onConfirm={() => depart.mutate(run.dispatch_id)}
                   />
                 </div>
                 {openDispatch === run.dispatch_id &&
@@ -408,7 +452,7 @@ export function ShippingScreen() {
                     <Button
                       variant="outline"
                       className="h-(--tap)"
-                      onClick={retry}
+                      onClick={dismiss}
                     >
                       Dismiss and re-read
                     </Button>
@@ -420,7 +464,9 @@ export function ShippingScreen() {
 
           <SuratJalan />
 
-          <Problem error={action.error} />
+          <Problem
+            error={buildShipment.error ?? buildDispatch.error ?? depart.error}
+          />
 
           <Note>
             The paperwork and the goods are two different writes. A consignment

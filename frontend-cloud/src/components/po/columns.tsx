@@ -1,4 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- column definitions and the cells they render belong in one file. */
+import { StatusPill, type StatusTone } from "@/components/custom/status-pill"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import type { DataTableFilterField } from "@/components/data-table/types"
 import { ARRAY_DELIMITER } from "@/lib/delimiters"
@@ -35,7 +36,7 @@ export function ReceiptProgress({ row }: { row: PurchaseOrderRow }) {
     <div className="flex min-w-28 items-center gap-2">
       <div className="bg-muted h-1.5 w-16 shrink-0 overflow-hidden rounded-full">
         <div
-          className={cn("h-full rounded-full", row.fully_received ? "bg-emerald-500" : "bg-sky-500")}
+          className={cn("h-full rounded-full", row.fully_received ? "bg-[var(--os-ok,#10b981)]" : "bg-[var(--os-info,#0ea5e9)]")}
           style={{ width: `${share * 100}%` }}
         />
       </div>
@@ -46,20 +47,21 @@ export function ReceiptProgress({ row }: { row: PurchaseOrderRow }) {
   )
 }
 
+/// The server writes two order statuses and no others: `ISSUED` and `CLOSED`
+/// (`backend/src/cloud/postgres/*.rs`). The branches for `ACTIVE` and
+/// `CANCELLED` were left over from an earlier model, which meant every real
+/// order fell through to the amber default — an issued PO is in flight, not a
+/// warning, and the rail was colouring the ordinary case as a problem.
+///
+/// An unrecognised status is grey rather than amber for the same reason: not
+/// knowing what something is does not make it urgent.
 export function OrderStatus({ status }: { status: string }) {
-  const hue =
-    status === "ACTIVE"
-      ? "bg-sky-500"
-      : status === "CLOSED"
-        ? "bg-emerald-500"
-        : status === "CANCELLED"
-          ? "bg-neutral-400"
-          : "bg-amber-500"
+  const tone: StatusTone =
+    status === "ISSUED" ? "info" : status === "CLOSED" ? "ok" : "neutral"
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs whitespace-nowrap">
-      <span aria-hidden className={cn("size-2 shrink-0 rounded-full", hue)} />
+    <StatusPill tone={tone}>
       {status.charAt(0) + status.slice(1).toLowerCase()}
-    </span>
+    </StatusPill>
   )
 }
 
@@ -67,6 +69,7 @@ export const orderColumns: ColumnDef<DataTableFeatures, PurchaseOrderRow>[] = [
   {
     accessorKey: "po_number",
     enableHiding: false,
+    meta: { label: "Order" },
     header: ({ column }) => <DataTableColumnHeader column={column} title="Order" />,
     cell: ({ row }) => (
       <span className="font-mono text-xs font-medium">{row.original.po_number}</span>
@@ -78,6 +81,7 @@ export const orderColumns: ColumnDef<DataTableFeatures, PurchaseOrderRow>[] = [
   },
   {
     accessorKey: "supplier_name",
+    meta: { label: "Supplier" },
     header: ({ column }) => <DataTableColumnHeader column={column} title="Supplier" />,
     cell: ({ row }) => (
       <span className="truncate text-xs">
@@ -107,6 +111,7 @@ export const orderColumns: ColumnDef<DataTableFeatures, PurchaseOrderRow>[] = [
   },
   {
     accessorKey: "outstanding_stock_units",
+    meta: { label: "Outstanding" },
     header: ({ column }) => <DataTableColumnHeader column={column} title="Outstanding" />,
     cell: ({ row }) => (
       <span className="font-mono text-xs tabular-nums">
@@ -122,6 +127,7 @@ export const orderColumns: ColumnDef<DataTableFeatures, PurchaseOrderRow>[] = [
   },
   {
     accessorKey: "issued_at",
+    meta: { label: "Issued" },
     header: ({ column }) => <DataTableColumnHeader column={column} title="Issued" />,
     cell: ({ row }) => (
       <span className="text-muted-foreground font-mono text-[11px]">

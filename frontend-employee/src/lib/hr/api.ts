@@ -1,11 +1,15 @@
 import { node } from "@/lib/api"
 import { ApiError } from "@itulah/contract/client"
+import type {
+  EmploymentProfileView,
+  Notification as ContractNotification,
+  NotificationPage,
+} from "@itulah/contract"
 import * as demo from "./demo"
 import type {
   AttendanceCorrection,
   AttendanceDay,
   DeviceSession,
-  EmployeeProfile,
   EmploymentContract,
   HolidayCalendar,
   LeaveRequest,
@@ -134,7 +138,7 @@ async function write<T>(
   }
 }
 
-export function profile(signal?: AbortSignal): Promise<EmployeeProfile> {
+export function profile(signal?: AbortSignal): Promise<EmploymentProfileView> {
   return read(
     `/api/v1/employees/${SELF}/profile`,
     () => demo.demoProfile,
@@ -359,10 +363,52 @@ export function holidays(signal?: AbortSignal): Promise<HolidayCalendar> {
   return read("/api/v1/holiday-calendars", () => demo.demoHolidays, signal)
 }
 
-export function notifications(
+/// The one route in this file the server has actually grown, and it does not
+/// answer what the stand-in does.
+///
+/// `/api/v1/notifications` returns a PAGE — `{ items, unread }` — of the
+/// contract's own `Notification`, whose sentence is `title` and whose target is
+/// a record `(subject_kind, subject_id)` rather than a route. The stand-in
+/// returns a bare array shaped the way these screens read it. Because the route
+/// exists, `read` does not fall back, so the page arrived where a list was
+/// expected and the shell crashed on `.filter`.
+///
+/// So this is the one call that adapts rather than passes through. The target
+/// resolves to `null` for every subject the server raises today: nothing it
+/// stores is an HR record yet, and inventing a route from a subject kind this
+/// app has never seen would send somebody to the wrong screen.
+export async function notifications(
   signal?: AbortSignal
 ): Promise<readonly Notification[]> {
-  return read("/api/v1/notifications", () => demo.demoNotifications, signal)
+  const answer = await read<NotificationPage | readonly Notification[]>(
+    "/api/v1/notifications",
+    () => demo.demoNotifications,
+    signal
+  )
+  return Array.isArray(answer)
+    ? answer
+    : (answer as NotificationPage).items.map(adopt)
+}
+
+const KINDS = ["LEAVE", "OVERTIME", "PAY", "ATTENDANCE"] as const
+
+/// The server's notification as these screens read one.
+///
+/// `kind` is free text in the schema, so anything this app has no icon for is
+/// GENERAL rather than a blank row.
+function adopt(item: ContractNotification): Notification {
+  const kind = KINDS.find(
+    (known) => known === item.kind.toUpperCase()
+  )
+  return {
+    notification_id: item.notification_id,
+    kind: kind ?? "GENERAL",
+    subject: item.title,
+    body: item.body,
+    created_at: item.created_at,
+    read_at: item.read_at,
+    link: null,
+  }
 }
 
 export function markNotificationRead(

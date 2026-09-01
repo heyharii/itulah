@@ -201,7 +201,12 @@ def main():
         status, items = call(
             "GET", f"/api/v1/suppliers/{supplier_id}/items", token=token
         )
-        have = {item["supplier_item_code"] for item in (items or [])} if status == 200 else set()
+        # The listing grew a cursor envelope, `{items, limit, next_cursor}`,
+        # after this script was written. Accept both shapes: a bare list read
+        # as an envelope yields its keys, and the set of codes then silently
+        # matches nothing, so every item is created a second time.
+        listed = items.get("items", []) if isinstance(items, dict) else (items or [])
+        have = {item["supplier_item_code"] for item in listed} if status == 200 else set()
 
         for item in supplier["items"]:
             item_code = item["supplier_item_code"]

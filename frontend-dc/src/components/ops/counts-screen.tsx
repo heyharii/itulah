@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import {
   ConfirmButton,
@@ -9,7 +9,6 @@ import {
   RowText,
   ScanField,
 } from "@/components/ops/parts"
-import { useAction } from "@/lib/action"
 import {
   Note,
   Pill,
@@ -25,13 +24,10 @@ import { clock, units, variance } from "@/lib/format"
 import { keys } from "@/lib/queries"
 import { useActor } from "@/lib/session"
 import { idempotencyKey } from "@itulah/contract/client"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-
-interface Entry {
-  epc: string
-  sku_code: string
-  found_quantity: number
-}
+import type { EdgeOfficialCountLine } from "@itulah/contract"
+import { useForm, useStore } from "@tanstack/react-form"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useVirtualizer } from "@tanstack/react-virtual"
 
 /// Official counts: authored and activated at the centre, executed here.
 ///
@@ -112,8 +108,6 @@ export function CountsScreen() {
 function CountSheet({ countId }: { countId: string }) {
   const actor = useActor()
   const client = useQueryClient()
-  const action = useAction()
-  const [entries, setEntries] = useState<Entry[]>([])
 
   const sheet = useQuery({
     queryKey: keys.officialCount(countId),
@@ -124,6 +118,50 @@ function CountSheet({ countId }: { countId: string }) {
   const lines = sheet.data?.lines ?? []
   const submitted = summary?.submitted_at !== null && summary !== undefined
 
+  /// What this person has found so far, before any of it is sent.
+  ///
+  /// A form rather than a list in `useState` because a tag the sheet has never
+  /// heard of arrives with no SKU and the person has to type one — the scanned
+  /// rows really are fields being filled in, and the button below is only
+  /// enabled once every one of them has been.
+  const form = useForm({
+    defaultValues: {
+      entries: [] as {
+        epc: string
+        sku_code: string
+        found_quantity: number
+      }[],
+    },
+    onSubmit: ({ value }) => record.mutate(value.entries),
+  })
+
+  const entries = useStore(form.store, (state) => state.values.entries)
+
+  const record = useMutation({
+    mutationFn: (found: typeof entries) =>
+      dc.recordCountEntries(countId, {
+        entries: found,
+        actor_id: actor,
+        idempotency_key: idempotencyKey(),
+      }),
+    onSuccess: () => {
+      form.reset()
+      void client.invalidateQueries({ queryKey: keys.officialCount(countId) })
+    },
+  })
+
+  const submit = useMutation({
+    mutationFn: () =>
+      dc.submitOfficialCount(countId, {
+        actor_id: actor,
+        idempotency_key: idempotencyKey(),
+      }),
+    // A submitted count changes the sheet, the queue behind it and the badge
+    // in the nav, so the whole node's reads are re-asked rather than three
+    // keys that would have to be kept in step with the server by hand.
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["dc"] }),
+  })
+
   const scan = (raw: string) => {
     const epc = raw.trim().toUpperCase()
     if (epc === "" || entries.some((entry) => entry.epc === epc)) {
@@ -133,31 +171,12 @@ function CountSheet({ countId }: { countId: string }) {
     // has never heard of is a real finding — it is entered with an empty SKU
     // so the person has to say what it is rather than the screen guessing.
     const known = lines.find((line) => line.epc === epc)
-    setEntries((current) => [
-      ...current,
-      { epc, sku_code: known?.sku_code ?? "", found_quantity: 1 },
-    ])
+    form.pushFieldValue("entries", {
+      epc,
+      sku_code: known?.sku_code ?? "",
+      found_quantity: 1,
+    })
   }
-
-  const post = () =>
-    void action.run(async () => {
-      await dc.recordCountEntries(countId, {
-        entries,
-        actor_id: actor,
-        idempotency_key: idempotencyKey(),
-      })
-      setEntries([])
-      void client.invalidateQueries({ queryKey: keys.officialCount(countId) })
-    })
-
-  const submit = () =>
-    void action.run(async () => {
-      await dc.submitOfficialCount(countId, {
-        actor_id: actor,
-        idempotency_key: idempotencyKey(),
-      })
-      void client.invalidateQueries({ queryKey: ["dc"] })
-    })
 
   const ready =
     entries.length > 0 && entries.every((entry) => entry.sku_code !== "")
@@ -212,30 +231,26 @@ function CountSheet({ countId }: { countId: string }) {
                   : "on the sheet"}
               </RowText>
               {entry.sku_code === "" ? (
-                <Input
-                  placeholder="SKU"
-                  className="h-(--tap) w-40 font-mono"
-                  onChange={(event) =>
-                    setEntries((current) =>
-                      current.map((other, other_index) =>
-                        other_index === index
-                          ? { ...other, sku_code: event.target.value.trim() }
-                          : other
-                      )
-                    )
-                  }
-                />
+                <form.Field name={`entries[${index}].sku_code`}>
+                  {(field) => (
+                    <Input
+                      placeholder="SKU"
+                      className="h-(--tap) w-40 font-mono"
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) =>
+                        field.handleChange(event.target.value.trim())
+                      }
+                    />
+                  )}
+                </form.Field>
               ) : (
                 <span className="font-mono text-xs">{entry.sku_code}</span>
               )}
               <Button
                 variant="ghost"
                 className="h-(--tap)"
-                onClick={() =>
-                  setEntries((current) =>
-                    current.filter((other) => other.epc !== entry.epc)
-                  )
-                }
+                onClick={() => form.removeFieldValue("entries", index)}
               >
                 Remove
               </Button>
@@ -246,36 +261,23 @@ function CountSheet({ countId }: { countId: string }) {
             <div className="border-t px-4 py-3">
               <Button
                 className="h-(--tap) w-full"
-                disabled={action.pending || !ready}
-                onClick={post}
+                disabled={record.isPending || !ready}
+                onClick={() => void form.handleSubmit()}
               >
                 Record {entries.length} found
               </Button>
             </div>
           )}
-          <Problem error={action.error} />
+          <Problem error={record.error} />
         </Panel>
       )}
 
       <Panel title="The sheet" meta={`${lines.length} lines`}>
-        {lines.length === 0 && (
+        {lines.length === 0 ? (
           <ScreenState>Nothing recorded against this sheet yet.</ScreenState>
+        ) : (
+          <SheetLines lines={lines} />
         )}
-        {lines.map((line) => (
-          <Row key={line.epc}>
-            <RowText code={line.epc}>{line.sku_code}</RowText>
-            <RowNumber
-              value={units(line.expected_quantity)}
-              label="expected"
-              tone="muted"
-            />
-            <RowNumber
-              value={units(line.found_quantity)}
-              label="found"
-              tone={line.adjustment_quantity !== 0 ? "bad" : undefined}
-            />
-          </Row>
-        ))}
       </Panel>
 
       {!submitted && (
@@ -288,7 +290,7 @@ function CountSheet({ countId }: { countId: string }) {
             <ConfirmButton
               label="Submit this count"
               className="h-(--tap)"
-              disabled={action.pending}
+              disabled={submit.isPending}
               title="Submit the count"
               description={
                 <>
@@ -298,8 +300,9 @@ function CountSheet({ countId }: { countId: string }) {
                 </>
               }
               confirmLabel="Submit"
-              onConfirm={submit}
+              onConfirm={() => submit.mutate()}
             />
+            <Problem error={submit.error} />
           </div>
         </Panel>
       )}
@@ -309,6 +312,57 @@ function CountSheet({ countId }: { countId: string }) {
         are two different people&apos;s jobs on purpose. This node can say what
         it found; it cannot decide what that means.
       </Note>
+    </div>
+  )
+}
+
+/// One row per tag the sheet expects, which for a warehouse pool is thousands.
+///
+/// Virtualised, and this is the list that made it worth doing: a full count of
+/// the racks lists every EPC in them, and a handheld asked to lay out that many
+/// rows stops responding to the scanner while it does.
+function SheetLines({ lines }: { lines: readonly EdgeOfficialCountLine[] }) {
+  const scroller = useRef<HTMLDivElement>(null)
+
+  const rows = useVirtualizer({
+    count: lines.length,
+    getScrollElement: () => scroller.current,
+    // The tap height these rows are built to, which is what they measure when
+    // nothing has wrapped. Rows that differ are measured after they mount.
+    estimateSize: () => 56,
+    overscan: 8,
+  })
+
+  return (
+    <div ref={scroller} className="max-h-[28rem] overflow-y-auto">
+      <div className="relative w-full" style={{ height: rows.getTotalSize() }}>
+        {rows.getVirtualItems().map((item) => {
+          const line = lines[item.index]
+          return (
+            <div
+              key={line.epc}
+              ref={rows.measureElement}
+              data-index={item.index}
+              className="absolute top-0 left-0 w-full"
+              style={{ transform: `translateY(${item.start}px)` }}
+            >
+              <Row>
+                <RowText code={line.epc}>{line.sku_code}</RowText>
+                <RowNumber
+                  value={units(line.expected_quantity)}
+                  label="expected"
+                  tone="muted"
+                />
+                <RowNumber
+                  value={units(line.found_quantity)}
+                  label="found"
+                  tone={line.adjustment_quantity !== 0 ? "bad" : undefined}
+                />
+              </Row>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

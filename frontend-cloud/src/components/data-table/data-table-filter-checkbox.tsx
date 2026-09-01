@@ -64,10 +64,13 @@ export function DataTableFilterCheckbox<TData>({
 
   return (
     <div className="grid gap-2">
-      {options && options.length > 4 ? (
-        <InputGroup className="h-9 rounded-lg shadow-none">
+      {/* Kept for the long lists — twenty suppliers is a list you search, five
+          divisions is a list you read. The threshold is raised from 4 to 8 so
+          the short groups are just checkboxes, the way the language wants. */}
+      {options && options.length > 8 ? (
+        <InputGroup className="h-8 rounded-[var(--os-r-inner,0.5rem)] shadow-none">
           <InputGroupAddon>
-            <Search className="mt-0.5 h-4 w-4" />
+            <Search className="mt-0.5 h-3.5 w-3.5" />
           </InputGroupAddon>
           <InputGroupInput
             placeholder="Search"
@@ -76,20 +79,20 @@ export function DataTableFilterCheckbox<TData>({
           />
         </InputGroup>
       ) : null}
-      {/* FIXME: due to the added max-h and overflow-y-auto, the hover state and border is laying on top of the scroll bar */}
-      <div className="border-border max-h-[200px] overflow-y-auto rounded-lg border empty:border-none">
+      {/* No box around the group: the rows are the list. A border here made
+          every facet look like a card sitting inside another card. */}
+      <div className="max-h-[210px] overflow-y-auto">
         {filterOptions
           // TODO: we shoudn't sort the options here, instead filterOptions should be sorted by default
           // .sort((a, b) => a.label.localeCompare(b.label))
-          ?.map((option, index) => {
+          ?.map((option) => {
             const checked = filters.includes(option.value);
 
             return (
               <div
                 key={String(option.value)}
                 className={cn(
-                  "group hover:bg-accent/50 relative flex items-center space-x-2 px-2 py-2.5",
-                  index !== filterOptions.length - 1 ? "border-b" : undefined,
+                  "group hover:bg-accent relative flex items-center gap-2 rounded-[var(--os-r-inner,0.5rem)] px-2 py-1.5",
                 )}
               >
                 <Checkbox
@@ -114,9 +117,11 @@ export function DataTableFilterCheckbox<TData>({
                   ) : (
                     <span className="truncate font-normal">{option.label}</span>
                   )}
-                  <span className="ml-auto flex items-center justify-center font-mono text-xs">
+                  {/* The count sits in the muted grey, not the text grey:
+                      it measures the option, it is not part of its name. */}
+                  <span className="text-muted-foreground ml-auto flex items-center justify-center font-mono text-[10.5px] tabular-nums">
                     {isLoading ? (
-                      <Skeleton className="h-4 w-4" />
+                      <Skeleton className="h-3.5 w-4" />
                     ) : facetedValue?.has(option.value) ? (
                       formatCompactNumber(facetedValue.get(option.value) || 0)
                     ) : null}

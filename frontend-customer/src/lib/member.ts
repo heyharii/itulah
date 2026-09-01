@@ -1,5 +1,4 @@
-/* eslint-disable react-refresh/only-export-components */
-import * as React from "react"
+import { createContext, useContext } from "react"
 
 /// Which member's screen this is.
 ///
@@ -14,17 +13,21 @@ import * as React from "react"
 /// that session and this file becomes a remembered convenience or disappears
 /// entirely; nothing else in the app has to change, because every screen asks
 /// `useMember()` rather than reading storage itself.
-const STORAGE_KEY = "itulah.member_id"
+export const STORAGE_KEY = "itulah.member_id"
 
-type MemberState = {
+export type MemberState = {
   memberId: string | null
   remember: (memberId: string) => void
   forget: () => void
 }
 
-const MemberContext = React.createContext<MemberState | undefined>(undefined)
+export const MemberContext = createContext<MemberState | undefined>(undefined)
 
-function read(): string | null {
+/// The card in storage, or nothing.
+///
+/// Exported because the provider needs it twice — once to start from, and
+/// again whenever another tab writes it.
+export function readMemberId(): string | null {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)?.trim()
     return stored === undefined || stored === "" ? null : stored
@@ -36,57 +39,8 @@ function read(): string | null {
   }
 }
 
-export function MemberProvider({ children }: { children: React.ReactNode }) {
-  const [memberId, setMemberId] = React.useState<string | null>(read)
-
-  const remember = React.useCallback((next: string) => {
-    const trimmed = next.trim()
-    if (trimmed === "") {
-      return
-    }
-    try {
-      localStorage.setItem(STORAGE_KEY, trimmed)
-    } catch {
-      // Same as above: this session still works, the next one asks again.
-    }
-    setMemberId(trimmed)
-  }, [])
-
-  const forget = React.useCallback(() => {
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      // Nothing to clean up if it was never written.
-    }
-    setMemberId(null)
-  }, [])
-
-  // A phone at a counter is sometimes two tabs. Following the storage event
-  // means switching cards in one does not leave the other showing the previous
-  // member's points.
-  React.useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.storageArea !== localStorage || event.key !== STORAGE_KEY) {
-        return
-      }
-      setMemberId(read())
-    }
-    window.addEventListener("storage", onStorage)
-    return () => window.removeEventListener("storage", onStorage)
-  }, [])
-
-  const value = React.useMemo(
-    () => ({ memberId, remember, forget }),
-    [memberId, remember, forget],
-  )
-
-  return (
-    <MemberContext.Provider value={value}>{children}</MemberContext.Provider>
-  )
-}
-
 export function useMember(): MemberState {
-  const context = React.useContext(MemberContext)
+  const context = useContext(MemberContext)
   if (context === undefined) {
     throw new Error("useMember must be used within a MemberProvider")
   }

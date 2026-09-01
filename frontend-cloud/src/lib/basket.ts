@@ -25,6 +25,17 @@ export function useBasket() {
   return useQuery({ queryKey: KEY, queryFn: ({ signal }) => readBasket(signal) })
 }
 
+/// How many pieces are waiting, for a trigger that has to say so before it is
+/// pressed.
+///
+/// Beside the query rather than beside the badge that draws it: it is a fact
+/// about the basket, not about one button, and a second caller that counted it
+/// its own way would eventually count it differently.
+export function useBasketPieces(): number {
+  const basket = useBasket()
+  return (basket.data ?? []).reduce((sum, line) => sum + line.quantity, 0)
+}
+
 /// Everything that changes the basket, sharing one cache entry.
 ///
 /// The mutations are separate because they mean different things to a person —

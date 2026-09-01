@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -60,6 +60,7 @@ export function BasketPanel() {
   return (
     <>
       <ScreenHeader
+        eyebrow="Buying"
         title="Basket"
         subtitle={
           basket.isPending
@@ -87,7 +88,7 @@ export function BasketPanel() {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScreenBody card={false} className="flex flex-col gap-[1.125rem]">
         {basket.isPending ? (
           <ScreenState>Loading your basket…</ScreenState>
         ) : basket.isError ? (
@@ -117,10 +118,10 @@ export function BasketPanel() {
               0,
             )
             return (
-              <section key={group.supplierId} className="border-b last:border-b-0">
-                <div className="bg-muted/40 flex h-12 items-center gap-3 border-b px-3.5">
-                  <span className="truncate text-xs font-semibold">{group.supplier}</span>
-                  <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
+              <section key={group.supplierId} className="os-card overflow-hidden">
+                <div className="flex h-12 items-center gap-3 border-b border-[var(--os-hairline,#eeeef1)] bg-[var(--os-soft,#f7f7f8)] px-3.5">
+                  <span className="truncate text-[0.875rem] font-semibold">{group.supplier}</span>
+                  <span className="shrink-0 font-[var(--os-mono,ui-monospace)] text-[0.6875rem] text-[var(--os-mute,#a6a6ad)]">
                     {units(group.lines.length)} item{group.lines.length === 1 ? "" : "s"}
                     {currency !== null && ` · ${money(total, currency)}`}
                   </span>
@@ -150,7 +151,7 @@ export function BasketPanel() {
                             that. The code stays available in the item itself. */}
                         <div className="flex flex-wrap items-center gap-1 pt-1">
                           {row.division !== UNCLASSIFIED && (
-                            <span className="bg-foreground/85 text-background inline-flex h-5 shrink-0 items-center rounded-md px-1.5 text-[11px] font-medium whitespace-nowrap">
+                            <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-[var(--os-accent-bg,#ebedfd)] px-1.5 text-[11px] font-medium whitespace-nowrap text-[var(--os-accent,#3c52f0)]">
                               {vocabulary.division(row.division)}
                             </span>
                           )}
@@ -225,7 +226,7 @@ export function BasketPanel() {
             )
           })
         )}
-      </div>
+      </ScreenBody>
     </>
   )
 }
@@ -233,7 +234,7 @@ export function BasketPanel() {
 /// The basket as its own screen, for a bookmarked or shared link.
 export function BasketView() {
   return (
-    <AppShell nav={<Nav />}>
+    <AppShell data-cloudhub nav={<Nav />}>
       <BasketPanel />
     </AppShell>
   )

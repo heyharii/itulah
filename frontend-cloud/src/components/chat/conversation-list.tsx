@@ -101,7 +101,7 @@ export function ConversationList({
                     {ago(conversation.last_activity_at)}
                   </span>
                   {conversation.unread_count > 0 && (
-                    <span className="bg-primary text-primary-foreground grid min-w-4 place-items-center rounded-full px-1 font-mono text-[10px] leading-4 font-medium">
+                    <span className="grid min-w-4 place-items-center rounded-full bg-[var(--os-accent,#3c52f0)] px-1 font-mono text-[10px] leading-4 font-medium text-white">
                       {conversation.unread_count > 99 ? "99+" : conversation.unread_count}
                     </span>
                   )}

@@ -1158,10 +1158,12 @@ async fn store_sales_window(
 async fn store_catalog(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<crate::edge::pricing::CatalogQuery>,
 ) -> Result<Json<Value>, ApiError> {
     require_permission(&state, principal, EdgePermission::InventoryRead)?;
     let node = state.inventory.node().clone();
-    let items = run_blocking(move || state.inventory.store_catalog()).await?;
+    let page = run_blocking(move || state.inventory.store_catalog_page(query)).await?;
+    let items = page.items;
     let publication_version = items.iter().map(|item| item.publication_version).max();
     let currency = items
         .first()
@@ -1175,6 +1177,8 @@ async fn store_catalog(
         "publication_version": publication_version,
         "currency": currency,
         "item_count": items.len(),
+        "limit": page.limit,
+        "next_cursor": page.next_cursor,
         "items": items,
     })))
 }

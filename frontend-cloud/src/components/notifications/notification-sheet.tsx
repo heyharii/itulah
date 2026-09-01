@@ -3,7 +3,6 @@ import {
   SheetContent,
   SheetDescription,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,6 +12,7 @@ import {
   notificationTarget,
   useNotifications,
 } from "@/lib/notifications"
+import { useNotificationSheet } from "@/lib/sheets/system"
 import { cn } from "@/lib/utils"
 import type { Notification } from "@itulah/contract"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -24,10 +24,16 @@ import { Bell } from "lucide-react"
 /// A sheet rather than a route, for the same reason the basket is one: reading
 /// what arrived is something you do in the middle of doing something else, and
 /// a route change would throw away the screen you were working on.
-export function NotificationSheet({ children }: { children: React.ReactNode }) {
+///
+/// Mounted once by `GlobalSheets` and opened by `?notifications` in the URL,
+/// so the rail is a plain button rather than a wrapper this has to be given.
+/// Opening a notification navigates to the record it is about, and that route
+/// change drops the parameter — which is the right behaviour: the inbox has
+/// done its job the moment you are looking at the thing.
+export function NotificationSheet() {
+  const sheet = useNotificationSheet()
   return (
-    <Sheet>
-      <SheetTrigger render={children as never} />
+    <Sheet open={sheet.isOpen} onOpenChange={(open) => !open && sheet.close()}>
       <SheetContent side="right" className="sm:max-w-md">
         <SheetTitle className="sr-only">Notifications</SheetTitle>
         <SheetDescription className="sr-only">
@@ -46,7 +52,8 @@ function NotificationPanel() {
   const items = notifications.data?.items ?? []
   const unread = notifications.data?.unread ?? 0
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: notificationsKey() })
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: notificationsKey() })
   const read = useMutation({
     mutationFn: markNotificationRead,
     onSuccess: () => void refresh(),
@@ -71,7 +78,7 @@ function NotificationPanel() {
       <div className="flex items-center justify-between gap-3 border-b py-3 pr-11 pl-3.5">
         <div className="min-w-0">
           <h2 className="text-sm font-medium">Notifications</h2>
-          <p className="text-muted-foreground text-[11px]">
+          <p className="text-[11px] text-muted-foreground">
             {notifications.isPending
               ? "loading…"
               : unread === 0
@@ -93,11 +100,11 @@ function NotificationPanel() {
 
       <div className="min-h-0 flex-1 overflow-auto">
         {notifications.isError ? (
-          <p className="text-destructive p-4 text-center text-xs">
+          <p className="p-4 text-center text-xs text-destructive">
             The notifications could not be loaded.
           </p>
         ) : items.length === 0 ? (
-          <p className="text-muted-foreground p-6 text-center text-xs">
+          <p className="p-6 text-center text-xs text-muted-foreground">
             {notifications.isPending
               ? "Loading…"
               : "Nothing has needed your attention yet. Price queries from a warehouse and deliveries waiting to be named will appear here."}
@@ -110,8 +117,8 @@ function NotificationPanel() {
                   type="button"
                   onClick={() => open(notification)}
                   className={cn(
-                    "hover:bg-muted/60 flex w-full flex-col items-start gap-1 border-b px-3.5 py-3 text-left transition-colors",
-                    notification.read_at === null && "bg-amber-500/5",
+                    "flex w-full flex-col items-start gap-1 border-b px-3.5 py-3 text-left transition-colors hover:bg-muted/60",
+                    notification.read_at === null && "bg-amber-500/5"
                   )}
                 >
                   <span className="flex w-full items-center gap-2">
@@ -124,16 +131,18 @@ function NotificationPanel() {
                         className="size-1.5 shrink-0 rounded-full bg-amber-600"
                       />
                     )}
-                    <span className="truncate text-xs font-medium">{notification.title}</span>
-                    <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[10px]">
+                    <span className="truncate text-xs font-medium">
+                      {notification.title}
+                    </span>
+                    <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
                       {when(notification.created_at)}
                     </span>
                   </span>
-                  <span className="text-muted-foreground text-[11px] leading-relaxed">
+                  <span className="text-[11px] leading-relaxed text-muted-foreground">
                     {notification.body}
                   </span>
                   {notification.origin_id !== null && (
-                    <span className="text-muted-foreground font-mono text-[10px]">
+                    <span className="font-mono text-[10px] text-muted-foreground">
                       {notification.origin_id}
                     </span>
                   )}
@@ -164,7 +173,7 @@ export function NotificationRailIcon() {
     <>
       <Bell className={cn("size-5", unread > 0 && "text-amber-600")} />
       {unread > 0 && (
-        <span className="bg-amber-600 absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full px-1 font-mono text-[10px] leading-4 font-medium text-white">
+        <span className="absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full bg-amber-600 px-1 font-mono text-[10px] leading-4 font-medium text-white">
           {unread > 99 ? "99+" : unread}
         </span>
       )}

@@ -51,6 +51,14 @@ fn corrupt(what: &str, detail: String) -> AppError {
 pub struct EmployeeRecord {
     pub employee: Employee,
     pub assignments: AssignmentTimeline,
+    /// `place_id` → the place's name, for every place this person has been
+    /// posted to.
+    ///
+    /// Beside the timeline rather than inside it: `AssignmentSpan` is a domain
+    /// type and a display name is not part of what makes a posting valid. But a
+    /// screen showing `ho` where it means "Head Office" is an id that has
+    /// escaped into the interface, so the names travel with the record.
+    pub place_names: std::collections::HashMap<String, String>,
     pub profile: Option<Profile>,
     pub contracts: ContractTimeline,
     pub created_at: DateTime<Utc>,
@@ -127,23 +135,30 @@ fn decode_employee(row: &sqlx::postgres::PgRow) -> Result<Employee, AppError> {
     .map_err(|error| corrupt("employee", error.to_string()))
 }
 
-async fn load_assignments(
-    pool: &PgPool,
-    employee_id: &str,
-) -> Result<AssignmentTimeline, AppError> {
+type Assignments = (
+    AssignmentTimeline,
+    std::collections::HashMap<String, String>,
+);
+
+async fn load_assignments(pool: &PgPool, employee_id: &str) -> Result<Assignments, AppError> {
     let rows = sqlx::query(
-        "SELECT place_id, valid_from, valid_to, authorized
-           FROM employee_assignment
-          WHERE employee_id = $1
-          ORDER BY valid_from, id",
+        "SELECT a.place_id, a.valid_from, a.valid_to, a.authorized, place.name AS place_name
+           FROM employee_assignment a
+           LEFT JOIN org_place place ON place.id = a.place_id
+          WHERE a.employee_id = $1
+          ORDER BY a.valid_from, a.id",
     )
     .bind(employee_id)
     .fetch_all(pool)
     .await?;
 
     let mut timeline = AssignmentTimeline::new();
+    let mut names = std::collections::HashMap::new();
     for row in &rows {
         let place_id: String = row.try_get("place_id")?;
+        if let Some(name) = row.try_get::<Option<String>, _>("place_name")? {
+            names.insert(place_id.clone(), name);
+        }
         let authorized: serde_json::Value = row.try_get("authorized")?;
         let span = AssignmentSpan::try_new(
             PlaceId::try_new(&place_id).map_err(|error| corrupt("place id", error.to_string()))?,
@@ -157,7 +172,7 @@ async fn load_assignments(
             .push(span)
             .map_err(|error| corrupt("assignment timeline", error.to_string()))?;
     }
-    Ok(timeline)
+    Ok((timeline, names))
 }
 
 async fn load_profile(pool: &PgPool, employee_id: &str) -> Result<Option<Profile>, AppError> {
@@ -267,9 +282,11 @@ pub async fn load_employee(
         return Ok(None);
     };
 
+    let (assignments, place_names) = load_assignments(pool, employee_id).await?;
     Ok(Some(EmployeeRecord {
         employee: decode_employee(&row)?,
-        assignments: load_assignments(pool, employee_id).await?,
+        assignments,
+        place_names,
         profile: load_profile(pool, employee_id).await?,
         contracts: load_contracts(pool, employee_id).await?,
         created_at: row.try_get("created_at")?,
@@ -378,20 +395,6 @@ pub async fn expiring_contracts(
             })
         })
         .collect()
-}
-
-/// The display name of a place, for the employment profile.
-///
-/// A separate small query rather than a join in `load_employee`: the name is
-/// wanted on one screen, and every other caller of that function would pay for
-/// it.
-pub async fn place_name(pool: &PgPool, place_id: &str) -> Result<Option<String>, AppError> {
-    Ok(
-        sqlx::query_scalar("SELECT name FROM org_place WHERE id = $1")
-            .bind(place_id)
-            .fetch_optional(pool)
-            .await?,
-    )
 }
 
 /// The employment record bound to a login, for resolving `me`.

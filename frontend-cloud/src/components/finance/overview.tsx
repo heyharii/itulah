@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader } from "@/components/app-shell"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import type { FinanceRoute } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
@@ -63,8 +63,8 @@ export function FinanceOverview() {
   return (
     <AppShell nav={<Nav />} section={<FinanceNav />}>
       <ScreenHeader title="Finance" subtitle="CENTRAL FASHION STORE" />
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <p className="text-muted-foreground max-w-2xl pb-4 text-[12px]">
+      <ScreenBody card={false} className="flex flex-col">
+        <p className="mb-4 max-w-2xl text-[0.75rem] text-[var(--os-body,#74747b)]">
           The books stand on the client's own chart of accounts. Nothing posts until a
           meaning has an account and a month is open — both refusals come from the
           database, and both name what is missing rather than guessing.
@@ -167,7 +167,7 @@ export function FinanceOverview() {
             loading={map.isPending}
           />
         </div>
-      </div>
+      </ScreenBody>
     </AppShell>
   )
 }
@@ -202,8 +202,8 @@ function Tile({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 rounded-xl border p-3.5",
-        state === "blocked" && "border-amber-300/70 bg-amber-50/40",
+        "os-card flex flex-col gap-2 p-[0.9375rem]",
+        state === "blocked" && "border-[var(--os-warn,#b7791f)]/40 bg-[var(--os-warn-bg,#f8f1de)]",
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -212,10 +212,10 @@ function Tile({
           className={cn(
             "size-4 shrink-0",
             state === "done"
-              ? "text-emerald-600"
+              ? "text-[var(--os-ok,#2e9e5b)]"
               : state === "blocked"
-                ? "text-amber-600"
-                : "text-muted-foreground/50",
+                ? "text-[var(--os-warn,#b7791f)]"
+                : "text-[var(--os-mute,#a6a6ad)]",
           )}
         />
       </div>

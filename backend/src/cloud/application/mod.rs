@@ -627,6 +627,18 @@ pub struct SimulateRequest {
 }
 
 /// Every style, every shop, every price that could apply.
+/// What a price book can name.
+///
+/// Search by SKU code, article code or article name — the three things
+/// somebody has in front of them when they sit down to write a book.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CommercialProductQuery {
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct ArticlePriceQuery {
     pub channel: CommercialChannel,
@@ -695,6 +707,15 @@ pub struct AllotmentQuery {
 pub struct AvailabilityQuery {
     pub at: Option<DateTime<Utc>>,
     pub source_pool_id: Option<String>,
+    /// Stable SKU-code cursor returned by the previous page.
+    pub cursor: Option<String>,
+    /// Search is evaluated by PostgreSQL before pagination.
+    pub q: Option<String>,
+    pub limit: Option<i64>,
+    /// Internal projections may need the complete set for correctness. HTTP
+    /// input cannot set this field.
+    #[serde(skip)]
+    pub unbounded: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

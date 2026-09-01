@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
@@ -97,7 +97,7 @@ export function PeriodsScreen() {
           refuses an entry whose month nobody has opened. Open the current month to start.
         </ScreenState>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <ScreenBody>
           <table className="w-full text-[13px]">
             <thead className="bg-card sticky top-0 border-b">
               <tr className="text-muted-foreground text-[11px]">
@@ -195,7 +195,7 @@ export function PeriodsScreen() {
               {close.error instanceof Error ? close.error.message : "could not close"}
             </p>
           )}
-        </div>
+        </ScreenBody>
       )}
     </AppShell>
   )

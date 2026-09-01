@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
@@ -69,7 +69,7 @@ export function BankReconciliationScreen() {
           shows what neither side can explain on its own.
         </ScreenState>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <ScreenBody className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-2.5 py-1.5">
             {rows.map((statement) => {
               const done = statement.matched_count === statement.line_count
@@ -100,7 +100,7 @@ export function BankReconciliationScreen() {
             })}
           </div>
           {active !== null && <Lines statementId={active} />}
-        </div>
+        </ScreenBody>
       )}
     </AppShell>
   )

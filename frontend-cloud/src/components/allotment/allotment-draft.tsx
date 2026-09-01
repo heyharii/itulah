@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader } from "@/components/app-shell"
 import {
   FilterSheet,
   PurchaseOrderSheet,
@@ -25,7 +25,8 @@ import { listPurchaseOrders } from "@/lib/purchase-orders"
 import { cn } from "@/lib/utils"
 import { useVocabulary } from "@/lib/vocabulary"
 import { ApiError } from "@itulah/contract/client"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useForm, useStore } from "@tanstack/react-form"
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { ChevronRight, ListFilter, Receipt, Search, X } from "lucide-react"
 import { Fragment, useMemo, useRef, useState } from "react"
@@ -74,9 +75,23 @@ export function AllotmentDraft() {
   const identity = useIdentity()
   const vocabulary = useVocabulary()
 
+  /// The grid is the form, and every cell in it is a field.
+  ///
   /// Keyed `skuId|storeId`. Per SKU rather than per article because that is
-  /// what a line names; the article cells above are sums of these.
-  const [quantities, setQuantities] = useState<Record<string, number>>({})
+  /// what a line names; the article cells above are sums of these. It is one
+  /// field rather than one per cell because the shape of it is not known until
+  /// the warehouse has answered — a hundred articles times thirteen stores,
+  /// most of them never typed into.
+  const form = useForm({
+    defaultValues: { quantities: {} as Record<string, number> },
+    onSubmit: () => {
+      create.mutate()
+    },
+  })
+  const quantities = useStore(form.store, (state) => state.values.quantities)
+
+  /// Which rows are open, what is being looked for and what has been filtered
+  /// out. None of it is promised to anybody, so none of it is a field.
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState("")
   const [filters, setFilters] = useState<AllotmentFilters>(NO_FILTERS)
@@ -100,11 +115,20 @@ export function AllotmentDraft() {
   }, [pools.data])
   const stores = useMemo(() => sitesOf(pools.data ?? [], "STORE"), [pools.data])
 
-  const stock = useQuery({
+  const stock = useInfiniteQuery({
     queryKey: ["inventory", "availability", source?.id ?? ""],
-    queryFn: ({ signal }) => availability(source?.id ?? "", signal),
+    queryFn: ({ pageParam, signal }) =>
+      availability(source?.id ?? "", pageParam, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
     enabled: source !== null,
   })
+  const stockPages = stock.data?.pages ?? []
+  const stockItems = useMemo(
+    () => stockPages.flatMap((page) => page.items),
+    [stockPages]
+  )
+  const stockSummary = stockPages[0]
 
   // Under the same key the sheet reads, so naming the chosen order on the
   // button does not cost a second fetch of the list it came from.
@@ -119,7 +143,7 @@ export function AllotmentDraft() {
 
   const articles = useMemo<ArticleRow[]>(() => {
     const byArticle = new Map<string, AvailabilityItem[]>()
-    for (const item of stock.data?.items ?? []) {
+    for (const item of stockItems) {
       const skus = byArticle.get(item.article_id)
       if (skus === undefined) {
         byArticle.set(item.article_id, [item])
@@ -140,7 +164,7 @@ export function AllotmentDraft() {
         stock: skus.reduce((sum, sku) => sum + sku.stock_qty, 0),
       }))
       .sort((left, right) => left.name.localeCompare(right.name))
-  }, [stock.data])
+  }, [stockItems])
 
   /// The divisions and tags actually present, so the filter offers what this
   /// warehouse holds rather than the whole vocabulary. A division nothing is
@@ -216,7 +240,7 @@ export function AllotmentDraft() {
     article.skus.reduce((sum, sku) => sum + quantityOf(sku.sku_id, storeId), 0)
 
   const write = (changes: Record<string, number>) => {
-    setQuantities((current) => {
+    form.setFieldValue("quantities", (current) => {
       const next = { ...current }
       for (const [key, quantity] of Object.entries(changes)) {
         if (quantity <= 0) {
@@ -383,18 +407,29 @@ export function AllotmentDraft() {
           {stores.length} store
           {stores.length === 1 ? "" : "s"}
         </span>
-        {stock.data !== undefined && (
+        {stockSummary !== undefined && (
           <span className="hidden font-mono text-[11px] text-muted-foreground lg:inline">
             {/* The server states this equation in the same response it sends the
                 numbers with; repeating it is why On Hand is the column shown. */}
-            On hand {units(stock.data.on_hand_qty)} of{" "}
-            {units(stock.data.stock_qty)}
+            On hand {units(stockSummary.on_hand_qty)} of{" "}
+            {units(stockSummary.stock_qty)}
           </span>
         )}
         {shown.length !== articles.length && (
           <span className="text-[11px] text-muted-foreground">
             of {articles.length}
           </span>
+        )}
+        {stock.hasNextPage && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7"
+            disabled={stock.isFetchingNextPage}
+            onClick={() => void stock.fetchNextPage()}
+          >
+            {stock.isFetchingNextPage ? "Loading…" : "Load 100 more"}
+          </Button>
         )}
 
         <label className="relative ml-auto">
@@ -439,7 +474,7 @@ export function AllotmentDraft() {
         </FilterSheet>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScreenBody>
         {source === null && pools.isSuccess ? (
           <p className="px-3.5 py-6 text-center text-xs text-muted-foreground">
             No DC warehouse pool exists to promise goods out of.
@@ -733,7 +768,7 @@ export function AllotmentDraft() {
             </tfoot>
           </table>
         )}
-      </div>
+      </ScreenBody>
 
       <div className="flex shrink-0 items-center gap-3 border-t px-3.5 py-2.5">
         {problems.length > 0 ? (
@@ -753,7 +788,7 @@ export function AllotmentDraft() {
           <Button
             size="sm"
             disabled={problems.length > 0 || create.isPending}
-            onClick={() => create.mutate()}
+            onClick={() => void form.handleSubmit()}
           >
             {create.isPending ? "Allotting…" : "Raise allotment"}
           </Button>

@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { Attachment } from "@/components/collaboration/attachment"
 import { LiveBadge } from "@/components/collaboration/live-badge"
 import { PersonAvatar } from "@/components/collaboration/person"
@@ -96,7 +96,7 @@ export function ThreadView() {
         <LiveBadge />
       </ScreenHeader>
 
-      <div className="min-h-0 flex-1 overflow-auto p-3">
+      <ScreenBody card={false} className="min-h-0 flex-1 overflow-auto">
         {thread.isPending ? (
           <ScreenState>Loading…</ScreenState>
         ) : thread.isError || record === undefined ? (
@@ -155,7 +155,7 @@ export function ThreadView() {
             )}
           </div>
         )}
-      </div>
+      </ScreenBody>
     </AppShell>
   )
 }

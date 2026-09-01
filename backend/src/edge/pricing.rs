@@ -510,6 +510,20 @@ pub struct CatalogRow {
     pub publication_version: i64,
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct CatalogQuery {
+    pub cursor: Option<String>,
+    pub q: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CatalogPage {
+    pub items: Vec<CatalogRow>,
+    pub next_cursor: Option<String>,
+    pub limit: usize,
+}
+
 /// What a product *is*, as a range-wide markdown or promotion needs to know it.
 ///
 /// The mirror of `cloud/postgres/pricing.rs::load_merchandise`, against the
@@ -528,14 +542,29 @@ fn merchandise(
     std::collections::BTreeMap<String, (Option<String>, Option<String>, Vec<String>)>,
     EdgeError,
 > {
-    let mut statement = connection
-        .prepare("SELECT sku_code, article_code, division_code, tags_json FROM catalog_item")
-        .map_err(db)?;
-    let wanted: Option<std::collections::BTreeSet<&str>> =
-        sku_codes.map(|codes| codes.iter().map(String::as_str).collect());
+    let narrowing = match sku_codes {
+        Some(codes) if !codes.is_empty() => {
+            let slots = (0..codes.len())
+                .map(|index| format!("?{}", index + 1))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(" WHERE sku_code IN ({slots})")
+        }
+        Some(_) => " WHERE 0".to_string(),
+        None => String::new(),
+    };
+    let sql = format!(
+        "SELECT sku_code, article_code, division_code, tags_json FROM catalog_item{narrowing}"
+    );
+    let bound: Vec<&dyn rusqlite::ToSql> = sku_codes
+        .into_iter()
+        .flatten()
+        .map(|code| code as &dyn rusqlite::ToSql)
+        .collect();
+    let mut statement = connection.prepare(&sql).map_err(db)?;
     let mut facts = std::collections::BTreeMap::new();
     let rows = statement
-        .query_map([], |row| {
+        .query_map(bound.as_slice(), |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, Option<String>>(1)?,
@@ -546,12 +575,6 @@ fn merchandise(
         .map_err(db)?;
     for row in rows {
         let (sku_code, article_code, division_code, tags_json) = row.map_err(db)?;
-        if wanted
-            .as_ref()
-            .is_some_and(|set| !set.contains(sku_code.as_str()))
-        {
-            continue;
-        }
         // A tag list this build cannot read costs the tags and nothing else.
         // Refusing to price a basket because a label was malformed would turn a
         // cosmetic fault into a shop that cannot sell.
@@ -647,6 +670,91 @@ pub fn store_catalog(
         });
     }
     Ok(rows)
+}
+
+/// One bounded catalogue page. Both the catalogue facts and the price book
+/// are narrowed to the selected SKU codes, so pagination reduces database and
+/// pricing-engine work rather than merely truncating the JSON response.
+pub fn store_catalog_page(
+    connection: &Connection,
+    site_id: &str,
+    channel: &str,
+    at: DateTime<Utc>,
+    query: CatalogQuery,
+) -> Result<CatalogPage, EdgeError> {
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let needle = query.q.as_deref().map(str::trim).filter(|v| !v.is_empty());
+    let mut statement = connection
+        .prepare(
+            "SELECT sku_code, name, uom, barcode
+               FROM catalog_item
+              WHERE active = 1
+                AND (?1 IS NULL OR sku_code > ?1)
+                AND (?2 IS NULL OR sku_code LIKE '%'||?2||'%'
+                     OR name LIKE '%'||?2||'%' OR barcode LIKE '%'||?2||'%')
+              ORDER BY sku_code
+              LIMIT ?3",
+        )
+        .map_err(db)?;
+    let scanned = statement
+        .query_map(
+            rusqlite::params![cursor, needle, (limit + 1) as i64],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    let has_more = scanned.len() > limit;
+    let scanned: Vec<_> = scanned.into_iter().take(limit).collect();
+    let sku_codes: Vec<String> = scanned.iter().map(|(code, ..)| code.clone()).collect();
+    let next_cursor = has_more.then(|| sku_codes.last().cloned()).flatten();
+    let snapshot = load_snapshot_for(connection, site_id, channel, Some(&sku_codes))?;
+    let context = PricingContext::new(site_id, channel, at);
+    let facts = merchandise(connection, Some(&sku_codes))?;
+    let products: Vec<CartLine> = sku_codes
+        .iter()
+        .map(|code| line_for(code, 1, &facts))
+        .collect();
+    let priced: std::collections::BTreeMap<String, CatalogEntry> =
+        price_catalog(&snapshot, &context, &products)
+            .into_iter()
+            .map(|entry| (entry.sku_code.clone(), entry))
+            .collect();
+    let items = scanned
+        .into_iter()
+        .filter_map(|(sku_code, name, uom, barcode)| {
+            let entry = priced.get(&sku_code)?;
+            Some(CatalogRow {
+                sku_code,
+                name,
+                uom,
+                barcode,
+                unit_price_minor: entry.unit_price.minor,
+                base_unit_price_minor: entry.base_unit_price.minor,
+                currency: entry.currency.0.clone(),
+                tax_category: entry.tax_category.clone(),
+                price_source: entry.source.as_str().to_string(),
+                publication_version: entry.publication_version,
+            })
+        })
+        .collect();
+    Ok(CatalogPage {
+        items,
+        next_cursor,
+        limit,
+    })
 }
 
 /// What one unit costs at the counter, and on what authority.
@@ -915,9 +1023,15 @@ mod tests {
             "INSERT INTO commercial_price_rule
                  (publication_id, sku_id, sku_code, site_id, channel, sellable,
                   currency, unit_price_minor, tax_category)
-             VALUES (?1, 'ffffffff-0000-0000-0000-000000000000', ?2, ?3, 'STORE',
+             VALUES (?1, ?5, ?2, ?3, 'STORE',
                      1, 'IDR', ?4, 'STANDARD')",
-            params![publication_id, sku_code, site_id, minor],
+            params![
+                publication_id,
+                sku_code,
+                site_id,
+                minor,
+                format!("fixture-{sku_code:?}")
+            ],
         ) {
             panic!("fixture price: {error}");
         }
@@ -973,6 +1087,57 @@ mod tests {
                 quoted.lines[0].unit_price_minor, rows[0].unit_price_minor,
                 "the shelf and the counter must agree"
             );
+        });
+    }
+
+    #[test]
+    fn catalogue_pages_are_stable_and_search_before_pricing() {
+        let edge = shop();
+        with_shop(&edge, |connection| {
+            let publication = publish(connection, 1, at(1));
+            for (code, name) in [("SKU1", "Kemeja"), ("SKU2", "Celana"), ("SKU3", "Jaket")] {
+                price(connection, &publication, Some(code), None, 100_000);
+                stock(connection, code, name);
+            }
+            let first = store_catalog_page(
+                connection,
+                "store-01",
+                STORE_CHANNEL,
+                at(5),
+                CatalogQuery {
+                    limit: Some(1),
+                    ..CatalogQuery::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("first page: {error}"));
+            assert_eq!(first.items.len(), 1);
+            assert_eq!(first.items[0].sku_code, "SKU1");
+            let second = store_catalog_page(
+                connection,
+                "store-01",
+                STORE_CHANNEL,
+                at(5),
+                CatalogQuery {
+                    cursor: first.next_cursor,
+                    limit: Some(1),
+                    ..CatalogQuery::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("second page: {error}"));
+            assert_eq!(second.items[0].sku_code, "SKU2");
+            let search = store_catalog_page(
+                connection,
+                "store-01",
+                STORE_CHANNEL,
+                at(5),
+                CatalogQuery {
+                    q: Some("Jaket".into()),
+                    ..CatalogQuery::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("search: {error}"));
+            assert_eq!(search.items.len(), 1);
+            assert_eq!(search.items[0].sku_code, "SKU3");
         });
     }
 

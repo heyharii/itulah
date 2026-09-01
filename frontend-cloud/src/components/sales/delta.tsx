@@ -51,8 +51,8 @@ export function Delta({
         flat
           ? "text-muted-foreground"
           : fraction > 0
-            ? "text-emerald-700 dark:text-emerald-400"
-            : "text-rose-700 dark:text-rose-400",
+            ? "text-[var(--os-ok,#047857)]"
+            : "text-[var(--os-bad,#be123c)]",
         className,
       )}
       title={`${growthLabel(fraction)} against ${against ?? "the period before"}`}

@@ -19,4 +19,18 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Generated code: the shadcn ui primitives, copied in from the sibling
+    // surfaces rather than written here and replaced wholesale by the next
+    // `shadcn add`. House-style findings in them would be re-introduced by
+    // every update; type errors are a different matter and stop the build.
+    files: ['src/components/ui/**'],
+    linterOptions: { reportUnusedDisableDirectives: 'off' },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      'react-refresh/only-export-components': 'off',
+      'react-hooks/exhaustive-deps': 'off',
+    },
+  },
 ])

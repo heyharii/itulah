@@ -120,6 +120,46 @@ impl AttachmentStore {
             .map_err(|error| AppError::Configuration(format!("attachment store: {error}")))
     }
 
+    /// Whether the object is actually there, and how big it is.
+    ///
+    /// Used after a direct upload: the browser sent the bytes past this
+    /// process, so the only honest way to record a file as present is to go
+    /// and look. Without this, a failed upload would still produce a row that
+    /// claims the document is available.
+    pub async fn head(&self, key: &str) -> Result<Option<u64>, AppError> {
+        self.store
+            .head(key)
+            .await
+            .map(|meta| meta.map(|m| m.size))
+            .map_err(|error| AppError::Configuration(format!("attachment store: {error}")))
+    }
+
+    /// A time-limited URL a browser may PUT to directly.
+    ///
+    /// This does not contradict the module's rule that these objects have no
+    /// address a browser can reach: a presigned URL is not an address, it is a
+    /// grant — it names one key, one method, and expires. What the rule forbids
+    /// is a public base URL, which would make every object readable forever by
+    /// anyone who guessed its key.
+    ///
+    /// Documents go direct because they are the size that makes going through
+    /// this process wrong: a 512MB node reading a 20MB contract into memory to
+    /// hand it to a bucket is a memory spike bought for nothing.
+    pub fn presign_put(&self, key: &str, expires_in_secs: u32) -> Result<String, AppError> {
+        self.store
+            .presign_put(key, expires_in_secs)
+            .map_err(|error| AppError::Configuration(format!("attachment store: {error}")))
+    }
+
+    /// The same grant, for reading. Issued only after the caller's permission
+    /// has been checked, and short-lived because it travels in a response that
+    /// may be logged.
+    pub fn presign_get(&self, key: &str, expires_in_secs: u32) -> Result<String, AppError> {
+        self.store
+            .presign_get(key, expires_in_secs)
+            .map_err(|error| AppError::Configuration(format!("attachment store: {error}")))
+    }
+
     /// Read the bytes back through this process, so the caller's permission
     /// check is the only door.
     pub async fn get(&self, key: &str) -> Result<Vec<u8>, AppError> {

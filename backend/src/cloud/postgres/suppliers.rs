@@ -9,7 +9,7 @@ use crate::cloud::{
 };
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::{postgres::PgRow, PgPool, Postgres, Row, Transaction};
 use std::str::FromStr;
 use uuid::Uuid;
@@ -853,6 +853,48 @@ pub async fn list_supplier_items(
     .fetch_all(pool)
     .await?;
     rows.into_iter().map(supplier_item_from_row).collect()
+}
+
+pub async fn list_supplier_items_page(
+    pool: &PgPool,
+    supplier_id: Uuid,
+    status: Option<SupplierStatus>,
+    cursor: Option<Uuid>,
+    requested_limit: Option<i64>,
+) -> Result<Value, AppError> {
+    if !sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM supplier WHERE supplier_id = $1)",
+    )
+    .bind(supplier_id)
+    .fetch_one(pool)
+    .await?
+    {
+        return Err(AppError::NotFound("Supplier".to_owned()));
+    }
+    let limit = requested_limit.unwrap_or(100).clamp(1, 500);
+    let rows = sqlx::query(
+        "SELECT * FROM supplier_item
+         WHERE supplier_id = $1 AND ($2::text IS NULL OR status = $2)
+           AND ($3::uuid IS NULL OR supplier_item_id > $3)
+         ORDER BY supplier_item_id
+         LIMIT $4",
+    )
+    .bind(supplier_id)
+    .bind(status.map(|value| value.as_str()))
+    .bind(cursor)
+    .bind(limit + 1)
+    .fetch_all(pool)
+    .await?;
+    let has_more = rows.len() > limit as usize;
+    let items: Vec<SupplierItem> = rows
+        .into_iter()
+        .take(limit as usize)
+        .map(supplier_item_from_row)
+        .collect::<Result<_, _>>()?;
+    let next_cursor = has_more
+        .then(|| items.last().map(|item| item.supplier_item_id))
+        .flatten();
+    Ok(json!({"items":items,"limit":limit,"next_cursor":next_cursor}))
 }
 
 pub async fn get_supplier_item(

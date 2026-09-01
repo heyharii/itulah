@@ -1,0 +1,112 @@
+//! The document drawer, over HTTP.
+
+use super::auth::Principal;
+use crate::cloud::{
+    application::{AppError, AppState},
+    postgres::{self as infrastructure, DocumentUploadRequest, FileDocumentRequest},
+};
+use axum::{
+    extract::{Path, Query, State},
+    Extension, Json,
+};
+use serde::Deserialize;
+use serde_json::json;
+use uuid::Uuid;
+
+/// Somewhere to put the bytes. No row is written until the upload finishes and
+/// [`file`] confirms the object is really in the bucket.
+pub async fn upload_url(
+    State(state): State<AppState>,
+    Json(request): Json<DocumentUploadRequest>,
+) -> Result<Json<infrastructure::DocumentUpload>, AppError> {
+    Ok(Json(infrastructure::reserve_upload(&state, &request)?))
+}
+
+/// File an uploaded object as a document.
+pub async fn file(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<FileDocumentRequest>,
+) -> Result<Json<infrastructure::Document>, AppError> {
+    Ok(Json(
+        infrastructure::file_document(&state, request, &principal.username).await?,
+    ))
+}
+
+/// What a drawer screen asks for. Comma-separated for the same reason the
+/// sourcing facets are: it is what the browser's own filter state already
+/// serialises to, and a second encoding for one idea is a second thing to get
+/// wrong.
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    tags: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    subject_kind: Option<String>,
+    #[serde(default)]
+    subject_id: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: i64,
+}
+
+const fn default_limit() -> i64 {
+    60
+}
+
+fn parts(raw: Option<&str>) -> Vec<String> {
+    raw.map(|value| {
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(str::to_string)
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+pub async fn search(
+    State(state): State<AppState>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<Vec<infrastructure::Document>>, AppError> {
+    Ok(Json(
+        infrastructure::search_documents(
+            &state.db,
+            infrastructure::DocumentQuery {
+                q: query.q,
+                tags: parts(query.tags.as_deref()),
+                path: parts(query.path.as_deref()),
+                subject_kind: query.subject_kind,
+                subject_id: query.subject_id,
+                limit: query.limit,
+            },
+        )
+        .await?,
+    ))
+}
+
+pub async fn detail(
+    State(state): State<AppState>,
+    Path(document_id): Path<Uuid>,
+) -> Result<Json<infrastructure::Document>, AppError> {
+    Ok(Json(
+        infrastructure::read_document(&state.db, document_id).await?,
+    ))
+}
+
+/// A short-lived URL for the bytes.
+///
+/// Issued rather than proxied: the permission check happens here, and then the
+/// browser talks to the bucket directly instead of pulling a 20MB contract
+/// through a 512MB node.
+pub async fn download_url(
+    State(state): State<AppState>,
+    Path(document_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let url = infrastructure::download_url(&state, document_id).await?;
+    Ok(Json(json!({ "url": url, "expires_in_seconds": 300 })))
+}

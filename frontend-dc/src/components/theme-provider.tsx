@@ -1,4 +1,7 @@
-/* eslint-disable react-refresh/only-export-components */
+/* eslint-disable react-refresh/only-export-components -- the provider and
+   the `useTheme` that reads it are one thing; splitting them would put a
+   context in a file of its own so that a lint rule about hot reloading
+   could be satisfied. */
 import * as React from "react"
 
 type Theme = "dark" | "light" | "system"

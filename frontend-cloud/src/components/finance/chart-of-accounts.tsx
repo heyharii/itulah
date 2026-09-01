@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
 import { Input } from "@/components/ui/input"
@@ -13,8 +13,9 @@ import { money } from "@/lib/money"
 import { cn } from "@/lib/utils"
 import type { LedgerAccount } from "@itulah/contract"
 import { useQuery } from "@tanstack/react-query"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { ChevronDown, ChevronRight, Search } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 /// The client's own chart of accounts, as a thing you can walk.
 ///
@@ -36,6 +37,10 @@ export function ChartOfAccounts() {
   const [needle, setNeedle] = useState("")
   const [selected, setSelected] = useState<string | null>(null)
   const searching = needle.trim().length >= 2
+  /// The element the results scroll in. Held here rather than inside the
+  /// results because the tree and the search share one scrolling column, and
+  /// the virtualiser has to be told which element that is.
+  const scroller = useRef<HTMLDivElement>(null)
 
   return (
     <AppShell nav={<Nav />} section={<FinanceNav />}>
@@ -55,10 +60,15 @@ export function ChartOfAccounts() {
         </div>
       </ScreenHeader>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-h-0 overflow-y-auto py-1">
+      <ScreenBody className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div ref={scroller} className="min-h-0 overflow-y-auto py-1">
           {searching ? (
-            <SearchResults needle={needle.trim()} onPick={setSelected} selected={selected} />
+            <SearchResults
+              needle={needle.trim()}
+              onPick={setSelected}
+              selected={selected}
+              scroller={scroller}
+            />
           ) : (
             <Branch parent={undefined} depth={0} onPick={setSelected} selected={selected} />
           )}
@@ -66,7 +76,7 @@ export function ChartOfAccounts() {
         <aside className="hidden min-h-0 overflow-y-auto border-l xl:block">
           <AccountPanel code={selected} />
         </aside>
-      </div>
+      </ScreenBody>
     </AppShell>
   )
 }
@@ -214,23 +224,59 @@ function AccountRow({
   )
 }
 
+/// How many hits the search asks the server for.
+///
+/// It was two hundred, and two hundred was never a decision about relevance —
+/// it was a decision about layout, taken when the list drew every row it was
+/// given. In a chart of 7,528 accounts a two-digit prefix matches far more than
+/// that, and the cut was silent: the account somebody was looking for was
+/// simply not in the answer, with nothing on the screen to say the answer had
+/// been trimmed. The server puts no ceiling of its own on this — `limit` is
+/// passed straight to SQL and defaults to 100 — so this number is the only one
+/// there is.
+///
+/// Two thousand rather than all 7,528, and that is about the wire and not about
+/// the layout: the whole chart is roughly a megabyte of JSON and a query fires
+/// on every keystroke past the second. Two thousand covers every search a
+/// person actually types and is a fifth of the worst case.
+const HITS = 2000
+
+/// The height one hit is drawn at. Every row is one line — code, name, class —
+/// so this is exact rather than an estimate, and the scrollbar does not creep.
+const HIT = 26
+
 /// Search results, which are a flat list and therefore need their path shown.
 ///
 /// A code out of the tree is unreadable — that is the whole reason the tree
 /// exists — so every hit carries the headings above it.
+///
+/// Virtualised, because this list is the one place in the app where the whole
+/// chart can arrive at once. Laying out several thousand rows to show the
+/// twenty a person can see is what the old limit was really avoiding, and
+/// avoiding it by hiding accounts is the wrong end of the problem to solve.
 function SearchResults({
   needle,
   onPick,
   selected,
+  scroller,
 }: {
   needle: string
   onPick: (code: string) => void
   selected: string | null
+  scroller: React.RefObject<HTMLDivElement | null>
 }) {
   const hits = useQuery({
     queryKey: financeKeys.accounts(undefined, needle),
-    queryFn: ({ signal }) => searchAccounts(needle, { limit: 200 }, signal),
+    queryFn: ({ signal }) => searchAccounts(needle, { limit: HITS }, signal),
     staleTime: 60 * 1000,
+  })
+  const accounts = hits.data ?? []
+
+  const rows = useVirtualizer({
+    count: accounts.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => HIT,
+    overscan: 16,
   })
 
   if (hits.isPending) {
@@ -252,29 +298,37 @@ function SearchResults({
     )
   }
   return (
-    <ul className="py-1">
-      {hits.data.map((account) => (
-        <li key={account.account_code}>
-          <button
-            type="button"
-            onClick={() => onPick(account.account_code)}
-            className={cn(
-              "hover:bg-muted/60 flex w-full items-baseline gap-2 rounded-md px-3 py-1 text-left text-[13px]",
-              selected === account.account_code && "bg-muted",
-            )}
+    <ul className="relative" style={{ height: rows.getTotalSize() }}>
+      {rows.getVirtualItems().map((item) => {
+        const account = accounts[item.index]
+        if (account === undefined) return null
+        return (
+          <li
+            key={account.account_code}
+            className="absolute top-0 left-0 w-full px-0"
+            style={{ height: HIT, transform: `translateY(${item.start}px)` }}
           >
-            <span className="text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums">
-              {account.account_code}
-            </span>
-            <span className={cn("truncate", account.is_group && "font-medium")}>
-              {account.name}
-            </span>
-            <span className="text-muted-foreground ml-auto shrink-0 text-[10px]">
-              {ROOT_CLASSES[account.root_class] ?? account.root_class}
-            </span>
-          </button>
-        </li>
-      ))}
+            <button
+              type="button"
+              onClick={() => onPick(account.account_code)}
+              className={cn(
+                "hover:bg-muted/60 flex h-full w-full items-baseline gap-2 rounded-md px-3 py-1 text-left text-[13px]",
+                selected === account.account_code && "bg-muted",
+              )}
+            >
+              <span className="text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums">
+                {account.account_code}
+              </span>
+              <span className={cn("truncate", account.is_group && "font-medium")}>
+                {account.name}
+              </span>
+              <span className="text-muted-foreground ml-auto shrink-0 text-[10px]">
+                {ROOT_CLASSES[account.root_class] ?? account.root_class}
+              </span>
+            </button>
+          </li>
+        )
+      })}
     </ul>
   )
 }

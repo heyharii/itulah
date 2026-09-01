@@ -1,3 +1,7 @@
+// The variants travel with the component they describe, which is how shadcn
+// ships this file and how it is regenerated. Splitting them into a module of
+// their own to keep fast refresh happy would put the button's appearance a
+// file away from the button.
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 

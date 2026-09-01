@@ -1,11 +1,17 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
 import { balanceMatrix, financeKeys } from "@/lib/finance"
 import { money } from "@/lib/money"
+import { dataTableFeatures, type DataTableFeatures } from "@/lib/table/features"
 import { cn } from "@/lib/utils"
+import type { BalanceRow } from "@itulah/contract"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { flexRender, useTable } from "@tanstack/react-table"
+import { useMemo, useState } from "react"
 
 /// What one family of the client's chart holds, at each of the fourteen
 /// locations.
@@ -29,6 +35,15 @@ import { Link } from "@tanstack/react-router"
 /// are the site ids rather than names, right-aligned tabular figures throughout,
 /// and a zero renders as a dash. A grid full of "Rp 0" is a grid nobody can
 /// find the real numbers in.
+///
+/// # Why the columns are built rather than written
+///
+/// The locations are data — they come back with the balances, and a screen that
+/// hard-coded fourteen of them would be wrong the day the client opens a
+/// fifteenth. Building the column list from `locations` also buys the thing
+/// this screen most wanted and a hand-written table could not give it: every
+/// location sorts. "Which shop is holding the cash" was previously answered by
+/// reading fourteen numbers across a row, once per row.
 export function PositionScreen({
   family,
   title,
@@ -48,6 +63,25 @@ export function PositionScreen({
     queryFn: ({ signal }) => balanceMatrix(family, undefined, signal),
   })
 
+  const locations = useMemo(() => matrix.data?.locations ?? [], [matrix.data])
+  const rows = useMemo(() => [...(matrix.data?.rows ?? [])], [matrix.data])
+  const columns = useMemo(() => positionColumns(locations), [locations])
+
+  const [sorting, setSorting] = useState<SortingState>([])
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: dataTableFeatures,
+        data: rows,
+        columns,
+        getRowId: (row: BalanceRow) => row.account_code,
+        state: { sorting, pagination: { pageIndex: 0, pageSize: Math.max(1, rows.length) } },
+        onSortingChange: setSorting,
+      }),
+      [rows, columns, sorting],
+    ),
+  )
+
   if (matrix.isPending) {
     return (
       <Frame title={title}>
@@ -65,7 +99,7 @@ export function PositionScreen({
     )
   }
 
-  const { rows, locations, column_totals, grand_total_minor, family_name, as_of } = matrix.data
+  const { column_totals, grand_total_minor, family_name, as_of } = matrix.data
   const moved = rows.some((row) => row.total_minor !== 0)
 
   return (
@@ -84,54 +118,46 @@ export function PositionScreen({
         <div className="min-h-0 flex-1 overflow-auto">
           <table className="text-[12.5px]">
             <thead className="bg-card sticky top-0 z-10">
-              <tr className="text-muted-foreground text-[10.5px]">
-                <th className="bg-card sticky left-0 z-20 border-b px-3 py-1.5 text-left font-medium">
-                  Account
-                </th>
-                {locations.map((site) => (
-                  <th
-                    key={site}
-                    className="border-b px-2 py-1.5 text-right font-mono font-medium"
-                  >
-                    {/* The site id, not its name. Fourteen names do not fit and
-                        the ids are what the codes themselves carry. */}
-                    {site === "dc" ? "HO" : site.replace("store-", "C0")}
-                  </th>
-                ))}
-                {/* Pinned right for the same reason the account is pinned
-                    left: fifteen money columns will not fit, so the two that
-                    frame every row have to stay put while the middle scrolls. */}
-                <th className="bg-card sticky right-0 z-20 border-b border-l px-3 py-1.5 text-right font-medium">
-                  Total
-                </th>
-              </tr>
+              {table.getHeaderGroups().map((group) => (
+                <tr key={group.id} className="text-muted-foreground text-[10.5px]">
+                  {group.headers.map((header, index) => (
+                    <th
+                      key={header.id}
+                      className={cn(
+                        "border-b px-2 py-1.5 text-right font-medium",
+                        // The account is pinned left and the total right for
+                        // the same reason: fifteen money columns will not fit,
+                        // so the two that frame every row have to stay put
+                        // while the middle scrolls.
+                        index === 0 && "bg-card sticky left-0 z-20 px-3 text-left",
+                        index === group.headers.length - 1 &&
+                          "bg-card sticky right-0 z-20 border-l px-3",
+                      )}
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </th>
+                  ))}
+                </tr>
+              ))}
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={row.account_code} className="hover:bg-muted/40 border-b">
-                  <td className="bg-card sticky left-0 z-10 px-3 py-1">
-                    <Link
-                      to="/finance/ledger"
-                      search={{ account: row.account_code }}
-                      className="flex items-baseline gap-2 hover:underline"
+              {table.getRowModel().rows.map((row) => (
+                <tr key={row.id} className="hover:bg-muted/40 border-b">
+                  {row.getVisibleCells().map((cell, index) => (
+                    <td
+                      key={cell.id}
+                      className={cn(
+                        "px-2 py-1 text-right font-mono tabular-nums",
+                        index === 0 && "bg-card sticky left-0 z-10 px-3 text-left font-sans",
+                        index === row.getVisibleCells().length - 1 &&
+                          "bg-card sticky right-0 z-10 border-l px-3 font-medium",
+                      )}
                     >
-                      <span className="text-muted-foreground shrink-0 font-mono text-[10.5px] tabular-nums">
-                        {row.account_code}
-                      </span>
-                      <span className="max-w-72 truncate">{row.name}</span>
-                    </Link>
-                  </td>
-                  {row.cells.map((cell, index) => (
-                    <Cell key={locations[index]} value={cell} />
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
                   ))}
-                  <td
-                    className={cn(
-                      "bg-card sticky right-0 z-10 border-l px-3 py-1 text-right font-mono font-medium tabular-nums",
-                      row.total_minor < 0 && "text-amber-700",
-                    )}
-                  >
-                    {row.total_minor === 0 ? "–" : money(row.total_minor)}
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -162,6 +188,65 @@ export function PositionScreen({
   )
 }
 
+/// The account, one column per location, and the row's own total.
+///
+/// The location cells read out of `cells` by index rather than by key, because
+/// that is how the server sends them: aligned with `locations`, so a location
+/// with nothing posted is a zero and not a gap. "No cash at store 07" and "we
+/// never asked about store 07" look the same in a sparse map and are very
+/// different things to an accountant.
+function positionColumns(
+  locations: readonly string[],
+): ColumnDef<DataTableFeatures, BalanceRow>[] {
+  return [
+    {
+      accessorKey: "account_code",
+      enableHiding: false,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Account" />,
+      cell: ({ row }) => (
+        <Link
+          to="/finance/ledger"
+          search={{ account: row.original.account_code }}
+          className="flex items-baseline gap-2 hover:underline"
+        >
+          <span className="text-muted-foreground shrink-0 font-mono text-[10.5px] tabular-nums">
+            {row.original.account_code}
+          </span>
+          <span className="max-w-72 truncate">{row.original.name}</span>
+        </Link>
+      ),
+    },
+    ...locations.map(
+      (site, index): ColumnDef<DataTableFeatures, BalanceRow> => ({
+        id: site,
+        // The site id, not its name. Fourteen names do not fit and the ids are
+        // what the codes themselves carry.
+        accessorFn: (row: BalanceRow) => row.cells[index] ?? 0,
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title={site === "dc" ? "HO" : site.replace("store-", "C0")}
+            align="end"
+            className="font-mono"
+          />
+        ),
+        cell: ({ row }) => <Cell value={row.original.cells[index] ?? 0} />,
+      }),
+    ),
+    {
+      accessorKey: "total_minor",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Total" align="end" />
+      ),
+      cell: ({ row }) => (
+        <span className={cn(row.original.total_minor < 0 && "text-amber-700")}>
+          {row.original.total_minor === 0 ? "–" : money(row.original.total_minor)}
+        </span>
+      ),
+    },
+  ]
+}
+
 /// A zero is a dash.
 ///
 /// Most cells in most of these tables are zero — fourteen locations, and a
@@ -169,15 +254,14 @@ export function PositionScreen({
 /// times a row makes the numbers that matter impossible to find.
 function Cell({ value }: { value: number }) {
   return (
-    <td
+    <span
       className={cn(
-        "px-2 py-1 text-right font-mono tabular-nums",
         value === 0 && "text-muted-foreground/30",
         value < 0 && "text-amber-700",
       )}
     >
       {value === 0 ? "–" : money(value)}
-    </td>
+    </span>
   )
 }
 
@@ -193,7 +277,7 @@ function Frame({
   return (
     <AppShell nav={<Nav />} section={<FinanceNav />}>
       <ScreenHeader title={title} subtitle={subtitle} />
-      {children}
+      <ScreenBody>{children}</ScreenBody>
     </AppShell>
   )
 }

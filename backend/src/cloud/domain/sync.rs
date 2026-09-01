@@ -763,8 +763,23 @@ pub fn parse_activate_publication(payload: &Value) -> Result<ActivatePublication
     if parsed.name.trim().is_empty() {
         return Err("publication name must not be empty".into());
     }
-    if parsed.price_rules.is_empty() {
-        return Err("publication carries no price rules".into());
+    // Something has to change. Not price rules specifically: a book carrying
+    // only a markdown, or only a promotion, is an ordinary thing to publish and
+    // demanding a price rule forced an author to restate a base price they did
+    // not mean to touch — which is how a book meant to add a discount reprices
+    // the range instead, since the newest book naming a product wins.
+    //
+    // A book carrying nothing at all is still refused: it would dispatch to
+    // thirty shops, activate, and leave every one of them exactly as it was.
+    if parsed.price_rules.is_empty()
+        && parsed.markdowns.is_empty()
+        && parsed.rules.is_empty()
+        && parsed.coupons.is_empty()
+        && parsed.campaigns.is_empty()
+    {
+        return Err("publication carries nothing: no prices, markdowns, promotions, \
+                    coupons or campaigns"
+            .into());
     }
     if parsed
         .price_rules

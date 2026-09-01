@@ -205,8 +205,10 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
          COALESCE(SUM(s.net_minor),0)::bigint net_minor,\
          COALESCE(SUM(s.tax_minor),0)::bigint tax_minor,\
          COALESCE(SUM(s.total_minor),0)::bigint gross_minor,\
-         COALESCE(SUM((SELECT COALESCE(SUM(l.quantity),0) FROM sale_line l WHERE l.sale_id=s.id)),0)::bigint units \
+         COALESCE(SUM(lines.units),0)::bigint units \
          FROM sale s \
+         LEFT JOIN (SELECT sale_id,SUM(quantity)::bigint units FROM sale_line GROUP BY sale_id) lines \
+           ON lines.sale_id=s.id \
          WHERE s.status='COMPLETED' AND s.completed_at >= $1 AND s.completed_at < $2 \
          GROUP BY 1,2 ORDER BY 2,1",
         field = bucket.label(),
@@ -347,17 +349,28 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     // sale half in cash and half on a card is exactly the row a supervisor
     // opens this list to find.
     let transactions = sqlx::query(
-        "SELECT s.id,s.sale_number,s.channel,s.currency::text currency,\
+        "WITH selected_sales AS (\
+             SELECT * FROM sale WHERE site_id=$1 AND status='COMPLETED' \
+              AND completed_at >= $2 AND completed_at < $3 \
+             ORDER BY completed_at DESC LIMIT $4\
+         ), line_totals AS (\
+             SELECT line.sale_id,COUNT(*)::bigint line_count,COALESCE(SUM(line.quantity),0)::bigint units \
+             FROM sale_line line JOIN selected_sales sale ON sale.id=line.sale_id GROUP BY line.sale_id\
+         ), payment_methods AS (\
+             SELECT payment.sale_id,array_agg(DISTINCT payment.method ORDER BY payment.method) methods \
+             FROM sale_payment payment JOIN selected_sales sale ON sale.id=payment.sale_id \
+             GROUP BY payment.sale_id\
+         ) \
+         SELECT s.id,s.sale_number,s.channel,s.currency::text currency,\
          s.net_minor,s.tax_minor,s.total_minor,s.paid_minor,s.change_minor,\
          s.actor_id,s.completed_at,\
-         (SELECT COUNT(*)::bigint FROM sale_line l WHERE l.sale_id=s.id) line_count,\
-         (SELECT COALESCE(SUM(l.quantity),0)::bigint FROM sale_line l WHERE l.sale_id=s.id) units,\
-         COALESCE((SELECT array_agg(DISTINCT p.method ORDER BY p.method) \
-                   FROM sale_payment p WHERE p.sale_id=s.id), ARRAY[]::text[]) methods \
-         FROM sale s \
-         WHERE s.site_id=$1 AND s.status='COMPLETED' \
-         AND s.completed_at >= $2 AND s.completed_at < $3 \
-         ORDER BY s.completed_at DESC LIMIT $4",
+         COALESCE(lines.line_count,0)::bigint line_count,\
+         COALESCE(lines.units,0)::bigint units,\
+         COALESCE(payments.methods,ARRAY[]::text[]) methods \
+         FROM selected_sales s \
+         LEFT JOIN line_totals lines ON lines.sale_id=s.id \
+         LEFT JOIN payment_methods payments ON payments.sale_id=s.id \
+         ORDER BY s.completed_at DESC",
     )
     .bind(&site_id)
     .bind(start)

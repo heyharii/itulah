@@ -2,7 +2,7 @@
 
 use crate::edge::pricing;
 use crate::edge::{
-    derive_allotment_status, validate_command, validate_tender, AdvanceKoliRequest, CommandResult,
+    derive_allotment_status, validate_command, AdvanceKoliRequest, CommandResult,
     CreateKoliShipmentRequest, EdgeError, EdgeInventory, EdgeOfficialCountDetail,
     EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole, FulfillmentProgressResult,
     GoodsReceiptView, IntakeRequest, InventoryState, MoveRequest, MovementCause, MovementCommand,

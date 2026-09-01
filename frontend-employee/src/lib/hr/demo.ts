@@ -1,9 +1,9 @@
 import { longDate } from "@/lib/format"
+import type { EmploymentProfileView } from "@itulah/contract"
 import type {
   AttendanceCorrection,
   AttendanceDay,
   DeviceSession,
-  EmployeeProfile,
   EmploymentContract,
   HolidayCalendar,
   IsoDate,
@@ -57,21 +57,18 @@ function instantOffset(days: number, hour = 9, minute = 0): string {
   return at.toISOString()
 }
 
-export const demoProfile: EmployeeProfile = {
+export const demoProfile: EmploymentProfileView = {
   employee_id: "emp_01H8Q",
-  employee_number: "IT-0142",
+  employee_code: "IT-0142",
   full_name: "Siti Rahmawati",
-  preferred_name: "Siti",
+  status: "ACTIVE",
   job_title: "Senior Sales Associate",
-  department: "Retail Operations",
+  grade: "G2",
   place_id: "store-1",
   place_name: "Itulah Kemang",
-  manager_name: "Bagus Prakoso",
   joined_on: "2023-02-13",
-  status: "ACTIVE",
-  work_email: "siti.rahmawati@itulah.example",
-  phone: "+62 812-1000-0142",
 }
+
 
 export const demoContract: EmploymentContract = {
   contract_id: "ctr_2026_02",

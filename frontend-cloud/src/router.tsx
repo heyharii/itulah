@@ -1,9 +1,8 @@
-import { AllotmentDetailView } from "@/components/allotment/allotment-detail"
 import { AllotmentDraft } from "@/components/allotment/allotment-draft"
 import { AllotmentsView } from "@/components/allotment/allotments-view"
 import { ChatView } from "@/components/chat/chat-view"
-import { BookDetailView } from "@/components/commercial/book-detail"
 import { FleetView } from "@/components/commercial/fleet-view"
+import { BookComposer } from "@/components/commercial/book-composer"
 import { PriceBooksView } from "@/components/commercial/price-books-view"
 import { AccountMapScreen } from "@/components/finance/account-map"
 import { ChartOfAccounts } from "@/components/finance/chart-of-accounts"
@@ -27,19 +26,20 @@ import { ThreadView } from "@/components/discussion/thread-view"
 import { FilesView } from "@/components/files/files-view"
 import { AttendancePolicyView } from "@/components/people/attendance-policy-view"
 import { PeopleView } from "@/components/people/people-view"
-import { PersonDetail } from "@/components/people/person-detail"
-import { OrderDetail } from "@/components/po/order-detail"
 import { PoDraft } from "@/components/po/po-draft"
 import { PriceAmendmentsView } from "@/components/po/price-amendments-view"
 import { PurchaseOrdersView } from "@/components/po/purchase-orders-view"
 import { SalesView, type SalesSearch } from "@/components/sales/sales-view"
 import { BasketView } from "@/components/sourcing/basket-view"
+import { GlobalSheets } from "@/components/sheets/global-sheets"
 import { SourcingView } from "@/components/sourcing/sourcing-view"
+import { validateSheetSearch } from "@/lib/sheets/params"
 import {
   createRootRoute,
   createRoute,
   createRouter,
   Outlet,
+  redirect,
 } from "@tanstack/react-router"
 
 /// Where the buyer is, in the URL rather than in a variable.
@@ -53,7 +53,27 @@ import {
 /// Routes are code-based rather than file-based: six routes do not need a
 /// codegen step, and keeping the tree in one readable file is worth more here
 /// than the convention.
-const rootRoute = createRootRoute({ component: Outlet })
+/// Which sheet is open is a search parameter, and it is declared here so that
+/// it is legal on every route below.
+///
+/// TanStack Router merges the validated search of every matched route, so a key
+/// the root claims survives on all sixty-seven of them, and a route with its own
+/// `validateSearch` — sales, discussions, the ledger — adds to this rather than
+/// replacing it. See `lib/sheets/params.ts` for the registry.
+const rootRoute = createRootRoute({
+  validateSearch: validateSheetSearch,
+  // The screen, and whatever is open over it. `GlobalSheets` is mounted here
+  // rather than inside `AppShell` because it has to outlive the screens: the
+  // basket and the inbox are opened in the middle of doing something else, and
+  // a mount point that unmounted on a route change would be the route change
+  // they exist to avoid.
+  component: () => (
+    <>
+      <Outlet />
+      <GlobalSheets />
+    </>
+  ),
+})
 
 const sourcingRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -86,10 +106,23 @@ const draftRoute = createRoute({
   component: PoDraft,
 })
 
+/// One order used to be a screen. It is a sheet over the list now, and this
+/// stays as a redirect into it.
+///
+/// Kept rather than deleted because the address is out in the world — in
+/// bookmarks, in conversations, in messages a warehouse sent about a delivery
+/// — and a link that worked last week should not answer with a blank page. It
+/// resolves before anything renders, so a follower lands on the list with the
+/// order already open, which is the same place the old route took them.
 const orderRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/orders/$purchaseOrderId",
-  component: OrderDetail,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/orders",
+      search: { order: params.purchaseOrderId },
+    })
+  },
 })
 
 /// What the centre has promised out of its own warehouses.
@@ -109,10 +142,17 @@ const allotmentDraftRoute = createRoute({
   component: AllotmentDraft,
 })
 
+/// An allotment used to be a screen. Redirected into the sheet for the reason
+/// the order route is: the address is out in the world and should keep working.
 const allotmentRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/allotments/$allotmentId",
-  component: AllotmentDetailView,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/allotments",
+      search: { allotment: params.allotmentId },
+    })
+  },
 })
 
 const amendmentsRoute = createRoute({
@@ -142,12 +182,32 @@ const priceBooksRoute = createRoute({
   component: PriceBooksView,
 })
 
+/// Write one. A book is a list of changes rather than a catalogue, so this
+/// screen asks for changes and nothing else — a price, a markdown, a promotion,
+/// a coupon, a campaign — and saves them as a DRAFT. Sending it to thirty tills
+/// is the second decision, made on the shelf behind it.
+///
+/// Declared before `/commercial/books/$publicationId` so "new" is a screen and
+/// not read as the id of a book nobody has.
+const bookComposerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/commercial/books/new",
+  component: BookComposer,
+})
+
 /// One book, whole. A published book is immutable, so this is the only record
 /// of what it said — and until it existed there was none.
+/// A book used to be a screen. Redirected into the sheet for the reason the
+/// order route is: the address is out in the world and should keep working.
 const priceBookRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/commercial/books/$publicationId",
-  component: BookDetailView,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/commercial/books",
+      search: { book: params.publicationId },
+    })
+  },
 })
 
 /// Who is charging what, out there. The counterpart to `/commercial`: that one
@@ -201,11 +261,15 @@ const discussionsRoute = createRoute({
     // knows two values, and a hand-edited URL should not be able to ask it a
     // question it has to refuse.
     feed:
-      search.feed === "bookmarked" || search.feed === "mine" ? search.feed : undefined,
+      search.feed === "bookmarked" || search.feed === "mine"
+        ? search.feed
+        : undefined,
     kind: typeof search.kind === "string" ? search.kind : undefined,
     tag: typeof search.tag === "string" ? search.tag : undefined,
     status:
-      search.status === "open" || search.status === "resolved" || search.status === "locked"
+      search.status === "open" ||
+      search.status === "resolved" ||
+      search.status === "locked"
         ? search.status
         : undefined,
     q: typeof search.q === "string" && search.q !== "" ? search.q : undefined,
@@ -292,7 +356,9 @@ const financePeriodsRoute = createRoute({
 /// date span, and `Deserialize` on a `NaiveDate` would answer a hand-edited
 /// URL with a 400 that says less than showing the default span would.
 function isoDay(value: unknown): string | undefined {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : undefined
 }
 
 /// What the shops sold. The counterpart to `/commercial`, which says what they
@@ -309,7 +375,9 @@ const salesRoute = createRoute({
     // span, and a hand-edited URL should not be able to ask for a year of
     // single days.
     bucket:
-      search.bucket === "day" || search.bucket === "week" || search.bucket === "month"
+      search.bucket === "day" ||
+      search.bucket === "week" ||
+      search.bucket === "month"
         ? search.bucket
         : undefined,
     span:
@@ -317,7 +385,9 @@ const salesRoute = createRoute({
         ? search.span
         : undefined,
     shop:
-      typeof search.shop === "string" && search.shop !== "" ? search.shop : undefined,
+      typeof search.shop === "string" && search.shop !== ""
+        ? search.shop
+        : undefined,
     // What the figures are measured against. Narrowed like the rest: a
     // hand-edited URL should not be able to ask for a comparison mode the
     // screen has no code for.
@@ -353,10 +423,14 @@ const attendancePolicyRoute = createRoute({
   component: AttendancePolicyView,
 })
 
+/// A person used to be a screen. Redirected into the sheet for the reason the
+/// order route is: the address is out in the world and should keep working.
 const personRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/people/$employeeId",
-  component: PersonDetail,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/people", search: { employee: params.employeeId } })
+  },
 })
 
 /// The position screens.
@@ -371,9 +445,7 @@ const personRoute = createRoute({
 const payablesGiroRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/payables/giro",
-  component: () => (
-    <PositionScreen family="2012002" title="Outstanding Giro" />
-  ),
+  component: () => <PositionScreen family="2012002" title="Outstanding Giro" />,
 })
 
 const payablesDiscountsRoute = createRoute({
@@ -395,41 +467,31 @@ const payablesNonMerchRoute = createRoute({
 const payablesAffiliateRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/payables/affiliate",
-  component: () => (
-    <PositionScreen family="20123" title="Affiliate Payables" />
-  ),
+  component: () => <PositionScreen family="20123" title="Affiliate Payables" />,
 })
 
 const payablesAccruedRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/payables/accrued",
-  component: () => (
-    <PositionScreen family="2012201" title="Accrued Expenses" />
-  ),
+  component: () => <PositionScreen family="2012201" title="Accrued Expenses" />,
 })
 
 const expensesSellingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/expenses/selling",
-  component: () => (
-    <PositionScreen family="60101" title="Selling Expenses" />
-  ),
+  component: () => <PositionScreen family="60101" title="Selling Expenses" />,
 })
 
 const expensesPayrollRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/expenses/payroll",
-  component: () => (
-    <PositionScreen family="60102" title="Payroll Expenses" />
-  ),
+  component: () => <PositionScreen family="60102" title="Payroll Expenses" />,
 })
 
 const expensesAdminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/expenses/admin",
-  component: () => (
-    <PositionScreen family="60103" title="Admin & General" />
-  ),
+  component: () => <PositionScreen family="60103" title="Admin & General" />,
 })
 
 const expensesMaintenanceRoute = createRoute({
@@ -443,25 +505,19 @@ const expensesMaintenanceRoute = createRoute({
 const expensesRentRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/expenses/rent",
-  component: () => (
-    <PositionScreen family="70101" title="Rent" />
-  ),
+  component: () => <PositionScreen family="70101" title="Rent" />,
 })
 
 const expensesPrepaidRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/expenses/prepaid",
-  component: () => (
-    <PositionScreen family="10113" title="Prepaid & Advances" />
-  ),
+  component: () => <PositionScreen family="10113" title="Prepaid & Advances" />,
 })
 
 const cashPositionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/cash/position",
-  component: () => (
-    <PositionScreen family="1011001" title="Cash Position" />
-  ),
+  component: () => <PositionScreen family="1011001" title="Cash Position" />,
 })
 
 const cashBankRoute = createRoute({
@@ -479,9 +535,7 @@ const cashBankRoute = createRoute({
 const receivablesCardsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/receivables/cards",
-  component: () => (
-    <PositionScreen family="1011101" title="Card Receivables" />
-  ),
+  component: () => <PositionScreen family="1011101" title="Card Receivables" />,
 })
 
 const receivablesOtherRoute = createRoute({
@@ -519,9 +573,7 @@ const receivablesOtherIncomeRoute = createRoute({
 const inventoryValueRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/inventory/value",
-  component: () => (
-    <PositionScreen family="1011201" title="Inventory Value" />
-  ),
+  component: () => <PositionScreen family="1011201" title="Inventory Value" />,
 })
 
 const inventoryTransitRoute = createRoute({
@@ -539,25 +591,19 @@ const inventoryTransitRoute = createRoute({
 const inventoryBagsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/inventory/bags",
-  component: () => (
-    <PositionScreen family="1011202" title="Shopping Bags" />
-  ),
+  component: () => <PositionScreen family="1011202" title="Shopping Bags" />,
 })
 
 const inventoryCogsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/inventory/cogs",
-  component: () => (
-    <PositionScreen family="50101" title="Cost of Goods" />
-  ),
+  component: () => <PositionScreen family="50101" title="Cost of Goods" />,
 })
 
 const inventoryDamageRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/inventory/damage",
-  component: () => (
-    <PositionScreen family="1011299" title="Damage Allowance" />
-  ),
+  component: () => <PositionScreen family="1011299" title="Damage Allowance" />,
 })
 
 const assetsDepreciationRoute = createRoute({
@@ -571,41 +617,31 @@ const assetsDepreciationRoute = createRoute({
 const assetsIntangiblesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/assets/intangibles",
-  component: () => (
-    <PositionScreen family="10217" title="Intangible Assets" />
-  ),
+  component: () => <PositionScreen family="10217" title="Intangible Assets" />,
 })
 
 const assetsOtherRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/assets/other",
-  component: () => (
-    <PositionScreen family="10318" title="Other Assets" />
-  ),
+  component: () => <PositionScreen family="10318" title="Other Assets" />,
 })
 
 const loansLongTermRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/loans/long-term",
-  component: () => (
-    <PositionScreen family="20224" title="Long-term Loans" />
-  ),
+  component: () => <PositionScreen family="20224" title="Long-term Loans" />,
 })
 
 const loansCurrentRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/loans/current",
-  component: () => (
-    <PositionScreen family="20125" title="Current Portion" />
-  ),
+  component: () => <PositionScreen family="20125" title="Current Portion" />,
 })
 
 const loansInterestRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/loans/interest",
-  component: () => (
-    <PositionScreen family="80201" title="Interest" />
-  ),
+  component: () => <PositionScreen family="80201" title="Interest" />,
 })
 
 const financeBillsRoute = createRoute({
@@ -620,7 +656,9 @@ const financeBillsRoute = createRoute({
 const reportBalanceSheetRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/reports/balance-sheet",
-  component: () => <StatementScreen kind="BALANCE_SHEET" title="Balance Sheet" />,
+  component: () => (
+    <StatementScreen kind="BALANCE_SHEET" title="Balance Sheet" />
+  ),
 })
 
 const reportProfitLossRoute = createRoute({
@@ -641,7 +679,11 @@ const reportExpensesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/reports/expenses",
   component: () => (
-    <StatementScreen kind="PROFIT_LOSS" title="Expense Report" classes={["6", "7"]} />
+    <StatementScreen
+      kind="PROFIT_LOSS"
+      title="Expense Report"
+      classes={["6", "7"]}
+    />
   ),
 })
 
@@ -649,7 +691,11 @@ const reportAssetsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/reports/assets",
   component: () => (
-    <StatementScreen kind="BALANCE_SHEET" title="Fixed Asset Report" classes={["1"]} />
+    <StatementScreen
+      kind="BALANCE_SHEET"
+      title="Fixed Asset Report"
+      classes={["1"]}
+    />
   ),
 })
 
@@ -683,6 +729,7 @@ const routeTree = rootRoute.addChildren([
   allotmentRoute,
   pricesRoute,
   priceBooksRoute,
+  bookComposerRoute,
   priceBookRoute,
   fleetRoute,
   simulateRoute,

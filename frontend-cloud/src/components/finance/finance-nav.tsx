@@ -98,7 +98,9 @@ interface FinanceGroup {
   readonly items: readonly FinanceItem[]
 }
 
-export const FINANCE_GROUPS: readonly FinanceGroup[] = [
+/// Not exported: the nav below is the only reader, and the routes other
+/// screens do need are already exported as `FinanceRoute`.
+const FINANCE_GROUPS: readonly FinanceGroup[] = [
   {
     id: "overview",
     label: "Overview",
@@ -231,12 +233,12 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
 export function FinanceNav() {
   const path = useRouterState({ select: (state) => state.location.pathname })
   return (
-    <nav aria-label="Finance" className="flex flex-col gap-3 pb-4 text-[13px]">
+    <nav aria-label="Finance" className="flex flex-col gap-px pb-4">
       {FINANCE_GROUPS.map((group) => (
-        <div key={group.id}>
-          <div className="text-muted-foreground flex items-center gap-1.5 px-2 pb-1">
-            <group.icon className="size-3.5 shrink-0" />
-            <span className="truncate text-[11px] font-medium tracking-wide uppercase">
+        <div key={group.id} className="mb-2">
+          <div className="flex items-center gap-1.5 px-[9px] pt-1.5 pb-1.5">
+            <group.icon className="size-[15px] shrink-0 text-[var(--os-line-ico,#abacb2)]" strokeWidth={1.55} />
+            <span className="truncate text-[0.78125rem] font-medium text-[var(--os-mute,#a6a6ad)]">
               {group.label}
             </span>
           </div>
@@ -260,11 +262,11 @@ export function FinanceNav() {
 /// thing somebody reviewing this module actually wants to know.
 function FinanceLink({ item, path }: { item: FinanceItem; path: string }) {
   const shared =
-    "flex items-baseline justify-between gap-2 rounded-md px-2 py-1 leading-5"
+    "flex items-center justify-between gap-2 rounded-[8px] px-[9px] py-[7px] text-[0.84375rem] font-medium leading-none"
   if (item.to === undefined || item.ready !== true) {
     return (
       <span
-        className={cn(shared, "text-muted-foreground/45")}
+        className={cn(shared, "text-[var(--os-mute,#a6a6ad)] opacity-45")}
         title="Not built yet"
         aria-disabled
       >
@@ -282,8 +284,10 @@ function FinanceLink({ item, path }: { item: FinanceItem; path: string }) {
       to={item.to}
       className={cn(
         shared,
-        "hover:bg-muted transition-colors",
-        here && "bg-muted font-medium",
+        "transition-colors hover:bg-[var(--os-soft-2,#f3f3f5)]",
+        here
+          ? "bg-[var(--os-soft-2,#f3f3f5)] text-[var(--os-ink,#1d1d1f)]"
+          : "text-[var(--os-text,#46464d)]",
       )}
     >
       <span className="truncate">{item.label}</span>

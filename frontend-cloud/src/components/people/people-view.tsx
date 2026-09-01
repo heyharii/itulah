@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import {
   Table,
   TableBody,
@@ -15,16 +15,21 @@ import {
   expiringKey,
   expiryTone,
   listEmployees,
-  statusLabel,
 } from "@/lib/employment"
 import { units } from "@/lib/money"
+import { dataTableFeatures } from "@/lib/table/features"
 import { cn } from "@/lib/utils"
-import type { EmployeeSummary, ExpiringContract } from "@itulah/contract"
+import type { ExpiringContract } from "@itulah/contract"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
-import { CalendarClock } from "lucide-react"
-import { useState } from "react"
+import { PersonSheet } from "@/components/sheets/people/person-sheet"
+import { usePersonSheet } from "@/lib/sheets/people"
+import { Link } from "@tanstack/react-router"
+import type { SortingState } from "@tanstack/react-table"
+import { flexRender, useTable } from "@tanstack/react-table"
+import { CalendarClock, Clock } from "lucide-react"
+import { useMemo, useState } from "react"
+import { peopleColumns } from "./columns"
 
 /// Who works here.
 ///
@@ -43,7 +48,6 @@ import { useState } from "react"
 /// the list rather than behind a filter, and the ones that have *already*
 /// lapsed sit first, because those are not a deadline approaching.
 export function PeopleView() {
-  const navigate = useNavigate()
   // Not a saved view yet, just the two questions anybody actually asks of this
   // screen: everyone, or only the people currently working.
   const [onlyWorking, setOnlyWorking] = useState(false)
@@ -58,12 +62,51 @@ export function PeopleView() {
     queryFn: ({ signal }) => expiringContracts(30, signal),
   })
 
-  const rows = employees.data ?? []
+  const rows = useMemo(() => employees.data ?? [], [employees.data])
   const terms = expiring.data ?? []
   const lapsed = terms.filter((term) => term.days_remaining < 0).length
 
-  const open = (employeeId: string) =>
-    void navigate({ to: "/people/$employeeId", params: { employeeId } })
+  // Opening a record writes a query parameter rather than changing route, so
+  // the search that found the name is still here when it closes.
+  const sheet = usePersonSheet()
+  const open = sheet.open
+
+  /// How the reader has asked to look at the list. Not a saved view and not in
+  /// the URL: it is undone by clicking the same header again, which is a
+  /// different kind of state from the filter above it that changes what the
+  /// server is asked for.
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: dataTableFeatures,
+        data: rows,
+        columns: peopleColumns,
+        getRowId: (person: (typeof rows)[number]) => person.employee_id,
+        state: {
+          sorting,
+          /// One page the size of the answer. The shared feature set registers
+          /// pagination for every table, and `getRowModel()` routes through it
+          /// whenever it is registered — so a table that said nothing here
+          /// would quietly draw ten people and look like the whole workforce.
+          pagination: { pageIndex: 0, pageSize: Math.max(1, rows.length) },
+        },
+        onSortingChange: setSorting,
+      }),
+      [rows, sorting]
+    )
+  )
+
+  /// `getRowModel()` and not `getFilteredRowModel()`: the filtered model has
+  /// not been through the sorter, so clicking a header would update the state
+  /// and reorder nothing.
+  const visible = table.getRowModel().rows
+  /// The same rows as ids, so the sheet's ↑/↓ walk the list on screen.
+  const employeeIds = useMemo(
+    () => visible.map((row) => row.original.employee_id),
+    [visible]
+  )
 
   return (
     <AppShell nav={<Nav />}>
@@ -80,6 +123,15 @@ export function PeopleView() {
       >
         <Button
           size="sm"
+          variant="outline"
+          nativeButton={false}
+          render={<Link to="/people/attendance-policy" />}
+        >
+          <Clock className="size-3.5" />
+          Attendance policy
+        </Button>
+        <Button
+          size="sm"
           variant={onlyWorking ? "default" : "outline"}
           onClick={() => setOnlyWorking((only) => !only)}
         >
@@ -87,16 +139,22 @@ export function PeopleView() {
         </Button>
       </ScreenHeader>
 
-      {terms.length > 0 && <Expiring terms={terms} lapsed={lapsed} onOpen={open} />}
+      {terms.length > 0 && (
+        <Expiring terms={terms} lapsed={lapsed} onOpen={open} />
+      )}
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScreenBody>
         {employees.isPending ? (
           <ScreenState>Loading the workforce…</ScreenState>
         ) : employees.isError ? (
           <ScreenState
             tone="problem"
             action={
-              <Button size="sm" variant="outline" onClick={() => void employees.refetch()}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void employees.refetch()}
+              >
                 Try again
               </Button>
             }
@@ -114,28 +172,57 @@ export function PeopleView() {
         ) : (
           <Table>
             <TableHeader className="bg-muted/50">
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Number</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Job</TableHead>
-                <TableHead>Place</TableHead>
-                <TableHead>Contract</TableHead>
-                <TableHead>Login</TableHead>
-              </TableRow>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id} className="hover:bg-transparent">
+                  {headerGroup.headers.map((header) => (
+                    <TableHead key={header.id}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
             </TableHeader>
             <TableBody>
-              {rows.map((person) => (
-                <PersonRow
-                  key={person.employee_id}
-                  person={person}
-                  onOpen={() => open(person.employee_id)}
-                />
+              {visible.map((row) => (
+                <TableRow
+                  key={row.id}
+                  tabIndex={0}
+                  role="button"
+                  onClick={() => open(row.original.employee_id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      open(row.original.employee_id)
+                    }
+                  }}
+                  className={cn(
+                    "cursor-pointer",
+                    // Somebody who has left stays in the list and stays
+                    // readable, but greyed: they are a record, not a rota.
+                    row.original.status === "TERMINATED" &&
+                      "text-muted-foreground"
+                  )}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
-      </div>
+      </ScreenBody>
+      <PersonSheet rows={employeeIds} />
     </AppShell>
   )
 }
@@ -156,14 +243,17 @@ function Expiring({
         <CalendarClock className="size-3.5 text-amber-600" />
         {lapsed > 0 ? (
           <span>
-            {units(lapsed)} fixed term{lapsed === 1 ? " has" : "s have"} already ended
+            {units(lapsed)} fixed term{lapsed === 1 ? " has" : "s have"} already
+            ended
             {terms.length > lapsed &&
-              `, and ${units(terms.length - lapsed)} more end within 30 days`}
+              `, and ${units(terms.length - lapsed)} more ${
+                terms.length - lapsed === 1 ? "ends" : "end"
+              } within 30 days`}
           </span>
         ) : (
           <span>
-            {units(terms.length)} fixed term{terms.length === 1 ? "" : "s"} end within 30
-            days
+            {units(terms.length)} fixed term{terms.length === 1 ? "" : "s"} end
+            within 30 days
           </span>
         )}
       </div>
@@ -181,11 +271,16 @@ function Expiring({
                   ? "border-destructive/40 text-destructive hover:bg-destructive/10"
                   : tone === "urgent"
                     ? "border-amber-500/50 text-amber-700 hover:bg-amber-100/60 dark:text-amber-400 dark:hover:bg-amber-950/30"
-                    : "hover:bg-muted border-border",
+                    : "border-border hover:bg-muted"
               )}
             >
-              <span className="font-medium">{term.full_name ?? term.employee_code}</span>
-              <span className="text-muted-foreground"> · {term.position} · </span>
+              <span className="font-medium">
+                {term.full_name ?? term.employee_code}
+              </span>
+              <span className="text-muted-foreground">
+                {" "}
+                · {term.position} ·{" "}
+              </span>
               {tone === "gone"
                 ? `ended ${Math.abs(term.days_remaining)}d ago`
                 : `${term.days_remaining}d left`}
@@ -194,81 +289,5 @@ function Expiring({
         })}
       </div>
     </div>
-  )
-}
-
-function PersonRow({
-  person,
-  onOpen,
-}: {
-  person: EmployeeSummary
-  onOpen: () => void
-}) {
-  const working = person.status === "ACTIVE"
-  const left = person.status === "TERMINATED"
-  return (
-    <TableRow
-      tabIndex={0}
-      role="button"
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault()
-          onOpen()
-        }
-      }}
-      className={cn("cursor-pointer", left && "text-muted-foreground")}
-    >
-      <TableCell className="font-mono text-xs font-medium">
-        {person.employee_code}
-      </TableCell>
-      <TableCell className="max-w-56 truncate text-xs">
-        {/* A record can exist before anybody has typed a name into it — a
-            candidate accepted on Friday, enrolled on Monday. Saying so is
-            better than an empty cell that reads as a bug. */}
-        {person.full_name ?? (
-          <span className="text-muted-foreground italic">not enrolled</span>
-        )}
-      </TableCell>
-      <TableCell>
-        <span className="inline-flex items-center gap-1.5 text-xs whitespace-nowrap">
-          <span
-            aria-hidden
-            className={cn(
-              "size-2 shrink-0 rounded-full",
-              working
-                ? "bg-emerald-500"
-                : person.status === "CANDIDATE"
-                  ? "bg-sky-500"
-                  : person.status === "SUSPENDED"
-                    ? "bg-amber-500"
-                    : "bg-muted-foreground/40",
-            )}
-          />
-          {statusLabel(person.status)}
-        </span>
-      </TableCell>
-      <TableCell className="text-xs">
-        {person.position ?? <span className="text-muted-foreground">—</span>}
-      </TableCell>
-      <TableCell className="text-xs">
-        {person.place_name ?? <span className="text-muted-foreground">unposted</span>}
-      </TableCell>
-      <TableCell className="text-xs whitespace-nowrap">
-        {person.contract_kind ? (
-          <>
-            {person.contract_kind}
-            {person.contract_ends_on && (
-              <span className="text-muted-foreground"> · {person.contract_ends_on}</span>
-            )}
-          </>
-        ) : (
-          <span className="text-muted-foreground">none</span>
-        )}
-      </TableCell>
-      <TableCell className="font-mono text-[11px]">
-        {person.username ?? <span className="text-muted-foreground">—</span>}
-      </TableCell>
-    </TableRow>
   )
 }

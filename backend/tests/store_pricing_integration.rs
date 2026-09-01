@@ -1531,3 +1531,132 @@ async fn a_sale_keeps_the_promotions_that_came_off_it() {
         "the total and the detail come from one fact, so they cannot disagree"
     );
 }
+
+/// A book that only adds a promotion, leaving the prices where they were.
+///
+/// This is what a merchandiser actually writes most weeks, and until now the
+/// shape was impossible: a publication had to carry at least one price rule, so
+/// adding a discount meant restating a base price too. Restating it is not
+/// harmless — the newest book naming a product wins, so a book meant to add
+/// twenty per cent off would also quietly republish whatever price the author
+/// happened to type, and the range would move without anybody deciding it had.
+#[tokio::test]
+async fn a_book_that_only_adds_a_promotion_leaves_the_price_alone() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    // Week one: the price.
+    shop.deliver_prices(1, vec![rule("KEM001", None, 200_000)])
+        .await;
+    // Week two: the promotion, and only the promotion.
+    let payload = json!({
+        "publication_id": Uuid::new_v4(),
+        "version": 2,
+        "name": "Diskon akhir pekan",
+        "effective_from": "2020-01-01T00:00:00Z",
+        "effective_to": null,
+        "tax_rules": [],
+        "price_rules": [],
+        "rules": [percent_off("R1", 2_000)],
+    });
+    shop.deliver(COMMAND_ACTIVATE_PUBLICATION, payload).await;
+
+    shop.stock_one("EPC10000030", "KEM001");
+    let sale = shop.sell("EPC10000030", 160_000, &[]);
+    assert_eq!(
+        sale.total_minor, 160_000,
+        "20% off the two hundred thousand the first book set, which book two never mentioned"
+    );
+    assert!(sale.promotions[0].applied);
+}
+
+/// A book carrying nothing at all is still refused.
+///
+/// It would dispatch to every shop, activate, and leave all of them exactly as
+/// they were — the publish-and-change-nothing fault this area keeps producing,
+/// which is only ever noticed when somebody asks why a price did not move.
+#[test]
+fn a_book_that_changes_nothing_is_refused() {
+    let payload = json!({
+        "publication_id": Uuid::new_v4(),
+        "version": 9,
+        "name": "Buku kosong",
+        "effective_from": "2020-01-01T00:00:00Z",
+        "effective_to": null,
+        "tax_rules": [],
+        "price_rules": [],
+    });
+    let refusal = inventory_backend::cloud::domain::parse_activate_publication(&payload);
+    assert!(
+        refusal.is_err(),
+        "an empty book must be refused before it reaches thirty shops"
+    );
+}
+
+/// The same promotion, run again in a later book.
+///
+/// The most ordinary thing a merchandiser does — last weekend's twenty per cent
+/// off, repeated — and the centre accepts it: its ids are unique per
+/// publication, so the same `rule_id` may appear in two books, and usage is
+/// counted per rule id across all of them precisely so a promotion run twice
+/// reads as one promotion.
+///
+/// A shop keys `commercial_rule` on `rule_id` alone, so the second book's copy
+/// collides with the first and takes the WHOLE BOOK down with it — prices,
+/// markdowns and every other promotion in it. The shop then goes on charging
+/// last week's prices, and nothing at a counter says why.
+#[tokio::test]
+async fn a_promotion_repeated_in_a_later_book_does_not_take_the_book_down_with_it() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    shop.deliver_commercial(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![],
+        vec![percent_off("R1", 2_000)],
+        vec![],
+    )
+    .await;
+    // The same offer, run again, in a book that also cuts the price.
+    shop.deliver_commercial(
+        2,
+        vec![rule("KEM001", None, 180_000)],
+        vec![],
+        vec![percent_off("R1", 2_500)],
+        vec![],
+    )
+    .await;
+
+    shop.stock_one("EPC10000040", "KEM001");
+    let sale = shop.sell("EPC10000040", 135_000, &[]);
+    assert_eq!(
+        sale.total_minor, 135_000,
+        "the second book's price and its 25% should both be in force"
+    );
+}
+
+/// The same clearance, extended into a later book.
+#[tokio::test]
+async fn a_markdown_repeated_in_a_later_book_does_not_take_the_book_down_with_it() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    shop.deliver_commercial(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![markdown("KEM001", 150_000)],
+        vec![],
+        vec![],
+    )
+    .await;
+    shop.deliver_commercial(
+        2,
+        vec![rule("KEM001", None, 200_000)],
+        vec![markdown("KEM001", 120_000)],
+        vec![],
+        vec![],
+    )
+    .await;
+
+    shop.stock_one("EPC10000041", "KEM001");
+    let sale = shop.sell("EPC10000041", 120_000, &[]);
+    assert_eq!(sale.total_minor, 120_000, "the newer clearance price wins");
+}

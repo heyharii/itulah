@@ -30,10 +30,12 @@ use super::zpl::{render_label, LabelBrand, LabelData, LabelSize};
 
 /// The name printed on the top line of every tag.
 ///
-/// Decided 2026-08-31 against the legacy lineage, which disagreed with itself:
-/// the current Go renderer prints this, while a tag recovered from the field
-/// printed a trading name. This is the one that ships.
-pub const LABEL_BRAND: &str = "Wira Makmur";
+/// The legacy lineage disagreed with itself — the Go renderer printed the
+/// operating company's name, a tag recovered from the field printed a trading
+/// name — and neither is what the shop is called to a customer. This is the
+/// customer-facing name, set in capitals because that is the wordmark, and it
+/// is the one thing on the tag a shopper recognises before reading anything.
+pub const LABEL_BRAND: &str = "CENTRAL";
 
 /// How many labels one claim hands out when the session does not say.
 pub const DEFAULT_CHUNK_SIZE: i64 = 100;
@@ -158,6 +160,23 @@ pub struct ClaimedLabel {
     pub zpl: String,
 }
 
+/// One queued label as the run snapshotted it, on its way to being rendered.
+///
+/// A struct rather than the tuple this used to be: the row is nine columns
+/// wide now, and a tuple that long is one reordered field away from printing
+/// the colour where the size belongs.
+struct QueuedItem {
+    epc: String,
+    seq: i64,
+    sku_code: String,
+    article_name: String,
+    colour_label: String,
+    size_label: String,
+    barcode_payload: String,
+    price_minor: i64,
+    attempts: i64,
+}
+
 /// What the dispatcher saw when it handed a label to the printer.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PrintOutcomeRecord {
@@ -231,7 +250,7 @@ pub fn open_session(
     // already on the shop floor are calibrated to the eleven-digit code.
     let mut select = transaction
         .prepare(
-            "SELECT e.epc, l.sku_code, l.base_price_minor
+            "SELECT e.epc, l.sku_code, l.colour_label, l.size_label, l.base_price_minor
                FROM tagging_job_epc e
                JOIN tagging_job_line l
                  ON l.job_id = e.job_id AND l.sku_code = e.sku_code
@@ -239,9 +258,15 @@ pub fn open_session(
               ORDER BY l.sku_code, e.epc",
         )
         .map_err(db)?;
-    let queued: Vec<(String, String, i64)> = select
+    let queued: Vec<(String, String, String, String, i64)> = select
         .query_map(params![&request.job_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })
         .map_err(db)?
         .collect::<Result<Vec<_>, _>>()
@@ -285,11 +310,14 @@ pub fn open_session(
         let mut insert = transaction
             .prepare(
                 "INSERT INTO print_item
-                     (epc,session_id,seq,sku_code,article_name,barcode_payload,price_minor)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                     (epc,session_id,seq,sku_code,article_name,colour_label,size_label,
+                      barcode_payload,price_minor)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             )
             .map_err(db)?;
-        for (index, (epc, sku_code, price_minor)) in queued.iter().enumerate() {
+        for (index, (epc, sku_code, colour_label, size_label, price_minor)) in
+            queued.iter().enumerate()
+        {
             let seq = i64::try_from(index + 1).unwrap_or(i64::MAX);
             insert
                 .execute(params![
@@ -298,6 +326,8 @@ pub fn open_session(
                     seq,
                     sku_code,
                     article_name,
+                    colour_label,
+                    size_label,
                     sku_code,
                     price_minor,
                 ])
@@ -349,24 +379,29 @@ pub fn claim_chunk(
 
     let mut select = transaction
         .prepare(
-            "SELECT epc,seq,sku_code,article_name,barcode_payload,price_minor,attempts
+            "SELECT epc,seq,sku_code,article_name,colour_label,size_label,
+                    barcode_payload,price_minor,attempts
                FROM print_item
               WHERE session_id = ?1 AND status IN ('PENDING','FAILED')
               ORDER BY seq
               LIMIT ?2",
         )
         .map_err(db)?;
-    let rows: Vec<(String, i64, String, String, String, i64, i64)> = select
+    let rows: Vec<QueuedItem> = select
         .query_map(params![session_id, chunk_size], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-            ))
+            Ok(QueuedItem {
+                epc: row.get(0)?,
+                seq: row.get(1)?,
+                sku_code: row.get(2)?,
+                article_name: row.get(3)?,
+                // Null for labels queued before the tag carried these, which
+                // the renderer takes as "this tag does not say".
+                colour_label: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                size_label: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                barcode_payload: row.get(6)?,
+                price_minor: row.get(7)?,
+                attempts: row.get(8)?,
+            })
         })
         .map_err(db)?
         .collect::<Result<Vec<_>, _>>()
@@ -380,7 +415,7 @@ pub fn claim_chunk(
     let now = now_text();
     let mut claimed = Vec::with_capacity(rows.len());
 
-    for (epc, seq, sku_code, article_name, barcode_payload, price_minor, attempts) in rows {
+    for item in rows {
         // The attempt is counted here, where the label leaves for the printer.
         // Counting it on the way back would lose every label the dispatcher
         // never got an answer about, which is exactly the interesting case.
@@ -389,17 +424,19 @@ pub fn claim_chunk(
                 "UPDATE print_item
                     SET status='CLAIMED', attempts = attempts + 1, claimed_at = ?2
                   WHERE epc = ?1",
-                params![epc, now],
+                params![item.epc, now],
             )
             .map_err(db)?;
 
         let zpl = render_label(
             &LabelData {
-                sku_code: &sku_code,
-                article_name: &article_name,
-                barcode_payload: &barcode_payload,
-                price_minor,
-                epc: &epc,
+                sku_code: &item.sku_code,
+                article_name: &item.article_name,
+                colour_label: &item.colour_label,
+                size_label: &item.size_label,
+                barcode_payload: &item.barcode_payload,
+                price_minor: item.price_minor,
+                epc: &item.epc,
                 copies: 1,
             },
             size,
@@ -407,10 +444,10 @@ pub fn claim_chunk(
         );
 
         claimed.push(ClaimedLabel {
-            epc,
-            seq,
-            sku_code,
-            attempts: attempts + 1,
+            epc: item.epc,
+            seq: item.seq,
+            sku_code: item.sku_code,
+            attempts: item.attempts + 1,
             zpl,
         });
     }
@@ -889,6 +926,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/sqlite/0008_edge_printing.sql"
     ));
+    const LABEL_COLOUR_SIZE_SCHEMA: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/sqlite/0020_print_item_colour_and_size.sql"
+    ));
 
     /// A tagging job for one SKU with `count` EPCs, exactly as the cloud sends
     /// it down: ranges expanded to one row per label.
@@ -897,7 +938,7 @@ mod tests {
             Ok(connection) => connection,
             Err(error) => panic!("open: {error}"),
         };
-        for schema in [TAGGING_SCHEMA, PRINTING_SCHEMA] {
+        for schema in [TAGGING_SCHEMA, PRINTING_SCHEMA, LABEL_COLOUR_SIZE_SCHEMA] {
             if let Err(error) = connection.execute_batch(schema) {
                 panic!("schema: {error}");
             }
@@ -931,6 +972,63 @@ mod tests {
             }
         }
         connection
+    }
+
+    /// A job carrying two SKUs of one article — the ordinary case, since an
+    /// article is tagged in every colourway and size at once.
+    fn job_with_two_skus() -> Connection {
+        let connection = job_with(0);
+        let statements = [
+            "INSERT INTO tagging_job_line
+                 (job_id,sku_code,colour_digit,colour_label,size_code,size_label,
+                  quantity,qr_payload,barcode_payload,base_price_minor)
+             VALUES('job-1','12345678207','2','Merah','07','XXL',1,
+                    'R1:12345678207','812345678207',129000)",
+            "INSERT INTO tagging_job_epc(epc,job_id,sku_code)
+             VALUES('A01234567812300000000001','job-1','12345678123')",
+            "INSERT INTO tagging_job_epc(epc,job_id,sku_code)
+             VALUES('A01234567820700000000002','job-1','12345678207')",
+        ];
+        for statement in statements {
+            if let Err(error) = connection.execute(statement, []) {
+                panic!("seed: {error}");
+            }
+        }
+        connection
+    }
+
+    #[test]
+    fn every_label_carries_its_own_skus_colour_size_and_price() {
+        // The tag is not a template with the article stamped on it: colour,
+        // size and price are per SKU, and a run that rendered the first line's
+        // values onto every label would put a red XXL price on a blue M
+        // garment — a mispriced item that reads correctly to a scanner.
+        let mut connection = job_with_two_skus();
+        let summary = open(&mut connection);
+        let labels = claim(&mut connection, &summary.session_id);
+        assert_eq!(labels.len(), 2);
+
+        let blue = labels
+            .iter()
+            .find(|label| label.sku_code == "12345678123")
+            .unwrap_or_else(|| panic!("no label for the blue M"));
+        assert!(blue.zpl.contains("^FDM^FS"), "{}", blue.zpl);
+        assert!(blue.zpl.contains("^FDBiru^FS"), "{}", blue.zpl);
+        assert!(blue.zpl.contains("^FDRp 89.000^FS"), "{}", blue.zpl);
+        assert!(blue.zpl.contains("^FD12345678123^FS"), "{}", blue.zpl);
+
+        let red = labels
+            .iter()
+            .find(|label| label.sku_code == "12345678207")
+            .unwrap_or_else(|| panic!("no label for the red XXL"));
+        assert!(red.zpl.contains("^FDXXL^FS"), "{}", red.zpl);
+        assert!(red.zpl.contains("^FDMerah^FS"), "{}", red.zpl);
+        assert!(red.zpl.contains("^FDRp 129.000^FS"), "{}", red.zpl);
+        assert!(red.zpl.contains("^FD12345678207^FS"), "{}", red.zpl);
+
+        // And the EPC is per unit, not per SKU: no two labels in a run may
+        // carry the same one.
+        assert_ne!(blue.epc, red.epc);
     }
 
     fn request() -> OpenPrintSessionRequest {
@@ -1018,7 +1116,7 @@ mod tests {
         // The scanners on the floor read the eleven-digit SKU, not `8{sku}`.
         assert!(label.zpl.contains("^FD12345678123^FS"), "{}", label.zpl);
         assert!(!label.zpl.contains("812345678123"), "{}", label.zpl);
-        assert!(label.zpl.contains("^FDWira Makmur^FS"), "{}", label.zpl);
+        assert!(label.zpl.contains("^FDCENTRAL^FS"), "{}", label.zpl);
     }
 
     #[test]

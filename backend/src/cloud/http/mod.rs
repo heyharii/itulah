@@ -18,6 +18,7 @@ pub mod chat;
 pub mod customer;
 pub mod discussion;
 pub mod employment;
+pub mod documents;
 pub mod files;
 pub mod finance;
 pub mod notifications;
@@ -149,6 +150,10 @@ pub fn router(state: AppState) -> Router {
         // Styles rather than products, every shop side by side, and the losing
         // candidates as well as the winner.
         .route("/api/v1/commercial/article-prices", get(article_prices))
+        // What a book can name. The authoring screen's picker: a merchandiser
+        // types a code or a description and gets back the product with what it
+        // currently costs, which is the number a change is judged against.
+        .route("/api/v1/commercial/products", get(commercial_products))
         .route(
             "/api/v1/suppliers",
             get(suppliers::list_suppliers).post(suppliers::create_supplier),
@@ -176,6 +181,21 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/catalogue/vocabulary",
             get(suppliers::catalogue_vocabulary),
+        )
+        // The drawer. Upload goes past this process to the bucket; everything
+        // else is small enough to come through it.
+        .route(
+            "/api/v1/documents",
+            get(documents::search).post(documents::file),
+        )
+        .route(
+            "/api/v1/documents/upload-url",
+            post(documents::upload_url),
+        )
+        .route("/api/v1/documents/{id}", get(documents::detail))
+        .route(
+            "/api/v1/documents/{id}/download-url",
+            get(documents::download_url),
         )
         .route(
             "/api/v1/supplier-items/{id}",
@@ -939,6 +959,15 @@ async fn article_prices(
             q.limit.unwrap_or(200),
         )
         .await?,
+    ))
+}
+
+async fn commercial_products(
+    State(s): State<AppState>,
+    Query(q): Query<CommercialProductQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::commercial_products(&s.db, q.q.as_deref(), q.limit.unwrap_or(50)).await?,
     ))
 }
 

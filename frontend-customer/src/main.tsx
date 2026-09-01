@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 import "./index.css"
 import App from "./App.tsx"
-import { MemberProvider } from "@/lib/member.tsx"
+import { MemberProvider } from "@/components/member-provider"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
 
 /// One client for the whole surface.

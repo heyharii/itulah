@@ -16,16 +16,22 @@ pub async fn list_pools(
     observed_hours: i64,
     lost_days: i64,
 ) -> Result<Value, AppError> {
+    let current = at.is_none();
     let at = at.unwrap_or_else(Utc::now);
     let rows = sqlx::query(r#"
 WITH ledger_deltas AS (
+    SELECT place.pool_id,place.state,projection.quantity delta
+    FROM inventory_projection projection
+    JOIN inventory_place place ON place.id=projection.place_id
+    WHERE $4 AND place.kind='OPERATIONAL'
+    UNION ALL
     SELECT place.pool_id,place.state,movement.quantity delta
     FROM movement JOIN inventory_place place ON place.id=movement.to_place_id
-    WHERE place.kind='OPERATIONAL' AND movement.occurred_at <= $1
+    WHERE NOT $4 AND place.kind='OPERATIONAL' AND movement.occurred_at <= $1
     UNION ALL
     SELECT place.pool_id,place.state,-movement.quantity delta
     FROM movement JOIN inventory_place place ON place.id=movement.from_place_id
-    WHERE place.kind='OPERATIONAL' AND movement.occurred_at <= $1
+    WHERE NOT $4 AND place.kind='OPERATIONAL' AND movement.occurred_at <= $1
 ), balances AS (
     SELECT pool_id,state,SUM(delta)::bigint quantity
     FROM ledger_deltas
@@ -35,17 +41,28 @@ WITH ledger_deltas AS (
     FROM observation_sighting
     WHERE last_seen_at > $1-($2::text||' hours')::interval AND last_seen_at <= $1
     GROUP BY pool_id
-), opening_raw AS (
-    SELECT pool.id pool_id,COALESCE(SUM(CASE WHEN movement.to_place_id=pool.id||':on_hand' THEN movement.quantity WHEN movement.from_place_id=pool.id||':on_hand' THEN -movement.quantity ELSE 0 END),0)::bigint quantity
-    FROM operational_pool pool LEFT JOIN movement ON movement.occurred_at < $1-($3::text||' days')::interval AND (movement.to_place_id=pool.id||':on_hand' OR movement.from_place_id=pool.id||':on_hand')
-    GROUP BY pool.id
-), inbound_raw AS (
-    SELECT pool.id pool_id,COALESCE(SUM(movement.quantity),0)::bigint quantity
-    FROM operational_pool pool LEFT JOIN movement ON movement.to_place_id=pool.id||':on_hand' AND movement.occurred_at >= $1-($3::text||' days')::interval AND movement.occurred_at <= $1
-    GROUP BY pool.id
-), lost_raw AS (
-    SELECT pool.id pool_id,COALESCE(SUM(movement.quantity),0)::bigint quantity
-    FROM operational_pool pool LEFT JOIN movement ON movement.from_place_id=pool.id||':missing' AND movement.to_place_id='system/lost' AND movement.occurred_at >= $1-($3::text||' days')::interval AND movement.occurred_at <= $1
+), risk_raw AS (
+    SELECT pool.id pool_id,
+           COALESCE(SUM(CASE
+               WHEN movement.occurred_at < $1-($3::text||' days')::interval
+                AND movement.to_place_id=pool.id||':on_hand' THEN movement.quantity
+               WHEN movement.occurred_at < $1-($3::text||' days')::interval
+                AND movement.from_place_id=pool.id||':on_hand' THEN -movement.quantity
+               ELSE 0 END),0)::bigint opening,
+           COALESCE(SUM(CASE
+               WHEN movement.occurred_at >= $1-($3::text||' days')::interval
+                AND movement.to_place_id=pool.id||':on_hand' THEN movement.quantity
+               ELSE 0 END),0)::bigint inbound,
+           COALESCE(SUM(CASE
+               WHEN movement.occurred_at >= $1-($3::text||' days')::interval
+                AND movement.from_place_id=pool.id||':missing'
+                AND movement.to_place_id='system/lost' THEN movement.quantity
+               ELSE 0 END),0)::bigint lost
+    FROM operational_pool pool LEFT JOIN movement
+      ON movement.occurred_at <= $1 AND (
+           movement.to_place_id=pool.id||':on_hand'
+        OR movement.from_place_id=pool.id||':on_hand'
+        OR (movement.from_place_id=pool.id||':missing' AND movement.to_place_id='system/lost'))
     GROUP BY pool.id
 ), pool_scope AS (
     SELECT output.id output_pool_id,component.id component_pool_id
@@ -67,13 +84,11 @@ WITH ledger_deltas AS (
     GROUP BY scope.output_pool_id
 ), risk_rollup AS (
     SELECT scope.output_pool_id,
-           COALESCE(SUM(opening.quantity),0)::bigint opening,
-           COALESCE(SUM(inbound.quantity),0)::bigint inbound,
-           COALESCE(SUM(lost.quantity),0)::bigint lost
+           COALESCE(SUM(risk.opening),0)::bigint opening,
+           COALESCE(SUM(risk.inbound),0)::bigint inbound,
+           COALESCE(SUM(risk.lost),0)::bigint lost
     FROM pool_scope scope
-    LEFT JOIN opening_raw opening ON opening.pool_id=scope.component_pool_id
-    LEFT JOIN inbound_raw inbound ON inbound.pool_id=scope.component_pool_id
-    LEFT JOIN lost_raw lost ON lost.pool_id=scope.component_pool_id
+    LEFT JOIN risk_raw risk ON risk.pool_id=scope.component_pool_id
     GROUP BY scope.output_pool_id
 ), allotted_balance AS (
     SELECT COALESCE(event.source_pool_id,line.source_pool_id) source_pool_id,
@@ -102,7 +117,7 @@ LEFT JOIN risk_rollup risk ON risk.output_pool_id=pool.id
 LEFT JOIN allotted_balance allotted ON allotted.source_pool_id=pool.id
 WHERE pool.active
 ORDER BY CASE WHEN pool.site_id='dc' THEN 0 ELSE 1 END,pool.site_id,pool.display_order,pool.is_placement,pool.destination_store_id NULLS FIRST,pool.id
-"#).bind(at).bind(observed_hours).bind(lost_days).fetch_all(pool).await?;
+"#).bind(at).bind(observed_hours).bind(lost_days).bind(current).fetch_all(pool).await?;
     let items = rows
         .into_iter()
         .map(|row| {

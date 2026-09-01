@@ -367,9 +367,27 @@ fn apply_activation(
         )
         .map_err(err)?;
     }
+    // OR REPLACE, and the four promotion tables below are the same.
+    //
+    // A shop keys these on the id alone — `markdown_id`, `rule_id`, the coupon
+    // code, `campaign_id` — while the centre scopes them per publication and
+    // prices here are scoped per publication too. So the ordinary act of
+    // running last weekend's promotion again, in a later book, produced an id
+    // this table already held; a plain INSERT failed on it, and because the
+    // whole activation is one transaction it took the entire book down —
+    // prices, markdowns and every other offer in it. The shop then went on
+    // charging last week's prices with nothing at a counter saying why.
+    //
+    // Replacing is the model's own rule rather than a workaround: the newest
+    // book that names a thing decides it. Usage is counted per rule id across
+    // every publication for the same reason — a promotion run twice is one
+    // promotion, amended, not two.
+    //
+    // A book already applied is never re-applied: commands carry a sequence and
+    // a watermark, so an older book cannot arrive after a newer one and undo it.
     for markdown in &payload.markdowns {
         tx.execute(
-            "INSERT INTO commercial_markdown
+            "INSERT OR REPLACE INTO commercial_markdown
                  (markdown_id, publication_id, sku_code, article_code, site_id,
                   site_ids_json, tier, replacement_unit_price_minor, priority,
                   effective_from, effective_to)
@@ -394,7 +412,7 @@ fn apply_activation(
     // never holds an offer whose envelope is missing.
     for campaign in &payload.campaigns {
         tx.execute(
-            "INSERT INTO commercial_campaign
+            "INSERT OR REPLACE INTO commercial_campaign
                  (campaign_id, publication_id, name, status, valid_from, valid_to,
                   budget_minor, spent_minor, max_uses, used, max_uses_per_customer)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
@@ -435,7 +453,7 @@ fn apply_activation(
             .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
         tx.execute(
-            "INSERT INTO commercial_rule
+            "INSERT OR REPLACE INTO commercial_rule
                  (rule_id, publication_id, name, definition_json, status, priority)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
@@ -451,7 +469,7 @@ fn apply_activation(
     }
     for coupon in &payload.coupons {
         tx.execute(
-            "INSERT INTO commercial_coupon
+            "INSERT OR REPLACE INTO commercial_coupon
                  (code, publication_id, rule_id, active, customer_id,
                   valid_from, valid_to, max_uses, used)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",

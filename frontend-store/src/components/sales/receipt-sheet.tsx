@@ -11,8 +11,12 @@ import { previousWindow } from "@itulah/contract/reporting"
 import type { StoreReceipt, StoreSalesWindow } from "@/lib/sales"
 import { storeWindow, storeWindowKey } from "@/lib/sales"
 import { Delta } from "@/components/sales/delta"
+import { storeTableFeatures, type StoreTableFeatures } from "@/lib/table"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { flexRender, useTable } from "@tanstack/react-table"
+import { useMemo } from "react"
 
 /// One span of this shop's trade, down to the receipts.
 ///
@@ -94,6 +98,13 @@ function Report({
   against: { from: string; to: string }
 }) {
   const label = against.from === against.to ? against.from : `${against.from} → ${against.to}`
+  // Derived from the tender list rather than from `paid_minor`, which is every
+  // form of money added together. The node computes `cash_expected_minor` the
+  // same way; this is only the figure it was computed from, shown.
+  const cashTaken = report.tenders
+    .filter((tender) => tender.method === "CASH")
+    .reduce((sum, tender) => sum + tender.amount_minor, 0)
+  const nonCash = report.sales.paid_minor - cashTaken
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="grid grid-cols-2 gap-px border-b bg-border">
@@ -129,10 +140,35 @@ function Report({
 
       <section className="border-b px-4 py-3">
         <h3 className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+          How it was paid
+        </h3>
+        {/* The takings split by tender, because the two halves are chased in
+            completely different ways: cash is counted at this counter tonight,
+            a card settlement arrives from an acquirer days later. A single
+            "takings" figure hides which of those a shortfall is. */}
+        <dl className="grid gap-1.5 text-sm">
+          {report.tenders.length === 0 ? (
+            <p className="text-muted-foreground py-1 text-sm">
+              Nothing was taken in this period.
+            </p>
+          ) : (
+            report.tenders.map((tender) => (
+              <Line
+                key={tender.method}
+                label={`${TENDER_LABELS[tender.method] ?? tender.method} · ${units(tender.count)}`}
+                value={money(tender.amount_minor)}
+              />
+            ))
+          )}
+        </dl>
+      </section>
+
+      <section className="border-b px-4 py-3">
+        <h3 className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
           Cash drawer
         </h3>
         <dl className="grid gap-1.5 text-sm">
-          <Line label="Cash taken" value={money(report.sales.paid_minor)} />
+          <Line label="Cash taken" value={money(cashTaken)} />
           <Line label="Change given" value={money(report.sales.change_minor)} />
           <Line
             label="Expected in drawer"
@@ -140,13 +176,15 @@ function Report({
             strong
           />
         </dl>
-        {/* Said rather than left to be discovered. The till takes cash and
-            only cash — there is no `sale_payment` table on this node — so
-            "expected in drawer" is the whole of the day's money, not one
-            tender among several. */}
-        <p className="text-muted-foreground mt-2 text-xs">
-          This till takes cash only, so this is all of it.
-        </p>
+        {/* Change always comes out of the drawer, whatever paid for the sale,
+            which is why it is subtracted from cash rather than from the day's
+            takings. The node refuses a card tender above the sale total for
+            exactly that reason — there is no such thing as change from a card. */}
+        {nonCash > 0 && (
+          <p className="text-muted-foreground mt-2 text-xs">
+            {money(nonCash)} was settled without cash and is not in this drawer.
+          </p>
+        )}
       </section>
 
       <section className="px-4 py-3">
@@ -159,29 +197,7 @@ function Report({
             Nothing was sold in this period.
           </p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-muted-foreground text-xs">
-                <th scope="col" className="py-1 text-left font-medium">
-                  Time
-                </th>
-                <th scope="col" className="py-1 text-right font-medium">
-                  Units
-                </th>
-                <th scope="col" className="py-1 text-right font-medium">
-                  Change
-                </th>
-                <th scope="col" className="py-1 text-right font-medium">
-                  Total
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.receipts.map((receipt) => (
-                <Row key={receipt.id} receipt={receipt} />
-              ))}
-            </tbody>
-          </table>
+          <Receipts receipts={report.receipts} />
         )}
         {report.receipts_truncated && (
           <p className="text-muted-foreground mt-2 text-xs">
@@ -195,28 +211,102 @@ function Report({
   )
 }
 
-function Row({ receipt }: { receipt: StoreReceipt }) {
-  const at = new Date(receipt.completed_at).toLocaleString("en-GB", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
+/// Every sale in the window, newest first, as the node listed them.
+///
+/// The time column is the only one that reads left; the rest are money and
+/// counts, which are compared down the column and so line up on the right.
+const RECEIPT_COLUMNS: ColumnDef<StoreTableFeatures, StoreReceipt>[] = [
+  {
+    id: "at",
+    header: "Time",
+    cell: ({ row }) => (
+      <span className="text-muted-foreground whitespace-nowrap">
+        {new Date(row.original.completed_at).toLocaleString("en-GB", {
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+      </span>
+    ),
+  },
+  {
+    id: "units",
+    header: "Units",
+    cell: ({ row }) => units(row.original.units),
+  },
+  {
+    id: "change",
+    header: "Change",
+    // No change given reads as a dash rather than a zero: the eye should be
+    // able to find the sales that opened the drawer for something.
+    cell: ({ row }) =>
+      row.original.change_minor === 0 ? (
+        <span className="text-muted-foreground/50">–</span>
+      ) : (
+        money(row.original.change_minor)
+      ),
+  },
+  {
+    id: "total",
+    header: "Total",
+    cell: ({ row }) => money(row.original.total_minor),
+  },
+]
+
+function Receipts({ receipts }: { receipts: readonly StoreReceipt[] }) {
+  const table = useTable({
+    features: storeTableFeatures,
+    columns: RECEIPT_COLUMNS,
+    data: useMemo(() => [...receipts], [receipts]),
+    getRowId: (receipt: StoreReceipt) => receipt.id,
   })
+
   return (
-    <tr className="hover:bg-muted/50 border-t transition-colors">
-      <td className="text-muted-foreground py-1.5 whitespace-nowrap">{at}</td>
-      <td className="py-1.5 text-right font-mono tabular-nums">{units(receipt.units)}</td>
-      <td className="py-1.5 text-right font-mono tabular-nums">
-        {receipt.change_minor === 0 ? (
-          <span className="text-muted-foreground/50">–</span>
-        ) : (
-          money(receipt.change_minor)
-        )}
-      </td>
-      <td className="py-1.5 text-right font-mono tabular-nums">
-        {money(receipt.total_minor)}
-      </td>
-    </tr>
+    <table className="w-full text-sm">
+      <thead>
+        {table.getHeaderGroups().map((group) => (
+          <tr key={group.id} className="text-muted-foreground text-xs">
+            {group.headers.map((header) => (
+              <th
+                key={header.id}
+                scope="col"
+                className={
+                  header.column.id === "at"
+                    ? "py-1 text-left font-medium"
+                    : "py-1 text-right font-medium"
+                }
+              >
+                {header.isPlaceholder
+                  ? null
+                  : flexRender(
+                      header.column.columnDef.header,
+                      header.getContext(),
+                    )}
+              </th>
+            ))}
+          </tr>
+        ))}
+      </thead>
+      <tbody>
+        {table.getRowModel().rows.map((row) => (
+          <tr key={row.id} className="hover:bg-muted/50 border-t transition-colors">
+            {row.getAllCells().map((cell) => (
+              <td
+                key={cell.id}
+                className={
+                  cell.column.id === "at"
+                    ? "py-1.5"
+                    : "py-1.5 text-right font-mono tabular-nums"
+                }
+              >
+                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 
@@ -242,6 +332,18 @@ function Stat({
       )}
     </div>
   )
+}
+
+/// The four the node's schema allows, spelled for a human.
+///
+/// Anything outside the list falls through to the code itself rather than to a
+/// blank: a tender nobody named is still money, and hiding it would be the
+/// worst of the options.
+const TENDER_LABELS: Record<string, string> = {
+  CASH: "Cash",
+  CARD: "Card",
+  QRIS: "QRIS",
+  OTHER: "Other",
 }
 
 function Line({

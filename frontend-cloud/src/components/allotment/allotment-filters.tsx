@@ -84,8 +84,8 @@ export function FilterSheet({
                   className={cn(
                     "mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border",
                     filters.stock === choice.value
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-input"
+                      ? "border-[var(--os-ink,#1d1d1f)] bg-[var(--os-ink,#1d1d1f)] text-white"
+                      : "border-[var(--os-hairline-2,#e4e4e8)]"
                   )}
                 >
                   {filters.stock === choice.value && (
@@ -236,8 +236,8 @@ export function PurchaseOrderSheet({
               className={cn(
                 "grid size-4 shrink-0 place-items-center rounded-full border",
                 selected === ""
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-input"
+                  ? "border-[var(--os-ink,#1d1d1f)] bg-[var(--os-ink,#1d1d1f)] text-white"
+                  : "border-[var(--os-hairline-2,#e4e4e8)]"
               )}
             >
               {selected === "" && <Check className="size-3" />}
@@ -294,8 +294,8 @@ function OrderRow({
         className={cn(
           "grid size-4 shrink-0 place-items-center rounded-full border",
           selected
-            ? "border-primary bg-primary text-primary-foreground"
-            : "border-input"
+            ? "border-[var(--os-ink,#1d1d1f)] bg-[var(--os-ink,#1d1d1f)] text-white"
+            : "border-[var(--os-hairline-2,#e4e4e8)]"
         )}
       >
         {selected && <Check className="size-3" />}

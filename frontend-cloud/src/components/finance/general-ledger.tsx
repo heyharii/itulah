@@ -1,14 +1,17 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { ledgerColumns } from "@/components/finance/columns"
+import { DataGrid, useDataGrid } from "@/components/finance/data-grid"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
 import { Input } from "@/components/ui/input"
 import { accountLedger, financeKeys, searchAccounts } from "@/lib/finance"
 import { money } from "@/lib/money"
-import { cn } from "@/lib/utils"
+import type { GeneralLedgerRow } from "@itulah/contract"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { Search } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useRef, useState } from "react"
 
 /// One account's movements, with the balance walking down them.
 ///
@@ -61,11 +64,26 @@ export function GeneralLedgerScreen() {
           locations, because the client's codes are a tree and this matches by prefix.
         </ScreenState>
       ) : (
-        <Movements code={code} />
+        <ScreenBody>
+          <Movements code={code} />
+        </ScreenBody>
       )}
     </AppShell>
   )
 }
+
+/// How many accounts the picker asks for.
+///
+/// It used to be twenty, which is not a page size — it is a filter nobody
+/// wrote down. `1011` prefixes hundreds of the client's accounts and the one
+/// somebody wanted was rarely in the first twenty; they would type more digits
+/// to get past a limit they could not see. The list is virtualised, so the
+/// cost of a longer answer is one HTTP response and not a longer layout.
+const SUGGESTIONS = 500
+
+/// The height each suggestion is drawn at, and therefore the height the
+/// virtualiser reserves for the ones that are not.
+const SUGGESTION = 24
 
 function AccountSuggestions({
   needle,
@@ -74,29 +92,58 @@ function AccountSuggestions({
   needle: string
   onPick: (code: string) => void
 }) {
+  const scroller = useRef<HTMLDivElement>(null)
   const hits = useQuery({
     queryKey: ["finance", "ledger-picker", needle],
-    queryFn: ({ signal }) => searchAccounts(needle, { limit: 20 }, signal),
+    queryFn: ({ signal }) => searchAccounts(needle, { limit: SUGGESTIONS }, signal),
   })
-  if (hits.data === undefined || hits.data.length === 0) return null
+  const accounts = hits.data ?? []
+
+  const rows = useVirtualizer({
+    count: accounts.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => SUGGESTION,
+    overscan: 12,
+  })
+
+  if (accounts.length === 0) return null
   return (
-    <ul className="bg-card absolute top-9 right-0 z-20 max-h-72 w-96 overflow-y-auto rounded-md border shadow-md">
-      {hits.data.map((account) => (
-        <li key={account.account_code}>
-          <button
-            type="button"
-            onClick={() => onPick(account.account_code)}
-            className="hover:bg-muted flex w-full items-baseline gap-2 px-2 py-1 text-left text-[12px]"
-          >
-            <span className="text-muted-foreground shrink-0 font-mono text-[10.5px]">
-              {account.account_code}
-            </span>
-            <span className="truncate">{account.name}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div
+      ref={scroller}
+      className="bg-card absolute top-9 right-0 z-20 max-h-72 w-96 overflow-y-auto rounded-md border shadow-md"
+    >
+      <ul className="relative" style={{ height: rows.getTotalSize() }}>
+        {rows.getVirtualItems().map((item) => {
+          const account = accounts[item.index]
+          if (account === undefined) return null
+          return (
+            <li
+              key={account.account_code}
+              className="absolute top-0 left-0 w-full"
+              style={{ height: SUGGESTION, transform: `translateY(${item.start}px)` }}
+            >
+              <button
+                type="button"
+                onClick={() => onPick(account.account_code)}
+                className="hover:bg-muted flex h-full w-full items-baseline gap-2 px-2 text-left text-[12px]"
+              >
+                <span className="text-muted-foreground shrink-0 font-mono text-[10.5px]">
+                  {account.account_code}
+                </span>
+                <span className="truncate">{account.name}</span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
+}
+
+/// An entry can touch one account twice — a correction against itself — so the
+/// entry id alone is not a key for a line of the ledger.
+function rowId(row: GeneralLedgerRow): string {
+  return `${row.entry_id}-${row.posting_date}-${row.debit_minor}-${row.credit_minor}-${row.running_minor}`
 }
 
 function Movements({ code }: { code: string }) {
@@ -104,6 +151,13 @@ function Movements({ code }: { code: string }) {
     queryKey: financeKeys.ledger(code),
     queryFn: ({ signal }) => accountLedger(code, {}, signal),
   })
+
+  // A heading like `1011001` gathers cash at fourteen locations over the whole
+  // window, which is tens of thousands of movements. The server sends all of
+  // them — a ledger that stops early is not a ledger — so the layout is what
+  // has to give, and `DataGrid` draws only the rows on the screen.
+  const rows = useMemo(() => [...(ledger.data?.rows ?? [])], [ledger.data])
+  const table = useDataGrid({ data: rows, columns: ledgerColumns, getRowId: rowId })
 
   if (ledger.isPending) {
     return <ScreenState>Loading movements…</ScreenState>
@@ -116,7 +170,7 @@ function Movements({ code }: { code: string }) {
     )
   }
 
-  const { account_name, from, to, opening_minor, closing_minor, rows } = ledger.data
+  const { account_name, from, to, opening_minor, closing_minor } = ledger.data
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-baseline justify-between gap-3 border-b px-3.5 py-2">
@@ -134,59 +188,25 @@ function Movements({ code }: { code: string }) {
         </div>
       </div>
 
-      {rows.length === 0 ? (
+      {ledger.data.rows.length === 0 ? (
         <ScreenState>
           Nothing was posted to this account between {from} and {to}. It stood at{" "}
           {money(opening_minor)} throughout.
         </ScreenState>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <table className="w-full text-[13px]">
-            <thead className="bg-card sticky top-0 border-b">
-              <tr className="text-muted-foreground text-[11px]">
-                <th className="px-3.5 py-1.5 text-left font-medium">Date</th>
-                <th className="px-3 py-1.5 text-left font-medium">Entry</th>
-                <th className="px-3 py-1.5 text-left font-medium">Memo</th>
-                <th className="px-3 py-1.5 text-right font-medium">Debit</th>
-                <th className="px-3 py-1.5 text-right font-medium">Credit</th>
-                <th className="px-3 py-1.5 text-right font-medium">Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="text-muted-foreground border-b text-[12px]">
-                <td className="px-3.5 py-1" colSpan={5}>
-                  Opening balance
-                </td>
-                <td className="px-3 py-1 text-right font-mono tabular-nums">
-                  {money(opening_minor)}
-                </td>
-              </tr>
-              {rows.map((row, index) => (
-                <tr key={`${row.entry_id}-${index}`} className="hover:bg-muted/40 border-b">
-                  <td className="px-3.5 py-1 tabular-nums">{row.posting_date}</td>
-                  <td className="px-3 py-1 font-mono text-[11.5px]">{row.entry_number}</td>
-                  <td className="text-muted-foreground max-w-0 truncate px-3 py-1">
-                    {row.memo ?? row.source_kind.toLowerCase().replace(/_/g, " ")}
-                  </td>
-                  <td className="px-3 py-1 text-right font-mono tabular-nums">
-                    {row.debit_minor === 0 ? "" : money(row.debit_minor)}
-                  </td>
-                  <td className="px-3 py-1 text-right font-mono tabular-nums">
-                    {row.credit_minor === 0 ? "" : money(row.credit_minor)}
-                  </td>
-                  <td
-                    className={cn(
-                      "px-3 py-1 text-right font-mono tabular-nums",
-                      row.running_minor < 0 && "text-amber-700",
-                    )}
-                  >
-                    {money(row.running_minor)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataGrid
+          table={table}
+          lead={
+            <tr className="text-muted-foreground border-b text-[12px]">
+              <td className="px-3.5 py-1" colSpan={5}>
+                Opening balance
+              </td>
+              <td className="px-3 py-1 text-right font-mono tabular-nums">
+                {money(opening_minor)}
+              </td>
+            </tr>
+          }
+        />
       )}
     </div>
   )

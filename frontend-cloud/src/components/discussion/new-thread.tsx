@@ -21,9 +21,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { openThread, SUBJECT_KINDS, SUBJECT_LABEL } from "@/lib/discussion"
 import { useStagedUploads } from "@/lib/uploads"
 import { ApiError } from "@itulah/contract/client"
+import { useForm, useStore } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
 
 /// Opening a discussion.
 ///
@@ -46,32 +46,36 @@ export function NewThread({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [kind, setKind] = useState<string>(subjectKind ?? "purchase_order")
-  const [record, setRecord] = useState(subjectId ?? "")
-  const [note, setNote] = useState("")
-  const [title, setTitle] = useState("")
-  const [body, setBody] = useState("")
-  const [tags, setTags] = useState("")
   const uploads = useStagedUploads()
 
-  const reset = () => {
-    setKind(subjectKind ?? "purchase_order")
-    setRecord(subjectId ?? "")
-    setNote("")
-    setTitle("")
-    setBody("")
-    setTags("")
-  }
+  /// The whole of what is asked for, in one place. The defaults are the record
+  /// this was opened from, so `reset` is the form's own — a dialog reopened from
+  /// a purchase order comes back pointing at that purchase order rather than at
+  /// whatever was typed last time.
+  const form = useForm({
+    defaultValues: {
+      kind: subjectKind ?? "purchase_order",
+      record: subjectId ?? "",
+      note: "",
+      title: "",
+      body: "",
+      tags: "",
+    },
+    onSubmit: ({ value }) => {
+      start.mutate(value)
+    },
+  })
+  const values = useStore(form.store, (state) => state.values)
 
   const start = useMutation({
-    mutationFn: () =>
+    mutationFn: (value: typeof form.state.values) =>
       openThread({
-        subject_kind: kind,
-        subject_id: record.trim(),
-        subject_note: note.trim() === "" ? null : note.trim(),
-        title: title.trim(),
-        body: body.trim(),
-        tags: tags
+        subject_kind: value.kind,
+        subject_id: value.record.trim(),
+        subject_note: value.note.trim() === "" ? null : value.note.trim(),
+        title: value.title.trim(),
+        body: value.body.trim(),
+        tags: value.tags
           .split(",")
           .map((tag) => tag.trim())
           .filter((tag) => tag !== ""),
@@ -80,7 +84,7 @@ export function NewThread({
     onSuccess: (thread) => {
       void queryClient.invalidateQueries({ queryKey: ["discussions"] })
       onOpenChange(false)
-      reset()
+      form.reset()
       void navigate({
         to: "/discussions/$threadId",
         params: { threadId: thread.thread_id },
@@ -88,14 +92,15 @@ export function NewThread({
     },
   })
 
-  const ready = record.trim() !== "" && title.trim() !== "" && body.trim() !== ""
+  const ready =
+    values.record.trim() !== "" && values.title.trim() !== "" && values.body.trim() !== ""
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next)
-        if (!next) reset()
+        if (!next) form.reset()
       }}
     >
       <DialogContent className="sm:max-w-xl">
@@ -114,8 +119,8 @@ export function NewThread({
               <Label>About</Label>
               <Select
                 items={SUBJECT_LABEL}
-                value={kind}
-                onValueChange={(next) => setKind(next as string)}
+                value={values.kind}
+                onValueChange={(next) => form.setFieldValue("kind", next as string)}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -131,13 +136,18 @@ export function NewThread({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="thread-record">Which one</Label>
-              <Input
-                id="thread-record"
-                value={record}
-                onChange={(event) => setRecord(event.target.value)}
-                placeholder="PO-2607-0108"
-                className="font-mono text-sm"
-              />
+              <form.Field name="record">
+                {(field) => (
+                  <Input
+                    id="thread-record"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    placeholder="PO-2607-0108"
+                    className="font-mono text-sm"
+                  />
+                )}
+              </form.Field>
             </div>
           </div>
           <p className="text-muted-foreground -mt-1 text-[11px]">
@@ -147,33 +157,48 @@ export function NewThread({
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="thread-note">Note on the record (optional)</Label>
-            <Input
-              id="thread-note"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Bandung Knit Works"
-            />
+            <form.Field name="note">
+              {(field) => (
+                <Input
+                  id="thread-note"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="Bandung Knit Works"
+                />
+              )}
+            </form.Field>
           </div>
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="thread-title">Title</Label>
-            <Input
-              id="thread-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Reject 13.8% on this PO — return, or take it off the price?"
-            />
+            <form.Field name="title">
+              {(field) => (
+                <Input
+                  id="thread-title"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="Reject 13.8% on this PO — return, or take it off the price?"
+                />
+              )}
+            </form.Field>
           </div>
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="thread-body">Opening post</Label>
-            <Textarea
-              id="thread-body"
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              placeholder="What happened, and what has to be decided."
-              className="min-h-28"
-            />
+            <form.Field name="body">
+              {(field) => (
+                <Textarea
+                  id="thread-body"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="What happened, and what has to be decided."
+                  className="min-h-28"
+                />
+              )}
+            </form.Field>
             <p className="text-muted-foreground text-[11px]">
               A thread with no opening argument is a title.
             </p>
@@ -181,12 +206,17 @@ export function NewThread({
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="thread-tags">Tags (optional)</Label>
-            <Input
-              id="thread-tags"
-              value={tags}
-              onChange={(event) => setTags(event.target.value)}
-              placeholder="reject, supplier-quality"
-            />
+            <form.Field name="tags">
+              {(field) => (
+                <Input
+                  id="thread-tags"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="reject, supplier-quality"
+                />
+              )}
+            </form.Field>
           </div>
 
           <StagedFiles staged={uploads.staged} onRemove={uploads.remove} />
@@ -207,7 +237,10 @@ export function NewThread({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={!ready || start.isPending} onClick={() => start.mutate()}>
+          <Button
+            disabled={!ready || start.isPending}
+            onClick={() => void form.handleSubmit()}
+          >
             {start.isPending ? "Opening…" : "Open discussion"}
           </Button>
         </DialogFooter>

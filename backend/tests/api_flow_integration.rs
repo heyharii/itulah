@@ -668,6 +668,26 @@ async fn a_purchase_order_leaves_the_dc_on_a_truck_entirely_over_http(pool: PgPo
         .unwrap_or_else(|| panic!("no sku_code: {row}"))
         .to_string();
 
+    // Availability is a keyset-paginated catalogue. A warehouse with a large
+    // range must not serialize every SKU merely because the planner opened the
+    // screen.
+    let first_page = fleet
+        .cloud_get("/api/v1/inventory/availability?limit=1")
+        .await;
+    assert_eq!(first_page["limit"], 1);
+    assert_eq!(first_page["items"].as_array().map(Vec::len), Some(1));
+    if let Some(cursor) = first_page["next_cursor"].as_str() {
+        let second_page = fleet
+            .cloud_get(&format!(
+                "/api/v1/inventory/availability?limit=1&cursor={cursor}"
+            ))
+            .await;
+        assert_ne!(
+            first_page["items"][0]["sku_code"],
+            second_page["items"][0]["sku_code"]
+        );
+    }
+
     let allotment = fleet
         .cloud_post(
             "/api/v1/inventory/allotments",
@@ -1272,4 +1292,85 @@ async fn a_tagging_job_cannot_be_confirmed_twice_over_http(pool: PgPool) {
     )
     .await;
     assert_eq!(status, http::StatusCode::CONFLICT, "{body}");
+}
+
+/// The picker a price book is written with.
+///
+/// A book names products by `sku_id`, and until this route existed nothing gave
+/// one out: the prices screen answers by style and carries no id at all. So the
+/// authoring form had no way to turn "that white shirt" into a row the server
+/// would accept, and the gap was invisible — every screen looked complete.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_products_a_price_book_can_name_come_back_with_what_they_cost(pool: PgPool) {
+    let article = Uuid::new_v4();
+    sqlx::query("INSERT INTO article (id, article_code, name) VALUES ($1,'KEMEJA','Kemeja Putih')")
+        .bind(article)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("article: {e}"));
+    let sku = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO sku (id, article_id, sku_code, color, size)
+         VALUES ($1,$2,'KEMEJA-PUTIH-M','PUTIH','M')",
+    )
+    .bind(sku)
+    .bind(article)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("sku: {e}"));
+
+    // Before any book names it: present, and honestly priceless.
+    let found = cloud::commercial_products(&pool, Some("kemeja"), 20)
+        .await
+        .unwrap_or_else(|e| panic!("products: {e}"));
+    assert_eq!(found["items"][0]["sku_code"], "KEMEJA-PUTIH-M");
+    assert!(
+        found["items"][0]["unit_price_minor"].is_null(),
+        "a product no book has priced must not read as costing zero: {found}"
+    );
+
+    // Two books name it. The newer one is what it costs.
+    for (version, price) in [(1_i64, 200_000_i64), (2, 180_000)] {
+        let publication = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO commercial_publication
+                 (id, version, name, status, effective_from, created_by)
+             VALUES ($1,$2,$3,'PUBLISHED',now(),'test')",
+        )
+        .bind(publication)
+        .bind(version)
+        .bind(format!("Harga v{version}"))
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("publication: {e}"));
+        sqlx::query(
+            "INSERT INTO commercial_price_rule
+                 (id, publication_id, sku_id, site_id, channel, currency,
+                  unit_price_minor, tax_category)
+             VALUES ($1,$2,$3,NULL,'STORE','IDR',$4,'STANDARD')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(publication)
+        .bind(sku)
+        .bind(price)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("price rule: {e}"));
+    }
+
+    let found = cloud::commercial_products(&pool, Some("KEMEJA-PUTIH"), 20)
+        .await
+        .unwrap_or_else(|e| panic!("products: {e}"));
+    assert_eq!(
+        found["items"][0]["unit_price_minor"], 180_000,
+        "the newest published book that names it wins, which is the same rule \
+         the engine applies: {found}"
+    );
+
+    // Searchable by description as well as by code, because those are the two
+    // things somebody has in front of them.
+    let by_name = cloud::commercial_products(&pool, Some("putih"), 20)
+        .await
+        .unwrap_or_else(|e| panic!("by name: {e}"));
+    assert_eq!(by_name["items"].as_array().map(Vec::len), Some(1));
 }

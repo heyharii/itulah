@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -54,8 +54,9 @@ export function PriceAmendmentsView() {
   const rows = amendments.data ?? []
 
   return (
-    <AppShell nav={<Nav />}>
+    <AppShell data-cloudhub nav={<Nav />}>
       <ScreenHeader
+        eyebrow="Buying"
         title="Price amendments"
         subtitle={
           amendments.isPending
@@ -72,7 +73,7 @@ export function PriceAmendmentsView() {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScreenBody>
         {amendments.isPending ? (
           <ScreenState>Loading the queue…</ScreenState>
         ) : amendments.isError ? (
@@ -110,7 +111,7 @@ export function PriceAmendmentsView() {
             ))}
           </ul>
         )}
-      </div>
+      </ScreenBody>
     </AppShell>
   )
 }
@@ -150,7 +151,7 @@ function AmendmentRow({
         <Figure label="Ordered">{money(row.ordered_price_minor)}</Figure>
         <Figure label="Invoiced">{money(row.invoiced_price_minor)}</Figure>
         <Figure label="Difference">
-          <span className={cn(dearer ? "text-destructive" : "text-emerald-600")}>
+          <span className={cn(dearer ? "text-destructive" : "text-[var(--os-ok,#059669)]")}>
             {dearer ? "+" : "−"}
             {money(Math.abs(row.difference_minor))}
           </span>

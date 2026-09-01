@@ -10,6 +10,15 @@ import type { ListFilter } from "@itulah/contract/client"
 /// and a mutation that invalidated a key nobody was watching would leave a
 /// sealed carton showing as open until somebody reloaded the page.
 export const keys = {
+  /// Who is signed in, and which node this is. Not under `dc` because signing
+  /// out removes that whole domain and writes `null` here in its place — these
+  /// two are what decides whether anything else may be asked at all.
+  session: () => ["auth", "me"] as const,
+  node: () => ["node", "identity"] as const,
+  /// What this node has not managed to send yet. Polled from the shell, so it
+  /// is a key of its own rather than part of the operations badges.
+  syncStatus: () => ["node", "sync-status"] as const,
+
   receipts: () => ["dc", "goods-receipts"] as const,
   purchaseWork: () => ["dc", "purchase-work"] as const,
   verifyQueue: () => ["dc", "purchase-counts"] as const,
@@ -28,6 +37,9 @@ export const keys = {
   packingSessions: () => ["dc", "packing-sessions"] as const,
   packingSession: (sessionId: string) =>
     ["dc", "packing-session", sessionId] as const,
+  /// The RFID box being filled against a target, which is a different thing
+  /// from the packing round it may or may not belong to.
+  packingBox: (sessionId: string) => ["dc", "packing-box", sessionId] as const,
   outstanding: (storeId: string) => ["dc", "outstanding", storeId] as const,
   koli: (filter: ListFilter = {}) => ["dc", "koli", filter] as const,
   koliManifest: (koliId: string) => ["dc", "koli", koliId, "manifest"] as const,

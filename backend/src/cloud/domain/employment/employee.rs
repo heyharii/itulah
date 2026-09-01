@@ -356,12 +356,17 @@ impl Employee {
     }
 
     /// Apply a transition. The only way the status moves.
+    ///
+    /// Returns nothing: the event it appended is the last of [`Self::history`],
+    /// and handing back a reference meant proving to the compiler that a vector
+    /// just pushed to is non-empty — a panic sitting in the type for the sake of
+    /// a value no caller uses.
     pub fn apply(
         &mut self,
         transition: EmploymentTransition,
         effective_on: NaiveDate,
         authorization: Authorization,
-    ) -> Result<&EmploymentEvent, EmployeeError> {
+    ) -> Result<(), EmployeeError> {
         if !authorization.authorizes_employment_change() {
             return Err(EmployeeError::ActionForbidsEmploymentChange {
                 action_key: authorization.action_key().to_string(),
@@ -381,7 +386,7 @@ impl Employee {
             authorization,
         });
         self.status = target;
-        Ok(self.history.last().expect("just pushed"))
+        Ok(())
     }
 
     /// Correct the badge/NIP. Identity is untouched.

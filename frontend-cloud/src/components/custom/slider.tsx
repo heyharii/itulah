@@ -21,12 +21,12 @@ function Slider({
       )}
       {...props}
     >
-      <SliderPrimitive.Track className="bg-secondary relative h-2 w-full grow overflow-hidden rounded-full">
-        <SliderPrimitive.Range className="bg-primary absolute h-full" />
+      <SliderPrimitive.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-[var(--os-soft-2,#f3f3f5)]">
+        <SliderPrimitive.Range className="absolute h-full bg-[var(--os-accent,#3c52f0)]" />
       </SliderPrimitive.Track>
       {initialValue.map((_, index) => (
         <React.Fragment key={index}>
-          <SliderPrimitive.Thumb className="border-primary bg-background focus-visible:border-ring focus-visible:ring-ring/50 block h-4 w-4 rounded-full border-2 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50" />
+          <SliderPrimitive.Thumb className="block size-3.5 rounded-full border border-[var(--os-accent,#3c52f0)] bg-[var(--os-canvas,#fff)] shadow-[var(--os-shadow-soft,0_1px_2px_rgba(20,20,25,.03))] outline-none focus-visible:ring-2 focus-visible:ring-[var(--os-accent,#3c52f0)]/30 disabled:pointer-events-none disabled:opacity-50" />
         </React.Fragment>
       ))}
     </SliderPrimitive.Root>

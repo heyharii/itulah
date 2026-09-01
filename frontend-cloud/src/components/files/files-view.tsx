@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -56,7 +56,7 @@ export function FilesView() {
         />
       </ScreenHeader>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <ScreenBody>
         {files.isPending ? (
           <ScreenState>Loading files…</ScreenState>
         ) : files.isError ? (
@@ -144,7 +144,7 @@ export function FilesView() {
             })}
           </ul>
         )}
-      </div>
+      </ScreenBody>
     </AppShell>
   )
 }

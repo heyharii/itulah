@@ -6,7 +6,7 @@ use crate::cloud::{
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 use uuid::Uuid;
 
 pub async fn ingest_observations(
@@ -57,17 +57,35 @@ pub async fn ingest_observations(
     let mut inserted = 0_i64;
     let mut merged = 0_i64;
     let mut observation_ids = Vec::new();
-    for read in consolidated {
-        let subject_id = sqlx::query("SELECT id FROM inventory_subject WHERE epc=$1")
-            .bind(&read.epc)
-            .fetch_optional(&mut *tx)
+    let epcs: Vec<String> = consolidated.iter().map(|read| read.epc.clone()).collect();
+    let subjects: HashMap<String, Uuid> =
+        sqlx::query("SELECT epc,id FROM inventory_subject WHERE epc = ANY($1)")
+            .bind(&epcs)
+            .fetch_all(&mut *tx)
             .await?
-            .map(|r| r.get::<Uuid, _>("id"));
-        let existing = sqlx::query("SELECT observation_id,last_seen_at FROM observation_sighting WHERE device_id=$1 AND reader_session_id=$2 AND pool_id=$3 AND epc=$4 ORDER BY last_seen_at DESC LIMIT 1 FOR UPDATE")
-            .bind(&request.device_id).bind(&request.reader_session_id).bind(&request.pool).bind(&read.epc).fetch_optional(&mut *tx).await?;
-        if let Some(row) = existing {
-            let id: Uuid = row.get("observation_id");
-            let last_seen: DateTime<Utc> = row.get("last_seen_at");
+            .into_iter()
+            .map(|row| (row.get("epc"), row.get("id")))
+            .collect();
+    let existing_rows = sqlx::query(
+        "SELECT epc,observation_id,last_seen_at FROM observation_sighting
+         WHERE device_id=$1 AND reader_session_id=$2 AND pool_id=$3 AND epc = ANY($4)
+         ORDER BY epc,last_seen_at DESC FOR UPDATE",
+    )
+    .bind(&request.device_id)
+    .bind(&request.reader_session_id)
+    .bind(&request.pool)
+    .bind(&epcs)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut existing_by_epc: HashMap<String, (Uuid, DateTime<Utc>)> = HashMap::new();
+    for row in existing_rows {
+        existing_by_epc
+            .entry(row.get("epc"))
+            .or_insert_with(|| (row.get("observation_id"), row.get("last_seen_at")));
+    }
+    for read in consolidated {
+        let subject_id = subjects.get(&read.epc).copied();
+        if let Some((id, last_seen)) = existing_by_epc.remove(&read.epc) {
             if belongs_to_same_burst(last_seen, request.observed_at, burst_window_seconds) {
                 sqlx::query("UPDATE observation_sighting SET last_seen_at=$2,received_at=now(),read_count=read_count+$3,best_rssi=CASE WHEN best_rssi IS NULL THEN $4 WHEN $4 IS NULL THEN best_rssi ELSE GREATEST(best_rssi,$4) END,antenna=COALESCE($5,antenna),subject_id=COALESCE(subject_id,$6) WHERE observation_id=$1")
                     .bind(id).bind(request.observed_at).bind(read.read_count).bind(read.best_rssi).bind(&read.antenna).bind(subject_id).execute(&mut *tx).await?;

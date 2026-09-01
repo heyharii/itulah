@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import {
   Table,
   TableBody,
@@ -7,6 +7,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/custom/table"
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { DataTableFilterControls } from "@/components/data-table/data-table-filter-controls"
 import { DataTableProvider } from "@/components/data-table/data-table-provider"
 import { DataTableResetButton } from "@/components/data-table/data-table-reset-button"
@@ -21,8 +22,14 @@ import { dataTableFeatures } from "@/lib/table/features"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
+import { AllotmentSheet } from "@/components/sheets/allotment/allotment-sheet"
+import { useAllotmentSheet } from "@/lib/sheets/allotment"
 import { useNavigate } from "@tanstack/react-router"
-import type { ColumnFiltersState, SortingState } from "@tanstack/react-table"
+import type {
+  ColumnDef,
+  ColumnFiltersState,
+  SortingState,
+} from "@tanstack/react-table"
 import { flexRender, useTable } from "@tanstack/react-table"
 import { AlertTriangle, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
@@ -43,15 +50,20 @@ const PAGE = 500
 export function AllotmentsView() {
   const navigate = useNavigate()
   const [destination, setDestination] = useState("")
-  const [panel, setPanel] = useState<"allotments" | "destinations">("allotments")
+  const [panel, setPanel] = useState<"allotments" | "destinations">(
+    "allotments"
+  )
   const [showShortages, setShowShortages] = useState(false)
 
   const allotments = useQuery({
     queryKey: allotmentListKey(destination),
     queryFn: ({ signal }) =>
       listAllotments(
-        { limit: PAGE, ...(destination === "" ? {} : { destination_id: destination }) },
-        signal,
+        {
+          limit: PAGE,
+          ...(destination === "" ? {} : { destination_id: destination }),
+        },
+        signal
       ),
     // Picking happens in a warehouse, not on this screen. A list left open goes
     // stale within the minute it takes somebody there to scan a carton.
@@ -65,7 +77,9 @@ export function AllotmentsView() {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [sorting, setSorting] = useState<SortingState>([])
 
-  const adapter = useMemoryAdapter(allotmentFilterSchema.definition, { id: "allotments" })
+  const adapter = useMemoryAdapter(allotmentFilterSchema.definition, {
+    id: "allotments",
+  })
 
   const table = useTable(
     useMemo(
@@ -84,15 +98,23 @@ export function AllotmentsView() {
         enableFilters: true,
         enableColumnFilters: true,
       }),
-      [rows, columnFilters, sorting],
-    ),
+      [rows, columnFilters, sorting]
+    )
   )
 
   const visible = table.getFilteredRowModel().rows
-  const reserved = visible.reduce((sum, row) => sum + row.original.remaining_quantity, 0)
+  const reserved = visible.reduce(
+    (sum, row) => sum + row.original.remaining_quantity,
+    0
+  )
 
-  const open = (allotmentId: string) =>
-    void navigate({ to: "/allotments/$allotmentId", params: { allotmentId } })
+  // Opening an allotment writes a query parameter rather than changing route,
+  // so the shortage filters that found it are still here when it closes.
+  const sheet = useAllotmentSheet()
+  const open = sheet.open
+  /// The same rows as ids, in the order the table is drawing them, so the
+  /// sheet's ↑/↓ walk what the reader filtered.
+  const allotmentIds = visible.map((row) => row.original.id)
 
   return (
     <DataTableStoreProvider adapter={adapter}>
@@ -117,11 +139,14 @@ export function AllotmentsView() {
               value={destination}
               onChange={(event) => setDestination(event.target.value)}
               aria-label="Destination"
-              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
             >
               <option value="">Every destination</option>
               {destinations.map((rollup) => (
-                <option key={rollup.destination_id} value={rollup.destination_id}>
+                <option
+                  key={rollup.destination_id}
+                  value={rollup.destination_id}
+                >
                   {rollup.destination_name ?? rollup.destination_id}
                 </option>
               ))}
@@ -130,13 +155,18 @@ export function AllotmentsView() {
               size="sm"
               variant={panel === "destinations" ? "secondary" : "ghost"}
               onClick={() =>
-                setPanel(panel === "destinations" ? "allotments" : "destinations")
+                setPanel(
+                  panel === "destinations" ? "allotments" : "destinations"
+                )
               }
             >
               By destination
             </Button>
             <DataTableResetButton />
-            <Button size="sm" onClick={() => void navigate({ to: "/allotments/new" })}>
+            <Button
+              size="sm"
+              onClick={() => void navigate({ to: "/allotments/new" })}
+            >
               <Plus className="size-3.5" />
               New allotment
             </Button>
@@ -151,8 +181,9 @@ export function AllotmentsView() {
               >
                 <AlertTriangle className="size-3.5 shrink-0" />
                 <span>
-                  {shortages.length} SKU{shortages.length === 1 ? " is" : "s are"} promised out
-                  of the DC warehouse beyond what is in it.
+                  {shortages.length} SKU
+                  {shortages.length === 1 ? " is" : "s are"} promised out of the
+                  DC warehouse beyond what is in it.
                 </span>
                 <span className="ml-auto shrink-0 underline">
                   {showShortages ? "Hide" : "Show"}
@@ -185,7 +216,7 @@ export function AllotmentsView() {
                           <TableCell className="text-right font-mono text-xs tabular-nums">
                             {units(shortage.allotted_qty)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-xs font-medium tabular-nums text-amber-600">
+                          <TableCell className="text-right font-mono text-xs font-medium text-amber-600 tabular-nums">
                             {units(shortage.shortage_qty)}
                           </TableCell>
                         </TableRow>
@@ -197,14 +228,18 @@ export function AllotmentsView() {
             </div>
           )}
 
-          <div className="min-h-0 flex-1 overflow-auto">
+          <ScreenBody>
             {allotments.isPending ? (
               <ScreenState>Loading allotments…</ScreenState>
             ) : allotments.isError ? (
               <ScreenState
                 tone="problem"
                 action={
-                  <Button size="sm" variant="outline" onClick={() => void allotments.refetch()}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void allotments.refetch()}
+                  >
                     Try again
                   </Button>
                 }
@@ -231,12 +266,18 @@ export function AllotmentsView() {
               <Table>
                 <TableHeader className="bg-muted/50">
                   {table.getHeaderGroups().map((headerGroup) => (
-                    <TableRow key={headerGroup.id} className="hover:bg-transparent">
+                    <TableRow
+                      key={headerGroup.id}
+                      className="hover:bg-transparent"
+                    >
                       {headerGroup.headers.map((header) => (
                         <TableHead key={header.id}>
                           {header.isPlaceholder
                             ? null
-                            : flexRender(header.column.columnDef.header, header.getContext())}
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
                         </TableHead>
                       ))}
                     </TableRow>
@@ -259,7 +300,10 @@ export function AllotmentsView() {
                     >
                       {row.getVisibleCells().map((cell) => (
                         <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -267,7 +311,8 @@ export function AllotmentsView() {
                 </TableBody>
               </Table>
             )}
-          </div>
+          </ScreenBody>
+          <AllotmentSheet rows={allotmentIds} />
         </AppShell>
       </DataTableProvider>
     </DataTableStoreProvider>
@@ -280,6 +325,9 @@ export function AllotmentsView() {
 /// screen, so it answers "what is owed to this store" and not "what is owed on
 /// this list". Filtering the list from a row here is the one place the two
 /// meet.
+///
+/// Nine columns, seven of them figures — so it is a table proper, and "who is
+/// owed most" is a click on a header rather than a read down a column.
 function DestinationRollups({
   rollups,
   onPick,
@@ -287,73 +335,134 @@ function DestinationRollups({
   rollups: readonly DestinationRollup[]
   onPick: (destinationId: string) => void
 }) {
+  const [sorting, setSorting] = useState<SortingState>([])
+  const rows = useMemo(() => [...rollups], [rollups])
+
+  const columns = useMemo<
+    ColumnDef<typeof dataTableFeatures, DestinationRollup>[]
+  >(() => {
+    const figure = (
+      id: keyof DestinationRollup & `${string}quantity`,
+      title: string,
+      highlight = false
+    ): ColumnDef<typeof dataTableFeatures, DestinationRollup> => ({
+      accessorKey: id,
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={title} align="end" />
+      ),
+      cell: ({ row }) => {
+        const value = row.original[id] as number
+        return (
+          <div
+            className={cn(
+              "text-right font-mono text-xs tabular-nums",
+              highlight && value > 0 && "text-amber-600"
+            )}
+          >
+            {units(value)}
+          </div>
+        )
+      },
+    })
+
+    return [
+      {
+        accessorKey: "destination_name",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Destination" />
+        ),
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <div className="truncate text-[13px]">
+              {row.original.destination_name ?? row.original.destination_id}
+            </div>
+            <div className="truncate font-mono text-[10.5px] text-muted-foreground">
+              {row.original.destination_id}
+            </div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "destination_type",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Kind" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-xs">
+            {humanise(row.original.destination_type)}
+          </span>
+        ),
+      },
+      figure("total_quantity", "Allotted"),
+      figure("total_accepted_quantity", "Accepted"),
+      figure("total_picked_quantity", "Picked"),
+      figure("total_in_transit_quantity", "In transit"),
+      figure("total_received_quantity", "Received"),
+      figure("total_cancelled_quantity", "Cancelled"),
+      figure("remaining_quantity", "Still reserved", true),
+    ]
+  }, [])
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: dataTableFeatures,
+        data: rows,
+        columns,
+        getRowId: (row: DestinationRollup) =>
+          `${row.destination_type}:${row.destination_id}`,
+        state: { sorting, pagination: { pageIndex: 0, pageSize: PAGE } },
+        onSortingChange: setSorting,
+      }),
+      [rows, columns, sorting]
+    )
+  )
+
   if (rollups.length === 0) {
     return <ScreenState>Nothing has been allotted to anywhere yet.</ScreenState>
   }
+
   return (
     <Table>
       <TableHeader className="bg-muted/50">
-        <TableRow className="hover:bg-transparent">
-          <TableHead>Destination</TableHead>
-          <TableHead>Kind</TableHead>
-          <TableHead className="text-right">Allotted</TableHead>
-          <TableHead className="text-right">Accepted</TableHead>
-          <TableHead className="text-right">Picked</TableHead>
-          <TableHead className="text-right">In transit</TableHead>
-          <TableHead className="text-right">Received</TableHead>
-          <TableHead className="text-right">Cancelled</TableHead>
-          <TableHead className="text-right">Still reserved</TableHead>
-        </TableRow>
+        {table.getHeaderGroups().map((headerGroup) => (
+          <TableRow key={headerGroup.id} className="hover:bg-transparent">
+            {headerGroup.headers.map((header) => (
+              <TableHead key={header.id}>
+                {header.isPlaceholder
+                  ? null
+                  : flexRender(
+                      header.column.columnDef.header,
+                      header.getContext()
+                    )}
+              </TableHead>
+            ))}
+          </TableRow>
+        ))}
       </TableHeader>
       <TableBody>
-        {rollups.map((rollup) => (
+        {table.getRowModel().rows.map((row) => (
           <TableRow
-            key={`${rollup.destination_type}:${rollup.destination_id}`}
+            key={row.id}
             tabIndex={0}
             role="button"
             className="cursor-pointer"
-            onClick={() => onPick(rollup.destination_id)}
+            onClick={() => onPick(row.original.destination_id)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault()
-                onPick(rollup.destination_id)
+                onPick(row.original.destination_id)
               }
             }}
           >
-            <TableCell>
-              <div className="min-w-0">
-                <div className="truncate text-[13px]">
-                  {rollup.destination_name ?? rollup.destination_id}
-                </div>
-                <div className="text-muted-foreground truncate font-mono text-[10.5px]">
-                  {rollup.destination_id}
-                </div>
-              </div>
-            </TableCell>
-            <TableCell className="text-xs">{humanise(rollup.destination_type)}</TableCell>
-            <Figure value={rollup.total_quantity} />
-            <Figure value={rollup.total_accepted_quantity} />
-            <Figure value={rollup.total_picked_quantity} />
-            <Figure value={rollup.total_in_transit_quantity} />
-            <Figure value={rollup.total_received_quantity} />
-            <Figure value={rollup.total_cancelled_quantity} />
-            <Figure value={rollup.remaining_quantity} highlight />
+            {row.getVisibleCells().map((cell) => (
+              <TableCell key={cell.id}>
+                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              </TableCell>
+            ))}
           </TableRow>
         ))}
       </TableBody>
     </Table>
-  )
-}
-
-function Figure({ value, highlight }: { value: number; highlight?: boolean }) {
-  return (
-    <TableCell
-      className={cn(
-        "text-right font-mono text-xs tabular-nums",
-        highlight === true && value > 0 && "text-amber-600",
-      )}
-    >
-      {units(value)}
-    </TableCell>
   )
 }

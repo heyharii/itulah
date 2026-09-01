@@ -8,7 +8,6 @@ import {
   RowNumber,
   RowText,
 } from "@/components/ops/parts"
-import { useAction } from "@/lib/action"
 import {
   Note,
   Pill,
@@ -23,6 +22,11 @@ import { clock, money, units, variance } from "@/lib/format"
 import { keys } from "@/lib/queries"
 import { useActor } from "@/lib/session"
 import { idempotencyKey } from "@itulah/contract/client"
+import type {
+  PurchaseCountAwaitingVerification,
+  PurchaseWorkLine,
+} from "@itulah/contract"
+import { useForm, useStore } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 /// Receiving, which is two jobs and deliberately not one screen's worth of
@@ -37,7 +41,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 export function ReceivingScreen() {
   const [job, setJob] = useState<"count" | "verify">("count")
   const [receiptId, setReceiptId] = useState<string | null>(null)
-  const client = useQueryClient()
 
   const receipts = useQuery({
     queryKey: keys.receipts(),
@@ -46,10 +49,6 @@ export function ReceivingScreen() {
 
   const selected =
     receipts.data?.find((receipt) => receipt.receipt_id === receiptId) ?? null
-
-  const refreshEverything = () => {
-    void client.invalidateQueries({ queryKey: ["dc"] })
-  }
 
   return (
     <>
@@ -77,28 +76,19 @@ export function ReceivingScreen() {
 
       <ScreenBody className="lg:grid lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start">
         <div className="flex flex-col gap-4">
-          <Deliveries
-            receiptId={receiptId}
-            onSelect={setReceiptId}
-            onChanged={refreshEverything}
-          />
+          <Deliveries receiptId={receiptId} onSelect={setReceiptId} />
           {selected !== null && (
             <Invoice
               receiptId={selected.receipt_id}
               receiptNumber={selected.receipt_number}
               invoiceNumber={selected.invoice_number}
               invoiceTotalMinor={selected.invoice_total_minor}
-              onChanged={refreshEverything}
             />
           )}
         </div>
 
         <div className="flex flex-col gap-4">
-          {job === "count" ? (
-            <Counting receiptId={receiptId} onChanged={refreshEverything} />
-          ) : (
-            <Verifying onChanged={refreshEverything} />
-          )}
+          {job === "count" ? <Counting receiptId={receiptId} /> : <Verifying />}
         </div>
       </ScreenBody>
     </>
@@ -109,16 +99,12 @@ export function ReceivingScreen() {
 function Deliveries({
   receiptId,
   onSelect,
-  onChanged,
 }: {
   receiptId: string | null
   onSelect: (receiptId: string | null) => void
-  onChanged: () => void
 }) {
   const actor = useActor()
-  const action = useAction()
-  const [supplier, setSupplier] = useState("")
-  const [arrived, setArrived] = useState("")
+  const client = useQueryClient()
   const [opening, setOpening] = useState(false)
 
   const receipts = useQuery({
@@ -126,29 +112,34 @@ function Deliveries({
     queryFn: ({ signal }) => dc.goodsReceipts(signal),
   })
 
-  const open = async () => {
-    const supplierId = supplier.trim()
-    if (supplierId === "") {
-      return
-    }
-    const done = await action.run(async () => {
-      const receipt = await dc.openGoodsReceipt({
-        supplier_id: supplierId,
+  const open = useMutation({
+    mutationFn: (value: { supplier: string; arrived: string }) =>
+      dc.openGoodsReceipt({
+        supplier_id: value.supplier.trim(),
         // Supplied rather than assumed: a document opened the next morning is
         // still about yesterday's lorry.
-        arrived_at: arrived === "" ? null : new Date(arrived).toISOString(),
+        arrived_at:
+          value.arrived === "" ? null : new Date(value.arrived).toISOString(),
         actor_id: actor,
         idempotency_key: idempotencyKey(),
-      })
-      onSelect(receipt.receipt_id)
-    })
-    if (done) {
-      setSupplier("")
-      setArrived("")
+      }),
+    onSuccess: (receipt) => {
+      form.reset()
       setOpening(false)
-      onChanged()
-    }
-  }
+      onSelect(receipt.receipt_id)
+      void client.invalidateQueries({ queryKey: keys.receipts() })
+    },
+  })
+
+  const form = useForm({
+    defaultValues: { supplier: "", arrived: "" },
+    onSubmit: ({ value }) => {
+      if (value.supplier.trim() === "") {
+        return
+      }
+      open.mutate(value)
+    },
+  })
 
   return (
     <Panel title="On the bay" meta={`${receipts.data?.length ?? 0} open`}>
@@ -186,28 +177,45 @@ function Deliveries({
       ))}
 
       {opening ? (
-        <div className="flex flex-col gap-2 border-t px-4 py-3">
-          <Input
-            value={supplier}
-            placeholder="Supplier id"
-            className="h-(--tap)"
-            onChange={(event) => setSupplier(event.target.value)}
-          />
-          <Input
-            value={arrived}
-            type="datetime-local"
-            className="h-(--tap)"
-            onChange={(event) => setArrived(event.target.value)}
-          />
+        <form
+          className="flex flex-col gap-2 border-t px-4 py-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void form.handleSubmit()
+          }}
+        >
+          <form.Field name="supplier">
+            {(field) => (
+              <Input
+                value={field.state.value}
+                placeholder="Supplier id"
+                className="h-(--tap)"
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            )}
+          </form.Field>
+          <form.Field name="arrived">
+            {(field) => (
+              <Input
+                value={field.state.value}
+                type="datetime-local"
+                className="h-(--tap)"
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            )}
+          </form.Field>
           <div className="flex gap-2">
             <Button
+              type="submit"
               className="h-(--tap) flex-1"
-              disabled={action.pending}
-              onClick={() => void open()}
+              disabled={open.isPending}
             >
               Open delivery
             </Button>
             <Button
+              type="button"
               variant="ghost"
               className="h-(--tap)"
               onClick={() => setOpening(false)}
@@ -215,8 +223,8 @@ function Deliveries({
               Cancel
             </Button>
           </div>
-          <Problem error={action.error} />
-        </div>
+          <Problem error={open.error} />
+        </form>
       ) : (
         <div className="border-t px-4 py-3">
           <Button
@@ -235,44 +243,32 @@ function Deliveries({
 /// The checker's screen. No ordered quantity, no earlier count, no progress
 /// bar — a count taken while looking at the number it is meant to produce is
 /// not evidence of anything.
-function Counting({
-  receiptId,
-  onChanged,
-}: {
-  receiptId: string | null
-  onChanged: () => void
-}) {
+function Counting({ receiptId }: { receiptId: string | null }) {
   const actor = useActor()
-  const action = useAction()
-  const [counted, setCounted] = useState<Record<string, string>>({})
+  const client = useQueryClient()
 
   const work = useQuery({
     queryKey: keys.purchaseWork(),
     queryFn: ({ signal }) => dc.purchaseWork(signal),
   })
 
-  const record = async (poLineId: string) => {
-    if (receiptId === null) {
-      return
-    }
-    const typed = Number(counted[poLineId])
-    if (!Number.isInteger(typed) || typed < 0) {
-      return
-    }
-    const done = await action.run(() =>
+  const record = useMutation({
+    mutationFn: (input: { poLineId: string; counted: number }) =>
       dc.countPurchase({
-        receipt_id: receiptId,
-        po_line_id: poLineId,
-        counted_quantity: typed,
+        receipt_id: receiptId as string,
+        po_line_id: input.poLineId,
+        counted_quantity: input.counted,
         actor_id: actor,
         idempotency_key: idempotencyKey(),
-      })
-    )
-    if (done) {
-      setCounted((current) => ({ ...current, [poLineId]: "" }))
-      onChanged()
-    }
-  }
+      }),
+    // What is still owed shrinks, the delivery's tally moves, and the count
+    // appears in the verifier's queue. All three are on screen somewhere.
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.purchaseWork() })
+      void client.invalidateQueries({ queryKey: keys.receipts() })
+      void client.invalidateQueries({ queryKey: keys.verifyQueue() })
+    },
+  })
 
   return (
     <>
@@ -306,52 +302,16 @@ function Counting({
 
         {receiptId !== null &&
           work.data?.map((line) => (
-            <div
+            <CountLine
               key={line.po_line_id}
-              className="flex flex-wrap items-center gap-3 border-b px-4 py-3 last:border-b-0"
-            >
-              <span className="min-w-40 flex-1">
-                <span className="block text-sm font-medium">
-                  {line.article_name}
-                </span>
-                <span className="block font-mono text-[11px] text-muted-foreground">
-                  {line.article_code} · {line.po_number}
-                  {line.supplier_name === null
-                    ? ""
-                    : ` · ${line.supplier_name}`}
-                </span>
-              </span>
-              <Input
-                value={counted[line.po_line_id] ?? ""}
-                inputMode="numeric"
-                placeholder="pieces"
-                className="h-(--tap) w-28 text-center font-mono"
-                onChange={(event) =>
-                  setCounted((current) => ({
-                    ...current,
-                    [line.po_line_id]: event.target.value,
-                  }))
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault()
-                    void record(line.po_line_id)
-                  }
-                }}
-              />
-              <Button
-                className="h-(--tap)"
-                disabled={
-                  action.pending ||
-                  (counted[line.po_line_id] ?? "").trim() === ""
-                }
-                onClick={() => void record(line.po_line_id)}
-              >
-                Record
-              </Button>
-            </div>
+              line={line}
+              pending={record.isPending}
+              onRecord={(counted) =>
+                record.mutate({ poLineId: line.po_line_id, counted })
+              }
+            />
           ))}
-        <Problem error={action.error} />
+        <Problem error={record.error} />
       </Panel>
 
       <Note>
@@ -366,12 +326,78 @@ function Counting({
   )
 }
 
+/// One purchase line, and the box the checker writes their number into.
+///
+/// A form of its own per line rather than one map of values for the screen: a
+/// line is submitted on its own, cleared on its own, and the number typed
+/// against it belongs to nothing else on the page.
+function CountLine({
+  line,
+  pending,
+  onRecord,
+}: {
+  line: PurchaseWorkLine
+  pending: boolean
+  onRecord: (counted: number) => void
+}) {
+  const form = useForm({
+    defaultValues: { counted: "" },
+    onSubmit: ({ value, formApi }) => {
+      const typed = Number(value.counted)
+      if (!Number.isInteger(typed) || typed < 0) {
+        return
+      }
+      onRecord(typed)
+      formApi.reset()
+    },
+  })
+
+  return (
+    <form
+      className="flex flex-wrap items-center gap-3 border-b px-4 py-3 last:border-b-0"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void form.handleSubmit()
+      }}
+    >
+      <span className="min-w-40 flex-1">
+        <span className="block text-sm font-medium">{line.article_name}</span>
+        <span className="block font-mono text-[11px] text-muted-foreground">
+          {line.article_code} · {line.po_number}
+          {line.supplier_name === null ? "" : ` · ${line.supplier_name}`}
+        </span>
+      </span>
+      <form.Field name="counted">
+        {(field) => (
+          <Input
+            value={field.state.value}
+            inputMode="numeric"
+            placeholder="pieces"
+            className="h-(--tap) w-28 text-center font-mono"
+            onBlur={field.handleBlur}
+            onChange={(event) => field.handleChange(event.target.value)}
+          />
+        )}
+      </form.Field>
+      <form.Subscribe selector={(state) => state.values.counted.trim() === ""}>
+        {(empty) => (
+          <Button
+            type="submit"
+            className="h-(--tap)"
+            disabled={pending || empty}
+          >
+            Record
+          </Button>
+        )}
+      </form.Subscribe>
+    </form>
+  )
+}
+
 /// The verifier's screen. Everything the checker was not shown, because a
 /// verifier is comparing rather than counting.
-function Verifying({ onChanged }: { onChanged: () => void }) {
+function Verifying() {
   const actor = useActor()
-  const [prices, setPrices] = useState<Record<string, string>>({})
-  const [notes, setNotes] = useState<Record<string, string>>({})
   const client = useQueryClient()
 
   const queue = useQuery({
@@ -394,9 +420,15 @@ function Verifying({ onChanged }: { onChanged: () => void }) {
         invoiced_price_minor: input.invoicedPriceMinor,
         idempotency_key: idempotencyKey(),
       }),
+    // Accepting is what makes the goods stock, so this touches far more than
+    // the queue it was pressed in: the delivery's tally, what is still owed,
+    // the labels head office now wants printed, and the pools themselves.
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.verifyQueue() })
-      onChanged()
+      void client.invalidateQueries({ queryKey: keys.receipts() })
+      void client.invalidateQueries({ queryKey: keys.purchaseWork() })
+      void client.invalidateQueries({ queryKey: keys.taggingJobs() })
+      void client.invalidateQueries({ queryKey: keys.pools() })
     },
   })
 
@@ -414,123 +446,22 @@ function Verifying({ onChanged }: { onChanged: () => void }) {
           </ScreenState>
         )}
 
-        {queue.data?.map((count) => {
-          const yours = count.counted_by.trim() === actor.trim()
-          const price = prices[count.count_id] ?? ""
-          const note = notes[count.count_id] ?? ""
-          return (
-            <div
-              key={count.count_id}
-              className="flex flex-col gap-3 border-b px-4 py-3.5 last:border-b-0"
-            >
-              <div className="flex flex-wrap items-start gap-3">
-                <span className="min-w-40 flex-1">
-                  <span className="block text-sm font-medium">
-                    {count.article_name}
-                  </span>
-                  <span className="block font-mono text-[11px] text-muted-foreground">
-                    {count.article_code} · {count.po_number} · counted by{" "}
-                    {count.counted_by} at {clock(count.counted_at)}
-                  </span>
-                </span>
-                <RowNumber
-                  value={units(count.counted_quantity)}
-                  label="counted"
-                />
-                <RowNumber
-                  value={units(count.expected_stock_units)}
-                  label="ordered"
-                  tone="muted"
-                />
-                <span className="shrink-0 self-center">
-                  {count.variance === 0 ? (
-                    <Pill tone="good">exact</Pill>
-                  ) : (
-                    <Pill tone={count.variance < 0 ? "bad" : "warn"}>
-                      {variance(count.variance)}
-                    </Pill>
-                  )}
-                </span>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-muted-foreground">
-                  Agreed {money(count.unit_price_minor)} per piece
-                </span>
-                <Input
-                  value={price}
-                  inputMode="numeric"
-                  placeholder="Invoiced per piece"
-                  className="h-(--tap) w-44 font-mono"
-                  onChange={(event) =>
-                    setPrices((current) => ({
-                      ...current,
-                      [count.count_id]: event.target.value,
-                    }))
-                  }
-                />
-                <ConfirmButton
-                  label="Accept"
-                  className="h-(--tap)"
-                  disabled={decide.isPending}
-                  title={`Accept ${units(count.counted_quantity)} pieces`}
-                  description={
-                    <>
-                      This is the moment the goods become stock and the moment
-                      head office hears about this delivery at all.
-                      {count.variance !== 0 &&
-                        ` The count is ${variance(count.variance)} against the order, and it is the count that is accepted.`}
-                      {price !== "" &&
-                        " If the invoiced price differs from the agreed one, the delivery still goes in and a query goes to the buyer."}
-                    </>
-                  }
-                  confirmLabel="Accept the count"
-                  onConfirm={() =>
-                    decide.mutate({
-                      countId: count.count_id,
-                      decision: "Accept",
-                      invoicedPriceMinor: price === "" ? null : Number(price),
-                      note: null,
-                    })
-                  }
-                />
-                <Input
-                  value={note}
-                  placeholder="Why recount?"
-                  className="h-(--tap) min-w-40 flex-1"
-                  onChange={(event) =>
-                    setNotes((current) => ({
-                      ...current,
-                      [count.count_id]: event.target.value,
-                    }))
-                  }
-                />
-                <Button
-                  variant="outline"
-                  className="h-(--tap)"
-                  disabled={decide.isPending || note.trim() === ""}
-                  onClick={() =>
-                    decide.mutate({
-                      countId: count.count_id,
-                      decision: "Recount",
-                      invoicedPriceMinor: null,
-                      note: note.trim(),
-                    })
-                  }
-                >
-                  Send back
-                </Button>
-              </div>
-
-              {yours && (
-                <p className="text-[11px] text-muted-foreground">
-                  You counted this one. Where this site enforces two pairs of
-                  hands the node will refuse it, and say so.
-                </p>
-              )}
-            </div>
-          )
-        })}
+        {queue.data?.map((count) => (
+          <VerifyLine
+            key={count.count_id}
+            count={count}
+            yours={count.counted_by.trim() === actor.trim()}
+            pending={decide.isPending}
+            onDecide={(decision, invoicedPriceMinor, note) =>
+              decide.mutate({
+                countId: count.count_id,
+                decision,
+                invoicedPriceMinor,
+                note,
+              })
+            }
+          />
+        ))}
         <Problem error={decide.error} />
       </Panel>
 
@@ -544,6 +475,123 @@ function Verifying({ onChanged }: { onChanged: () => void }) {
   )
 }
 
+/// One count waiting for a decision, with the two things a verifier may add:
+/// the price the invoice actually asked for, and the reason for a recount.
+function VerifyLine({
+  count,
+  yours,
+  pending,
+  onDecide,
+}: {
+  count: PurchaseCountAwaitingVerification
+  yours: boolean
+  pending: boolean
+  onDecide: (
+    decision: "Accept" | "Recount",
+    invoicedPriceMinor: number | null,
+    note: string | null
+  ) => void
+}) {
+  const form = useForm({ defaultValues: { price: "", note: "" } })
+  const price = useStore(form.store, (state) => state.values.price)
+  const note = useStore(form.store, (state) => state.values.note)
+
+  return (
+    <div className="flex flex-col gap-3 border-b px-4 py-3.5 last:border-b-0">
+      <div className="flex flex-wrap items-start gap-3">
+        <span className="min-w-40 flex-1">
+          <span className="block text-sm font-medium">
+            {count.article_name}
+          </span>
+          <span className="block font-mono text-[11px] text-muted-foreground">
+            {count.article_code} · {count.po_number} · counted by{" "}
+            {count.counted_by} at {clock(count.counted_at)}
+          </span>
+        </span>
+        <RowNumber value={units(count.counted_quantity)} label="counted" />
+        <RowNumber
+          value={units(count.expected_stock_units)}
+          label="ordered"
+          tone="muted"
+        />
+        <span className="shrink-0 self-center">
+          {count.variance === 0 ? (
+            <Pill tone="good">exact</Pill>
+          ) : (
+            <Pill tone={count.variance < 0 ? "bad" : "warn"}>
+              {variance(count.variance)}
+            </Pill>
+          )}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">
+          Agreed {money(count.unit_price_minor)} per piece
+        </span>
+        <form.Field name="price">
+          {(field) => (
+            <Input
+              value={field.state.value}
+              inputMode="numeric"
+              placeholder="Invoiced per piece"
+              className="h-(--tap) w-44 font-mono"
+              onBlur={field.handleBlur}
+              onChange={(event) => field.handleChange(event.target.value)}
+            />
+          )}
+        </form.Field>
+        <ConfirmButton
+          label="Accept"
+          className="h-(--tap)"
+          disabled={pending}
+          title={`Accept ${units(count.counted_quantity)} pieces`}
+          description={
+            <>
+              This is the moment the goods become stock and the moment head
+              office hears about this delivery at all.
+              {count.variance !== 0 &&
+                ` The count is ${variance(count.variance)} against the order, and it is the count that is accepted.`}
+              {price !== "" &&
+                " If the invoiced price differs from the agreed one, the delivery still goes in and a query goes to the buyer."}
+            </>
+          }
+          confirmLabel="Accept the count"
+          onConfirm={() =>
+            onDecide("Accept", price === "" ? null : Number(price), null)
+          }
+        />
+        <form.Field name="note">
+          {(field) => (
+            <Input
+              value={field.state.value}
+              placeholder="Why recount?"
+              className="h-(--tap) min-w-40 flex-1"
+              onBlur={field.handleBlur}
+              onChange={(event) => field.handleChange(event.target.value)}
+            />
+          )}
+        </form.Field>
+        <Button
+          variant="outline"
+          className="h-(--tap)"
+          disabled={pending || note.trim() === ""}
+          onClick={() => onDecide("Recount", null, note.trim())}
+        >
+          Send back
+        </Button>
+      </div>
+
+      {yours && (
+        <p className="text-[11px] text-muted-foreground">
+          You counted this one. Where this site enforces two pairs of hands the
+          node will refuse it, and say so.
+        </p>
+      )}
+    </div>
+  )
+}
+
 /// The supplier's invoice, recorded against the delivery. The system never
 /// sees that document; this number exists only because a person looked.
 function Invoice({
@@ -551,42 +599,43 @@ function Invoice({
   receiptNumber,
   invoiceNumber,
   invoiceTotalMinor,
-  onChanged,
 }: {
   receiptId: string
   receiptNumber: string
   invoiceNumber: string | null
   invoiceTotalMinor: number | null
-  onChanged: () => void
 }) {
   const actor = useActor()
-  const action = useAction()
-  const [number, setNumber] = useState("")
-  const [date, setDate] = useState("")
-  const [total, setTotal] = useState("")
+  const client = useQueryClient()
 
-  const record = async () => {
-    if (number.trim() === "" || total.trim() === "") {
-      return
-    }
-    const done = await action.run(() =>
+  const record = useMutation({
+    mutationFn: (value: { number: string; date: string; total: string }) =>
       dc.recordInvoice(receiptId, {
         receipt_id: receiptId,
-        invoice_number: number.trim(),
-        invoice_date: date === "" ? null : date,
-        invoice_total_minor: Number(total),
+        invoice_number: value.number.trim(),
+        invoice_date: value.date === "" ? null : value.date,
+        invoice_total_minor: Number(value.total),
         invoice_document_ref: null,
         actor_id: actor,
         idempotency_key: idempotencyKey(),
-      })
-    )
-    if (done) {
-      setNumber("")
-      setDate("")
-      setTotal("")
-      onChanged()
-    }
-  }
+      }),
+    onSuccess: () => {
+      form.reset()
+      // The delivery row carries the invoice number, and this panel is drawn
+      // from that row rather than from a read of its own.
+      void client.invalidateQueries({ queryKey: keys.receipts() })
+    },
+  })
+
+  const form = useForm({
+    defaultValues: { number: "", date: "", total: "" },
+    onSubmit: ({ value }) => {
+      if (value.number.trim() === "" || value.total.trim() === "") {
+        return
+      }
+      record.mutate(value)
+    },
+  })
 
   if (invoiceNumber !== null) {
     return (
@@ -601,38 +650,59 @@ function Invoice({
 
   return (
     <Panel title="Invoice" meta={receiptNumber}>
-      <div className="flex flex-col gap-2 px-4 py-3">
-        <Input
-          value={number}
-          placeholder="Invoice number"
-          className="h-(--tap)"
-          onChange={(event) => setNumber(event.target.value)}
-        />
+      <form
+        className="flex flex-col gap-2 px-4 py-3"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void form.handleSubmit()
+        }}
+      >
+        <form.Field name="number">
+          {(field) => (
+            <Input
+              value={field.state.value}
+              placeholder="Invoice number"
+              className="h-(--tap)"
+              onBlur={field.handleBlur}
+              onChange={(event) => field.handleChange(event.target.value)}
+            />
+          )}
+        </form.Field>
         <div className="flex gap-2">
-          <Input
-            value={date}
-            type="date"
-            className="h-(--tap) flex-1"
-            onChange={(event) => setDate(event.target.value)}
-          />
-          <Input
-            value={total}
-            inputMode="numeric"
-            placeholder="Total (rupiah)"
-            className="h-(--tap) flex-1 font-mono"
-            onChange={(event) => setTotal(event.target.value)}
-          />
+          <form.Field name="date">
+            {(field) => (
+              <Input
+                value={field.state.value}
+                type="date"
+                className="h-(--tap) flex-1"
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            )}
+          </form.Field>
+          <form.Field name="total">
+            {(field) => (
+              <Input
+                value={field.state.value}
+                inputMode="numeric"
+                placeholder="Total (rupiah)"
+                className="h-(--tap) flex-1 font-mono"
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            )}
+          </form.Field>
         </div>
         <Button
+          type="submit"
           variant="secondary"
           className="h-(--tap)"
-          disabled={action.pending}
-          onClick={() => void record()}
+          disabled={record.isPending}
         >
           Record invoice
         </Button>
-        <Problem error={action.error} />
-      </div>
+        <Problem error={record.error} />
+      </form>
     </Panel>
   )
 }

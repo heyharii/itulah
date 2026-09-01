@@ -21,7 +21,7 @@ use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     str::FromStr,
 };
 use uuid::Uuid;
@@ -41,6 +41,11 @@ pub(super) struct LineIdentity {
 struct NormalizedLine {
     identity: LineIdentity,
     quantity: i64,
+}
+
+struct CreateValidationContext {
+    source_sites: HashMap<String, (String, String)>,
+    destination_kinds: HashMap<String, String>,
 }
 
 pub async fn create_allotment(
@@ -130,8 +135,9 @@ pub async fn create_allotment(
         return Ok(response);
     }
 
+    let validation = load_create_validation_context(&mut tx, &lines).await?;
     for line in &lines {
-        validate_create_line(&mut tx, request.allotment_type, line).await?;
+        validate_create_line(request.allotment_type, line, &validation)?;
     }
     let mut sku_ids: Vec<Uuid> = lines.iter().map(|line| line.identity.sku_id).collect();
     sku_ids.sort_unstable();
@@ -1165,6 +1171,10 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
         AvailabilityQuery {
             at: None,
             source_pool_id: query.source_pool_id,
+            cursor: None,
+            q: None,
+            limit: None,
+            unbounded: true,
         },
     )
     .await?;
@@ -1280,6 +1290,22 @@ pub async fn list_allotments_by_store(pool: &PgPool, store_id: &str) -> Result<V
 
 pub async fn get_availability(pool: &PgPool, query: AvailabilityQuery) -> Result<Value, AppError> {
     let at = query.at.unwrap_or_else(Utc::now);
+    let limit = if query.unbounded {
+        i64::MAX
+    } else {
+        query.limit.unwrap_or(100).clamp(1, 500)
+    };
+    let fetch_limit = if query.unbounded { limit } else { limit + 1 };
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let needle = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let source_pool_id = query
         .source_pool_id
         .as_deref()
@@ -1346,7 +1372,7 @@ WITH ledger_delta AS (
     JOIN goods_receipt_line receipt ON receipt.receipt_line_id=setup.receipt_line_id
     JOIN purchase_order_line line ON line.po_line_id=receipt.po_line_id
     GROUP BY setup.article_code
-)
+), availability_rows AS (
 SELECT sku.id sku_id,sku.sku_code,article.id article_id,
        article.article_code,article.name article_name,
        article.division_code,article.image_url,
@@ -1362,14 +1388,55 @@ LEFT JOIN ledger_balance ledger ON ledger.sku_id=sku.id
 LEFT JOIN allotted_balance allotted ON allotted.sku_id=sku.id
 LEFT JOIN article_tags tags ON tags.article_id=article.id
 LEFT JOIN article_orders orders ON orders.article_code=article.article_code
-WHERE sku.active ORDER BY article.article_code,sku.sku_code
+WHERE sku.active
+  AND ($4::text IS NULL OR sku.sku_code ILIKE '%'||$4||'%'
+       OR article.article_code ILIKE '%'||$4||'%'
+       OR article.name ILIKE '%'||$4||'%')
+), numbered AS (
+SELECT availability_rows.*,
+       COUNT(*) OVER()::bigint total_items,
+       SUM(stock_quantity) OVER()::bigint total_stock_quantity,
+       SUM(allotted_quantity) OVER()::bigint total_allotted_quantity,
+       SUM(on_hand_quantity) OVER()::bigint total_on_hand_quantity,
+       SUM(missing_quantity) OVER()::bigint total_missing_quantity
+FROM availability_rows
+)
+SELECT * FROM numbered
+WHERE ($3::text IS NULL OR sku_code > $3)
+ORDER BY sku_code
+LIMIT $5
 "#)
         .bind(at)
         .bind(&source_pool_id)
+        .bind(cursor)
+        .bind(needle)
+        .bind(fetch_limit)
         .fetch_all(pool)
         .await?;
+    let has_more = !query.unbounded && rows.len() > limit as usize;
+    let total_items = rows
+        .first()
+        .map(|row| row.get::<i64, _>("total_items"))
+        .unwrap_or(0);
+    let stock_qty = rows
+        .first()
+        .map(|row| row.get::<i64, _>("total_stock_quantity"))
+        .unwrap_or(0);
+    let allotted_qty = rows
+        .first()
+        .map(|row| row.get::<i64, _>("total_allotted_quantity"))
+        .unwrap_or(0);
+    let on_hand_qty = rows
+        .first()
+        .map(|row| row.get::<i64, _>("total_on_hand_quantity"))
+        .unwrap_or(0);
+    let missing_qty = rows
+        .first()
+        .map(|row| row.get::<i64, _>("total_missing_quantity"))
+        .unwrap_or(0);
     let items: Vec<Value> = rows
         .into_iter()
+        .take(limit as usize)
         .map(|row| {
             json!({
                 "sku_id":row.get::<Uuid,_>("sku_id"),
@@ -1390,23 +1457,28 @@ WHERE sku.active ORDER BY article.article_code,sku.sku_code
             })
         })
         .collect();
-    let total = |field: &str| {
-        items
-            .iter()
-            .filter_map(|item| item[field].as_i64())
-            .sum::<i64>()
-    };
+    let next_cursor = has_more
+        .then(|| {
+            items
+                .last()
+                .and_then(|item| item["sku_code"].as_str())
+                .map(str::to_owned)
+        })
+        .flatten();
     Ok(json!({
         "source_site_id":source.get::<String,_>("site_id"),
         "source_pool_id":source_pool_id,
         "source_pool_label":source.get::<String,_>("label"),
         "source_place_id":format!("{source_pool_id}:on_hand"),
         "as_of":at,
-        "stock_qty":total("stock_qty"),
-        "allotted_qty":total("allotted_qty"),
-        "on_hand_qty":total("on_hand_qty"),
-        "missing_qty":total("missing_qty"),
+        "total_items":total_items,
+        "stock_qty":stock_qty,
+        "allotted_qty":allotted_qty,
+        "on_hand_qty":on_hand_qty,
+        "missing_qty":missing_qty,
         "inventory_equation":"Stock = On Hand + Allotted + Missing",
+        "limit":limit,
+        "next_cursor":next_cursor,
         "items":items
     }))
 }
@@ -1466,18 +1538,56 @@ pub(super) async fn record_allotment_shortages_for_count(
     Ok(inserted)
 }
 
-async fn validate_create_line(
+async fn load_create_validation_context(
     tx: &mut Transaction<'_, Postgres>,
+    lines: &[NormalizedLine],
+) -> Result<CreateValidationContext, AppError> {
+    let pool_ids: Vec<String> = lines
+        .iter()
+        .map(|line| line.identity.source_pool_id.clone())
+        .collect();
+    let destination_ids: Vec<String> = lines
+        .iter()
+        .map(|line| line.identity.destination_id.clone())
+        .collect();
+    let source_sites = sqlx::query(
+        "SELECT pool.id,pool.site_id,site.kind FROM operational_pool pool
+         JOIN site ON site.id=pool.site_id
+         WHERE pool.id=ANY($1) AND pool.active AND pool.is_placement",
+    )
+    .bind(&pool_ids)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| (row.get("id"), (row.get("site_id"), row.get("kind"))))
+    .collect();
+    let destination_kinds = sqlx::query("SELECT id,kind FROM site WHERE id=ANY($1)")
+        .bind(&destination_ids)
+        .fetch_all(&mut **tx)
+        .await?
+        .into_iter()
+        .map(|row| (row.get("id"), row.get("kind")))
+        .collect();
+    Ok(CreateValidationContext {
+        source_sites,
+        destination_kinds,
+    })
+}
+
+fn validate_create_line(
     allotment_type: AllotmentType,
     line: &NormalizedLine,
+    context: &CreateValidationContext,
 ) -> Result<(), AppError> {
-    let source = sqlx::query("SELECT p.site_id,s.kind site_kind FROM operational_pool p JOIN site s ON s.id=p.site_id WHERE p.id=$1 AND p.site_id=$2 AND p.active AND p.is_placement")
-        .bind(&line.identity.source_pool_id)
-        .bind(&line.identity.source_site_id)
-        .fetch_optional(&mut **tx)
-        .await?
+    let (source_site_id, source_site_kind) = context
+        .source_sites
+        .get(&line.identity.source_pool_id)
         .ok_or_else(|| AppError::NotFound("active placement source pool/site pair".into()))?;
-    let source_site_kind: String = source.get("site_kind");
+    if source_site_id != &line.identity.source_site_id {
+        return Err(AppError::NotFound(
+            "active placement source pool/site pair".into(),
+        ));
+    }
     match allotment_type {
         AllotmentType::ToStore => {
             let source_site = EdgeSiteId::new(&line.identity.source_site_id)
@@ -1492,12 +1602,11 @@ async fn validate_create_line(
                     "TO_STORE requires an allowed non-fulfillment DC source pool and a STORE destination".into(),
                 ));
             }
-            let destination = sqlx::query("SELECT kind FROM site WHERE id=$1")
-                .bind(&line.identity.destination_id)
-                .fetch_optional(&mut **tx)
-                .await?
+            let destination = context
+                .destination_kinds
+                .get(&line.identity.destination_id)
                 .ok_or_else(|| AppError::NotFound("destination store".into()))?;
-            if destination.get::<String, _>("kind") != "STORE" {
+            if destination != "STORE" {
                 return Err(AppError::Validation(
                     "TO_STORE destination must be an existing Store".into(),
                 ));

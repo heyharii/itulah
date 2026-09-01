@@ -55,13 +55,19 @@ export function Home() {
   return (
     <div className="flex flex-col gap-4">
       <div>
+        {/* The login's own display name, which is what somebody typed in as
+            how they should be addressed. HR holds a legal name, and a greeting
+            is not the place for it — the preferred name this used to read is
+            not a field the employment record has. */}
         <p className="text-xl font-semibold">
-          Hello, {profile.data?.preferred_name ?? session.identity.display_name}
+          Hello, {session.identity.display_name}
         </p>
         <p className="text-[13px] text-muted-foreground">
-          {profile.data === undefined
-            ? session.identity.username
-            : `${profile.data.job_title} · ${profile.data.place_name}`}
+          {/* Both halves are absent until a contract is signed and a posting
+              made, and "null · null" is worse than the username. */}
+          {[profile.data?.job_title, profile.data?.place_name]
+            .filter(Boolean)
+            .join(" · ") || session.identity.username}
         </p>
       </div>
 

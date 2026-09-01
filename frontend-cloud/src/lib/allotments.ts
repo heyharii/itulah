@@ -340,6 +340,8 @@ export interface Availability {
   readonly on_hand_qty: number
   readonly missing_qty: number
   readonly inventory_equation: string
+  readonly limit: number
+  readonly next_cursor: string | null
   readonly items: readonly AvailabilityItem[]
 }
 
@@ -420,10 +422,13 @@ export function storeAllotments(
 
 export function availability(
   sourcePoolId: string,
+  cursor?: string,
   signal?: AbortSignal,
 ): Promise<Availability> {
+  const parameters = new URLSearchParams({ source_pool_id: sourcePoolId, limit: "100" })
+  if (cursor !== undefined) parameters.set("cursor", cursor)
   return node.get<Availability>(
-    `/api/v1/inventory/availability?source_pool_id=${encodeURIComponent(sourcePoolId)}`,
+    `/api/v1/inventory/availability?${parameters.toString()}`,
     { signal },
   )
 }

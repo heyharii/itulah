@@ -34,10 +34,15 @@ const known: Record<string, { tone: Tone; label: string }> = {
   LEAVE: { tone: "quiet", label: "Leave" },
   HOLIDAY: { tone: "quiet", label: "Holiday" },
   REST: { tone: "quiet", label: "Rest day" },
+  // Employment, as the server's state machine actually spells it. CANDIDATE
+  // is not a mistake and not "inactive": somebody has been taken on and has
+  // not started, which is normal for a fortnight and alarming for a year.
+  CANDIDATE: { tone: "waiting", label: "Not started" },
   ACTIVE: { tone: "good", label: "Active" },
-  ON_LEAVE: { tone: "waiting", label: "On leave" },
   SUSPENDED: { tone: "bad", label: "Suspended" },
-  EXITED: { tone: "quiet", label: "Left" },
+  TERMINATED: { tone: "quiet", label: "Left" },
+  // Kept because the leave routes still answer with it, and it costs a line.
+  ON_LEAVE: { tone: "waiting", label: "On leave" },
 }
 
 export function StatusPill({

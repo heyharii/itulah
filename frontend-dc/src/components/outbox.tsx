@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useState } from "react"
-
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -9,9 +7,10 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { node } from "@/lib/api"
+import { keys } from "@/lib/queries"
 import { cn } from "@/lib/utils"
-import type { EdgeSyncStatus } from "@itulah/contract"
 import { ApiError, Sync, syncHealth } from "@itulah/contract/client"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 const sync = new Sync(node)
 
@@ -53,48 +52,37 @@ function when(value: string | null): string {
 /// trade all day with nothing leaving the building and no symptom anybody
 /// would notice — the tills ring up, the stock moves, and the backlog grows.
 export function Outbox({ className }: { className?: string }) {
-  const [status, setStatus] = useState<EdgeSyncStatus | null>(null)
-  const [problem, setProblem] = useState<string | null>(null)
-  const [sending, setSending] = useState(false)
+  const client = useQueryClient()
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    try {
-      setStatus(await sync.status(signal))
-      setProblem(null)
-    } catch (error) {
-      if (signal?.aborted) return
-      setProblem(
-        error instanceof ApiError ? error.message : "could not reach this node",
-      )
-    }
-  }, [])
+  const backlog = useQuery({
+    queryKey: keys.syncStatus(),
+    queryFn: ({ signal }) => sync.status(signal),
+    refetchInterval: POLL_MS,
+  })
 
-  useEffect(() => {
-    const controller = new AbortController()
-    void refresh(controller.signal)
-    const timer = setInterval(() => void refresh(controller.signal), POLL_MS)
-    return () => {
-      controller.abort()
-      clearInterval(timer)
-    }
-  }, [refresh])
+  const sendNow = useMutation({
+    mutationFn: () => sync.trigger(),
+    // Asked again either way. A trigger the node declined still changed
+    // nothing, and a trigger it accepted has already begun draining.
+    onSettled: () =>
+      void client.invalidateQueries({ queryKey: keys.syncStatus() }),
+  })
 
-  const sendNow = useCallback(async () => {
-    setSending(true)
-    try {
-      const answer = await sync.trigger()
-      if (!answer.triggered) {
-        setProblem(answer.reason ?? "this node has no sender")
-      }
-      await refresh()
-    } catch (error) {
-      setProblem(
-        error instanceof ApiError ? error.message : "could not reach this node",
-      )
-    } finally {
-      setSending(false)
-    }
-  }, [refresh])
+  const status = backlog.data ?? null
+
+  /// Whatever stopped this panel telling the truth, in the node's own words.
+  ///
+  /// Either read can fail, and they fail for the same reasons — the node is
+  /// down, or it has no sender — so they are reported in one place.
+  const refusal = sendNow.data?.triggered === false ? sendNow.data.reason : null
+  const failure = sendNow.error ?? backlog.error
+  const problem =
+    refusal ??
+    (failure === null
+      ? null
+      : failure instanceof ApiError
+        ? failure.message
+        : "could not reach this node")
 
   if (status === null) {
     return (
@@ -127,7 +115,7 @@ export function Outbox({ className }: { className?: string }) {
           >
             {status.pending_facts}
           </span>
-          <span className="text-muted-foreground text-sm">
+          <span className="text-sm text-muted-foreground">
             {status.pending_facts === 1 ? "record" : "records"} not yet
             acknowledged
           </span>
@@ -168,7 +156,7 @@ export function Outbox({ className }: { className?: string }) {
         </dl>
 
         {status.last_error !== null && (
-          <p className="text-destructive text-xs" role="alert">
+          <p className="text-xs text-destructive" role="alert">
             {status.last_error}
             {status.consecutive_failures > 1 &&
               ` (${status.consecutive_failures} attempts)`}
@@ -176,7 +164,7 @@ export function Outbox({ className }: { className?: string }) {
         )}
 
         {problem !== null && (
-          <p className="text-destructive text-xs" role="alert">
+          <p className="text-xs text-destructive" role="alert">
             {problem}
           </p>
         )}
@@ -184,13 +172,13 @@ export function Outbox({ className }: { className?: string }) {
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
-            onClick={() => void sendNow()}
-            disabled={sending || !status.sender_enabled}
+            onClick={() => sendNow.mutate()}
+            disabled={sendNow.isPending || !status.sender_enabled}
           >
-            {sending ? "Sending…" : "Send now"}
+            {sendNow.isPending ? "Sending…" : "Send now"}
           </Button>
           {!status.sender_enabled && (
-            <span className="text-muted-foreground text-xs">
+            <span className="text-xs text-muted-foreground">
               No upload address is configured on this node.
             </span>
           )}

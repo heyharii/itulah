@@ -105,11 +105,51 @@ Adaptations:
 - The donor's reasoning comments were kept, including the UU 13/2003 art. 59
   constraint on PKWT and the note on why NIK is deliberately not unique.
 
+## Attendance policy
+
+Source: `fresh/crates/attendance-domain/src/policy.rs`, plus the handful of
+supporting types it needs (`Minutes`, `PolicyId`, `PolicyVersion`) and the
+policy half of `AttendanceError`. Migration `046_attendance_policy_v1.sql`.
+
+Destination: `backend/src/cloud/domain/attendance/`, migration
+`backend/migrations/postgres/0061_attendance_policy.sql`,
+`postgres/attendance.rs`, `http/attendance.rs`.
+
+Ported because it is the one half of attendance that needs no clock: head
+office can decide what lateness means before anything is punching. The punches,
+rosters, corrections and kiosks that consume it wait on an unanswered product
+question — where clock-ins come from.
+
+Kept as-is: the effective-dated schedule, the refusal of overlaps and of
+anything following an open version, **gaps allowed and never filled**, the two
+ceilings (eight hours of lateness grace, one hour of double-tap window), and
+above all the absence of a default. A date no version covers has no policy.
+
+Adaptations:
+
+- **Supporting types come along rather than being imported.** The donor keeps
+  `Minutes`, `PolicyId` and `PolicyVersion` in `attendance-domain`'s shared
+  `time`/`ids` modules alongside forty other identities this slice does not
+  use. They live in `policy.rs` here and move out when punch and roster arrive
+  — which is a rename, not a redesign.
+- **One action-key space.** `people.attendance_policy.set` joins the employment
+  keys in `domain::employment::audit`, and `required_role` maps it like the
+  rest. A second mapping would be a second answer to "may they".
+- **Reading needs no key.** The donor gates the read behind a grant. Here any
+  signed-in caller may read the policy: somebody measured against a tolerance
+  is entitled to know it, and a rule kept from the people it governs is a trap.
+- **Writes are always open-ended, and supersede.** `POST` appends a version
+  starting on a given date and closes the currently open one the day before, in
+  one transaction. A version backdated behind the open one is refused with a
+  409 rather than written — accepting it would store a schedule that refuses to
+  load, leaving the rules unreadable until somebody edited SQL.
+- **Table name singular** (`attendance_policy`), and a unique partial index
+  enforces at most one open version, which the donor left to the domain alone.
+
 ## Not yet ported
 
 | Area | Donor source | Blocked on |
 |---|---|---|
-| Attendance policy | `attendance-domain/src/policy.rs`, migration 046 | nothing — buildable now |
 | Salary structure and payroll identity | `employee-pay-domain`, `cloud-employee-pay`, migration 042 | nothing — buildable now |
 | Holiday calendar | `cloud-holiday`, migration 040 | nothing — buildable now |
 | Leave | `leave-domain`, `cloud-leave`, migration 043 | screens belong to the store surface |

@@ -25,11 +25,102 @@ import {
   storeSeries,
   storeSeriesKey,
 } from "@/lib/sales"
+import { storeTableFeatures, type StoreTableFeatures } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { flexRender, useTable } from "@tanstack/react-table"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { useMemo, useState } from "react"
+
+/// One line of the matrix: a measure, read either over the span on screen or
+/// over the span it is being compared against.
+///
+/// Two rows per measure rather than one row of pairs, because a percentage
+/// answers "how much" and hides "out of what" — the figure it moved from has
+/// to be readable under it.
+interface MeasureRow {
+  readonly measure: StoreMeasure
+  readonly label: string
+  readonly kind: "now" | "before"
+}
+
+/// The two columns that stay put while the buckets scroll sideways. Every
+/// bucket in a row is read against them, so they cannot go off the left edge.
+const MEASURE_WIDTH = 150
+const TOTAL_WIDTH = 130
+
+function frozen(columnId: string): React.CSSProperties | undefined {
+  if (columnId === "measure") {
+    return { width: MEASURE_WIDTH, minWidth: MEASURE_WIDTH }
+  }
+  if (columnId === "total") {
+    return { left: MEASURE_WIDTH, width: TOTAL_WIDTH, minWidth: TOTAL_WIDTH }
+  }
+  return undefined
+}
+
+function headClass(columnId: string): string {
+  const base =
+    "bg-card text-muted-foreground sticky top-0 h-10 border-b px-3 font-medium"
+  if (columnId === "measure") {
+    return cn(base, "left-0 z-30 border-r text-left")
+  }
+  if (columnId === "total") {
+    return cn(base, "z-30 border-r text-right")
+  }
+  return cn(base, "z-20 text-right whitespace-nowrap")
+}
+
+function bodyClass(columnId: string, kind: MeasureRow["kind"]): string {
+  const base = "bg-card group-hover:bg-muted transition-colors"
+  if (kind === "now") {
+    if (columnId === "measure") {
+      return cn(base, "sticky left-0 z-10 border-r px-3 pt-2 text-left font-medium")
+    }
+    // No padding: the figure is a button, and the tap target is the whole cell
+    // rather than the text in the middle of it.
+    if (columnId === "total") {
+      return cn(base, "sticky z-10 border-r p-0")
+    }
+    return cn(base, "p-0")
+  }
+  if (columnId === "measure") {
+    return cn(base, "sticky left-0 z-10 border-r border-b px-3 pb-2 text-left font-normal")
+  }
+  if (columnId === "total") {
+    return cn(
+      base,
+      "sticky z-10 border-r border-b px-3 pb-2 text-right font-mono tabular-nums",
+    )
+  }
+  return cn(
+    base,
+    "border-b px-3 pb-2 text-right font-mono text-xs tabular-nums",
+  )
+}
+
+function format(value: number, measured: StoreMeasure, exact = false): string {
+  return measured !== "gross_minor"
+    ? units(value)
+    : exact
+      ? money(value)
+      : compactMoney(value)
+}
+
+/// Nothing sold reads as a dash, not as "Rp 0".
+///
+/// A column of zeroes and a column of figures look alike at a glance, which is
+/// the opposite of what a table of daily takings is for — the eye should fall
+/// straight on the days the shop was shut.
+function figure(value: number, measured: StoreMeasure, exact = false) {
+  return value === 0 ? (
+    <span className="text-muted-foreground/50">–</span>
+  ) : (
+    format(value, measured, exact)
+  )
+}
 
 /// What this shop sold, read on the shop's own node.
 ///
@@ -92,24 +183,102 @@ export function SalesScreen() {
     setSpan(SALES_SPANS[next][2] ?? SALES_SPANS[next][0])
   }
 
-  const format = (value: number, measured: StoreMeasure, exact = false) =>
-    measured !== "gross_minor"
-      ? units(value)
-      : exact
-        ? money(value)
-        : compactMoney(value)
+  // One row per measure, and a second under it for the span being compared
+  // against — only when there is one to compare with.
+  const data = useMemo<MeasureRow[]>(
+    () =>
+      STORE_MEASURES.flatMap((option) =>
+        before === undefined
+          ? [{ ...option, kind: "now" as const }]
+          : [
+              { ...option, kind: "now" as const },
+              { ...option, kind: "before" as const },
+            ],
+      ),
+    [before],
+  )
 
-  /// Nothing sold reads as a dash, not as "Rp 0".
-  ///
-  /// A column of zeroes and a column of figures look alike at a glance, which
-  /// is the opposite of what a table of daily takings is for — the eye should
-  /// fall straight on the days the shop was shut.
-  const cell = (value: number, measured: StoreMeasure, exact = false) =>
-    value === 0 ? (
-      <span className="text-muted-foreground/50">–</span>
-    ) : (
-      format(value, measured, exact)
-    )
+  const columns = useMemo<ColumnDef<StoreTableFeatures, MeasureRow>[]>(
+    () => [
+      {
+        id: "measure",
+        header: "Measure",
+        cell: ({ row }) =>
+          row.original.kind === "now" ? (
+            row.original.label
+          ) : before === undefined ? null : (
+            <span className="flex items-baseline gap-2">
+              <span className="truncate text-xs">{comparison.full}</span>
+              <Delta
+                now={now.total(row.original.measure)}
+                before={before.total(row.original.measure)}
+                against={comparison.full}
+              />
+            </span>
+          ),
+      },
+      {
+        id: "total",
+        header: "Total",
+        cell: ({ row }) =>
+          row.original.kind === "now" ? (
+            <button
+              type="button"
+              onClick={() =>
+                setOpen({ from: range.from, to: range.to, title: "Whole range" })
+              }
+              className="hover:bg-muted w-full cursor-pointer px-3 pt-2 text-right font-mono font-semibold tabular-nums transition-colors"
+            >
+              {figure(now.total(row.original.measure), row.original.measure, true)}
+            </button>
+          ) : before === undefined ? null : (
+            figure(before.total(row.original.measure), row.original.measure, true)
+          ),
+      },
+      ...now.buckets.map((start, index) => ({
+        id: start,
+        header: bucketLabel(start, bucket),
+        cell: ({ row }: { row: { original: MeasureRow } }) => {
+          if (row.original.kind === "now") {
+            const value = now.valueAt(start, row.original.measure)
+            return (
+              <button
+                type="button"
+                disabled={value === 0}
+                onClick={() =>
+                  setOpen({
+                    from: start,
+                    to: bucketEnd(start, bucket),
+                    title: bucketTitle(start, bucket),
+                  })
+                }
+                className="hover:bg-muted w-full cursor-pointer px-3 pt-2 text-right font-mono tabular-nums transition-colors disabled:cursor-default disabled:hover:bg-transparent"
+              >
+                {figure(value, row.original.measure)}
+              </button>
+            )
+          }
+          // Aligned by POSITION, not by date. The comparison span starts on a
+          // different day — that is the whole reason it was named — so day two
+          // sits under day two.
+          const wasBucket = before?.buckets[index]
+          return before === undefined || wasBucket === undefined ? (
+            <span className="text-muted-foreground/40">·</span>
+          ) : (
+            figure(before.valueAt(wasBucket, row.original.measure), row.original.measure)
+          )
+        },
+      })),
+    ],
+    [now, before, comparison, bucket, range],
+  )
+
+  const table = useTable({
+    features: storeTableFeatures,
+    columns,
+    data,
+    getRowId: (row: MeasureRow) => `${row.measure}-${row.kind}`,
+  })
 
   const config: ChartConfig = {
     value: { label: STORE_MEASURES.find((m) => m.measure === measure)?.label ?? "" },
@@ -261,133 +430,81 @@ export function SalesScreen() {
 
           <table className="w-full border-separate border-spacing-0 text-sm">
             <thead>
-              <tr>
-                <th
-                  scope="col"
-                  className="bg-card text-muted-foreground sticky top-0 left-0 z-30 h-10 border-r border-b px-3 text-left font-medium"
-                  style={{ width: 150, minWidth: 150 }}
-                >
-                  Measure
-                </th>
-                <th
-                  scope="col"
-                  className="bg-card text-muted-foreground sticky top-0 z-30 h-10 border-r border-b px-3 text-right font-medium"
-                  style={{ left: 150, width: 130, minWidth: 130 }}
-                >
-                  Total
-                </th>
-                {now.buckets.map((start) => (
-                  <th
-                    key={start}
-                    scope="col"
-                    title={bucketTitle(start, bucket)}
-                    className="bg-card text-muted-foreground sticky top-0 z-20 h-10 border-b px-3 text-right font-medium whitespace-nowrap"
-                  >
-                    {bucketLabel(start, bucket)}
-                  </th>
-                ))}
-              </tr>
+              {table.getHeaderGroups().map((group) => (
+                <tr key={group.id}>
+                  {group.headers.map((header) => (
+                    <th
+                      key={header.id}
+                      scope="col"
+                      title={
+                        frozen(header.column.id) === undefined
+                          ? bucketTitle(header.column.id, bucket)
+                          : undefined
+                      }
+                      className={headClass(header.column.id)}
+                      style={frozen(header.column.id)}
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
             </thead>
 
             {/* One tbody per measure, so a measure and the span it is compared
                 against hover together and the rule separates measures rather
-                than rows. Two lines because a percentage answers "how much"
-                and hides "out of what". */}
+                than rows. */}
             {STORE_MEASURES.map((option) => (
               <tbody key={option.measure} className="group">
-                <tr>
-                  <th
-                    scope="row"
-                    className="bg-card group-hover:bg-muted sticky left-0 z-10 border-r px-3 pt-2 text-left font-medium transition-colors"
-                    style={{ width: 150, minWidth: 150 }}
-                  >
-                    {option.label}
-                  </th>
-                  <td
-                    className="bg-card group-hover:bg-muted sticky z-10 border-r p-0 transition-colors"
-                    style={{ left: 150, width: 130, minWidth: 130 }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setOpen({
-                          from: range.from,
-                          to: range.to,
-                          title: "Whole range",
-                        })
+                {table
+                  .getRowModel()
+                  .rows.filter((row) => row.original.measure === option.measure)
+                  .map((row) => (
+                    <tr
+                      key={row.id}
+                      className={
+                        row.original.kind === "before"
+                          ? "text-muted-foreground"
+                          : undefined
                       }
-                      className="hover:bg-muted w-full cursor-pointer px-3 pt-2 text-right font-mono font-semibold tabular-nums transition-colors"
                     >
-                      {cell(now.total(option.measure), option.measure, true)}
-                    </button>
-                  </td>
-                  {now.buckets.map((start) => {
-                    const value = now.valueAt(start, option.measure)
-                    return (
-                      <td
-                        key={start}
-                        className="bg-card group-hover:bg-muted p-0 transition-colors"
-                      >
-                        <button
-                          type="button"
-                          disabled={value === 0}
-                          onClick={() =>
-                            setOpen({
-                              from: start,
-                              to: bucketEnd(start, bucket),
-                              title: bucketTitle(start, bucket),
-                            })
-                          }
-                          className="hover:bg-muted w-full cursor-pointer px-3 pt-2 text-right font-mono tabular-nums transition-colors disabled:cursor-default disabled:hover:bg-transparent"
-                        >
-                          {cell(value, option.measure)}
-                        </button>
-                      </td>
-                    )
-                  })}
-                </tr>
-                {before !== undefined && (
-                  <tr className="text-muted-foreground">
-                    <th
-                      scope="row"
-                      className="bg-card group-hover:bg-muted sticky left-0 z-10 border-r border-b px-3 pb-2 text-left font-normal transition-colors"
-                      style={{ width: 150, minWidth: 150 }}
-                    >
-                      <span className="flex items-baseline gap-2">
-                        <span className="truncate text-xs">{comparison.full}</span>
-                        <Delta
-                          now={now.total(option.measure)}
-                          before={before.total(option.measure)}
-                          against={comparison.full}
-                        />
-                      </span>
-                    </th>
-                    <td
-                      className="bg-card group-hover:bg-muted sticky z-10 border-r border-b px-3 pb-2 text-right font-mono tabular-nums transition-colors"
-                      style={{ left: 150, width: 130, minWidth: 130 }}
-                    >
-                      {cell(before.total(option.measure), option.measure, true)}
-                    </td>
-                    {/* Aligned by POSITION, not by date. The comparison span
-                        starts on a different day — that is the whole reason it
-                        was named — so day two sits under day two. */}
-                    {now.buckets.map((start, index) => {
-                      const wasBucket = before.buckets[index]
-                      return (
-                        <td
-                          key={start}
-                          className="bg-card group-hover:bg-muted border-b px-3 pb-2 text-right font-mono text-xs tabular-nums transition-colors"
-                        >
-                          {wasBucket === undefined ? (
-                            <span className="text-muted-foreground/40">·</span>
-                          ) : (
-                            cell(before.valueAt(wasBucket, option.measure), option.measure)
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )}
+                      {row.getAllCells().map((cell) => {
+                        const content = flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )
+                        const className = bodyClass(
+                          cell.column.id,
+                          row.original.kind,
+                        )
+                        // The measure names the row, so it is the row's
+                        // heading rather than one more cell in it.
+                        return cell.column.id === "measure" ? (
+                          <th
+                            key={cell.id}
+                            scope="row"
+                            className={className}
+                            style={frozen(cell.column.id)}
+                          >
+                            {content}
+                          </th>
+                        ) : (
+                          <td
+                            key={cell.id}
+                            className={className}
+                            style={frozen(cell.column.id)}
+                          >
+                            {content}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
               </tbody>
             ))}
           </table>

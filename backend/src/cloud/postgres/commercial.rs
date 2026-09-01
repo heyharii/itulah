@@ -286,9 +286,36 @@ fn validate_publication_request(
             "effective_to must be after effective_from".into(),
         ));
     }
-    if request.tax_rules.is_empty() || request.offer_rules.is_empty() {
+    // A book is a list of changes, and a book carrying no changes is the one
+    // fault this whole area keeps producing: it authors, it publishes, it
+    // dispatches, and nothing anywhere is different.
+    if request.offer_rules.is_empty()
+        && request.markdowns.is_empty()
+        && request.rules.is_empty()
+        && request.coupons.is_empty()
+        && request.campaigns.is_empty()
+    {
         return Err(AppError::Validation(
-            "at least one tax rule and offer rule are required".into(),
+            "a price book has to change something: a price, a markdown, a promotion, \
+             a coupon or a campaign."
+                .into(),
+        ));
+    }
+    // Only when there are prices to categorise. A promotion-only book used to
+    // be impossible: it had to restate a base price and a tax category it did
+    // not mean to touch, and restating a price is how a book meant to add a
+    // discount silently reprices the range instead — the newest book naming a
+    // product wins, whether or not the author meant it to.
+    if request.offer_rules.is_empty() {
+        if !request.tax_rules.is_empty() {
+            return Err(AppError::Validation(
+                "this book sets no prices, so its tax rules would categorise nothing."
+                    .into(),
+            ));
+        }
+    } else if request.tax_rules.is_empty() {
+        return Err(AppError::Validation(
+            "a book that sets prices needs at least one tax rule to categorise them.".into(),
         ));
     }
     let mut categories = HashSet::new();
@@ -1834,4 +1861,84 @@ fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+/// The products a price book can name.
+///
+/// A merchandiser writing a book has to pick what it prices, and until this
+/// existed there was nothing to pick from: `article-prices` answers what a shop
+/// currently charges, keyed by style, and carries no `sku_id` — which is what
+/// an offer is written against. So the authoring screen had no way to turn
+/// "that white shirt" into a row the server would accept.
+///
+/// Searchable by code or name, because those are the two things somebody has in
+/// front of them: a tag off a garment, or a description in a meeting.
+///
+/// It answers with the CURRENT company price beside each product, and that is
+/// the point rather than a decoration. A book is a list of changes; an author
+/// who cannot see what a thing costs now is authoring blind, and the commonest
+/// expensive mistake in this domain is restating a price that had not changed.
+pub async fn commercial_products(
+    pool: &PgPool,
+    query: Option<&str>,
+    limit: i64,
+) -> Result<Value, AppError> {
+    let limit = limit.clamp(1, 500);
+    let needle = query
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{value}%"));
+
+    let rows = sqlx::query(
+        "SELECT s.id sku_id, s.sku_code, s.color, s.size,
+                a.article_code, a.name article_name, a.division_code, a.image_url,
+                -- The live company price, from the newest published book that
+                -- names this product at all. Narrowed to the company level on
+                -- purpose: a shop price is a different question, asked on a
+                -- different screen, and blending the two here would show one
+                -- shop's number as if it were the range's.
+                (SELECT r.unit_price_minor
+                   FROM commercial_price_rule r
+                   JOIN commercial_publication p ON p.id = r.publication_id
+                  WHERE r.sku_id = s.id
+                    AND r.site_id IS NULL
+                    AND r.channel = 'STORE'
+                    AND p.status = 'PUBLISHED'
+                  ORDER BY p.version DESC
+                  LIMIT 1) AS unit_price_minor
+           FROM sku s
+           JOIN article a ON a.id = s.article_id
+          WHERE s.active
+            AND ($1::text IS NULL
+                 OR s.sku_code ILIKE $1
+                 OR a.article_code ILIKE $1
+                 OR a.name ILIKE $1)
+          ORDER BY a.article_code, s.sku_code
+          LIMIT $2",
+    )
+    .bind(needle.as_deref())
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "sku_id": row.get::<Uuid, _>("sku_id"),
+                "sku_code": row.get::<String, _>("sku_code"),
+                "color": row.get::<Option<String>, _>("color"),
+                "size": row.get::<Option<String>, _>("size"),
+                "article_code": row.get::<String, _>("article_code"),
+                "article_name": row.get::<String, _>("article_name"),
+                "division_code": row.get::<Option<String>, _>("division_code"),
+                "image_url": row.get::<Option<String>, _>("image_url"),
+                // Null means no published book has ever named it. Absent rather
+                // than zero: no price is not a price of nothing.
+                "unit_price_minor": row.get::<Option<i64>, _>("unit_price_minor"),
+            })
+        })
+        .collect();
+
+    Ok(json!({ "items": items }))
 }

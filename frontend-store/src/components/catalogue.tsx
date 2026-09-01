@@ -5,9 +5,10 @@ import { node } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { CatalogRow } from "@itulah/contract"
 import { money, units } from "@itulah/contract/money"
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { Search } from "lucide-react"
-import { useDeferredValue, useMemo, useState } from "react"
+import { useDeferredValue, useMemo, useRef, useState } from "react"
 
 /// What this shop may sell, at the price this shop's till will charge.
 ///
@@ -29,10 +30,12 @@ export interface Catalogue {
   readonly publication_version: number | null
   readonly currency: string
   readonly item_count: number
+  readonly limit: number
+  readonly next_cursor: string | null
   readonly items: readonly CatalogRow[]
 }
 
-export const catalogueKey = () => ["store", "catalogue"] as const
+export const catalogueKey = (needle = "") => ["store", "catalogue", needle] as const
 
 /// Look a price up.
 export function CatalogueView() {
@@ -42,26 +45,42 @@ export function CatalogueView() {
   // rather than making somebody wait mid-word.
   const needle = useDeferredValue(search).trim().toLowerCase()
 
-  const catalogue = useQuery({
-    queryKey: catalogueKey(),
-    queryFn: ({ signal }) => node.get<Catalogue>("/api/v1/store/catalog", { signal }),
+  const catalogue = useInfiniteQuery({
+    queryKey: catalogueKey(needle),
+    queryFn: ({ pageParam, signal }) => {
+      const parameters = new URLSearchParams({ limit: "100" })
+      if (needle !== "") parameters.set("q", needle)
+      if (pageParam !== undefined) parameters.set("cursor", pageParam)
+      return node.get<Catalogue>(`/api/v1/store/catalog?${parameters.toString()}`, { signal })
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
     // A price book arrives on the sync lane while the shop is open. A screen
     // left on the counter should catch up without anybody reloading it.
     refetchInterval: 60_000,
   })
 
-  const all = useMemo(() => catalogue.data?.items ?? EMPTY, [catalogue.data])
-  const rows = useMemo(() => {
-    if (needle === "") return all
-    return all.filter((row) => {
-      // A barcode is scanned, a code is read off the label, a name is
-      // remembered. All three reach the same product.
-      const haystack = `${row.name} ${row.sku_code} ${row.barcode ?? ""}`.toLowerCase()
-      return haystack.includes(needle)
-    })
-  }, [all, needle])
+  const pages = catalogue.data?.pages ?? []
+  const all = useMemo(() => pages.flatMap((page) => page.items), [pages])
+  const summary = pages[0]
+  const rows = all
 
   const cleared = rows.filter(isCleared).length
+
+  // The whole range is scrollable, not the first screenful of it. A shop's
+  // catalogue runs to thousands of rows and a phone will try to draw every one
+  // of them, so only the rows in front of somebody are in the document —
+  // which is a different thing from only keeping the first sixty, because the
+  // rest are still reachable by scrolling.
+  const scroller = useRef<HTMLDivElement>(null)
+  const virtual = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scroller.current,
+    // Measured for real once drawn: a markdown row carries a struck-through
+    // price above the live one and is taller than the rest.
+    estimateSize: () => 57,
+    overscan: 8,
+  })
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
@@ -87,7 +106,7 @@ export function CatalogueView() {
         </p>
       </div>
 
-      {catalogue.data !== undefined && !catalogue.data.has_price_book && (
+      {summary !== undefined && !summary.has_price_book && (
         /* No book has ever arrived. Said plainly, because the till is in the
            same position: it cannot price anything either, and somebody needs to
            know that before a customer is standing there. */
@@ -97,7 +116,10 @@ export function CatalogueView() {
         </p>
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border">
+      <div
+        ref={scroller}
+        className="min-h-0 flex-1 overflow-auto rounded-md border"
+      >
         {catalogue.isPending ? (
           <Empty>Reading the shop's price book…</Empty>
         ) : catalogue.isError ? (
@@ -109,22 +131,40 @@ export function CatalogueView() {
               : `Nothing matches “${search.trim()}”.`}
           </Empty>
         ) : (
-          <ul className="divide-y">
-            {rows.slice(0, DRAWN).map((row) => (
-              <Row key={row.sku_code} row={row} />
-            ))}
-            {rows.length > DRAWN && (
-              <li className="text-muted-foreground px-3 py-2 text-center text-xs">
-                {units(rows.length - DRAWN)} more — narrow the search to reach them
-              </li>
+          <>
+            <ul className="relative" style={{ height: virtual.getTotalSize() }}>
+              {virtual.getVirtualItems().map((item) => {
+                const row = rows[item.index]
+                return row === undefined ? null : (
+                  <Row
+                    key={row.sku_code}
+                    row={row}
+                    index={item.index}
+                    measure={virtual.measureElement}
+                    offset={item.start}
+                  />
+                )
+              })}
+            </ul>
+            {catalogue.hasNextPage && (
+              <div className="border-t p-2 text-center">
+                <button
+                  type="button"
+                  className="rounded-md border px-3 py-1.5 text-xs"
+                  disabled={catalogue.isFetchingNextPage}
+                  onClick={() => void catalogue.fetchNextPage()}
+                >
+                  {catalogue.isFetchingNextPage ? "Loading…" : "Load 100 more"}
+                </button>
+              </div>
             )}
-          </ul>
+          </>
         )}
       </div>
 
-      {catalogue.data?.publication_version != null && (
+      {summary?.publication_version != null && (
         <p className="text-muted-foreground pt-2 text-[11px]">
-          Price book v{catalogue.data.publication_version} · {catalogue.data.site_id} ·
+          Price book v{summary.publication_version} · {summary.site_id} ·
           prices are read from this shop's own copy, so they hold when the line is
           down.
         </p>
@@ -133,25 +173,34 @@ export function CatalogueView() {
   )
 }
 
-/// How many rows are drawn before the rest wait behind a search.
-///
-/// A shop's range runs to thousands and a phone will try to draw all of them.
-/// Nobody scrolls a catalogue looking for one shirt — they search — so the tail
-/// is better spent on the search box being instant.
-const DRAWN = 60
-
-/// One empty array, not a new one per render — a fresh `[]` each time makes
-/// every memo below it recompute for nothing.
-const EMPTY: readonly CatalogRow[] = []
-
 function isCleared(row: CatalogRow): boolean {
   return row.unit_price_minor < row.base_unit_price_minor
 }
 
-function Row({ row }: { row: CatalogRow }) {
+function Row({
+  row,
+  index,
+  measure,
+  offset,
+}: {
+  row: CatalogRow
+  index: number
+  /// Reports this row's real height back, so a taller markdown row does not
+  /// push everything below it out of place.
+  measure: (node: Element | null) => void
+  offset: number
+}) {
   const cleared = isCleared(row)
   return (
-    <li className={cn("flex items-center gap-3 px-3 py-2.5", cleared && "bg-amber-50/60 dark:bg-amber-950/10")}>
+    <li
+      ref={measure}
+      data-index={index}
+      style={{ transform: `translateY(${offset}px)` }}
+      className={cn(
+        "absolute top-0 left-0 flex w-full items-center gap-3 border-b px-3 py-2.5",
+        cleared && "bg-amber-50/60 dark:bg-amber-950/10",
+      )}
+    >
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm">{row.name}</span>
         <span className="text-muted-foreground font-mono text-[11px]">

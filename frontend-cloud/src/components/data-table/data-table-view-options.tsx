@@ -82,7 +82,7 @@ export function DataTableViewOptions() {
                                                 className={cn(
                                                   "border-foreground! flex h-4 w-4 items-center justify-center rounded-sm border",
                                                   column.getIsVisible()
-                                                    ? "bg-primary text-primary-foreground"
+                                                    ? "border-[var(--os-ink,#1d1d1f)] bg-[var(--os-ink,#1d1d1f)] text-white"
                                                     : "opacity-50 [&_svg]:invisible",
                                                 )}
                                               >

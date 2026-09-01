@@ -1,14 +1,15 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { billColumns } from "@/components/finance/columns"
+import { DataGrid, useDataGrid } from "@/components/finance/data-grid"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
-import { Button } from "@/components/ui/button"
 import { financeKeys, listBills, postBill, unbilledReceipts } from "@/lib/finance"
 import { money } from "@/lib/money"
 import { cn } from "@/lib/utils"
+import type { SupplierBill } from "@itulah/contract"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
 import { TriangleAlert } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 /// What suppliers have billed, and what has arrived that nobody has billed for.
 ///
@@ -40,7 +41,23 @@ export function SupplierBillsScreen() {
     },
   })
 
-  const rows = bills.data ?? []
+  const rows = useMemo(() => [...(bills.data ?? [])], [bills.data])
+  // Rebuilt when the mutation's busy flag flips, because the Post button in the
+  // last column is disabled from it. Cheap: seven of these are constants and
+  // the eighth closes over two values.
+  const posting = post.isPending
+  const send = post.mutate
+  const columns = useMemo(() => billColumns(send, posting), [send, posting])
+  // Overdue first, which is the only reason anybody opens this screen. Not the
+  // server's order — it sends them by invoice date, which is the order they
+  // were recorded in and not the order they need paying in.
+  const table = useDataGrid({
+    data: rows,
+    columns,
+    getRowId: rowId,
+    sorting: [{ id: "days_overdue", desc: true }],
+  })
+
   const waiting = unbilled.data ?? []
   const exposure = waiting.reduce((sum, r) => sum + r.value_at_order_price_minor, 0)
 
@@ -57,115 +74,57 @@ export function SupplierBillsScreen() {
         </p>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {bills.isPending ? (
-          <ScreenState>Loading bills…</ScreenState>
-        ) : bills.error !== null ? (
-          <ScreenState tone="problem">
-            {bills.error instanceof Error ? bills.error.message : "could not load bills"}
-          </ScreenState>
-        ) : rows.length === 0 ? (
+      {bills.isPending ? (
+        <ScreenState>Loading bills…</ScreenState>
+      ) : bills.error !== null ? (
+        <ScreenState tone="problem">
+          {bills.error instanceof Error ? bills.error.message : "could not load bills"}
+        </ScreenState>
+      ) : rows.length === 0 ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <ScreenState>
             No supplier bill has been recorded yet. Recording one and posting it are two
             acts: a bill can arrive, be queried and be held before anybody decides it may
             be paid.
           </ScreenState>
-        ) : (
-          <table className="w-full text-[13px]">
-            <thead className="bg-card sticky top-0 border-b">
-              <tr className="text-muted-foreground text-[11px]">
-                <th className="px-3.5 py-1.5 text-left font-medium">Invoice</th>
-                <th className="px-3 py-1.5 text-left font-medium">Supplier</th>
-                <th className="px-3 py-1.5 text-left font-medium">Site</th>
-                <th className="px-3 py-1.5 text-left font-medium">Date</th>
-                <th className="px-3 py-1.5 text-left font-medium">Due</th>
-                <th className="px-3 py-1.5 text-right font-medium">Total</th>
-                <th className="px-3 py-1.5 text-left font-medium">Status</th>
-                <th className="px-3 py-1.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const posted = row.status === "POSTED"
-                return (
-                  <tr key={row.invoice_id} className="hover:bg-muted/40 border-b">
-                    <td className="px-3.5 py-1 font-mono text-[11.5px]">
-                      {row.invoice_number}
-                    </td>
-                    <td className="px-3 py-1">{row.supplier_name ?? row.supplier_id}</td>
-                    <td className="text-muted-foreground px-3 py-1 font-mono text-[11px]">
-                      {row.site_id}
-                    </td>
-                    <td className="px-3 py-1 tabular-nums">{row.invoice_date}</td>
-                    <td
-                      className={cn(
-                        "px-3 py-1 tabular-nums",
-                        !posted && row.days_overdue > 0 && "text-amber-700",
-                      )}
-                    >
-                      {row.due_date ?? "—"}
-                      {!posted && row.days_overdue > 0 && ` · ${row.days_overdue}d`}
-                    </td>
-                    <td className="px-3 py-1 text-right font-mono tabular-nums">
-                      {money(row.total_minor, row.currency)}
-                    </td>
-                    <td className="px-3 py-1">
-                      <span
-                        className={cn(
-                          "rounded px-1.5 py-0.5 text-[10.5px]",
-                          posted
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-muted text-muted-foreground",
-                        )}
-                      >
-                        {row.status.toLowerCase()}
-                      </span>
-                    </td>
-                    <td className="px-3 py-1 text-right">
-                      {posted ? (
-                        row.entry_number !== null && (
-                          <Link
-                            to="/finance/journal"
-                            className="text-muted-foreground font-mono text-[11px] hover:underline"
-                          >
-                            {row.entry_number}
-                          </Link>
-                        )
-                      ) : (
-                        <Button
-                          size="sm"
-                          className="h-6 px-2 text-[11px]"
-                          disabled={post.isPending}
-                          onClick={() => post.mutate(row.invoice_id)}
-                        >
-                          Post
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-
-        <UnbilledPanel
-          rows={waiting}
-          exposure={exposure}
-          loading={unbilled.isPending}
-          expandedByDefault={rows.length === 0}
-        />
-      </div>
+          <UnbilledPanel rows={waiting} exposure={exposure} loading={unbilled.isPending} open />
+        </div>
+      ) : (
+        <>
+          <ScreenBody>
+            <DataGrid table={table} />
+          </ScreenBody>
+          <div className="shrink-0 overflow-y-auto">
+            <UnbilledPanel
+              rows={waiting}
+              exposure={exposure}
+              loading={unbilled.isPending}
+              open={false}
+            />
+          </div>
+        </>
+      )}
     </AppShell>
   )
 }
 
+function rowId(row: SupplierBill): string {
+  return row.invoice_id
+}
+
 /// Received, not billed — the exposure the books cannot carry.
+///
+/// Left as plain markup on purpose. It is a footnote to the table above it, not
+/// a second table: it is behind a disclosure, it is read as a whole rather than
+/// scanned, and its length is bounded by how many deliveries are waiting on
+/// paperwork — a number that is a problem long before it is a scrolling
+/// problem. Sorting and filtering it would be answering a question nobody is
+/// asking here.
 function UnbilledPanel({
   rows,
   exposure,
   loading,
-  expandedByDefault,
+  open: expandedByDefault,
 }: {
   rows: readonly {
     receipt_id: string
@@ -179,7 +138,7 @@ function UnbilledPanel({
   }[]
   exposure: number
   loading: boolean
-  expandedByDefault: boolean
+  open: boolean
 }) {
   const [open, setOpen] = useState(expandedByDefault)
   if (loading) return null

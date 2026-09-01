@@ -1,13 +1,7 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBanner, ScreenBody, ScreenCard, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { DataGrid } from "@/components/custom/data-grid"
+import { Segmented } from "@/components/custom/segmented"
 import { Nav } from "@/components/nav"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/custom/table"
 import { DataTableFilterControls } from "@/components/data-table/data-table-filter-controls"
 import { PoSheet } from "@/components/po/po-sheet"
 import { useVocabulary } from "@/lib/vocabulary"
@@ -20,12 +14,12 @@ import { Input } from "@/components/ui/input"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useBasket, useBasketActions } from "@/lib/basket"
 import { money } from "@/lib/money"
+import { useItemSheet } from "@/lib/sheets/sourcing"
 import { listSuppliers, useSourcingCatalogue } from "@/lib/sourcing"
 import { useQuery } from "@tanstack/react-query"
 import { useMemoryAdapter } from "@/lib/store/adapters/memory"
 import { DataTableStoreProvider } from "@/lib/store/provider/DataTableStoreProvider"
 import { dataTableFeatures } from "@/lib/table/features"
-import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useNavigate } from "@tanstack/react-router"
 import type {
@@ -34,11 +28,15 @@ import type {
   RowSelectionState,
   SortingState,
 } from "@tanstack/react-table"
-import { flexRender, useTable } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { LayoutGrid, List, Search, ShoppingBasket } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
-import { sourcingColumns, sourcingFilterFields, sourcingFilterSchema } from "./columns"
-import { ItemDetail } from "./item-detail"
+import {
+  sourcingColumns,
+  sourcingFilterFields,
+  sourcingFilterSchema,
+} from "./columns"
+import { ItemSheet } from "@/components/sheets/sourcing/item-sheet"
 import { ProductGrid } from "./product-grid"
 import { quoteTotal, toSourcingRow, type SourcingRow } from "./rows"
 
@@ -58,8 +56,11 @@ export function SourcingView() {
   const [search, setSearch] = useState("")
   const query = useDebounce(search, 250)
   const [layout, setLayout] = useState<"grid" | "table">("grid")
-  const [openItemId, setOpenItemId] = useState<string | null>(null)
-
+  // Which candidate is open lives in the URL rather than here, so a buyer can
+  // send one to a colleague and so the browser's Back button closes it. The
+  // sheet itself is mounted at the bottom of this screen: it walks the rows
+  // this table is showing, which nothing outside the screen knows.
+  const item = useItemSheet()
 
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   /// The facets the server filters on, lifted out of the table's own filter
@@ -69,14 +70,21 @@ export function SourcingView() {
   const selected = useCallback(
     (id: string): string[] => {
       const value = columnFilters.find((filter) => filter.id === id)?.value
-      return Array.isArray(value) ? value.map(String) : value === undefined ? [] : [String(value)]
+      return Array.isArray(value)
+        ? value.map(String)
+        : value === undefined
+          ? []
+          : [String(value)]
     },
-    [columnFilters],
+    [columnFilters]
   )
   const priceRange = useMemo(() => {
     const value = columnFilters.find((filter) => filter.id === "price")?.value
-    const numbers = (Array.isArray(value) ? value : []).map(Number).filter(Number.isFinite)
-    if (numbers.length === 0) return { priceMin: undefined, priceMax: undefined }
+    const numbers = (Array.isArray(value) ? value : [])
+      .map(Number)
+      .filter(Number.isFinite)
+    if (numbers.length === 0)
+      return { priceMin: undefined, priceMax: undefined }
     const sorted = [...numbers].sort((a, b) => a - b)
     return { priceMin: sorted[0], priceMax: sorted[sorted.length - 1] }
   }, [columnFilters])
@@ -102,7 +110,10 @@ export function SourcingView() {
     return counts
   }, [basket.data])
 
-  const rows = useMemo<SourcingRow[]>(() => items.items.map(toSourcingRow), [items.items])
+  const rows = useMemo<SourcingRow[]>(
+    () => items.items.map(toSourcingRow),
+    [items.items]
+  )
   const vocabulary = useVocabulary()
   const suppliers = useQuery({
     queryKey: ["suppliers", "all"],
@@ -110,8 +121,9 @@ export function SourcingView() {
     staleTime: 10 * 60 * 1000,
   })
   const supplierName = useCallback(
-    (id: string) => suppliers.data?.find((row) => row.supplier_id === id)?.name ?? id,
-    [suppliers.data],
+    (id: string) =>
+      suppliers.data?.find((row) => row.supplier_id === id)?.name ?? id,
+    [suppliers.data]
   )
   /// Facet counts come from the server, over the whole catalogue.
   ///
@@ -132,16 +144,17 @@ export function SourcingView() {
               : undefined
       return new Map((source ?? []).map((entry) => [entry.value, entry.count]))
     },
-    [items.facets],
+    [items.facets]
   )
 
   const filterFields = useMemo(
     () => sourcingFilterFields(rows, vocabulary, items.facets, supplierName),
-    [rows, vocabulary, items.facets, supplierName],
+    [rows, vocabulary, items.facets, supplierName]
   )
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({})
+  const [columnVisibility, setColumnVisibility] =
+    useState<ColumnVisibilityState>({})
 
   const select = useCallback((id: string, selected: boolean) => {
     setRowSelection((current) => {
@@ -154,15 +167,17 @@ export function SourcingView() {
 
   const addOne = useCallback(
     (id: string) => add.mutate({ supplier_item_id: id, quantity: 1 }),
-    [add],
+    [add]
   )
 
   const columns = useMemo(
-    () => sourcingColumns({ held, onAdd: addOne, onOpen: setOpenItemId }),
-    [held, addOne],
+    () => sourcingColumns({ held, onAdd: addOne, onOpen: item.open }),
+    [held, addOne, item.open]
   )
 
-  const adapter = useMemoryAdapter(sourcingFilterSchema.definition, { id: "sourcing" })
+  const adapter = useMemoryAdapter(sourcingFilterSchema.definition, {
+    id: "sourcing",
+  })
 
   const tableOptions = useMemo(
     () => ({
@@ -195,13 +210,12 @@ export function SourcingView() {
       // scrolled into view.
       manualFiltering: true,
     }),
-    [rows, columns, columnFilters, sorting, rowSelection, columnVisibility],
+    [rows, columns, columnFilters, sorting, rowSelection, columnVisibility]
   )
 
   const table = useTable(tableOptions)
   const visible = table.getRowModel().rows.map((row) => row.original)
   const total = quoteTotal(visible)
-  const openRow = rows.find((row) => row.id === openItemId) ?? null
 
   return (
     <DataTableStoreProvider adapter={adapter}>
@@ -218,19 +232,27 @@ export function SourcingView() {
         totalRows={items.total}
         filterRows={rows.length}
       >
-        <AppShell nav={<Nav />} facets={<DataTableFilterControls />}>
+        {/* Opted in to the Cloud Hub language. The attribute re-points the
+            shadcn token slots for this subtree, so every control below speaks
+            it without being edited; phase 01 lifts the block to `:root` and
+            this goes away. Because each screen mounts its own AppShell, the
+            rail migrates with the screen rather than seaming against it. */}
+        <AppShell data-cloudhub nav={<Nav />} facets={<DataTableFilterControls />}>
           <ScreenHeader
+            eyebrow="Buying"
             title="Sourcing"
             subtitle={
               items.isPending
                 ? "loading…"
                 : `${items.total} item${items.total === 1 ? "" : "s"}` +
                   (rows.length < items.total ? ` · ${rows.length} shown` : "") +
-                  (total === null ? "" : ` · ${money(total.minor, total.currency)}`)
+                  (total === null
+                    ? ""
+                    : ` · ${money(total.minor, total.currency)}`)
             }
           >
             <label className="relative">
-              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-[var(--os-mute,#a6a6ad)]" />
               <Input
                 value={search}
                 onChange={(event) => {
@@ -242,55 +264,45 @@ export function SourcingView() {
                 }}
                 placeholder="Item, code, supplier…"
                 aria-label="Search the supplier catalogue"
-                className="h-8 w-52 pl-7 text-xs"
+                data-os-search=""
+                className="h-8 w-52 rounded-full pl-8 text-xs"
               />
             </label>
 
-            <div className="bg-muted flex items-center gap-0.5 rounded-md p-0.5">
-              {(
-                [
-                  ["grid", LayoutGrid, "Grid view"],
-                  ["table", List, "Table view"],
-                ] as const
-              ).map(([id, Icon, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-label={label}
-                  aria-pressed={layout === id}
-                  onClick={() => setLayout(id)}
-                  className={cn(
-                    "grid size-6 place-items-center rounded-sm transition-colors",
-                    layout === id
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <Icon className="size-3.5" />
-                </button>
-              ))}
-            </div>
+            <Segmented
+              size="sm"
+              value={layout}
+              onChange={setLayout}
+              options={[
+                { id: "grid", label: <LayoutGrid className="size-3.5" />, ariaLabel: "Grid view" },
+                { id: "table", label: <List className="size-3.5" />, ariaLabel: "Table view" },
+              ]}
+            />
 
             <DataTableResetButton />
             <DataTableViewOptions />
           </ScreenHeader>
 
           {add.isError && (
-            <div className="text-destructive border-b px-3.5 py-2 text-[11.5px]">
+            <ScreenBanner tone="bad">
               {add.error instanceof ApiError
                 ? add.error.message
                 : "It could not be added to the basket."}
-            </div>
+            </ScreenBanner>
           )}
 
-          <div className="min-h-0 flex-1 overflow-auto">
+          <ScreenBody card={false}>
             {items.isPending ? (
               <ScreenState>Loading the supplier catalogue…</ScreenState>
             ) : items.isError ? (
               <ScreenState
                 tone="problem"
                 action={
-                  <Button size="sm" variant="outline" onClick={() => void items.refetch()}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void items.refetch()}
+                  >
                     Try again
                   </Button>
                 }
@@ -315,42 +327,17 @@ export function SourcingView() {
                 }
                 loadingMore={items.isFetchingNextPage}
                 onAdd={addOne}
-                onOpen={setOpenItemId}
+                onOpen={item.open}
               />
             ) : (
-              <Table>
-                <TableHeader className="bg-muted/50">
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <TableRow key={headerGroup.id} className="hover:bg-transparent">
-                      {headerGroup.headers.map((header) => (
-                        <TableHead key={header.id}>
-                          {header.isPlaceholder
-                            ? null
-                            : flexRender(header.column.columnDef.header, header.getContext())}
-                        </TableHead>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableHeader>
-                <TableBody>
-                  {table.getFilteredRowModel().rows.map((row) => (
-                    <TableRow
-                      key={row.id}
-                      data-state={row.getIsSelected() && "selected"}
-                      onClick={() => setOpenItemId(row.original.id)}
-                      className="cursor-pointer"
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <ScreenCard className="overflow-auto">
+                <DataGrid
+                  table={table}
+                  onRowClick={(row) => item.open(row.original.id)}
+                />
+              </ScreenCard>
             )}
-          </div>
+          </ScreenBody>
         </AppShell>
 
         <DataTableFloatingBar<SourcingRow>>
@@ -404,11 +391,10 @@ export function SourcingView() {
           }}
         </DataTableFloatingBar>
 
-        <ItemDetail
-          row={openRow}
-          inBasket={openRow === null ? 0 : (held.get(openRow.id) ?? 0)}
-          onClose={() => setOpenItemId(null)}
-        />
+        {/* Given the rows the table is actually showing, in the order it is
+            showing them, so ↑/↓ in the sheet walk the catalogue the buyer
+            filtered rather than the one the server sent. */}
+        <ItemSheet rows={visible} held={held} />
       </DataTableProvider>
     </DataTableStoreProvider>
   )

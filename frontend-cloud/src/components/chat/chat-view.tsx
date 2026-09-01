@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { LiveBadge } from "@/components/collaboration/live-badge"
 import { ConversationAside } from "@/components/chat/conversation-aside"
 import { ConversationList } from "@/components/chat/conversation-list"
@@ -192,7 +192,7 @@ export function ChatView() {
 
       <NewConversation open={starting} onOpenChange={setStarting} known={known} />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[15rem_minmax(0,1fr)] 2xl:grid-cols-[17rem_minmax(0,1fr)_18rem]">
+      <ScreenBody className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[15rem_minmax(0,1fr)] 2xl:grid-cols-[17rem_minmax(0,1fr)_18rem]">
         <ConversationList
           conversations={rows}
           activeId={conversationId}
@@ -275,7 +275,7 @@ export function ChatView() {
         {conversation !== undefined && (
           <ConversationAside conversation={conversation} me={me} />
         )}
-      </div>
+      </ScreenBody>
     </AppShell>
   )
 }

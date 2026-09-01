@@ -22,6 +22,78 @@ use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, path::PathBuf};
 use tower::ServiceExt;
 
+fn generic_fact(seq: i64, event_id: uuid::Uuid) -> inventory_backend::cloud::domain::SyncFact {
+    inventory_backend::cloud::domain::SyncFact {
+        seq,
+        event_id,
+        event_type: "test.performance".into(),
+        payload: json!({"seq":seq}),
+        created_at: chrono::Utc::now(),
+    }
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn ingest_bulk_preserves_the_contiguous_prefix(pool: PgPool) {
+    let first = uuid::Uuid::new_v4();
+    let third = uuid::Uuid::new_v4();
+    let response = infrastructure::ingest_batch(
+        &pool,
+        &IngestBatch {
+            origin_id: "bulk-origin".into(),
+            generation: 1,
+            command_watermark: 0,
+            command_blocked: None,
+            facts: vec![generic_fact(3, third), generic_fact(1, first)],
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("gapped batch: {error}"));
+    assert_eq!(response.durable_through, 1);
+
+    let response = infrastructure::ingest_batch(
+        &pool,
+        &IngestBatch {
+            origin_id: "bulk-origin".into(),
+            generation: 1,
+            command_watermark: 0,
+            command_blocked: None,
+            facts: vec![
+                generic_fact(3, third),
+                generic_fact(2, uuid::Uuid::new_v4()),
+            ],
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("filled gap: {error}"));
+    assert_eq!(response.durable_through, 3);
+
+    let facts: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM sync_ingest_fact WHERE origin_id='bulk-origin'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("fact count: {error}"));
+    assert_eq!(facts, 3);
+
+    let hundred: Vec<_> = (1..=100)
+        .map(|seq| generic_fact(seq, uuid::Uuid::new_v4()))
+        .rev()
+        .collect();
+    let response = infrastructure::ingest_batch(
+        &pool,
+        &IngestBatch {
+            origin_id: "hundred-origin".into(),
+            generation: 1,
+            command_watermark: 0,
+            command_blocked: None,
+            facts: hundred,
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("hundred facts: {error}"));
+    assert_eq!(response.durable_through, 100);
+}
+
 fn test_config() -> AppConfig {
     AppConfig {
         bind_addr: "127.0.0.1:0"

@@ -1,17 +1,10 @@
-import { auth } from "@/lib/api"
-import { useQuery } from "@tanstack/react-query"
-
-/// Who is signed in, for the screens that have to put a name on a decision.
+/// Where `useIdentity` used to live.
 ///
-/// Closing a line short and answering a price amendment both record who did
-/// it, and the server takes that as a field rather than reading it from the
-/// session — so the screen has to supply it. It supplies the session's own
-/// username and never a free-text box: a decision attributed to whoever typed
-/// the nicest name is not an audit trail.
-export function useIdentity() {
-  return useQuery({
-    queryKey: ["auth", "me"],
-    queryFn: ({ signal }) => auth.me(signal),
-    staleTime: 5 * 60_000,
-  })
-}
+/// It moved to `lib/session` when `App` stopped keeping the session in a
+/// second query of its own: one hook, one key, one fetch of `/auth/me`. The
+/// door stays open here because the screens that have to put a name on a
+/// decision — closing a line short, answering a price amendment — import it
+/// from this path, and the server takes that name as a field rather than
+/// reading it from the session, so a decision attributed to whoever typed the
+/// nicest name is not an audit trail.
+export { useIdentity } from "@/lib/session"

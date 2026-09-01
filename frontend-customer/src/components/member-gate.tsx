@@ -22,7 +22,7 @@ import { useMember } from "@/lib/member"
 /// Asked once and remembered, because a member types this on the day they get
 /// the card and never again. It is not a login and does not pretend to be one:
 /// no password field, no "masuk", and the copy says the number is the one the
-/// cashier reads out — see `lib/member.tsx` for what this value is and is not.
+/// cashier reads out — see `lib/member.ts` for what this value is and is not.
 export function MemberGate() {
   const { remember } = useMember()
   const [value, setValue] = useState("")

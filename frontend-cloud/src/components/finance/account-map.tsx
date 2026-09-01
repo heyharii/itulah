@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
@@ -6,9 +6,11 @@ import { Input } from "@/components/ui/input"
 import { accountMap, financeKeys, searchAccounts, setAccountMapping } from "@/lib/finance"
 import { cn } from "@/lib/utils"
 import type { AccountMapping, LedgerAccount, SemanticKeyDoc } from "@itulah/contract"
+import { useForm, useStore } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { Check, Search, TriangleAlert } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 
 /// Which client account carries each meaning, at each location.
 ///
@@ -159,11 +161,25 @@ function Frame({ children, subtitle }: { children: React.ReactNode; subtitle?: s
   return (
     <AppShell nav={<Nav />} section={<FinanceNav />}>
       <ScreenHeader title="Account Map" subtitle={subtitle} />
-      {children}
+      <ScreenBody>{children}</ScreenBody>
     </AppShell>
   )
 }
 
+/// One meaning, and the act of pointing it at an account.
+///
+/// # Why the picking is a form and the picker is not
+///
+/// What gets sent is two values that have to travel together — which bank or
+/// scheme this is, and which account carries it — and the second is worthless
+/// without the first. Holding them in two `useState`s meant the rule that ties
+/// them ("a qualified meaning cannot be saved unqualified") was written twice:
+/// once as a disabled flag on the picker and once as a sentence under it, with
+/// nothing keeping the two in step. As one form it is a validator, and the
+/// submit that would break the primary key cannot be reached.
+///
+/// Whether the picker is open stays `useState`, because it is not a value being
+/// sent anywhere — it is whether this row is currently showing its underside.
 function MappingRow({
   doc,
   site,
@@ -174,23 +190,29 @@ function MappingRow({
   mapping: AccountMapping | undefined
 }) {
   const [picking, setPicking] = useState(false)
-  // Which bank, which card scheme. Only meanings that take one ask for it, and
-  // for the rest it stays the empty string the primary key expects.
-  const [qualifier, setQualifier] = useState("")
   const client = useQueryClient()
   const save = useMutation({
-    mutationFn: (account: LedgerAccount) =>
+    mutationFn: (value: { qualifier: string; account_code: string }) =>
       setAccountMapping({
         semantic_key: doc.key,
         site_id: site,
-        qualifier: doc.qualified ? qualifier.trim() : "",
-        account_code: account.account_code,
+        // Only meanings that take a qualifier ask for one, and for the rest it
+        // stays the empty string the primary key expects.
+        qualifier: doc.qualified ? value.qualifier.trim() : "",
+        account_code: value.account_code,
       }),
     onSuccess: () => {
       setPicking(false)
       void client.invalidateQueries({ queryKey: ["finance", "account-map"] })
     },
   })
+
+  const form = useForm({
+    defaultValues: { qualifier: "", account_code: "" },
+    onSubmit: ({ value }) => save.mutateAsync(value),
+  })
+  const qualifier = useStore(form.store, (state) => state.values.qualifier)
+  const unnamed = doc.qualified && qualifier.trim() === ""
 
   return (
     <>
@@ -233,24 +255,36 @@ function MappingRow({
         <tr>
           <td colSpan={4} className="bg-muted/40 px-3.5 py-2">
             {doc.qualified && (
-              <div className="pb-1.5">
-                <label className="text-muted-foreground text-[11px]">
-                  Which one? — this meaning has an account per bank or scheme
-                </label>
-                <Input
-                  value={qualifier}
-                  onChange={(event) => setQualifier(event.target.value)}
-                  placeholder="BCA, Mandiri, VISA…"
-                  className="mt-0.5 h-7 text-[12px]"
-                />
-              </div>
+              <form.Field name="qualifier">
+                {(field) => (
+                  <div className="pb-1.5">
+                    <label
+                      htmlFor={field.name}
+                      className="text-muted-foreground text-[11px]"
+                    >
+                      Which one? — this meaning has an account per bank or scheme
+                    </label>
+                    <Input
+                      id={field.name}
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      placeholder="BCA, Mandiri, VISA…"
+                      className="mt-0.5 h-7 text-[12px]"
+                    />
+                  </div>
+                )}
+              </form.Field>
             )}
             <AccountPicker
               hint={doc.expects}
-              onPick={(account) => save.mutate(account)}
-              busy={save.isPending || (doc.qualified && qualifier.trim() === "")}
+              onPick={(account) => {
+                form.setFieldValue("account_code", account.account_code)
+                void form.handleSubmit()
+              }}
+              busy={save.isPending || unnamed}
             />
-            {doc.qualified && qualifier.trim() === "" && (
+            {unnamed && (
               <p className="text-muted-foreground pt-1 text-[11px]">
                 Name the bank or scheme first — without it there is no way to say which
                 of the client's several accounts this is.
@@ -268,11 +302,28 @@ function MappingRow({
   )
 }
 
+/// How many accounts the picker asks for, and how tall one of them is.
+///
+/// Forty was a layout limit wearing a search limit's clothes. The hint seeds
+/// the box with a heading code — `2012001` — which in this chart prefixes
+/// hundreds of accounts, one per location and per counterparty; the right one
+/// was routinely past row forty and there was nothing on the screen to say the
+/// list had been cut. The server applies no ceiling of its own, so this is the
+/// only limit there is. The list is virtualised, which is what makes a large
+/// one free to draw, and a thousand is well past the largest family in the
+/// client's chart without shipping the whole thing on every keystroke.
+const CANDIDATES = 1000
+const CANDIDATE = 24
+
 /// Search the chart for the account to point a meaning at.
 ///
 /// Seeded with the expected account's code, because the hint is usually right
 /// and retyping twelve digits from the row above is not a decision, it is
 /// transcription.
+///
+/// The box itself stays `useState` and not a form field: nothing is submitted
+/// from it. It narrows a list, and the thing that gets sent is the row somebody
+/// clicks.
 function AccountPicker({
   hint,
   onPick,
@@ -284,10 +335,19 @@ function AccountPicker({
 }) {
   const seed = useMemo(() => hint.split(" ")[0]?.replace(/\*$/, "") ?? "", [hint])
   const [needle, setNeedle] = useState(seed)
+  const scroller = useRef<HTMLDivElement>(null)
   const hits = useQuery({
     queryKey: ["finance", "account-picker", needle],
-    queryFn: ({ signal }) => searchAccounts(needle, { limit: 40 }, signal),
+    queryFn: ({ signal }) => searchAccounts(needle, { limit: CANDIDATES }, signal),
     enabled: needle.trim().length >= 2,
+  })
+  const accounts = hits.data ?? []
+
+  const rows = useVirtualizer({
+    count: accounts.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => CANDIDATE,
+    overscan: 12,
   })
 
   return (
@@ -303,47 +363,58 @@ function AccountPicker({
         />
       </div>
       {hits.data !== undefined && (
-        <ul className="max-h-52 overflow-y-auto rounded-md border bg-white">
-          {hits.data.length === 0 && (
-            <li className="text-muted-foreground px-2 py-1.5 text-[11px]">
+        <div ref={scroller} className="max-h-52 overflow-y-auto rounded-md border bg-white">
+          {accounts.length === 0 ? (
+            <p className="text-muted-foreground px-2 py-1.5 text-[11px]">
               Nothing matches. Headings cannot be mapped — only postable accounts.
-            </li>
+            </p>
+          ) : (
+            <ul className="relative" style={{ height: rows.getTotalSize() }}>
+              {rows.getVirtualItems().map((item) => {
+                const account = accounts[item.index]
+                if (account === undefined) return null
+                return (
+                  <li
+                    key={account.account_code}
+                    className="absolute top-0 left-0 w-full"
+                    style={{ height: CANDIDATE, transform: `translateY(${item.start}px)` }}
+                  >
+                    <button
+                      type="button"
+                      disabled={account.is_group || busy}
+                      onClick={() => onPick(account)}
+                      className={cn(
+                        "flex h-full w-full items-baseline gap-2 px-2 py-1 text-left text-[12px]",
+                        account.is_group
+                          ? "text-muted-foreground/50 cursor-not-allowed"
+                          : "hover:bg-muted",
+                      )}
+                      // Headings are refused by the database too — the composite
+                      // foreign key on (account_code, is_group) will not take one —
+                      // so this is the explanation, not the enforcement.
+                      title={account.is_group ? "A heading cannot be posted to" : undefined}
+                    >
+                      <span className="text-muted-foreground shrink-0 font-mono text-[10.5px]">
+                        {account.account_code}
+                      </span>
+                      <span className="truncate">{account.name}</span>
+                      {account.is_group && (
+                        <span className="text-muted-foreground ml-auto shrink-0 text-[10px]">
+                          heading
+                        </span>
+                      )}
+                      {!account.is_group && account.site_id !== null && (
+                        <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[10px]">
+                          {account.site_id}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
           )}
-          {hits.data.map((account) => (
-            <li key={account.account_code}>
-              <button
-                type="button"
-                disabled={account.is_group || busy}
-                onClick={() => onPick(account)}
-                className={cn(
-                  "flex w-full items-baseline gap-2 px-2 py-1 text-left text-[12px]",
-                  account.is_group
-                    ? "text-muted-foreground/50 cursor-not-allowed"
-                    : "hover:bg-muted",
-                )}
-                // Headings are refused by the database too — the composite
-                // foreign key on (account_code, is_group) will not take one —
-                // so this is the explanation, not the enforcement.
-                title={account.is_group ? "A heading cannot be posted to" : undefined}
-              >
-                <span className="text-muted-foreground shrink-0 font-mono text-[10.5px]">
-                  {account.account_code}
-                </span>
-                <span className="truncate">{account.name}</span>
-                {account.is_group && (
-                  <span className="text-muted-foreground ml-auto shrink-0 text-[10px]">
-                    heading
-                  </span>
-                )}
-                {!account.is_group && account.site_id !== null && (
-                  <span className="text-muted-foreground ml-auto shrink-0 font-mono text-[10px]">
-                    {account.site_id}
-                  </span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
+        </div>
       )}
       {busy && (
         <p className="text-muted-foreground flex items-center gap-1 text-[11px]">

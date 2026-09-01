@@ -53,9 +53,9 @@ fn shop_with(sku_count: usize) -> SqliteEdge {
 
 #[test]
 fn how_the_pricing_path_scales() {
-    println!("\n  skus | catalogue | one 5-item basket");
-    println!("  -----+-----------+------------------");
-    for &count in &[500_usize, 2_000, 10_000, 40_000] {
+    println!("\n  skus | full catalogue | 100-row page | one 5-item basket");
+    println!("  -----+----------------+--------------+------------------");
+    for &count in &[500_usize, 2_000, 10_000, 40_000, 100_000] {
         let edge = shop_with(count);
 
         let started = Instant::now();
@@ -65,9 +65,24 @@ fn how_the_pricing_path_scales() {
         let catalogue = started.elapsed();
         assert_eq!(rows.len(), count);
 
-        let basket: Vec<String> = (0..5).map(|i| format!("SKU{i:08}")).collect();
         let connection = edge.connection();
         let guard = connection.lock().unwrap_or_else(|e| panic!("lock: {e}"));
+        let started = Instant::now();
+        let page = pricing::store_catalog_page(
+            &guard,
+            SHOP,
+            pricing::STORE_CHANNEL,
+            chrono::Utc::now(),
+            pricing::CatalogQuery {
+                limit: Some(100),
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|e| panic!("catalogue page: {e}"));
+        let page_time = started.elapsed();
+        assert_eq!(page.items.len(), count.min(100));
+
+        let basket: Vec<String> = (0..5).map(|i| format!("SKU{i:08}")).collect();
 
         // The guard: a five-item basket reads five prices, whatever the shop's
         // range. Asserted on the snapshot rather than the clock so it cannot
@@ -99,8 +114,9 @@ fn how_the_pricing_path_scales() {
         assert!(quoted.is_some());
 
         println!(
-            "  {count:>5} | {:>8.1}ms | {:>13.1}ms",
+            "  {count:>5} | {:>13.1}ms | {:>9.1}ms | {:>13.1}ms",
             catalogue.as_secs_f64() * 1000.0,
+            page_time.as_secs_f64() * 1000.0,
             sale.as_secs_f64() * 1000.0
         );
     }

@@ -119,6 +119,102 @@
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8121"
       }
+    },
+    {
+      "name": "ollama-design",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "/Users/hari/Documents/retail/cloud-app/ollama/serve.mjs"
+      ],
+      "port": 4180,
+      "env": {
+        "PORT": "4180"
+      }
+    },
+    {
+      "name": "tanstack-cloud",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5301",
+        "--strictPort"
+      ],
+      "port": 5301,
+      "cwd": "frontend-cloud",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8080"
+      }
+    },
+    {
+      "name": "tanstack-employee",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5304",
+        "--strictPort"
+      ],
+      "port": 5304,
+      "cwd": "frontend-employee",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8080"
+      }
+    },
+    {
+      "name": "tanstack-customer",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5305",
+        "--strictPort"
+      ],
+      "port": 5305,
+      "cwd": "frontend-customer",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8080"
+      }
+    },
+    {
+      "name": "tanstack-store",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5302",
+        "--strictPort"
+      ],
+      "port": 5302,
+      "cwd": "frontend-store",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8081"
+      }
+    },
+    {
+      "name": "tanstack-dc",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5303",
+        "--strictPort"
+      ],
+      "port": 5303,
+      "cwd": "frontend-dc",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8082"
+      }
     }
   ]
 }

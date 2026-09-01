@@ -1,4 +1,5 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { Segmented } from "@/components/custom/segmented"
 import { Nav } from "@/components/nav"
 import type { SalesSeriesKind } from "@/components/sales/matrix"
 import { buildMatrix, chartConfig } from "@/components/sales/matrix"
@@ -20,6 +21,7 @@ import { compactMoney } from "@/lib/money"
 import type { SalesBucket } from "@/lib/sales"
 import type { Comparison, ComparisonMode } from "@/lib/sales"
 import {
+  bucketTitle,
   comparisonOf,
   SALES_BUCKETS,
   SALES_SPANS,
@@ -27,7 +29,7 @@ import {
   salesSeriesKey,
   spanOf,
 } from "@/lib/sales"
-import { cn } from "@/lib/utils"
+import { useSaleSheet } from "@/lib/sheets/sales"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
@@ -71,11 +73,16 @@ export function SalesView() {
   const navigate = useNavigate()
   const bucket: SalesBucket = search.bucket ?? "day"
   const spans = SALES_SPANS[bucket]
-  const span = spans.includes(search.span ?? 0) ? (search.span as number) : spans[2] ?? spans[0]
+  const span = spans.includes(search.span ?? 0)
+    ? (search.span as number)
+    : (spans[2] ?? spans[0])
   const shop = search.shop ?? null
 
   const [kind, setKind] = useState<SalesSeriesKind>("gross_minor")
-  const [scope, setScope] = useState<SalesScope | null>(null)
+  // Which cell is open lives in the URL beside the span and the granularity
+  // that produced it, so "look at Bandung last week" is something a reader can
+  // send to a colleague rather than something they have to describe.
+  const sale = useSaleSheet()
 
   const range = useMemo(() => spanOf(bucket, span), [bucket, span])
   const series = useQuery({
@@ -88,7 +95,10 @@ export function SalesView() {
   // the fleet one keeps every shop, so the picker still lists the branches the
   // filter is currently hiding and colours stay handed out over the whole
   // fleet.
-  const matrix = useMemo(() => buildMatrix(series.data, shop), [series.data, shop])
+  const matrix = useMemo(
+    () => buildMatrix(series.data, shop),
+    [series.data, shop]
+  )
   const fleet = useMemo(() => buildMatrix(series.data), [series.data])
   const config = useMemo(() => chartConfig(fleet), [fleet])
 
@@ -105,11 +115,33 @@ export function SalesView() {
         from: search.cmpFrom,
         to: search.cmpTo,
       }),
-    [range, span, search.cmp, search.cmpFrom, search.cmpTo],
+    [range, span, search.cmp, search.cmpFrom, search.cmpTo]
   )
+  /// The cell the URL names, as the panel wants it.
+  ///
+  /// The title is derived rather than carried: a shop's name is not in the
+  /// address, and a title that had been is a caption somebody could edit into
+  /// disagreeing with the figures under it. Three cases, and they are the three
+  /// kinds of cell the table offers — a row's total, a span somebody named to
+  /// compare against, and one bucket of either.
+  const scope: SalesScope | null = useMemo(() => {
+    const cell = sale.cell
+    if (cell === null) return null
+    const name =
+      fleet.rows.find((row) => row.site_id === cell.siteId)?.site_name ??
+      cell.siteId
+    const title =
+      cell.from === range.from && cell.to === range.to
+        ? `${name} · whole range`
+        : cell.from === comparison.from && cell.to === comparison.to
+          ? `${name} · ${comparison.full}`
+          : `${name} · ${bucketTitle(cell.from, bucket)}`
+    return { ...cell, title, range, comparison }
+  }, [sale.cell, fleet, range, comparison, bucket])
+
   const priorRange = useMemo(
     () => ({ from: comparison.from, to: comparison.to, bucket }),
-    [comparison, bucket],
+    [comparison, bucket]
   )
   const prior = useQuery({
     queryKey: salesSeriesKey(priorRange),
@@ -118,8 +150,9 @@ export function SalesView() {
     staleTime: 5 * 60_000,
   })
   const before = useMemo(
-    () => (prior.data === undefined ? undefined : buildMatrix(prior.data, shop)),
-    [prior.data, shop],
+    () =>
+      prior.data === undefined ? undefined : buildMatrix(prior.data, shop),
+    [prior.data, shop]
   )
 
   const go = (next: Partial<SalesSearch>) =>
@@ -182,24 +215,15 @@ export function SalesView() {
           </SelectContent>
         </Select>
 
-        <div className="flex overflow-hidden rounded-4xl border" role="group" aria-label="Period">
-          {SALES_BUCKETS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={bucket === option}
-              onClick={() => go({ bucket: option })}
-              className={cn(
-                "h-8 cursor-pointer px-3 text-xs font-medium capitalize transition-colors not-first:border-l",
-                bucket === option
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground",
-              )}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          size="sm"
+          value={bucket}
+          onChange={(option) => go({ bucket: option })}
+          options={SALES_BUCKETS.map((option) => ({
+            id: option,
+            label: option,
+          }))}
+        />
 
         {/* The label says what the number means. A trigger reading "30" is a
             number nobody can act on — days? shops? sales? */}
@@ -211,7 +235,10 @@ export function SalesView() {
           }
         />
 
-        <Select value={String(span)} onValueChange={(value) => go({ span: Number(value) })}>
+        <Select
+          value={String(span)}
+          onValueChange={(value) => go({ span: Number(value) })}
+        >
           <SelectTrigger size="sm" className="w-36">
             <SelectValue>{spanLabel(span, bucket)}</SelectValue>
           </SelectTrigger>
@@ -231,7 +258,11 @@ export function SalesView() {
         <ScreenState
           tone="problem"
           action={
-            <Button size="sm" variant="outline" onClick={() => void series.refetch()}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void series.refetch()}
+            >
               Try again
             </Button>
           }
@@ -245,7 +276,7 @@ export function SalesView() {
           No shop is registered, so there is nothing to have sold anything.
         </ScreenState>
       ) : (
-        <div data-chart={CHART_ID} className="flex min-h-0 flex-1 flex-col">
+        <ScreenBody card={false} data-chart={CHART_ID} className="flex min-h-0 flex-1 flex-col gap-[1.125rem]">
           <ChartStyle id={CHART_ID} config={config} />
           <SalesChart
             matrix={matrix}
@@ -261,13 +292,15 @@ export function SalesView() {
             comparison={comparison}
             bucket={bucket}
             kind={kind}
-            onOpen={(next) => setScope({ ...next, range, comparison })}
-            onFocus={(siteId) => go({ shop: siteId === shop ? undefined : siteId })}
+            onOpen={sale.open}
+            onFocus={(siteId) =>
+              go({ shop: siteId === shop ? undefined : siteId })
+            }
           />
-        </div>
+        </ScreenBody>
       )}
 
-      <SaleDetailSheet scope={scope} onClose={() => setScope(null)} />
+      <SaleDetailSheet scope={scope} onClose={sale.close} />
     </AppShell>
   )
 }

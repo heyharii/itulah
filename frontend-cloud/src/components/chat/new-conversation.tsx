@@ -14,10 +14,11 @@ import { conversationsKey, startConversation } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import type { ChatConversation } from "@itulah/contract"
+import { useForm, useStore } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { X } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 
 /// Starting a conversation with somebody.
 ///
@@ -38,39 +39,48 @@ export function NewConversation({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [kind, setKind] = useState<"DIRECT" | "GROUP">("DIRECT")
-  const [title, setTitle] = useState("")
-  const [entry, setEntry] = useState("")
-  const [people, setPeople] = useState<string[]>([])
+  /// Everything typed here is sent, including the half-typed name in the box —
+  /// so `entry` is a field of the form and not a scratch variable beside it.
+  const form = useForm({
+    defaultValues: {
+      kind: "DIRECT" as "DIRECT" | "GROUP",
+      title: "",
+      entry: "",
+      people: [] as string[],
+    },
+    onSubmit: ({ value }) => {
+      start.mutate(value)
+    },
+  })
+  const { kind, entry, people, title } = useStore(form.store, (state) => state.values)
 
   const suggestions = useMemo(
     () => known.filter((person) => !people.includes(person)).sort(),
     [known, people],
   )
 
-  const reset = () => {
-    setKind("DIRECT")
-    setTitle("")
-    setEntry("")
-    setPeople([])
-  }
-
   const start = useMutation({
-    mutationFn: (): Promise<ChatConversation> => {
+    mutationFn: (value: {
+      kind: "DIRECT" | "GROUP"
+      title: string
+      entry: string
+      people: string[]
+    }): Promise<ChatConversation> => {
       // A direct conversation is between exactly two people and the server
       // adds the caller itself, so the request names one person. Typing a name
       // and never pressing Add is the common case, so it counts.
-      const named = entry.trim() === "" ? people : [...people, entry.trim()]
+      const named =
+        value.entry.trim() === "" ? value.people : [...value.people, value.entry.trim()]
       return startConversation({
-        kind,
-        title: kind === "GROUP" ? title.trim() : null,
-        participants: kind === "DIRECT" ? named.slice(0, 1) : named,
+        kind: value.kind,
+        title: value.kind === "GROUP" ? value.title.trim() : null,
+        participants: value.kind === "DIRECT" ? named.slice(0, 1) : named,
       })
     },
     onSuccess: (conversation) => {
       void queryClient.invalidateQueries({ queryKey: conversationsKey() })
       onOpenChange(false)
-      reset()
+      form.reset()
       void navigate({
         to: "/chat/$conversationId",
         params: { conversationId: conversation.conversation_id },
@@ -81,8 +91,8 @@ export function NewConversation({
   const add = (name: string) => {
     const trimmed = name.trim()
     if (trimmed === "" || people.includes(trimmed)) return
-    setPeople((current) => (kind === "DIRECT" ? [trimmed] : [...current, trimmed]))
-    setEntry("")
+    form.setFieldValue("people", kind === "DIRECT" ? [trimmed] : [...people, trimmed])
+    form.setFieldValue("entry", "")
   }
 
   const named = entry.trim() === "" ? people.length : people.length + 1
@@ -94,7 +104,7 @@ export function NewConversation({
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next)
-        if (!next) reset()
+        if (!next) form.reset()
       }}
     >
       <DialogContent className="sm:max-w-lg">
@@ -115,8 +125,10 @@ export function NewConversation({
                 size="sm"
                 variant={kind === option ? "default" : "outline"}
                 onClick={() => {
-                  setKind(option)
-                  if (option === "DIRECT") setPeople((current) => current.slice(0, 1))
+                  form.setFieldValue("kind", option)
+                  if (option === "DIRECT") {
+                    form.setFieldValue("people", people.slice(0, 1))
+                  }
                 }}
               >
                 {option === "DIRECT" ? "One person" : "A group"}
@@ -127,12 +139,17 @@ export function NewConversation({
           {kind === "GROUP" && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="conversation-title">Name</Label>
-              <Input
-                id="conversation-title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Receiving DC-01"
-              />
+              <form.Field name="title">
+                {(field) => (
+                  <Input
+                    id="conversation-title"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    placeholder="Receiving DC-01"
+                  />
+                )}
+              </form.Field>
               <p className="text-muted-foreground text-[11px]">
                 A group needs a name. A direct conversation does not — it is
                 named by whoever else is in it, which depends on who is looking.
@@ -158,7 +175,10 @@ export function NewConversation({
                       variant="ghost"
                       aria-label={`Remove ${person}`}
                       onClick={() =>
-                        setPeople((current) => current.filter((other) => other !== person))
+                        form.setFieldValue(
+                          "people",
+                          people.filter((other) => other !== person),
+                        )
                       }
                     >
                       <X />
@@ -168,19 +188,24 @@ export function NewConversation({
               </div>
             )}
             <div className="flex gap-1.5">
-              <Input
-                id="conversation-person"
-                list="known-people"
-                value={entry}
-                onChange={(event) => setEntry(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault()
-                    add(entry)
-                  }
-                }}
-                placeholder="username"
-              />
+              <form.Field name="entry">
+                {(field) => (
+                  <Input
+                    id="conversation-person"
+                    list="known-people"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault()
+                        add(field.state.value)
+                      }
+                    }}
+                    placeholder="username"
+                  />
+                )}
+              </form.Field>
               <datalist id="known-people">
                 {suggestions.map((person) => (
                   <option key={person} value={person} />
@@ -225,7 +250,10 @@ export function NewConversation({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={!ready || start.isPending} onClick={() => start.mutate()}>
+          <Button
+            disabled={!ready || start.isPending}
+            onClick={() => void form.handleSubmit()}
+          >
             {start.isPending ? "Starting…" : "Start"}
           </Button>
         </DialogFooter>

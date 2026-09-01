@@ -5,6 +5,7 @@ import { attachmentUrl } from "@/lib/chat"
 import { clock, dayOf } from "@/lib/collaboration"
 import { cn } from "@/lib/utils"
 import type { ChatMessage, StoredFile } from "@itulah/contract"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 /// A message this browser has drawn but the server has not confirmed.
@@ -55,11 +56,6 @@ export function MessageThread({
   onRetry: (message: PendingMessage) => void
 }) {
   const scroller = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const box = scroller.current
-    if (box === null) return
-    box.scrollTop = box.scrollHeight
-  }, [conversationId, messages.length, pending.length])
 
   /// Where this reader had got to when the conversation opened.
   ///
@@ -104,6 +100,35 @@ export function MessageThread({
     })
   }, [messages, me, unreadFrom])
 
+  /// Only the messages on screen are drawn.
+  ///
+  /// A conversation is fetched whole — there is no paging on `/messages` — so
+  /// an old room is thousands of bubbles, every one of them with an avatar and
+  /// possibly an attachment. Heights are measured rather than assumed: a
+  /// message is one line or twenty, and an estimate that was wrong by a line
+  /// would put the day dividers in the wrong place.
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => 64,
+    overscan: 12,
+    getItemKey: (index) => rows[index].message.message_id,
+  })
+
+  useEffect(() => {
+    const box = scroller.current
+    if (box === null) return
+    // Twice: the first jump lands against estimated heights, the second
+    // against the ones actually measured a frame later. Without the second, a
+    // conversation opens a screenful short of its own last message.
+    const bottom = () => {
+      box.scrollTop = box.scrollHeight
+    }
+    bottom()
+    const frame = requestAnimationFrame(bottom)
+    return () => cancelAnimationFrame(frame)
+  }, [conversationId, messages.length, pending.length])
+
   return (
     <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       {messages.length === 0 && pending.length === 0 && (
@@ -111,23 +136,38 @@ export function MessageThread({
           Nothing has been said here yet.
         </p>
       )}
-      {rows.map((row) => (
-        <div key={row.message.message_id}>
-          {row.newDay && <DayDivider day={row.day} />}
-          {row.unreadHere && <UnreadLine />}
-          <Bubble
-            mine={row.message.author === me}
-            author={row.message.author}
-            at={clock(row.message.sent_at)}
-            seq={row.message.seq}
-            grouped={row.grouped}
-            quoted={row.quoted}
-            body={row.message.body}
-            attachments={row.message.attachments}
-            conversationId={conversationId}
-          />
-        </div>
-      ))}
+      <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((item) => {
+          const row = rows[item.index]
+          return (
+            <div
+              key={item.key}
+              data-index={item.index}
+              ref={virtualizer.measureElement}
+              // `flow-root`, not a bare block: a day divider carries vertical
+              // margins, and a margin that escaped this wrapper would be a
+              // margin the measurement never saw — so the rows below it would
+              // be drawn a few pixels into each other.
+              className="absolute top-0 left-0 w-full flow-root"
+              style={{ transform: `translateY(${item.start}px)` }}
+            >
+              {row.newDay && <DayDivider day={row.day} />}
+              {row.unreadHere && <UnreadLine />}
+              <Bubble
+                mine={row.message.author === me}
+                author={row.message.author}
+                at={clock(row.message.sent_at)}
+                seq={row.message.seq}
+                grouped={row.grouped}
+                quoted={row.quoted}
+                body={row.message.body}
+                attachments={row.message.attachments}
+                conversationId={conversationId}
+              />
+            </div>
+          )
+        })}
+      </div>
 
       {pending.map((message) => (
         <Bubble
@@ -238,7 +278,9 @@ function Bubble({
           <div
             className={cn(
               "rounded-xl px-3 py-2 text-[13px] leading-relaxed break-words whitespace-pre-wrap",
-              mine ? "bg-primary text-primary-foreground" : "bg-muted",
+              mine
+                ? "bg-[var(--os-ink,#1d1d1f)] text-white"
+                : "bg-[var(--os-soft-2,#f3f3f5)] text-[var(--os-ink,#1d1d1f)]",
             )}
           >
             {body}

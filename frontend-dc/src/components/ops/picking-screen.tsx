@@ -10,7 +10,6 @@ import {
   ScanField,
   SessionBar,
 } from "@/components/ops/parts"
-import { useAction } from "@/lib/action"
 import {
   Note,
   ScreenBody,
@@ -25,7 +24,9 @@ import { units } from "@/lib/format"
 import { keys } from "@/lib/queries"
 import { useActor } from "@/lib/session"
 import { idempotencyKey } from "@itulah/contract/client"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import type { PicklistLine } from "@itulah/contract"
+import { useForm } from "@tanstack/react-form"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 /// Picking: a SKU and a number, off a rack.
 ///
@@ -37,10 +38,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 export function PickingScreen() {
   const actor = useActor()
   const client = useQueryClient()
-  const action = useAction()
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [poolId, setPoolId] = useState<string | null>(null)
-  const [quantities, setQuantities] = useState<Record<string, string>>({})
 
   const picklist = useQuery({
     queryKey: keys.picklist(),
@@ -71,30 +70,48 @@ export function PickingScreen() {
   )
   const source = poolId ?? racks[0]?.id ?? null
 
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: keys.picklist() })
-    void client.invalidateQueries({ queryKey: ["dc", "pick-session"] })
-    void client.invalidateQueries({ queryKey: keys.koli() })
-  }
-
-  const take = async (skuCode: string, quantity: number) => {
-    if (source === null || !Number.isInteger(quantity) || quantity < 1) {
-      return
-    }
-    const done = await action.run(() =>
+  const take = useMutation({
+    mutationFn: (input: { skuCode: string; quantity: number }) =>
       dc.pick({
-        source_pool_id: source,
-        sku_code: skuCode,
-        quantity,
+        source_pool_id: source as string,
+        sku_code: input.skuCode,
+        quantity: input.quantity,
         actor_id: actor,
         idempotency_key: idempotencyKey(),
         pick_session_id: sessionId,
-      })
-    )
-    if (done) {
-      setQuantities((current) => ({ ...current, [skuCode]: "" }))
-      refresh()
+      }),
+    // A pick empties a rack, shortens the picklist, and adds to the round this
+    // person is working in — and it is the round on screen beside the list
+    // that used to go stale until somebody reloaded the tablet.
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.picklist() })
+      void client.invalidateQueries({ queryKey: ["dc", "pick-session"] })
+      void client.invalidateQueries({ queryKey: keys.pools() })
+      void client.invalidateQueries({ queryKey: keys.koli() })
+    },
+  })
+
+  const openSession = useMutation({
+    mutationFn: () => dc.openPickSession({ actor_id: actor, note: null }),
+    onSuccess: (opened) => {
+      setSessionId(opened.session_id)
+      void client.invalidateQueries({ queryKey: keys.pickSessions() })
+    },
+  })
+
+  const closeSession = useMutation({
+    mutationFn: (id: string) => dc.closePickSession(id),
+    onSuccess: () => {
+      setSessionId(null)
+      void client.invalidateQueries({ queryKey: keys.pickSessions() })
+    },
+  })
+
+  const pick = (skuCode: string, quantity: number) => {
+    if (source === null || !Number.isInteger(quantity) || quantity < 1) {
+      return
     }
+    take.mutate({ skuCode, quantity })
   }
 
   const outstanding = (picklist.data ?? []).reduce(
@@ -146,59 +163,21 @@ export function PickingScreen() {
             )}
 
             {picklist.data?.map((line) => (
-              <div
+              <PickLine
                 key={line.sku_code}
-                className="flex flex-wrap items-center gap-3 border-b px-4 py-3 last:border-b-0"
-              >
-                <RowText code={line.sku_code}>
-                  {line.allotment_lines > 1
-                    ? `coming up short here lands on ${line.allotment_lines} stores`
-                    : "for one store"}
-                </RowText>
-                <RowNumber value={units(line.outstanding)} label="owed" />
-                <Input
-                  value={quantities[line.sku_code] ?? ""}
-                  inputMode="numeric"
-                  placeholder="qty"
-                  className="h-(--tap) w-24 text-center font-mono"
-                  onChange={(event) =>
-                    setQuantities((current) => ({
-                      ...current,
-                      [line.sku_code]: event.target.value,
-                    }))
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault()
-                      void take(
-                        line.sku_code,
-                        Number(quantities[line.sku_code])
-                      )
-                    }
-                  }}
-                />
-                <Button
-                  className="h-(--tap)"
-                  disabled={action.pending || source === null}
-                  onClick={() =>
-                    void take(
-                      line.sku_code,
-                      Number(quantities[line.sku_code] ?? line.outstanding)
-                    )
-                  }
-                >
-                  Pick
-                </Button>
-              </div>
+                line={line}
+                disabled={take.isPending || source === null}
+                onPick={(quantity) => pick(line.sku_code, quantity)}
+              />
             ))}
 
             <ScanField
               placeholder="Scan or type a SKU"
               action="Pick one"
-              pending={action.pending}
-              onSubmit={(value) => void take(value.trim(), 1)}
+              pending={take.isPending}
+              onSubmit={(value) => pick(value.trim(), 1)}
             />
-            <Problem error={action.error} />
+            <Problem error={take.error} />
           </Panel>
 
           <Note>
@@ -216,25 +195,10 @@ export function PickingScreen() {
             kind="Picking"
             sessions={sessions.data ?? []}
             activeId={sessionId}
-            pending={action.pending}
+            pending={openSession.isPending || closeSession.isPending}
             onSelect={setSessionId}
-            onOpen={() =>
-              void action.run(async () => {
-                const opened = await dc.openPickSession({
-                  actor_id: actor,
-                  note: null,
-                })
-                setSessionId(opened.session_id)
-                void client.invalidateQueries({ queryKey: keys.pickSessions() })
-              })
-            }
-            onClose={(id) =>
-              void action.run(async () => {
-                await dc.closePickSession(id)
-                setSessionId(null)
-                void client.invalidateQueries({ queryKey: keys.pickSessions() })
-              })
-            }
+            onOpen={() => openSession.mutate()}
+            onClose={(id) => closeSession.mutate(id)}
           >
             {summary.data !== undefined && (
               <>
@@ -243,6 +207,8 @@ export function PickingScreen() {
               </>
             )}
           </SessionBar>
+
+          <Problem error={openSession.error ?? closeSession.error} />
 
           {sessionId !== null && (summary.data?.lines.length ?? 0) > 0 && (
             <Panel
@@ -270,5 +236,63 @@ export function PickingScreen() {
         </div>
       </ScreenBody>
     </>
+  )
+}
+
+/// One SKU still owed, and the quantity somebody is about to fetch.
+///
+/// The box empties itself once the pick is away, so the next trip to the same
+/// rack starts from nothing rather than from the last number typed.
+function PickLine({
+  line,
+  disabled,
+  onPick,
+}: {
+  line: PicklistLine
+  disabled: boolean
+  onPick: (quantity: number) => void
+}) {
+  const form = useForm({
+    defaultValues: { quantity: "" },
+    onSubmit: ({ value, formApi }) => {
+      // An empty box means "all of it": the picker pressed the button beside a
+      // line that already says how many are owed.
+      onPick(
+        value.quantity.trim() === "" ? line.outstanding : Number(value.quantity)
+      )
+      formApi.reset()
+    },
+  })
+
+  return (
+    <form
+      className="flex flex-wrap items-center gap-3 border-b px-4 py-3 last:border-b-0"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void form.handleSubmit()
+      }}
+    >
+      <RowText code={line.sku_code}>
+        {line.allotment_lines > 1
+          ? `coming up short here lands on ${line.allotment_lines} stores`
+          : "for one store"}
+      </RowText>
+      <RowNumber value={units(line.outstanding)} label="owed" />
+      <form.Field name="quantity">
+        {(field) => (
+          <Input
+            value={field.state.value}
+            inputMode="numeric"
+            placeholder="qty"
+            className="h-(--tap) w-24 text-center font-mono"
+            onBlur={field.handleBlur}
+            onChange={(event) => field.handleChange(event.target.value)}
+          />
+        )}
+      </form.Field>
+      <Button type="submit" className="h-(--tap)" disabled={disabled}>
+        Pick
+      </Button>
+    </form>
   )
 }

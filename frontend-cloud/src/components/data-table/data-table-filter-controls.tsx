@@ -54,17 +54,15 @@ export function DataTableFilterControls() {
         return (
           // REMINDER: -mx-2 lets the border-b span the full sidebar width despite the parent p-2; px-2 keeps the content aligned
           <AccordionItem key={value} value={value} className="-mx-2 px-2">
-            <AccordionTrigger className="data-[state=closed]:text-muted-foreground data-[state=open]:text-foreground focus-within:data-[state=closed]:text-foreground hover:data-[state=closed]:text-foreground w-full items-center gap-2 px-2 py-0 hover:no-underline">
-              <div className="flex w-full items-center justify-between gap-2 truncate py-2 pr-2">
-                <div className="flex items-center gap-2 truncate">
-                  <p className="text-sm font-medium">{field.label}</p>
-                  {value !== field.label.toLowerCase() &&
-                  !field.commandDisabled ? (
-                    <p className="text-muted-foreground mt-px truncate font-mono text-[10px]">
-                      {value}
-                    </p>
-                  ) : null}
-                </div>
+            {/* Sentence case in the muted grey, never uppercase-bold: in this
+                language a section label names a group, it does not shout at
+                it. The column key that used to sit beside the label is gone —
+                it is a fact about the schema, not about the filter. */}
+            <AccordionTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground w-full items-center gap-2 px-2 py-0 hover:no-underline">
+              <div className="flex w-full items-center justify-between gap-2 truncate py-1.5 pr-2">
+                <p className="truncate text-[12.5px] font-medium">
+                  {field.label}
+                </p>
                 <DataTableFilterResetButton {...field} />
               </div>
             </AccordionTrigger>

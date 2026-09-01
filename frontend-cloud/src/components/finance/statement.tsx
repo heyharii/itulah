@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
 import { financeKeys, statement, type StatementKind } from "@/lib/finance"
@@ -205,7 +205,7 @@ function Frame({
   return (
     <AppShell nav={<Nav />} section={<FinanceNav />}>
       <ScreenHeader title={title} subtitle={subtitle} />
-      {children}
+      <ScreenBody>{children}</ScreenBody>
     </AppShell>
   )
 }

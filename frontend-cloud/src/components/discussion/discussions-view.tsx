@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { Faces } from "@/components/collaboration/person"
 import { LiveBadge } from "@/components/collaboration/live-badge"
 import { NewThread } from "@/components/discussion/new-thread"
@@ -20,8 +20,9 @@ import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { Bookmark, Plus, Tag } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 
 /// What the list is showing, in the URL rather than in a variable.
 ///
@@ -71,6 +72,22 @@ export function DiscussionsView() {
   })
 
   const rows = useMemo(() => threads.data ?? [], [threads.data])
+
+  /// Only the threads on screen are drawn.
+  ///
+  /// `/api/v1/discussions` answers with every thread that matches — there is no
+  /// paging on it — so an unfiltered list on a busy month is a few thousand
+  /// rows, each carrying a stack of faces and chips. Heights are measured
+  /// rather than assumed: a thread with a preview line is taller than one
+  /// without, and rows that overlapped would be worse than a slow list.
+  const scroller = useRef<HTMLDivElement>(null)
+  const list = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => 92,
+    overscan: 8,
+    getItemKey: (index) => rows[index].thread_id,
+  })
 
   // Tags come from the threads on screen, because the server counts subjects
   // and not tags. Said plainly rather than dressed up as a global tag cloud:
@@ -207,112 +224,121 @@ export function DiscussionsView() {
 
       <NewThread open={opening} onOpenChange={setOpening} />
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        {threads.isPending ? (
-          <ScreenState>Loading discussions…</ScreenState>
-        ) : threads.isError ? (
-          <ScreenState
-            tone="problem"
-            action={
-              <Button size="sm" variant="outline" onClick={() => void threads.refetch()}>
-                Try again
-              </Button>
-            }
-          >
-            {threads.error instanceof ApiError
-              ? threads.error.message
-              : "The discussions could not be loaded."}
-          </ScreenState>
-        ) : rows.length === 0 ? (
-          <ScreenState
-            action={
-              <Button size="sm" onClick={() => setOpening(true)}>
-                Start one
-              </Button>
-            }
-          >
-            Nothing here. A discussion hangs off a record — a purchase order, a
-            supplier, one receipt — so start it from the thing being argued
-            about.
-          </ScreenState>
-        ) : (
-          <>
-            <div className="text-muted-foreground flex items-center gap-3 border-b px-3.5 py-2 text-[11px]">
-              <span className="min-w-0 flex-1">{rows.length} discussions</span>
-              <span className="w-14 shrink-0 text-right">Replies</span>
-              {/* The field counts distinct people who opened the thread, not
-                  page loads. So the column says people. */}
-              <span
-                className="w-14 shrink-0 text-right"
-                title="Distinct people who have opened this thread, not page views"
-              >
-                People
-              </span>
-              <span className="hidden w-20 shrink-0 text-right sm:block">Activity</span>
-            </div>
-            <ul>
-              {rows.map((thread) => (
-                <li key={thread.thread_id}>
-                  <Link
-                    to="/discussions/$threadId"
-                    params={{ threadId: thread.thread_id }}
-                    className="hover:bg-muted/50 flex w-full items-start gap-3 border-b px-3.5 py-3 text-left transition-colors"
+      {threads.isPending ? (
+        <ScreenState>Loading discussions…</ScreenState>
+      ) : threads.isError ? (
+        <ScreenState
+          tone="problem"
+          action={
+            <Button size="sm" variant="outline" onClick={() => void threads.refetch()}>
+              Try again
+            </Button>
+          }
+        >
+          {threads.error instanceof ApiError
+            ? threads.error.message
+            : "The discussions could not be loaded."}
+        </ScreenState>
+      ) : rows.length === 0 ? (
+        <ScreenState
+          action={
+            <Button size="sm" onClick={() => setOpening(true)}>
+              Start one
+            </Button>
+          }
+        >
+          Nothing here. A discussion hangs off a record — a purchase order, a
+          supplier, one receipt — so start it from the thing being argued
+          about.
+        </ScreenState>
+      ) : (
+        <ScreenBody>
+          <div className="text-muted-foreground flex shrink-0 items-center gap-3 border-b px-3.5 py-2 text-[11px]">
+            <span className="min-w-0 flex-1">{rows.length} discussions</span>
+            <span className="w-14 shrink-0 text-right">Replies</span>
+            {/* The field counts distinct people who opened the thread, not
+                page loads. So the column says people. */}
+            <span
+              className="w-14 shrink-0 text-right"
+              title="Distinct people who have opened this thread, not page views"
+            >
+              People
+            </span>
+            <span className="hidden w-20 shrink-0 text-right sm:block">Activity</span>
+          </div>
+          <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
+            <ul className="relative w-full" style={{ height: list.getTotalSize() }}>
+              {list.getVirtualItems().map((item) => {
+                const thread = rows[item.index]
+                return (
+                  <li
+                    key={item.key}
+                    data-index={item.index}
+                    ref={list.measureElement}
+                    className="absolute top-0 left-0 w-full"
+                    style={{ transform: `translateY(${item.start}px)` }}
                   >
-                    <span className="min-w-0 flex-1">
-                      <span className="mb-1 flex flex-wrap items-baseline gap-2">
-                        <span className="text-[13.5px] font-medium">{thread.title}</span>
-                        {thread.status !== "open" && <StatusPill status={thread.status} />}
-                        {thread.has_solution && thread.status === "open" && (
-                          <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">
-                            Answered
-                          </span>
-                        )}
-                      </span>
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <SubjectChip
-                          kind={thread.subject_kind}
-                          subjectId={thread.subject_id}
-                        />
-                        {thread.subject_note !== null && (
-                          <span className="text-muted-foreground text-[11px]">
-                            {thread.subject_note}
-                          </span>
-                        )}
-                        {thread.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="text-muted-foreground rounded-full border px-1.5 py-0.5 text-[10px]"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                        <Faces people={thread.voices} />
-                      </span>
-                      {thread.latest_post_preview !== null && (
-                        <span className="text-muted-foreground mt-1 block truncate text-[11.5px]">
-                          {thread.latest_post_preview}
+                    <Link
+                      to="/discussions/$threadId"
+                      params={{ threadId: thread.thread_id }}
+                      className="hover:bg-muted/50 flex w-full items-start gap-3 border-b px-3.5 py-3 text-left transition-colors"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="mb-1 flex flex-wrap items-baseline gap-2">
+                          <span className="text-[13.5px] font-medium">{thread.title}</span>
+                          {thread.status !== "open" && <StatusPill status={thread.status} />}
+                          {thread.has_solution && thread.status === "open" && (
+                            <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">
+                              Answered
+                            </span>
+                          )}
                         </span>
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <SubjectChip
+                            kind={thread.subject_kind}
+                            subjectId={thread.subject_id}
+                          />
+                          {thread.subject_note !== null && (
+                            <span className="text-muted-foreground text-[11px]">
+                              {thread.subject_note}
+                            </span>
+                          )}
+                          {thread.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="text-muted-foreground rounded-full border px-1.5 py-0.5 text-[10px]"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          <Faces people={thread.voices} />
+                        </span>
+                        {thread.latest_post_preview !== null && (
+                          <span className="text-muted-foreground mt-1 block truncate text-[11.5px]">
+                            {thread.latest_post_preview}
+                          </span>
+                        )}
+                      </span>
+                      {thread.bookmarked_by_me && (
+                        <Bookmark className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
                       )}
-                    </span>
-                    {thread.bookmarked_by_me && (
-                      <Bookmark className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
-                    )}
-                    <span className="w-14 shrink-0 pt-0.5 text-right font-mono text-[13px] tabular-nums">
-                      {thread.reply_count}
-                    </span>
-                    <span className="w-14 shrink-0 pt-0.5 text-right font-mono text-[13px] tabular-nums">
-                      {thread.people}
-                    </span>
-                    <span className="text-muted-foreground hidden w-20 shrink-0 pt-1 text-right text-[11px] sm:block">
-                      {ago(thread.last_activity_at)}
-                    </span>
-                  </Link>
-                </li>
-              ))}
+                      <span className="w-14 shrink-0 pt-0.5 text-right font-mono text-[13px] tabular-nums">
+                        {thread.reply_count}
+                      </span>
+                      <span className="w-14 shrink-0 pt-0.5 text-right font-mono text-[13px] tabular-nums">
+                        {thread.people}
+                      </span>
+                      <span className="text-muted-foreground hidden w-20 shrink-0 pt-1 text-right text-[11px] sm:block">
+                        {ago(thread.last_activity_at)}
+                      </span>
+                    </Link>
+                  </li>
+                )
+              })}
             </ul>
-          </>
-        )}
-      </div>
+          </div>
+        </ScreenBody>
+      )}
     </AppShell>
   )
 }

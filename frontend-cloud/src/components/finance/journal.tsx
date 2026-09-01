@@ -1,12 +1,16 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { journalColumns } from "@/components/finance/columns"
+import { DataGrid, useDataGrid } from "@/components/finance/data-grid"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
-import { financeKeys, journalEntry, listJournal } from "@/lib/finance"
-import { money } from "@/lib/money"
-import { cn } from "@/lib/utils"
+import { Input } from "@/components/ui/input"
+import { EntrySheet } from "@/components/sheets/finance/entry-sheet"
+import { financeKeys, listJournal } from "@/lib/finance"
+import { useEntrySheet } from "@/lib/sheets/finance"
+import type { JournalEntryRow } from "@itulah/contract"
 import { useQuery } from "@tanstack/react-query"
-import { Undo2 } from "lucide-react"
-import { Fragment, useState } from "react"
+import { Search } from "lucide-react"
+import { useMemo } from "react"
 
 /// Every entry in the books, newest first.
 ///
@@ -17,12 +21,32 @@ import { Fragment, useState } from "react"
 /// the original "cancelled" would suggest it went away, and it did not — it is
 /// still in the ledger, still in the balances up to the reversal date, and
 /// still the record of what somebody actually did.
+///
+/// # Why the lines are not a row of the table
+///
+/// An opened entry is not another entry. Drawing it as a spanning row under the
+/// one that was clicked would put it in the sort order and in the row count,
+/// and a table that gains a row when you look at one has stopped describing the
+/// journal. It opens in a sheet instead — see `EntrySheet`, which keeps that
+/// argument and adds the address an auditor asks an entry for by name.
 export function JournalScreen() {
-  const [open, setOpen] = useState<string | null>(null)
+  const sheet = useEntrySheet()
   const entries = useQuery({
     queryKey: financeKeys.journal(),
     queryFn: ({ signal }) => listJournal({ limit: 200 }, signal),
   })
+
+  const rows = useMemo(() => [...(entries.data ?? [])], [entries.data])
+  const table = useDataGrid({
+    data: rows,
+    columns: journalColumns,
+    getRowId: rowId,
+  })
+  const drawn = table.getRowModel().rows
+  const visible = table.getFilteredRowModel().rows.length
+  /// The register as ids, in the order it is drawn, so the sheet's ↑/↓ walk
+  /// what the search narrowed it to.
+  const entryIds = drawn.map((row) => row.original.entry_id)
 
   if (entries.isPending) {
     return (
@@ -46,127 +70,66 @@ export function JournalScreen() {
     return (
       <Frame subtitle="empty">
         <ScreenState>
-          Nothing has been posted yet. Entries appear here as soon as something writes
-          one — a supplier bill, a payment, or a correction made by hand.
+          Nothing has been posted yet. Entries appear here as soon as something
+          writes one — a supplier bill, a payment, or a correction made by hand.
         </ScreenState>
       </Frame>
     )
   }
 
+  const all = entries.data.length
   return (
-    <Frame subtitle={`${entries.data.length} entries`}>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <table className="w-full text-[13px]">
-          <thead className="bg-card sticky top-0 border-b">
-            <tr className="text-muted-foreground text-[11px]">
-              <th className="px-3.5 py-1.5 text-left font-medium">Entry</th>
-              <th className="px-3 py-1.5 text-left font-medium">Date</th>
-              <th className="px-3 py-1.5 text-left font-medium">Source</th>
-              <th className="px-3 py-1.5 text-left font-medium">Memo</th>
-              <th className="px-3 py-1.5 text-right font-medium">Amount</th>
-              <th className="px-3 py-1.5 text-left font-medium">By</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.data.map((entry) => (
-              <Fragment key={entry.entry_id}>
-                <tr
-                  onClick={() =>
-                    setOpen((was) => (was === entry.entry_id ? null : entry.entry_id))
-                  }
-                  className={cn(
-                    "hover:bg-muted/40 cursor-pointer border-b",
-                    open === entry.entry_id && "bg-muted/60",
-                  )}
-                >
-                  <td className="px-3.5 py-1 font-mono text-[11.5px]">
-                    {entry.entry_number}
-                  </td>
-                  <td className="px-3 py-1 tabular-nums">{entry.posting_date}</td>
-                  <td className="px-3 py-1">
-                    <span className="bg-muted rounded px-1.5 py-0.5 text-[10.5px]">
-                      {entry.source_kind.toLowerCase().replace(/_/g, " ")}
-                    </span>
-                  </td>
-                  <td className="text-muted-foreground max-w-0 truncate px-3 py-1">
-                    {entry.reversal_of !== null && (
-                      <Undo2 className="mr-1 inline size-3 align-[-1px]" />
-                    )}
-                    {entry.memo ?? ""}
-                  </td>
-                  <td className="px-3 py-1 text-right font-mono tabular-nums">
-                    {money(entry.total_minor, entry.currency)}
-                  </td>
-                  <td className="text-muted-foreground px-3 py-1">{entry.posted_by}</td>
-                </tr>
-                {open === entry.entry_id && (
-                  <tr>
-                    <td colSpan={6} className="bg-muted/30 px-3.5 py-2">
-                      <EntryLines entryId={entry.entry_id} />
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <Frame
+      subtitle={
+        visible === all ? `${all} entries` : `${visible} of ${all} entries`
+      }
+      onNeedle={(value) =>
+        table.getColumn("entry_number")?.setFilterValue(value)
+      }
+    >
+      <DataGrid
+        table={table}
+        empty="No entry matches that."
+        onRowClick={(row) => sheet.open(row.original.entry_id)}
+        rowClassName={(row) =>
+          sheet.entryId === row.original.entry_id ? "bg-muted/60" : undefined
+        }
+      />
+      <EntrySheet rows={entryIds} />
     </Frame>
   )
 }
 
-/// The two or more sides of one entry.
-///
-/// Fetched when the row is opened rather than sent with the register: a
-/// two-hundred-entry list carrying every line is most of a ledger, to show
-/// six lines somebody asked for.
-function EntryLines({ entryId }: { entryId: string }) {
-  const detail = useQuery({
-    queryKey: financeKeys.entry(entryId),
-    queryFn: ({ signal }) => journalEntry(entryId, signal),
-  })
-
-  if (detail.isPending) {
-    return <p className="text-muted-foreground text-[11px]">Loading lines…</p>
-  }
-  if (detail.error !== null) {
-    return (
-      <p className="text-destructive text-[11px]">
-        {detail.error instanceof Error ? detail.error.message : "could not load the lines"}
-      </p>
-    )
-  }
-  return (
-    <table className="w-full text-[12px]">
-      <tbody>
-        {detail.data.lines.map((line) => (
-          <tr key={line.line_number}>
-            <td className="text-muted-foreground w-24 py-0.5 font-mono text-[10.5px]">
-              {line.account_code}
-            </td>
-            {/* The client's own name for the account, never translated. */}
-            <td className="py-0.5 pr-3">{line.account_name}</td>
-            <td className="text-muted-foreground w-20 py-0.5 font-mono text-[10.5px]">
-              {line.site_id}
-            </td>
-            <td className="w-32 py-0.5 text-right font-mono tabular-nums">
-              {line.debit_minor === 0 ? "" : money(line.debit_minor)}
-            </td>
-            <td className="w-32 py-0.5 text-right font-mono tabular-nums">
-              {line.credit_minor === 0 ? "" : money(line.credit_minor)}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
+function rowId(row: JournalEntryRow): string {
+  return row.entry_id
 }
 
-function Frame({ children, subtitle }: { children: React.ReactNode; subtitle?: string }) {
+function Frame({
+  children,
+  subtitle,
+  onNeedle,
+}: {
+  children: React.ReactNode
+  subtitle?: string
+  onNeedle?: (needle: string) => void
+}) {
   return (
     <AppShell nav={<Nav />} section={<FinanceNav />}>
-      <ScreenHeader title="Journal Entries" subtitle={subtitle} />
-      {children}
+      <ScreenHeader title="Journal Entries" subtitle={subtitle}>
+        {onNeedle !== undefined && (
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              onChange={(event) => onNeedle(event.target.value)}
+              placeholder="Entry, memo or who posted it…"
+              aria-label="Narrow the journal"
+              className="h-8 w-64 pl-7 text-[13px]"
+              data-os-search=""
+            />
+          </div>
+        )}
+      </ScreenHeader>
+      <ScreenBody>{children}</ScreenBody>
     </AppShell>
   )
 }

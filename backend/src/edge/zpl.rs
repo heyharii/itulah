@@ -5,14 +5,31 @@
 //! subset of ZPL II. Only commands confirmed to work under that emulation are
 //! emitted here: `^XA ^XZ ^PW ^LL ^CI ^FO ^A0 ^FD ^FS ^BY ^BC ^PQ ^RFW`.
 //! Reaching for a richer command because a Zebra would accept it is how a label
-//! run dies at 3 a.m. on the only printer the DC owns.
+//! run dies at 3 a.m. on the only printer the DC owns. That set has no rules,
+//! no boxes and no reversed text, so the hang tag is built out of type alone:
+//! hierarchy here is size and space, never a line or a filled block.
+//!
+//! # The hang tag
+//!
+//! A shopper reads this tag in one pass while holding the garment on a rail,
+//! and reads it in a fixed order: whose is it, what is it, will it fit, what
+//! does it cost. The layout is that order, top to bottom, in one left-aligned
+//! column, with the two things anyone actually squints at — the size and the
+//! price — set large enough to read at arm's length.
+//!
+//! The size sits on its own line rather than inside the colour line because a
+//! rail is shopped by size: it is the one field a person looks for before
+//! deciding to touch the garment at all.
 //!
 //! Geometry is expressed against one baseline tag — 58 x 40 mm at 203 DPI —
-//! that every coordinate was tuned against by hand. Other tag sizes scale from
-//! it, so a second form factor does not mean a second layout to keep in step.
+//! that every coordinate below was rendered and checked against. Other tag
+//! sizes scale from it, so a second form factor does not mean a second layout
+//! to keep in step.
 //!
-//! This is a port of the field-proven Go renderer. The layout, the escaping and
-//! the `^RFW` full form are reproduced deliberately rather than re-derived: tags
+//! # What is inherited and not ours to change
+//!
+//! The layout is ours; the payloads are not. The escaping and the `^RFW` full
+//! form are reproduced from the field-proven Go renderer deliberately: tags
 //! already stuck to garments were written by that code, and a reader that
 //! disagrees with them reports missing stock rather than a bug.
 
@@ -39,6 +56,13 @@ pub struct LabelBrand<'a>(pub &'a str);
 pub struct LabelData<'a> {
     pub sku_code: &'a str,
     pub article_name: &'a str,
+    /// What the shopper calls the colour — "Navy", not the digit inside the
+    /// SKU. Empty is allowed: the tag simply does not claim a colour, which is
+    /// what a run queued before this field existed has to do.
+    pub colour_label: &'a str,
+    /// The size as it is worn: "L", "XXL", "28". Empty is allowed on the same
+    /// terms, and costs the tag the one line a rail is shopped by.
+    pub size_label: &'a str,
     /// What the barcode encodes. Not necessarily the SKU: the two lineages
     /// differ, so the caller decides and this renderer prints what it is given.
     pub barcode_payload: &'a str,
@@ -111,6 +135,16 @@ impl Layout {
     }
 }
 
+/// Roughly how wide a string of `chars` glyphs is at height `font`.
+///
+/// `^A0` is proportional, so this is an estimate and is only ever used to
+/// decide where the NEXT field starts — never to centre or right-align, which
+/// would turn the estimate's error into visible drift. 0.62 is the ratio
+/// measured off rendered output for the sizes this tag uses.
+fn text_dots(chars: usize, font: i64) -> i64 {
+    (chars as f64 * font as f64 * 0.62 + 0.5) as i64
+}
+
 fn scale_round(base: i64, scale: f64) -> i64 {
     let scale = if scale <= 0.0 { 1.0 } else { scale };
     (base as f64 * scale + 0.5) as i64
@@ -123,7 +157,7 @@ fn scale_round(base: i64, scale: f64) -> i64 {
 pub fn render_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> String {
     let l = Layout::resolve(size);
     let copies = data.copies.max(1);
-    let mut out = String::with_capacity(320);
+    let mut out = String::with_capacity(384);
 
     out.push_str("^XA\n");
     out.push_str(&format!("^PW{}\n", l.w_dots));
@@ -132,42 +166,80 @@ pub fn render_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>
     // default code page renders them as noise.
     out.push_str("^CI28\n");
 
+    // The name of the shop, set as the largest thing on the tag after the
+    // price. It shrinks for a long name rather than growing into the SKU
+    // beside it: the brand is a parameter, and a tag that renders one shop's
+    // name cleanly and overprints another's is worse than one that sets a long
+    // name smaller.
+    let brand_text = truncate_chars(&escape(brand.0), 18);
+    let brand_font = brand_font_dots(brand_text.chars().count());
     out.push_str(&format!(
         "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-        l.x(10),
-        l.y(10),
-        l.font(14),
-        l.font(14),
-        escape(brand.0)
+        l.x(16),
+        l.y(14),
+        l.font(brand_font),
+        l.font(brand_font),
+        brand_text
     ));
 
-    let sku = truncate_chars(&escape(data.sku_code), 24);
+    // The SKU rides in the top-right corner, small: it is for the person
+    // holding a stock list, not for the shopper, and every one of its eleven
+    // digits is already under the barcode for anyone who needs to read it.
     out.push_str(&format!(
         "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-        l.x(180),
-        l.y(10),
-        l.font(18),
-        l.font(18),
-        sku
+        l.x(300),
+        l.y(28),
+        l.font(16),
+        l.font(16),
+        truncate_chars(&escape(data.sku_code), 16)
     ));
 
     let name = ellipsize(&escape(data.article_name), 32);
     out.push_str(&format!(
         "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-        l.x(10),
-        l.y(38),
-        l.font(15),
-        l.font(15),
+        l.x(16),
+        l.y(84),
+        l.font(21),
+        l.font(21),
         name
     ));
+
+    // Size and colour share a baseline at two weights: the size is what a rail
+    // is shopped by, the colour merely confirms what the eye already sees.
+    let size_label = truncate_chars(&escape(data.size_label), 6);
+    let mut colour_x = l.x(16);
+    if !size_label.is_empty() {
+        out.push_str(&format!(
+            "^FO{},{}^A0N,{},{}^FD{}^FS\n",
+            l.x(16),
+            l.y(116),
+            l.font(44),
+            l.font(44),
+            size_label
+        ));
+        colour_x = l.x(16 + text_dots(size_label.chars().count(), 44) + 16);
+    }
+    let colour_label = ellipsize(&escape(data.colour_label), 18);
+    if !colour_label.is_empty() {
+        // Sitting on the size's baseline rather than its cap height, so the two
+        // read as one line instead of as a heading and a stray word.
+        out.push_str(&format!(
+            "^FO{},{}^A0N,{},{}^FD{}^FS\n",
+            colour_x,
+            l.y(134),
+            l.font(17),
+            l.font(17),
+            colour_label
+        ));
+    }
 
     if data.price_minor > 0 {
         out.push_str(&format!(
             "^FO{},{}^A0N,{},{}^FDRp {}^FS\n",
-            l.x(10),
-            l.y(60),
-            l.font(20),
-            l.font(20),
+            l.x(16),
+            l.y(178),
+            l.font(48),
+            l.font(48),
             format_rupiah(data.price_minor)
         ));
     }
@@ -176,11 +248,11 @@ pub fn render_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>
         // ^BY sets the module width and ratio; ^BC is Code 128 with the human
         // readable line below and no ZPL-computed check digit — the payload is
         // already exactly what should be scanned.
-        let bar_height = scale_round(70, l.scale_y);
+        let bar_height = scale_round(50, l.scale_y);
         out.push_str(&format!(
             "^FO{},{}^BY2,3,{}^BCN,{},Y,N,N^FD{}^FS\n",
-            l.x(30),
-            l.y(90),
+            l.x(16),
+            l.y(238),
             bar_height,
             bar_height,
             escape(data.barcode_payload)
@@ -199,6 +271,22 @@ pub fn render_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>
     out.push_str("^XZ\n");
 
     out
+}
+
+/// How large the shop name may be set before it runs into the SKU beside it.
+///
+/// The brand block owns the left 260 dots of the top line. Up to eight
+/// characters fit there at full size, which is what the name on these tags
+/// actually is; anything longer is set down to fit rather than clipped,
+/// because a half-printed shop name looks like a printer fault.
+fn brand_font_dots(chars: usize) -> i64 {
+    const BRAND_WIDTH_DOTS: f64 = 260.0;
+    const FULL: i64 = 48;
+    if chars <= 8 {
+        return FULL;
+    }
+    let fitted = (BRAND_WIDTH_DOTS / (chars as f64 * 0.62)) as i64;
+    fitted.clamp(MIN_FONT_DOTS, FULL)
 }
 
 /// What goes on the sticker stuck to the outside of a box.
@@ -348,6 +436,8 @@ mod tests {
         LabelData {
             sku_code: "12345678123",
             article_name: "SB Eric rain pants",
+            colour_label: "Navy",
+            size_label: "L",
             barcode_payload: "812345678123",
             price_minor: 89_000,
             // The golden EPC from the shared codec: encode("12345678123", 100).
@@ -358,17 +448,19 @@ mod tests {
 
     #[test]
     fn a_baseline_tag_renders_the_layout_the_field_printers_were_tuned_against() {
-        let zpl = render_label(&sample(), LabelSize::default(), LabelBrand("Wira Makmur"));
+        let zpl = render_label(&sample(), LabelSize::default(), LabelBrand("CENTRAL"));
         let expected = concat!(
             "^XA\n",
             "^PW464\n",
             "^LL320\n",
             "^CI28\n",
-            "^FO10,10^A0N,14,14^FDWira Makmur^FS\n",
-            "^FO180,10^A0N,18,18^FD12345678123^FS\n",
-            "^FO10,38^A0N,15,15^FDSB Eric rain pants^FS\n",
-            "^FO10,60^A0N,20,20^FDRp 89.000^FS\n",
-            "^FO30,90^BY2,3,70^BCN,70,Y,N,N^FD812345678123^FS\n",
+            "^FO16,14^A0N,48,48^FDCENTRAL^FS\n",
+            "^FO300,28^A0N,16,16^FD12345678123^FS\n",
+            "^FO16,84^A0N,21,21^FDSB Eric rain pants^FS\n",
+            "^FO16,116^A0N,44,44^FDL^FS\n",
+            "^FO59,134^A0N,17,17^FDNavy^FS\n",
+            "^FO16,178^A0N,48,48^FDRp 89.000^FS\n",
+            "^FO16,238^BY2,3,50^BCN,50,Y,N,N^FD812345678123^FS\n",
             "^RFW,H,1,12,1^FDA01234567812300000000064^FS\n",
             "^PQ1,0,1,Y\n",
             "^XZ\n",
@@ -377,10 +469,54 @@ mod tests {
     }
 
     #[test]
+    fn the_colour_starts_after_the_size_however_long_the_size_is() {
+        let mut data = sample();
+        data.size_label = "XXL";
+        let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
+        assert!(zpl.contains("^FO16,116^A0N,44,44^FDXXL^FS"), "{zpl}");
+        assert!(zpl.contains("^FO114,134^A0N,17,17^FDNavy^FS"), "{zpl}");
+    }
+
+    #[test]
+    fn a_run_queued_before_the_tag_knew_its_size_still_prints() {
+        // The columns are nullable and labels queued before they existed have
+        // neither. The tag loses a line rather than printing an empty one, and
+        // the colour slides back to the margin instead of floating in from
+        // where the size would have ended.
+        let mut data = sample();
+        data.size_label = "";
+        data.colour_label = "";
+        let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
+        assert!(!zpl.contains("^A0N,44,44"), "{zpl}");
+        assert!(!zpl.contains(",134^A0N"), "{zpl}");
+
+        data.colour_label = "Navy";
+        let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
+        assert!(zpl.contains("^FO16,134^A0N,17,17^FDNavy^FS"), "{zpl}");
+    }
+
+    #[test]
+    fn a_long_shop_name_is_set_smaller_rather_than_printed_over_the_sku() {
+        let zpl = render_label(
+            &sample(),
+            LabelSize::default(),
+            LabelBrand("Wira Makmur Sentosa"),
+        );
+        let brand = zpl
+            .lines()
+            .find(|line| line.contains("Wira Makmur"))
+            .unwrap_or_else(|| panic!("no brand line in {zpl}"));
+        // Truncated to the 18 characters the block can hold, and set down from
+        // 48 so that what remains ends before the SKU at x=300.
+        assert!(brand.contains("^FDWira Makmur Sentos^FS"), "{brand}");
+        assert!(brand.contains("^A0N,23,23"), "{brand}");
+    }
+
+    #[test]
     fn an_article_name_cannot_smuggle_a_command_onto_the_printer_socket() {
         let mut data = sample();
         data.article_name = "Jacket^XZ~JA\nDELETE";
-        let zpl = render_label(&data, LabelSize::default(), LabelBrand("Wira Makmur"));
+        let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
 
         // One job in, one job out: the injected terminator must not have
         // created a second ^XZ or a second ^XA.
@@ -394,7 +530,7 @@ mod tests {
         for bad in ["", "A0123", "not-hexadecimal-at-all-xx", &"A".repeat(25)] {
             let mut data = sample();
             data.epc = bad;
-            let zpl = render_label(&data, LabelSize::default(), LabelBrand("Wira Makmur"));
+            let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
             assert!(!zpl.contains("^RFW"), "unexpected RFID write for {bad:?}");
         }
     }
@@ -404,7 +540,7 @@ mod tests {
         let mut data = sample();
         let epc = "A0".repeat(16);
         data.epc = &epc;
-        let zpl = render_label(&data, LabelSize::default(), LabelBrand("Wira Makmur"));
+        let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
         assert!(zpl.contains("^RFW,H,1,16,1^FD"));
     }
 
@@ -412,7 +548,7 @@ mod tests {
     fn a_free_garment_is_never_printed() {
         let mut data = sample();
         data.price_minor = 0;
-        let zpl = render_label(&data, LabelSize::default(), LabelBrand("Wira Makmur"));
+        let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
         assert!(!zpl.contains("Rp"));
     }
 
@@ -431,18 +567,18 @@ mod tests {
             width_mm: 40.0,
             height_mm: 30.0,
         };
-        let zpl = render_label(&sample(), small, LabelBrand("Wira Makmur"));
+        let zpl = render_label(&sample(), small, LabelBrand("CENTRAL"));
         assert!(zpl.contains("^PW320\n"), "{zpl}");
         assert!(zpl.contains("^LL240\n"), "{zpl}");
         // Glyphs follow the narrower axis: the brand line shrinks with the tag.
-        assert!(zpl.contains("^FO7,8^A0N,10,10^FDWira Makmur^FS"), "{zpl}");
+        assert!(zpl.contains("^FO11,11^A0N,33,33^FDCENTRAL^FS"), "{zpl}");
     }
 
     #[test]
     fn a_long_article_name_is_cut_with_a_visible_mark() {
         let mut data = sample();
         data.article_name = "Kemeja lengan panjang katun premium warna biru tua";
-        let zpl = render_label(&data, LabelSize::default(), LabelBrand("Wira Makmur"));
+        let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
         assert!(zpl.contains("Kemeja lengan panjang katun p...^FS"), "{zpl}");
     }
 
@@ -456,7 +592,7 @@ mod tests {
                 sealed_at: None,
             },
             LabelSize::default(),
-            LabelBrand("Wira Makmur"),
+            LabelBrand("CENTRAL"),
         );
         assert!(
             zpl.contains("^FO10,36^A0N,26,26^FDKOLI-dc-01-000901^FS"),
@@ -480,7 +616,7 @@ mod tests {
                 sealed_at: None,
             },
             LabelSize::default(),
-            LabelBrand("Wira Makmur"),
+            LabelBrand("CENTRAL"),
         );
         assert_eq!(zpl.matches("^XZ").count(), 1, "{zpl}");
     }

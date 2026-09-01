@@ -3,21 +3,35 @@ import * as React from "react";
 
 interface TableProps extends React.ComponentProps<"table"> {
   containerClassName?: string;
+  /// The container is what scrolls, so a caller that has to know about the
+  /// scrolling element — a virtualiser being told which box to measure — needs
+  /// a handle on it. Without this the only way to get one is to stop using this
+  /// frame and write the div and the table again by hand.
+  containerRef?: React.Ref<HTMLDivElement>;
+  /// `grid` is the operational list grammar (mono micro-caps, cell hairlines,
+  /// pinned first column). `rows` is the looser document table. Size, weight
+  /// and case live in CSS so a sortable heading cannot drift from an unsortable
+  /// one by wrapping itself in a Button.
+  grammar?: "grid" | "rows";
 }
 
 function Table({
   className,
   containerClassName,
+  containerRef,
   onScroll,
+  grammar = "rows",
   ...props
 }: TableProps) {
   return (
     <div
+      ref={containerRef}
       className={cn("w-full overflow-auto", containerClassName)}
       // REMINDER: we are not scrolling the table, but the container
       {...{ onScroll }}
     >
       <table
+        data-os-grid={grammar === "grid" ? "" : undefined}
         className={cn("w-full caption-bottom text-sm", className)}
         {...props}
       />
@@ -25,8 +39,15 @@ function Table({
   );
 }
 
+/// Type, weight and case belong to the `th` CSS, not to this component. A
+/// filled header row reads as a second surface stacked on the card.
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
-  return <thead className={cn("[&_tr]:border-b", className)} {...props} />;
+  return (
+    <thead
+      className={cn("[&_tr]:border-b [&_tr]:bg-transparent!", className)}
+      {...props}
+    />
+  );
 }
 
 function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
@@ -39,7 +60,7 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
   return (
     <tfoot
       className={cn(
-        "bg-primary text-primary-foreground font-medium",
+        "bg-[var(--os-soft,var(--muted))] font-medium",
         className,
       )}
       {...props}
@@ -47,11 +68,15 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
   );
 }
 
+/// Hairline between rows, `{soft}` on hover, and the selected row tinted with
+/// the indigo — selection is indigo in this language, never the status blue.
 function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   return (
     <tr
       className={cn(
-        "hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors",
+        "border-b transition-colors",
+        "hover:bg-[var(--os-soft,var(--muted))]",
+        "data-[state=selected]:bg-[var(--os-accent-bg,var(--muted))]",
         className,
       )}
       {...props}
@@ -59,11 +84,13 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   );
 }
 
+/// Inherit size, weight, case and tracking from the `th` rule so a sortable
+/// heading and an unsortable one in the same table cannot drift.
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       className={cn(
-        "text-muted-foreground h-10 px-2 text-left align-middle font-medium",
+        "text-left align-middle whitespace-nowrap uppercase",
         className,
       )}
       {...props}
@@ -72,7 +99,12 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
 }
 
 function TableCell({ className, ...props }: React.ComponentProps<"td">) {
-  return <td className={cn("p-2 align-middle", className)} {...props} />;
+  return (
+    <td
+      className={cn("align-middle tabular-nums", className)}
+      {...props}
+    />
+  );
 }
 
 function TableCaption({

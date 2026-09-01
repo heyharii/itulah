@@ -21,27 +21,25 @@
 export type IsoDate = string
 export type IsoInstant = string
 
-/// Who the person is, as HR holds them.
+/// The employment profile now comes from the server.
 ///
-/// `employee_id` is not the `app_user` id. One person can lose and regain a
-/// login, and a contractor can exist in HR before any login is issued — the
-/// two identities are joined, not merged. The join is what `/employees/me`
-/// answers.
-export interface EmployeeProfile {
-  readonly employee_id: string
-  readonly employee_number: string
-  readonly full_name: string
-  readonly preferred_name: string
-  readonly job_title: string
-  readonly department: string
-  readonly place_id: string
-  readonly place_name: string
-  readonly manager_name: string | null
-  readonly joined_on: IsoDate
-  readonly status: "ACTIVE" | "ON_LEAVE" | "SUSPENDED" | "EXITED"
-  readonly work_email: string | null
-  readonly phone: string | null
-}
+/// It used to be declared here, and the shape written down was not the shape
+/// that landed: this file guessed at `department`, `preferred_name`,
+/// `manager_name` and `work_email`, none of which the employment record
+/// actually holds, and it called the badge number `employee_number` where the
+/// server calls it `employee_code`.
+///
+/// That is exactly what a hand-written wire type is for — a proposal to argue
+/// with — and the argument is over. `EmploymentProfileView` is generated from
+/// the Rust struct the server serialises, so the fields below are the fields
+/// there are. The rest of this file is still a proposal, and goes the same way
+/// as each route lands.
+///
+/// One thing worth knowing while reading the screens: the server has TWO
+/// routes that sound like this one. `/profile` is who somebody is at work —
+/// what this type carries. `/personal-data` is NIK, address and date of birth,
+/// behind a grant most people do not hold. They are deliberately not the same
+/// request.
 
 /// The contract the person is working under.
 ///

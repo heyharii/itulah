@@ -1,4 +1,4 @@
-import { AppShell, ScreenHeader, ScreenState } from "@/components/app-shell"
+import { AppShell, ScreenBody, ScreenHeader, ScreenState } from "@/components/app-shell"
 import { FinanceNav } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
@@ -90,7 +90,7 @@ export function AssetRegisterScreen() {
       )}
       {run !== null && <RunReport run={run} onDismiss={() => setRun(null)} />}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <ScreenBody>
         {assets.isPending ? (
           <ScreenState>Loading the register…</ScreenState>
         ) : assets.error !== null ? (
@@ -124,7 +124,7 @@ export function AssetRegisterScreen() {
             </tbody>
           </table>
         )}
-      </div>
+      </ScreenBody>
     </AppShell>
   )
 }

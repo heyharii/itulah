@@ -2,12 +2,14 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', sans-serif;
+    --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -50,6 +52,144 @@
     --color-warning: var(--warning);
     --color-error: var(--error);
     --color-info: var(--info);
+}
+
+/* ── Cloud Hub ("ollama") design language ──────────────────────────────────
+   Phase 01 of the migration lifts this block onto `:root` and deletes the
+   attribute selector; until then it is scoped so only the screens that opt in
+   change. Names carry the `--os-` prefix to match
+   `retail/cloud-app/src/index.css` verbatim, so its primitives port by copy —
+   and because Cloud Hub's `accent` is a brand indigo while shadcn's `--accent`
+   is a hover surface. They are different things and must not collide.
+   Source of truth: Documents/retail/cloud-app/ollama/DESIGN.md              */
+[data-cloudhub] {
+    /* text — four greys, in order of emphasis */
+    --os-ink: #1d1d1f;
+    --os-text: #46464d;
+    --os-body: #74747b;
+    --os-mute: #a6a6ad;
+    --os-faint: #d3d3d8;
+    --os-line-ico: #abacb2;
+    /* surfaces */
+    --os-canvas: #ffffff;
+    --os-soft: #f7f7f8;
+    --os-soft-2: #f3f3f5;
+    --os-soft-3: #f6f6f8;
+    --os-well: #f4f4f6;
+    --os-hairline: #ececef;
+    --os-hairline-2: #e4e4e8;
+    --os-hairline-strong: #d8d8de;
+    --os-dark: #1d1d1f;
+    --os-on-dark: #ffffff;
+    --os-backdrop: #e3e4e6;
+    /* WHITE veil under drawers/overlays — content washes light, never darkens */
+    --os-scrim: rgba(255, 255, 255, 0.72);
+    /* brand + status.
+       INDIGO is selection: active nav, primary series, the selected row, the
+       focus ring. It never means "in motion". */
+    --os-accent: #3c52f0;
+    --os-accent-bg: #e9ebfc;
+    --os-ok: #36b827;
+    --os-ok-bg: #d9f4d2;
+    --os-warn: #c9892e;
+    --os-warn-bg: #faeacd;
+    --os-bad: #d05151;
+    --os-bad-bg: #fbeaea;
+    /* SKY is status, and only ever means "in motion" — shipped, processing,
+       issued, still receiving.
+       These are two different blues doing two different jobs and they must
+       never swap: if it is selected it is indigo, if it is moving it is sky.
+       DESIGN.md is explicit that collapsing them flattens the system, and the
+       prototypes disagree with each other here (fulfillment keeps both,
+       procurement collapses them) — the spec wins. */
+    --os-info: #2f86d8;
+    --os-info-bg: #ddebfa;
+    --os-new-fg: #d6447e;
+    --os-new-bg: #fdeaf1;
+    --os-fill-green: #38c018;
+    --os-fill-sky: #4090f0;
+    --os-fill-orange: #ee8b2e;
+    /* geometry — card 16px, interactive pills, sheet matches the floating rail */
+    --os-r-shell: 1.125rem;
+    --os-r-card: 1rem;
+    --os-r-inner: 0.5625rem;
+    --os-r-sheet: 1.375rem;
+    --os-shadow-soft: 0 1px 2px rgba(20, 20, 25, 0.03);
+    --os-shadow-pop: 0 8px 20px rgba(20, 20, 25, 0.06);
+    --os-shadow-shell: 0 10px 34px rgba(20, 20, 25, 0.07);
+    --os-shadow-float: 0 14px 40px rgba(20, 20, 25, 0.1);
+    /* accents — data, identity and tags only, never chrome */
+    --os-a-orange: #e0823c;
+    --os-a-green: #46a06a;
+    --os-a-blue: #4a82f0;
+    --os-a-violet: #8a6cf0;
+    --os-a-pink: #d65b95;
+    /* The spec'd mono. Every id, code, count and micro-cap in this language is
+       set in it, so the system mono stack was the single most audible way the
+       app still sounded like something else. */
+    --os-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+
+    /* ── the mapping layer ────────────────────────────────────────────────
+       This is what makes the migration a retheme rather than a rewrite: the
+       shadcn slots are re-pointed at Cloud Hub values, so every Button, Input,
+       Card and Table inside this subtree changes language without being
+       edited. Note `--accent`: shadcn's is a hover *surface*, so it takes
+       `soft-2`. The indigo brand stays in `--os-accent` and reaches shadcn
+       only through `--ring`.                                                */
+    --background: var(--os-canvas);
+    --foreground: var(--os-ink);
+    --card: var(--os-canvas);
+    --card-foreground: var(--os-ink);
+    --popover: var(--os-canvas);
+    --popover-foreground: var(--os-ink);
+    /* the one black CTA */
+    --primary: var(--os-ink);
+    --primary-foreground: #ffffff;
+    --secondary: var(--os-soft-2);
+    --secondary-foreground: var(--os-ink);
+    --muted: var(--os-soft-2);
+    --muted-foreground: var(--os-body);
+    --accent: var(--os-soft-2);
+    --accent-foreground: var(--os-ink);
+    --destructive: var(--os-bad);
+    --border: var(--os-hairline);
+    --input: var(--os-hairline-2);
+    --ring: var(--os-accent);
+    /* 8px base rather than 10: the derived scale then lands on Cloud Hub's
+       own geometry — md ≈ 6.4, lg = 8, xl ≈ 11, 2xl ≈ 14 (the card). */
+    --radius: 0.5rem;
+    /* status slots the app already declares, re-pointed at the taxonomy */
+    --success: var(--os-ok);
+    --warning: var(--os-warn);
+    --error: var(--os-bad);
+    /* sky, not indigo — collapsing these two blues is the mistake DESIGN.md forbids */
+    --info: var(--os-info);
+    /* charts — indigo first, then the categorical accents */
+    --chart-1: var(--os-accent);
+    --chart-2: var(--os-a-orange);
+    --chart-3: var(--os-a-green);
+    --chart-4: var(--os-a-blue);
+    --chart-5: var(--os-a-violet);
+    /* ── rail app icons ───────────────────────────────────────────────────
+       Cloud Hub's rail marks a module by hue, not by a heavier glyph. Each
+       tile is a three-blob pastel mesh over a mid-tone base — the base has to
+       stay mid-tone because the glyph on top is white, and the inner ring is
+       DARKER than the tile, never lighter: on a white rail a white inner ring
+       dissolves the shape into the background.                              */
+    --rail-c1: #dfe4ee;
+    --rail-c2: #e6eaf2;
+    --rail-c3: #aab3c4;
+    --rail-base: #b6becd;
+
+    /* the rail keeps its own surface rather than borrowing the sidebar slot */
+    --sidebar: var(--os-canvas);
+    --sidebar-foreground: var(--os-text);
+    --sidebar-primary: var(--os-accent);
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: var(--os-soft-2);
+    --sidebar-accent-foreground: var(--os-ink);
+    --sidebar-border: var(--os-hairline);
+    --sidebar-ring: var(--os-accent);
 }
 
 :root {
@@ -129,6 +269,279 @@
     --info: hsl(198.63 88.66% 48.43%);
 }
 
+/* ── the part colour alone cannot carry ──────────────────────────────────
+   Re-pointing the colour slots makes a screen the right hue; it does not make
+   it feel like Cloud Hub. The feel is density, pill geometry, hairlines
+   instead of shadows, and one step of contrast between the well and the cards
+   floating on it. That is what this block does, and it does it by element
+   rather than by editing 143 components.                                   */
+@layer components {
+  [data-cloudhub] {
+    /* 13.5/16 rem = the prototype body, through html's baked 0.9. */
+    font-size: 0.84375rem;
+    letter-spacing: -0.006em;
+    background-color: var(--os-soft);
+    color: var(--os-ink);
+  }
+  /* White hairline card on the well — inventory `.card` / `.tblcard`. */
+  [data-cloudhub] .os-card,
+  [data-cloudhub] [data-slot="card"] {
+    background: var(--os-canvas);
+    border: 1px solid var(--os-hairline);
+    border-radius: var(--os-r-card);
+    box-shadow: var(--os-shadow-soft);
+  }
+  /* ── controls — inventory `.btn`  h32 / pad 12 / 12.5 / 500 / pill ── */
+  [data-cloudhub] [data-slot="button"] {
+    height: 2rem;
+    padding-inline: 0.75rem;
+    gap: 0.375rem;
+    border-radius: 9999px;
+    font-size: 0.78125rem;
+    font-weight: 500;
+    letter-spacing: -0.004em;
+    box-shadow: none;
+    background-clip: padding-box;
+  }
+  [data-cloudhub] [data-slot="button"] svg {
+    width: 0.875rem;
+    height: 0.875rem;
+    color: var(--os-line-ico);
+  }
+  [data-cloudhub] [data-slot="button"][data-variant="default"] {
+    background: var(--os-ink);
+    color: var(--os-on-dark);
+    border-color: transparent;
+  }
+  [data-cloudhub] [data-slot="button"][data-variant="default"] svg {
+    color: var(--os-on-dark);
+  }
+  [data-cloudhub] [data-slot="button"][data-variant="default"]:hover {
+    background: #000;
+  }
+  [data-cloudhub] [data-slot="button"][data-variant="outline"],
+  [data-cloudhub] [data-slot="button"][data-variant="ghost"] {
+    background: var(--os-canvas);
+    color: var(--os-text);
+    border: 1px solid var(--os-hairline-2);
+  }
+  [data-cloudhub] [data-slot="button"][data-variant="outline"]:hover,
+  [data-cloudhub] [data-slot="button"][data-variant="ghost"]:hover {
+    background: var(--os-soft-2);
+  }
+  [data-cloudhub] [data-slot="button"][data-variant="secondary"] {
+    background: var(--os-soft-2);
+    color: var(--os-text);
+    border-color: transparent;
+  }
+  [data-cloudhub] [data-slot="button"][data-variant="secondary"]:hover {
+    background: #ececee;
+  }
+  [data-cloudhub] [data-slot="button"][data-size="icon"],
+  [data-cloudhub] [data-slot="button"][data-size="icon-sm"] {
+    width: 2rem;
+    padding-inline: 0;
+  }
+  [data-cloudhub] [data-slot="button"][data-size="icon-xs"] {
+    width: 1.5rem;
+    height: 1.5rem;
+    padding-inline: 0;
+  }
+  [data-cloudhub] [data-slot="badge"] {
+    border-radius: 9999px;
+    height: 1.3125rem;
+    padding-inline: 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+  [data-cloudhub] [data-slot="input"]:not([data-os-search]),
+  [data-cloudhub] [data-slot="select-trigger"] {
+    height: 2.125rem;
+    border-radius: var(--os-r-inner);
+    border: 1px solid var(--os-hairline-2);
+    background: var(--os-canvas);
+    font-size: 0.8125rem;
+    box-shadow: none;
+  }
+  [data-cloudhub] [data-slot="input"][data-os-search] {
+    height: 2.125rem;
+    border-radius: 9999px;
+    background: var(--os-soft-2);
+    border-color: transparent;
+    font-size: 0.8125rem;
+    box-shadow: none;
+  }
+  /* ── the dense grid grammar ─────────────────────────────────────────────
+     Picked from grid-detail.html's three side-by-side tables: mono micro-caps
+     header, cell hairlines, pinned first column, sticky header, aggregate
+     footer. Sizes in rem so they track the baked 0.9.                      */
+  [data-cloudhub] table[data-os-grid] {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8125rem;
+    border-collapse: collapse;
+  }
+  [data-cloudhub] table[data-os-grid] thead th {
+    font-family: var(--os-mono);
+    font-size: 0.65625rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--os-faint);
+    background: var(--os-soft);
+    padding: 0.5rem 0.6875rem;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--os-hairline-2);
+    border-right: 1px solid var(--os-hairline);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  [data-cloudhub] table[data-os-grid] tbody td {
+    padding: 0 0.6875rem;
+    height: 2.125rem;
+    color: var(--os-text);
+    border-bottom: 1px solid var(--os-hairline);
+    border-right: 1px solid var(--os-hairline);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 14.375rem;
+  }
+  [data-cloudhub] table[data-os-grid] thead th:last-child,
+  [data-cloudhub] table[data-os-grid] tbody td:last-child,
+  [data-cloudhub] table[data-os-grid] tfoot td:last-child {
+    border-right: 0;
+  }
+  [data-cloudhub] table[data-os-grid] tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  [data-cloudhub] table[data-os-grid] tbody tr:hover td {
+    background: var(--os-soft);
+  }
+  [data-cloudhub] table[data-os-grid] tbody tr[data-state="selected"] td {
+    background: var(--os-accent-bg);
+  }
+  [data-cloudhub] table[data-os-grid] thead th:first-child,
+  [data-cloudhub] table[data-os-grid] tbody td:first-child,
+  [data-cloudhub] table[data-os-grid] tfoot td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--os-canvas);
+    border-right: 1px solid var(--os-hairline-2);
+  }
+  [data-cloudhub] table[data-os-grid] thead th:first-child {
+    z-index: 3;
+    background: var(--os-soft);
+  }
+  [data-cloudhub] table[data-os-grid] tbody tr:hover td:first-child {
+    background: var(--os-soft);
+  }
+  [data-cloudhub] table[data-os-grid] tbody tr[data-state="selected"] td:first-child {
+    background: var(--os-accent-bg);
+  }
+  [data-cloudhub] table[data-os-grid] tfoot td {
+    padding: 0.5625rem 0.875rem;
+    background: var(--os-soft);
+    border-top: 1px solid var(--os-hairline-2);
+    font-size: 0.78125rem;
+    color: var(--os-body);
+    font-weight: 400;
+  }
+  [data-cloudhub] table[data-os-grid] tfoot b,
+  [data-cloudhub] table[data-os-grid] tfoot strong {
+    font-weight: 600;
+    color: var(--os-ink);
+  }
+  [data-cloudhub] table:not([data-os-grid]) {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.78125rem;
+  }
+  [data-cloudhub] table:not([data-os-grid]) thead tr {
+    background: transparent;
+  }
+  [data-cloudhub] table:not([data-os-grid]) thead th {
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--os-mute);
+    padding: 0.5625rem 0.875rem;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--os-hairline);
+  }
+  [data-cloudhub] table:not([data-os-grid]) tbody td {
+    padding: 0.625rem 0.875rem;
+    color: var(--os-text);
+    border-bottom: 1px solid var(--os-hairline);
+  }
+  [data-cloudhub] table:not([data-os-grid]) tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  [data-cloudhub] table:not([data-os-grid]) tbody tr:hover {
+    background: var(--os-soft);
+  }
+  /* ── overlays ───────────────────────────────────────────────────────────
+     Sheets and dialogs portal out of the themed subtree, so they carry
+     `data-cloudhub` on themselves. The veil is white; a dark dim is the
+     one overlay move DESIGN.md forbids. */
+  [data-cloudhub][data-slot="sheet-overlay"],
+  [data-cloudhub][data-slot="dialog-overlay"] {
+    background: var(--os-scrim);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  [data-cloudhub][data-slot="dialog-content"] {
+    border-radius: var(--os-r-card);
+    border: 1px solid var(--os-hairline-2);
+    box-shadow: var(--os-shadow-float);
+    background: var(--os-canvas);
+  }
+  [data-cloudhub][data-slot="dropdown-menu-content"],
+  [data-cloudhub][data-slot="popover-content"] {
+    border-radius: var(--os-r-card);
+    border: 1px solid var(--os-hairline-2);
+    box-shadow: var(--os-shadow-float);
+  }
+  /* Invalid fields: same-hue tint, never a red glow borrowed from shadcn. */
+  [data-cloudhub] [aria-invalid="true"] {
+    border-color: var(--os-bad) !important;
+    box-shadow: 0 0 0 3px var(--os-bad-bg);
+  }
+}
+
+/* The rail tile itself. A utility rather than 13 Tailwind arbitrary values
+   repeated down nav.tsx, because every tile shares the geometry and differs
+   only in the four hue variables above. */
+@layer components {
+  .rail-tile {
+    background-image:
+      radial-gradient(72% 72% at 22% 18%, var(--rail-c1), transparent 62%),
+      radial-gradient(72% 72% at 82% 24%, var(--rail-c2), transparent 62%),
+      radial-gradient(84% 84% at 70% 88%, var(--rail-c3), transparent 68%);
+    background-color: var(--rail-base);
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.07),
+      0 1px 2px rgba(20, 20, 25, 0.1);
+  }
+  /* the gloss, kept low — at .34 it washed the colour out */
+  .rail-tile::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.18),
+      rgba(255, 255, 255, 0) 55%
+    );
+    pointer-events: none;
+  }
+  .rail-tile > svg {
+    filter: drop-shadow(0 1px 1.5px rgba(45, 45, 65, 0.32));
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -141,5 +554,11 @@
     }
   html {
     @apply font-sans;
+    /* Cloud Hub's density, baked into the scale rather than shipped as the
+       prototypes' `zoom: 0.9` — which DESIGN.md forbids in production. 16 ×
+       0.9 = 14.4, so every rem-based size and every rem of spacing lands
+       exactly where the prototype lands, and the app stops reading a grade
+       looser than the thing it is copying. */
+    font-size: 14.4px;
     }
 }

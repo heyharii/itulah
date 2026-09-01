@@ -65,7 +65,7 @@ export function StatusDot({ status }: { status: string }) {
         aria-hidden
         className={
           status === "ACTIVE"
-            ? "size-2 shrink-0 rounded-full bg-emerald-500"
+            ? "size-2 shrink-0 rounded-full bg-[var(--os-ok,#10b981)]"
             : "size-2 shrink-0 rounded-full bg-neutral-400"
         }
       />
@@ -123,6 +123,7 @@ export function sourcingColumns({
       size: 36,
       enableHiding: false,
       enableSorting: false,
+      meta: { kind: "select" },
       header: ({ table }) => (
         <Checkbox
           checked={table.getIsAllPageRowsSelected()}
@@ -146,6 +147,7 @@ export function sourcingColumns({
       size: 56,
       enableHiding: false,
       enableSorting: false,
+      meta: { kind: "actions" },
       header: () => <span className="sr-only">Add to basket</span>,
       cell: ({ row }) => {
         const inBasket = held.get(row.original.id) ?? 0
@@ -163,13 +165,13 @@ export function sourcingColumns({
                 event.stopPropagation()
                 onAdd(row.original.id)
               }}
-              className="text-muted-foreground hover:bg-muted hover:text-foreground grid size-6 place-items-center rounded-md disabled:pointer-events-none disabled:opacity-30"
+              className="text-[var(--os-line-ico,#abacb2)] hover:bg-[var(--os-soft-2,#f3f3f5)] hover:text-[var(--os-ink,#1d1d1f)] grid size-6 place-items-center rounded-full disabled:pointer-events-none disabled:opacity-30"
             >
               <Plus className="size-4" />
             </button>
             {inBasket > 0 && (
               <span
-                className="font-mono text-[10.5px] tabular-nums text-emerald-600"
+                className="font-mono text-[10.5px] tabular-nums text-[var(--os-accent,#059669)]"
                 title={`${inBasket} in your basket`}
               >
                 {inBasket}

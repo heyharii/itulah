@@ -40,7 +40,10 @@ export function SalesTable({
   bucket: SalesBucket
   kind: SalesSeriesKind
   /// A shop and a span — one period, or the whole range from the total column.
-  onOpen: (scope: { siteId: string; from: string; to: string; title: string }) => void
+  /// What was clicked, as the three things that identify it. The title is the
+  /// screen's to write: it has to survive a reload from the URL alone, and a
+  /// shop's name is not in the address.
+  onOpen: (cell: { siteId: string; from: string; to: string }) => void
   /// Narrow the whole screen to one shop.
   onFocus: (siteId: string) => void
 }) {
@@ -53,7 +56,8 @@ export function SalesTable({
     }
     return exact ? money(value) : compactMoney(value)
   }
-  const exactly = (value: number) => (kind === "gross_minor" ? money(value) : units(value))
+  const exactly = (value: number) =>
+    kind === "gross_minor" ? money(value) : units(value)
 
   const span = {
     from: matrix.buckets[0] ?? "",
@@ -61,21 +65,25 @@ export function SalesTable({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="os-card min-h-0 flex-1 overflow-auto">
       <table className="w-full border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
             <th
               scope="col"
-              className="bg-card text-muted-foreground sticky top-0 left-0 z-30 h-9 border-r border-b px-3 text-left font-medium"
+              className="sticky top-0 left-0 z-30 h-9 border-r border-b bg-card px-3 text-left font-medium text-muted-foreground"
               style={{ width: SHOP_COLUMN, minWidth: SHOP_COLUMN }}
             >
               Shop
             </th>
             <th
               scope="col"
-              className="bg-card text-muted-foreground sticky top-0 z-30 h-9 border-r border-b px-3 text-right font-medium"
-              style={{ left: SHOP_COLUMN, width: TOTAL_COLUMN, minWidth: TOTAL_COLUMN }}
+              className="sticky top-0 z-30 h-9 border-r border-b bg-card px-3 text-right font-medium text-muted-foreground"
+              style={{
+                left: SHOP_COLUMN,
+                width: TOTAL_COLUMN,
+                minWidth: TOTAL_COLUMN,
+              }}
             >
               Total
             </th>
@@ -83,7 +91,7 @@ export function SalesTable({
               <th
                 scope="col"
                 title={`Against ${comparison.full}`}
-                className="bg-card text-muted-foreground sticky top-0 z-30 h-9 border-r border-b px-2 text-right font-medium"
+                className="sticky top-0 z-30 h-9 border-r border-b bg-card px-2 text-right font-medium text-muted-foreground"
                 style={{
                   left: SHOP_COLUMN + TOTAL_COLUMN,
                   width: DELTA_COLUMN,
@@ -98,7 +106,7 @@ export function SalesTable({
                 key={start}
                 scope="col"
                 title={bucketTitle(start, bucket)}
-                className="bg-card text-muted-foreground sticky top-0 z-20 h-9 border-b px-3 text-right font-medium whitespace-nowrap"
+                className="sticky top-0 z-20 h-9 border-b bg-card px-3 text-right font-medium whitespace-nowrap text-muted-foreground"
               >
                 {bucketLabel(start, bucket)}
               </th>
@@ -123,7 +131,7 @@ export function SalesTable({
               <tr>
                 <th
                   scope="row"
-                  className="bg-card group-hover:bg-muted sticky left-0 z-10 border-r p-0 text-left font-medium transition-colors"
+                  className="sticky left-0 z-10 border-r bg-card p-0 text-left font-medium transition-colors group-hover:bg-muted"
                   style={{ width: SHOP_COLUMN, minWidth: SHOP_COLUMN }}
                 >
                   {/* The name is the way to look at this shop and nothing
@@ -134,7 +142,7 @@ export function SalesTable({
                     type="button"
                     onClick={() => onFocus(site.site_id)}
                     title={`Show ${site.site_name} on its own`}
-                    className="focus-visible:ring-ring flex w-full cursor-pointer items-center gap-2 px-3 pt-1.5 text-left focus-visible:ring-2 focus-visible:outline-none"
+                    className="flex w-full cursor-pointer items-center gap-2 px-3 pt-1.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                   >
                     {/* The band's colour, taken from the chart's own variable
                         so the swatch is right in both themes rather than in
@@ -150,8 +158,12 @@ export function SalesTable({
                   </button>
                 </th>
                 <td
-                  className="bg-card group-hover:bg-muted sticky z-10 border-r p-0 transition-colors"
-                  style={{ left: SHOP_COLUMN, width: TOTAL_COLUMN, minWidth: TOTAL_COLUMN }}
+                  className="sticky z-10 border-r bg-card p-0 transition-colors group-hover:bg-muted"
+                  style={{
+                    left: SHOP_COLUMN,
+                    width: TOTAL_COLUMN,
+                    minWidth: TOTAL_COLUMN,
+                  }}
                 >
                   <button
                     type="button"
@@ -162,10 +174,9 @@ export function SalesTable({
                         siteId: site.site_id,
                         from: span.from,
                         to: span.to,
-                        title: `${site.site_name} · whole range`,
                       })
                     }
-                    className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 pt-1.5 text-right font-mono font-semibold tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+                    className="w-full cursor-pointer px-3 pt-1.5 text-right font-mono font-semibold tabular-nums transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
                   >
                     {show(total, true)}
                   </button>
@@ -173,14 +184,18 @@ export function SalesTable({
                 {before !== undefined && (
                   <td
                     rowSpan={2}
-                    className="bg-card group-hover:bg-muted sticky z-10 border-r border-b px-2 text-right align-middle transition-colors"
+                    className="sticky z-10 border-r border-b bg-card px-2 text-right align-middle transition-colors group-hover:bg-muted"
                     style={{
                       left: SHOP_COLUMN + TOTAL_COLUMN,
                       width: DELTA_COLUMN,
                       minWidth: DELTA_COLUMN,
                     }}
                   >
-                    <Delta now={total} before={wasTotal} against={comparison.full} />
+                    <Delta
+                      now={total}
+                      before={wasTotal}
+                      against={comparison.full}
+                    />
                   </td>
                 )}
                 {matrix.buckets.map((start) => {
@@ -188,7 +203,7 @@ export function SalesTable({
                   return (
                     <td
                       key={start}
-                      className="bg-card group-hover:bg-muted p-0 transition-colors"
+                      className="bg-card p-0 transition-colors group-hover:bg-muted"
                     >
                       <button
                         type="button"
@@ -203,10 +218,9 @@ export function SalesTable({
                             siteId: site.site_id,
                             from: start,
                             to: bucketEnd(start, bucket),
-                            title: `${site.site_name} · ${bucketTitle(start, bucket)}`,
                           })
                         }
-                        className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 pt-1.5 text-right font-mono tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+                        className="w-full cursor-pointer px-3 pt-1.5 text-right font-mono tabular-nums transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
                       >
                         {show(value)}
                       </button>
@@ -219,7 +233,7 @@ export function SalesTable({
                 <tr className="text-muted-foreground">
                   <th
                     scope="row"
-                    className="bg-card group-hover:bg-muted sticky left-0 z-10 border-r border-b px-3 pb-1.5 text-left font-normal transition-colors"
+                    className="sticky left-0 z-10 border-r border-b bg-card px-3 pb-1.5 text-left font-normal transition-colors group-hover:bg-muted"
                     style={{ width: SHOP_COLUMN, minWidth: SHOP_COLUMN }}
                   >
                     {/* Indented past the swatch above it, so the eye reads it
@@ -229,8 +243,12 @@ export function SalesTable({
                     </span>
                   </th>
                   <td
-                    className="bg-card group-hover:bg-muted sticky z-10 border-r border-b p-0 transition-colors"
-                    style={{ left: SHOP_COLUMN, width: TOTAL_COLUMN, minWidth: TOTAL_COLUMN }}
+                    className="sticky z-10 border-r border-b bg-card p-0 transition-colors group-hover:bg-muted"
+                    style={{
+                      left: SHOP_COLUMN,
+                      width: TOTAL_COLUMN,
+                      minWidth: TOTAL_COLUMN,
+                    }}
                   >
                     <button
                       type="button"
@@ -241,10 +259,9 @@ export function SalesTable({
                           siteId: site.site_id,
                           from: comparison.from,
                           to: comparison.to,
-                          title: `${site.site_name} · ${comparison.full}`,
                         })
                       }
-                      className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 pb-1.5 text-right font-mono tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+                      className="w-full cursor-pointer px-3 pb-1.5 text-right font-mono tabular-nums transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
                     >
                       {show(wasTotal, true)}
                     </button>
@@ -264,10 +281,10 @@ export function SalesTable({
                     return (
                       <td
                         key={start}
-                        className="bg-card group-hover:bg-muted border-b p-0 transition-colors"
+                        className="border-b bg-card p-0 transition-colors group-hover:bg-muted"
                       >
                         {was === null || wasBucket === undefined ? (
-                          <span className="text-muted-foreground/40 block px-3 pb-1.5 text-right">
+                          <span className="block px-3 pb-1.5 text-right text-muted-foreground/40">
                             ·
                           </span>
                         ) : (
@@ -284,10 +301,9 @@ export function SalesTable({
                                 siteId: site.site_id,
                                 from: wasBucket,
                                 to: bucketEnd(wasBucket, bucket),
-                                title: `${site.site_name} · ${bucketTitle(wasBucket, bucket)}`,
                               })
                             }
-                            className="hover:bg-muted focus-visible:ring-ring w-full cursor-pointer px-3 pb-1.5 text-right font-mono text-[11px] tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+                            className="w-full cursor-pointer px-3 pb-1.5 text-right font-mono text-[11px] tabular-nums transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent"
                           >
                             {show(was)}
                           </button>
@@ -311,21 +327,25 @@ export function SalesTable({
           <tr>
             <th
               scope="row"
-              className="bg-secondary sticky bottom-0 left-0 z-30 border-t border-r px-3 pt-1.5 text-left font-semibold"
+              className="sticky bottom-0 left-0 z-30 border-t border-r bg-secondary px-3 pt-1.5 text-left font-semibold"
               style={{ width: SHOP_COLUMN, minWidth: SHOP_COLUMN }}
             >
               Fleet
             </th>
             <td
-              className="bg-secondary sticky bottom-0 z-30 border-t border-r px-3 pt-1.5 text-right font-mono font-semibold tabular-nums"
-              style={{ left: SHOP_COLUMN, width: TOTAL_COLUMN, minWidth: TOTAL_COLUMN }}
+              className="sticky bottom-0 z-30 border-t border-r bg-secondary px-3 pt-1.5 text-right font-mono font-semibold tabular-nums"
+              style={{
+                left: SHOP_COLUMN,
+                width: TOTAL_COLUMN,
+                minWidth: TOTAL_COLUMN,
+              }}
             >
               {show(matrix.grandTotal(kind), true)}
             </td>
             {before !== undefined && (
               <td
                 rowSpan={2}
-                className="bg-secondary sticky bottom-0 z-30 border-t border-r px-2 text-right align-middle"
+                className="sticky bottom-0 z-30 border-t border-r bg-secondary px-2 text-right align-middle"
                 style={{
                   left: SHOP_COLUMN + TOTAL_COLUMN,
                   width: DELTA_COLUMN,
@@ -343,7 +363,7 @@ export function SalesTable({
               <td
                 key={start}
                 title={exactly(matrix.bucketTotal(start, kind))}
-                className="bg-secondary sticky bottom-0 z-20 border-t px-3 pt-1.5 text-right font-mono font-medium tabular-nums"
+                className="sticky bottom-0 z-20 border-t bg-secondary px-3 pt-1.5 text-right font-mono font-medium tabular-nums"
               >
                 {show(matrix.bucketTotal(start, kind))}
               </td>
@@ -356,14 +376,20 @@ export function SalesTable({
             <tr className="text-muted-foreground">
               <th
                 scope="row"
-                className="bg-secondary sticky bottom-0 left-0 z-30 border-r px-3 pb-1.5 text-left font-normal"
+                className="sticky bottom-0 left-0 z-30 border-r bg-secondary px-3 pb-1.5 text-left font-normal"
                 style={{ width: SHOP_COLUMN, minWidth: SHOP_COLUMN }}
               >
-                <span className="block truncate text-[10.5px]">{comparison.full}</span>
+                <span className="block truncate text-[10.5px]">
+                  {comparison.full}
+                </span>
               </th>
               <td
-                className="bg-secondary sticky bottom-0 z-30 border-r px-3 pb-1.5 text-right font-mono tabular-nums"
-                style={{ left: SHOP_COLUMN, width: TOTAL_COLUMN, minWidth: TOTAL_COLUMN }}
+                className="sticky bottom-0 z-30 border-r bg-secondary px-3 pb-1.5 text-right font-mono tabular-nums"
+                style={{
+                  left: SHOP_COLUMN,
+                  width: TOTAL_COLUMN,
+                  minWidth: TOTAL_COLUMN,
+                }}
               >
                 {show(before.grandTotal(kind), true)}
               </td>
@@ -372,7 +398,7 @@ export function SalesTable({
                 return (
                   <td
                     key={start}
-                    className="bg-secondary sticky bottom-0 z-20 px-3 pb-1.5 text-right font-mono text-[11px] tabular-nums"
+                    className="sticky bottom-0 z-20 bg-secondary px-3 pb-1.5 text-right font-mono text-[11px] tabular-nums"
                   >
                     {wasBucket === undefined ? (
                       <span className="text-muted-foreground/40">·</span>
