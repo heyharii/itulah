@@ -172,6 +172,69 @@ fn group_of(site_ids: Option<&[String]>) -> Option<Vec<String>> {
     }
 }
 
+/// Levels and effects the fleet cannot actually honour.
+///
+/// Each of these is authorable, validated, stored, dispatched — and then does
+/// nothing, because the input the engine needs to act on it is supplied by
+/// nobody:
+///
+/// - a **tier** price waits on `PricingContext.customer_tier`, and no customer
+///   anywhere carries a tier: the only `tier` columns in the schema are on the
+///   price side, and the till never sets the field.
+/// - a **margin** effect waits on `CartLine.unit_cost`, which nothing sets —
+///   and cannot be set at a shop, because the architecture forbids cost
+///   reaching one.
+/// - a **cumulative** condition waits on `PricingContext.customer_cumulative`,
+///   which nothing fills, so "spend five million in June" counts nothing.
+///
+/// Refused here rather than left to fail quietly. A form field somebody fills
+/// in that silently does not apply is worse than a field that is not there: the
+/// promotion looks authored, the shelf ticket gets printed, and the counter
+/// charges something else. When the missing input is wired, this gate is the
+/// one place to remove.
+fn refuse_what_the_fleet_cannot_honour(
+    request: &CreateCommercialPublicationRequest,
+) -> Result<(), AppError> {
+    if request.offer_rules.iter().any(|offer| offer.tier.is_some()) {
+        return Err(AppError::Validation(
+            "a tier price cannot be honoured: no customer carries a tier, so a till \
+             would never match one. Price by shop or by group of shops instead."
+                .into(),
+        ));
+    }
+    if request.markdowns.iter().any(|markdown| markdown.tier.is_some()) {
+        return Err(AppError::Validation(
+            "a tier markdown cannot be honoured: no customer carries a tier.".into(),
+        ));
+    }
+    for rule in &request.rules {
+        if matches!(rule.effect, pricing_engine::Effect::Margin { .. }) {
+            return Err(AppError::Validation(format!(
+                "promotion {} prices at a margin over cost, and no cart line carries \
+                 a cost — a shop is never told one. Use a percentage or a fixed price.",
+                rule.rule_id
+            )));
+        }
+        if rule.conditions.cumulative {
+            return Err(AppError::Validation(format!(
+                "promotion {} counts what a shopper has bought before, and nothing \
+                 supplies that history yet, so it would never trigger.",
+                rule.rule_id
+            )));
+        }
+        if matches!(
+            rule.scope.customers,
+            pricing_engine::CustomerScope::Tiers { .. }
+        ) {
+            return Err(AppError::Validation(format!(
+                "promotion {} is for member tiers, and no customer carries a tier.",
+                rule.rule_id
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate_publication_request(
     request: &CreateCommercialPublicationRequest,
 ) -> Result<(), AppError> {
@@ -323,6 +386,8 @@ fn validate_publication_request(
             )));
         }
     }
+
+    refuse_what_the_fleet_cannot_honour(request)?;
 
     let mut scopes = HashSet::new();
     for offer in &request.offer_rules {
@@ -519,6 +584,72 @@ pub(super) async fn dispatch_publication(
     .fetch_all(&mut **tx)
     .await?;
 
+    // Promotions, their codes and their envelopes are the same for every shop:
+    // none of the three queries below names a site. Read inside the loop they
+    // were read once per branch — thirty identical round trips for one book,
+    // inside the transaction that publishes it and therefore holding it open
+    // that much longer.
+    //
+    // Prices and markdowns stay in the loop because they genuinely differ: each
+    // shop is sent the company-wide rows and its own, and nothing else.
+    let promotion_rules: Vec<Value> = sqlx::query(
+        "SELECT definition FROM commercial_rule
+          WHERE publication_id=$1 ORDER BY rule_id",
+    )
+    .bind(publication_id)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| row.get::<Value, _>("definition"))
+    .collect();
+
+    let coupons: Vec<Value> = sqlx::query(
+        "SELECT code,rule_id,active,customer_id,valid_from,valid_to,max_uses,used
+           FROM commercial_coupon WHERE publication_id=$1 ORDER BY code",
+    )
+    .bind(publication_id)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "code": row.get::<String, _>("code"),
+            "rule_id": row.get::<String, _>("rule_id"),
+            "active": row.get::<bool, _>("active"),
+            "customer_id": row.get::<Option<String>, _>("customer_id"),
+            "valid_from": row.get::<Option<DateTime<Utc>>, _>("valid_from"),
+            "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
+            "max_uses": row.get::<Option<i32>, _>("max_uses"),
+            "used": row.get::<i32, _>("used"),
+        })
+    })
+    .collect();
+
+    let campaigns: Vec<Value> = sqlx::query(
+        "SELECT campaign_id,name,status,valid_from,valid_to,budget_minor,
+                spent_minor,max_uses,used,max_uses_per_customer
+           FROM commercial_campaign WHERE publication_id=$1 ORDER BY campaign_id",
+    )
+    .bind(publication_id)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "campaign_id": row.get::<String, _>("campaign_id"),
+            "name": row.get::<String, _>("name"),
+            "status": row.get::<String, _>("status"),
+            "valid_from": row.get::<Option<DateTime<Utc>>, _>("valid_from"),
+            "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
+            "budget_minor": row.get::<Option<i64>, _>("budget_minor"),
+            "spent_minor": row.get::<i64, _>("spent_minor"),
+            "max_uses": row.get::<Option<i32>, _>("max_uses"),
+            "used": row.get::<i32, _>("used"),
+            "max_uses_per_customer": row.get::<Option<i32>, _>("max_uses_per_customer"),
+        })
+    })
+    .collect();
+
     let mut delivered = Vec::with_capacity(shops.len());
     for shop in shops {
         let origin_id: String = shop.get("origin_id");
@@ -594,73 +725,6 @@ pub(super) async fn dispatch_publication(
                 "priority": row.get::<i32, _>("priority"),
                 "effective_from": row.get::<DateTime<Utc>, _>("effective_from"),
                 "effective_to": row.get::<Option<DateTime<Utc>>, _>("effective_to"),
-            })
-        })
-        .collect();
-
-        // Promotions go to every shop as authored. Unlike prices they carry
-        // their own site scope inside the document, and the engine at the shop
-        // enforces it — there is no column here to filter on without parsing
-        // the rule, and parsing it here would put a second interpreter of rule
-        // semantics in the system, which is the one thing this design exists to
-        // avoid.
-        let promotion_rules: Vec<Value> = sqlx::query(
-            "SELECT definition FROM commercial_rule
-              WHERE publication_id=$1 ORDER BY rule_id",
-        )
-        .bind(publication_id)
-        .fetch_all(&mut **tx)
-        .await?
-        .into_iter()
-        .map(|row| row.get::<Value, _>("definition"))
-        .collect();
-
-        let coupons: Vec<Value> = sqlx::query(
-            "SELECT code,rule_id,active,customer_id,valid_from,valid_to,max_uses,used
-               FROM commercial_coupon WHERE publication_id=$1 ORDER BY code",
-        )
-        .bind(publication_id)
-        .fetch_all(&mut **tx)
-        .await?
-        .into_iter()
-        .map(|row| {
-            json!({
-                "code": row.get::<String, _>("code"),
-                "rule_id": row.get::<String, _>("rule_id"),
-                "active": row.get::<bool, _>("active"),
-                "customer_id": row.get::<Option<String>, _>("customer_id"),
-                "valid_from": row.get::<Option<DateTime<Utc>>, _>("valid_from"),
-                "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
-                "max_uses": row.get::<Option<i32>, _>("max_uses"),
-                "used": row.get::<i32, _>("used"),
-            })
-        })
-        .collect();
-
-        // Campaigns go to every shop that gets any of this book. A shop
-        // refuses a promotion whose campaign it does not hold, so sending the
-        // rules without their envelopes would silently switch the offers off.
-        let campaigns: Vec<Value> = sqlx::query(
-            "SELECT campaign_id,name,status,valid_from,valid_to,budget_minor,
-                    spent_minor,max_uses,used,max_uses_per_customer
-               FROM commercial_campaign WHERE publication_id=$1 ORDER BY campaign_id",
-        )
-        .bind(publication_id)
-        .fetch_all(&mut **tx)
-        .await?
-        .into_iter()
-        .map(|row| {
-            json!({
-                "campaign_id": row.get::<String, _>("campaign_id"),
-                "name": row.get::<String, _>("name"),
-                "status": row.get::<String, _>("status"),
-                "valid_from": row.get::<Option<DateTime<Utc>>, _>("valid_from"),
-                "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
-                "budget_minor": row.get::<Option<i64>, _>("budget_minor"),
-                "spent_minor": row.get::<i64, _>("spent_minor"),
-                "max_uses": row.get::<Option<i32>, _>("max_uses"),
-                "used": row.get::<i32, _>("used"),
-                "max_uses_per_customer": row.get::<Option<i32>, _>("max_uses_per_customer"),
             })
         })
         .collect();
@@ -1023,57 +1087,53 @@ pub async fn commercial_activation(pool: &PgPool) -> Result<Value, AppError> {
 /// would have to be migrated in lockstep. Reading two known fields out of that
 /// document is the price of not having a second definition of what a rule is.
 pub async fn commercial_usage(pool: &PgPool) -> Result<Value, AppError> {
+    // One pass, not six correlated subqueries per row.
+    //
+    // It was written as a CASE over three lookups repeated for budget, for the
+    // usage cap and for the name — eighteen scans for three rows and eighteen
+    // hundred for three hundred, each one re-finding the newest publication
+    // that declares the same key. The newest declaration of each kind is a
+    // thing to compute ONCE and join to.
+    //
+    // `DISTINCT ON` gives that directly: the row with the highest publication
+    // version per key, which is the declaration in force. A limit stated in an
+    // older book has been superseded like everything else in it.
     let rows = sqlx::query(
-        "SELECT u.kind, u.key, u.uses, u.spent_minor, u.first_used_at, u.last_used_at,
-                CASE u.kind
-                    WHEN 'CAMPAIGN' THEN (
-                        SELECT c.budget_minor FROM commercial_campaign c
-                          JOIN commercial_publication p ON p.id = c.publication_id
-                         WHERE c.campaign_id = u.key AND p.status = 'PUBLISHED'
-                         ORDER BY p.version DESC LIMIT 1)
-                    WHEN 'RULE' THEN (
-                        SELECT (r.definition->'caps'->'budget'->>'minor')::bigint
-                          FROM commercial_rule r
-                          JOIN commercial_publication p ON p.id = r.publication_id
-                         WHERE r.rule_id = u.key AND p.status = 'PUBLISHED'
-                         ORDER BY p.version DESC LIMIT 1)
-                    ELSE NULL
-                END budget_minor,
-                CASE u.kind
-                    WHEN 'CAMPAIGN' THEN (
-                        SELECT c.max_uses::bigint FROM commercial_campaign c
-                          JOIN commercial_publication p ON p.id = c.publication_id
-                         WHERE c.campaign_id = u.key AND p.status = 'PUBLISHED'
-                         ORDER BY p.version DESC LIMIT 1)
-                    WHEN 'COUPON' THEN (
-                        SELECT c.max_uses::bigint FROM commercial_coupon c
-                          JOIN commercial_publication p ON p.id = c.publication_id
-                         WHERE c.code = u.key AND p.status = 'PUBLISHED'
-                         ORDER BY p.version DESC LIMIT 1)
-                    WHEN 'RULE' THEN (
-                        SELECT (r.definition->'caps'->>'max_uses')::bigint
-                          FROM commercial_rule r
-                          JOIN commercial_publication p ON p.id = r.publication_id
-                         WHERE r.rule_id = u.key AND p.status = 'PUBLISHED'
-                         ORDER BY p.version DESC LIMIT 1)
-                    ELSE NULL
-                END max_uses,
-                (SELECT count(*)::bigint FROM commercial_usage_customer uc
-                  WHERE uc.kind = u.kind AND uc.key = u.key) customer_count,
-                CASE u.kind
-                    WHEN 'RULE' THEN (
-                        SELECT r.name FROM commercial_rule r
-                          JOIN commercial_publication p ON p.id = r.publication_id
-                         WHERE r.rule_id = u.key AND p.status = 'PUBLISHED'
-                         ORDER BY p.version DESC LIMIT 1)
-                    WHEN 'CAMPAIGN' THEN (
-                        SELECT c.name FROM commercial_campaign c
-                          JOIN commercial_publication p ON p.id = c.publication_id
-                         WHERE c.campaign_id = u.key AND p.status = 'PUBLISHED'
-                         ORDER BY p.version DESC LIMIT 1)
-                    ELSE NULL
-                END name
+        "WITH live AS (
+             SELECT id, version FROM commercial_publication WHERE status = 'PUBLISHED'
+         ), rule AS (
+             SELECT DISTINCT ON (r.rule_id) r.rule_id AS key, r.name,
+                    (r.definition->'caps'->'budget'->>'minor')::bigint AS budget_minor,
+                    (r.definition->'caps'->>'max_uses')::bigint AS max_uses
+               FROM commercial_rule r JOIN live p ON p.id = r.publication_id
+              ORDER BY r.rule_id, p.version DESC
+         ), campaign AS (
+             SELECT DISTINCT ON (c.campaign_id) c.campaign_id AS key, c.name,
+                    c.budget_minor, c.max_uses::bigint AS max_uses
+               FROM commercial_campaign c JOIN live p ON p.id = c.publication_id
+              ORDER BY c.campaign_id, p.version DESC
+         ), coupon AS (
+             SELECT DISTINCT ON (c.code) c.code AS key,
+                    c.max_uses::bigint AS max_uses
+               FROM commercial_coupon c JOIN live p ON p.id = c.publication_id
+              ORDER BY c.code, p.version DESC
+         ), per_customer AS (
+             SELECT kind, key, count(*)::bigint AS customer_count
+               FROM commercial_usage_customer GROUP BY kind, key
+         )
+         SELECT u.kind, u.key, u.uses, u.spent_minor, u.first_used_at, u.last_used_at,
+                CASE u.kind WHEN 'RULE' THEN r.name WHEN 'CAMPAIGN' THEN g.name END AS name,
+                CASE u.kind WHEN 'RULE' THEN r.budget_minor
+                            WHEN 'CAMPAIGN' THEN g.budget_minor END AS budget_minor,
+                CASE u.kind WHEN 'RULE' THEN r.max_uses
+                            WHEN 'CAMPAIGN' THEN g.max_uses
+                            WHEN 'COUPON' THEN o.max_uses END AS max_uses,
+                COALESCE(pc.customer_count, 0) AS customer_count
            FROM commercial_usage u
+           LEFT JOIN rule r ON u.kind = 'RULE' AND r.key = u.key
+           LEFT JOIN campaign g ON u.kind = 'CAMPAIGN' AND g.key = u.key
+           LEFT JOIN coupon o ON u.kind = 'COUPON' AND o.key = u.key
+           LEFT JOIN per_customer pc ON pc.kind = u.kind AND pc.key = u.key
           ORDER BY u.spent_minor DESC, u.kind, u.key",
     )
     .fetch_all(pool)

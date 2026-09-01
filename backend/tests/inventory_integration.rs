@@ -1946,3 +1946,126 @@ async fn a_budget_spent_in_the_fleet_is_spent_at_the_centre_too(pool: PgPool) {
         "and it must say so in the words a cashier would use: {after}"
     );
 }
+
+/// The usage list reports the limit the newest book declares.
+///
+/// It reads three declarations — a rule's caps, a campaign's caps, a coupon's
+/// cap — and each was a correlated subquery repeated per column: eighteen scans
+/// for three rows, eighteen hundred for three hundred, every one re-finding the
+/// same newest publication. They are one pass now, and this fixes the answer in
+/// place so the rewrite cannot quietly change it.
+///
+/// The superseded case is the one worth holding: a limit stated in an older
+/// book has been replaced like everything else in it, so a campaign re-declared
+/// with a bigger budget must report the bigger one.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_usage_list_reports_the_limit_the_newest_book_declares(pool: PgPool) {
+    let sku: Uuid = sqlx::query_scalar("SELECT id FROM sku WHERE active ORDER BY sku_code LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("a seeded SKU: {e}"));
+
+    let publish = |version: i64, budget: i64, key: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let created = infrastructure::create_commercial_publication(
+                &pool,
+                CreateCommercialPublicationRequest {
+                    version,
+                    name: format!("Buku {version}"),
+                    effective_from: Utc::now() - Duration::days(1),
+                    effective_to: None,
+                    tax_rules: vec![CommercialTaxRuleInput {
+                        tax_category: "STANDARD".into(),
+                        rate_bps: 0,
+                        tax_inclusive: true,
+                    }],
+                    offer_rules: vec![CommercialOfferRuleInput {
+                        sku_id: sku,
+                        site_id: None,
+                        site_ids: None,
+                        tier: None,
+                        channel: CommercialChannel::Store,
+                        sellable: true,
+                        currency: "IDR".into(),
+                        unit_price_minor: 100_000,
+                        tax_category: "STANDARD".into(),
+                    }],
+                    markdowns: Vec::new(),
+                    rules: Vec::new(),
+                    coupons: Vec::new(),
+                    campaigns: vec![
+                        inventory_backend::cloud::application::CommercialCampaignInput {
+                            campaign_id: "C-LIMIT".into(),
+                            name: "Kampanye".into(),
+                            status: "ACTIVE".into(),
+                            valid_from: None,
+                            valid_to: None,
+                            budget_minor: Some(budget),
+                            max_uses: None,
+                            max_uses_per_customer: None,
+                        },
+                    ],
+                    actor_id: "merchandiser".into(),
+                    idempotency_key: format!("{key}-draft"),
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("draft {version}: {e}"));
+            let id: Uuid = created["id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("no id"))
+                .parse()
+                .unwrap_or_else(|e| panic!("id: {e}"));
+            infrastructure::publish_commercial_publication(
+                &pool,
+                id,
+                CommandRequest {
+                    actor_id: "merchandiser".into(),
+                    idempotency_key: format!("{key}-publish"),
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("publish {version}: {e}"));
+        }
+    };
+
+    publish(810, 1_000_000, "small").await;
+    publish(811, 9_000_000, "big").await;
+
+    sqlx::query(
+        "INSERT INTO commercial_usage (kind, key, uses, spent_minor)
+         VALUES ('CAMPAIGN', 'C-LIMIT', 3, 250_000)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("count: {e}"));
+    sqlx::query(
+        "INSERT INTO commercial_usage_customer (kind, key, customer_id, uses)
+         VALUES ('CAMPAIGN', 'C-LIMIT', 'cust-1', 2), ('CAMPAIGN', 'C-LIMIT', 'cust-2', 1)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("per-customer count: {e}"));
+
+    let usage = infrastructure::commercial_usage(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("usage: {e}"));
+    let row = usage["items"]
+        .as_array()
+        .and_then(|items| items.first())
+        .cloned()
+        .unwrap_or_else(|| panic!("no usage rows: {usage}"));
+
+    assert_eq!(row["key"], "C-LIMIT");
+    assert_eq!(row["spent_minor"], 250_000);
+    assert_eq!(
+        row["budget_minor"], 9_000_000,
+        "the newer book's budget supersedes the older one: {usage}"
+    );
+    assert_eq!(row["name"], "Kampanye");
+    assert_eq!(
+        row["customer_count"], 2,
+        "two shoppers have used it, counted once each"
+    );
+}

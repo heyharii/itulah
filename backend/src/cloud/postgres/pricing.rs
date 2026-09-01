@@ -160,12 +160,15 @@ pub async fn load_site_price_book(
              ON ar.publication_id = pr.publication_id AND ar.sku_id = pr.sku_id
             AND ar.channel = pr.channel AND ar.site_id IS NOT DISTINCT FROM pr.site_id
           WHERE p.status = 'PUBLISHED'
+            AND p.effective_from <= $3
+            AND (p.effective_to IS NULL OR p.effective_to > $3)
             AND pr.channel = $2
             AND (pr.site_id IS NULL OR pr.site_id = $1)
             AND (pr.site_ids IS NULL OR $1 = ANY(pr.site_ids))",
     )
     .bind(site_id)
     .bind(channel)
+    .bind(at)
     .fetch_all(&mut **tx)
     .await?;
 
@@ -202,10 +205,13 @@ pub async fn load_site_price_book(
            FROM commercial_markdown m
            JOIN commercial_publication p ON p.id = m.publication_id
           WHERE p.status = 'PUBLISHED'
+            AND m.effective_from <= $2
+            AND (m.effective_to IS NULL OR m.effective_to > $2)
             AND (m.site_id IS NULL OR m.site_id = $1)
             AND (m.site_ids IS NULL OR $1 = ANY(m.site_ids))",
     )
     .bind(site_id)
+    .bind(at)
     .fetch_all(&mut **tx)
     .await?
     .into_iter()
@@ -222,7 +228,6 @@ pub async fn load_site_price_book(
     })
     .collect();
 
-    let _ = at; // The window is applied by the engine, from the context.
     Ok(SitePricing {
         snapshot: PricingSnapshot {
             publication_version,
@@ -240,6 +245,14 @@ pub async fn load_site_price_book(
 /// Promotions are stored as the engine's own documents. One this build cannot
 /// read is skipped rather than fatal, exactly as at a shop: an unreadable offer
 /// must cost a discount, never the ability to sell.
+///
+/// Unlike markdowns, coupons and campaigns, these are NOT narrowed by their
+/// window here. A rule's window lives inside its document, and migration 0031
+/// is explicit that nothing queries inside a rule — a second reader of rule
+/// shape is the one thing that design avoids. The engine drops a lapsed rule on
+/// the next line anyway; what it costs is reading rules that will be discarded,
+/// which is bounded by how many promotions the business has ever run rather
+/// than by how large the catalogue is.
 async fn load_rules(
     tx: &mut Transaction<'_, Postgres>,
     usage: &UsageCounts,
@@ -282,7 +295,8 @@ async fn load_coupons(
                 c.max_uses, c.used
            FROM commercial_coupon c
            JOIN commercial_publication p ON p.id = c.publication_id
-          WHERE p.status = 'PUBLISHED'",
+          WHERE p.status = 'PUBLISHED'
+            AND (c.valid_to IS NULL OR c.valid_to > now())",
     )
     .fetch_all(&mut **tx)
     .await?
@@ -319,7 +333,9 @@ async fn load_campaigns(
                 c.budget_minor, c.spent_minor, c.max_uses, c.used, c.max_uses_per_customer
            FROM commercial_campaign c
            JOIN commercial_publication p ON p.id = c.publication_id
-          WHERE p.status = 'PUBLISHED' ORDER BY c.campaign_id",
+          WHERE p.status = 'PUBLISHED'
+            AND (c.valid_to IS NULL OR c.valid_to > now())
+          ORDER BY c.campaign_id",
     )
     .fetch_all(&mut **tx)
     .await?
