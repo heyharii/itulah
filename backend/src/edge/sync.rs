@@ -382,9 +382,9 @@ fn apply_activation(
     for rule in &payload.price_rules {
         tx.execute(
             "INSERT INTO commercial_price_rule
-                 (publication_id, sku_id, sku_code, site_id, site_ids_json, tier,
+                 (publication_id, sku_id, sku_code, site_id, site_ids_json,
                   channel, sellable, currency, unit_price_minor, tax_category)
-             VALUES (?1, ?2, ?3, ?4, ?10, ?11, ?5, ?6, ?7, ?8, ?9)",
+             VALUES (?1, ?2, ?3, ?4, ?10, ?5, ?6, ?7, ?8, ?9)",
             params![
                 publication_id,
                 rule.sku_id.to_string(),
@@ -396,7 +396,6 @@ fn apply_activation(
                 rule.unit_price_minor,
                 rule.tax_category,
                 site_ids_document(rule.site_ids.as_deref())?,
-                rule.tier,
             ],
         )
         .map_err(err)?;
@@ -425,9 +424,9 @@ fn apply_activation(
         tx.execute(
             "INSERT OR REPLACE INTO commercial_markdown
                  (markdown_id, publication_id, sku_code, article_code, site_id,
-                  site_ids_json, tier, replacement_unit_price_minor, priority,
+                  site_ids_json, replacement_unit_price_minor, priority,
                   effective_from, effective_to)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?10, ?11, ?6, ?7, ?8, ?9)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?10, ?6, ?7, ?8, ?9)",
             params![
                 markdown.markdown_id,
                 publication_id,
@@ -439,7 +438,6 @@ fn apply_activation(
                 time_text(markdown.effective_from),
                 markdown.effective_to.map(time_text),
                 site_ids_document(markdown.site_ids.as_deref())?,
-                markdown.tier,
             ],
         )
         .map_err(err)?;

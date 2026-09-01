@@ -25,6 +25,18 @@ enum class Mode(val title: String, val verb: String) {
 
 data class Seen(val epc: String, val rssi: Float?, val sku: String?, val serial: Long?)
 
+/** What a SKU is, as the node knows it. Absent until the lookup answers. */
+data class Identity(
+    val sku: String,
+    val name: String,
+    val articleCode: String?,
+    val imageUrl: String?,
+    val basePriceMinor: Long?,
+)
+
+/** One product line of a sweep: what it is, and how many of it are here. */
+data class Grouped(val sku: String, val qty: Int, val identity: Identity?)
+
 data class SweepState(
     val mode: Mode = Mode.SCAN,
     val sweeping: Boolean = false,
@@ -38,7 +50,24 @@ data class SweepState(
     val lastReceipt: String? = null,
     val counts: List<Pair<String, String>> = emptyList(),
     val countsLoaded: Boolean = false,
+    val identities: Map<String, Identity> = emptyMap(),
+    val resolving: Boolean = false,
+    val resolveNote: String? = null,
 )
+
+/**
+ * The sweep as products rather than tags.
+ *
+ * This is pure local arithmetic over what is already in memory — grouping 49
+ * tags into a dozen lines costs nothing and needs no network, because the SKU
+ * is carried inside the EPC itself.
+ */
+fun SweepState.grouped(): List<Grouped> =
+    seen.mapNotNull { it.sku }
+        .groupingBy { it }
+        .eachCount()
+        .map { (sku, qty) -> Grouped(sku, qty, identities[sku]) }
+        .sortedWith(compareByDescending<Grouped> { it.qty }.thenBy { it.sku })
 
 /**
  * One sweep, four uses.
@@ -97,6 +126,63 @@ class SweepViewModel(
         }
     }
 
+    /**
+     * Name the distinct SKUs of this sweep in ONE request.
+     *
+     * Fifty tags on a rack are a dozen products, and the products repeat across
+     * sweeps, so the work is bounded twice: by DISTINCT before the call, and by
+     * a cache that already holds most of the answer after the first rack. What
+     * a tag IS never waits on this — that came out of the EPC locally. This
+     * only fills in the human-readable name and the picture.
+     */
+    fun resolveIdentities() {
+        val settings = settings()
+        if (!settings.isConfigured) return
+        val wanted = state.value.seen.mapNotNull { it.sku }.toSet() - state.value.identities.keys
+        if (wanted.isEmpty()) return
+        viewModelScope.launch {
+            update { it.copy(resolving = true, resolveNote = null) }
+            val started = System.currentTimeMillis()
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val json = Api(settings).get(
+                        "/api/v1/catalog/identities?skus=" + wanted.joinToString(","),
+                    )
+                    val items = json.optJSONArray("items") ?: org.json.JSONArray()
+                    (0 until items.length()).associate { i ->
+                        val row = items.getJSONObject(i)
+                        val sku = row.optString("sku_code")
+                        sku to Identity(
+                            sku = sku,
+                            name = row.optString("name", sku),
+                            articleCode = row.optString("article_code").ifBlank { null },
+                            imageUrl = row.optString("image_url").ifBlank { null },
+                            basePriceMinor = if (row.isNull("base_price_minor")) null
+                                else row.optLong("base_price_minor"),
+                        )
+                    }
+                }
+            }
+            val elapsed = System.currentTimeMillis() - started
+            result.onSuccess { found ->
+                update {
+                    it.copy(
+                        identities = it.identities + found,
+                        resolving = false,
+                        resolveNote = "${found.size}/${wanted.size} SKU dikenali · ${elapsed} ms",
+                    )
+                }
+            }.onFailure { e ->
+                // Not fatal and not hidden: the sweep is still complete and
+                // still sendable, it just has no names on it yet.
+                update {
+                    it.copy(resolving = false,
+                        resolveNote = "nama tak tersedia di node ini (${e.message})")
+                }
+            }
+        }
+    }
+
     fun clear() {
         collector.clear()
         sessionId = UUID.randomUUID().toString()
@@ -134,6 +220,7 @@ class SweepViewModel(
         viewModelScope.launch {
             withContext(Dispatchers.IO) { reader.stop() }
             update { it.copy(sweeping = false, message = "${collector.size} tag terbaca") }
+            resolveIdentities()
         }
     }
 

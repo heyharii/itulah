@@ -294,6 +294,10 @@ pub fn store_router_with_sync(
 fn common_router() -> Router<EdgeState> {
     Router::new()
         .route("/api/v1/health", get(health))
+        // Identity, not pricing — see EdgeInventory::catalog_identities. Lives
+        // in the common router because a DC needs to name what it is holding
+        // even though it has no price book.
+        .route("/api/v1/catalog/identities", get(catalog_identities))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/me", get(me))
         .route("/api/v1/auth/logout", post(logout))
@@ -1432,6 +1436,35 @@ fn cleared_auth_response(state: &EdgeState, value: Value) -> Result<Response, Ap
         security::clear_cookie(CSRF_COOKIE, state.auth.config().cookie_secure, false),
     )?;
     Ok(response)
+}
+
+/// Name a batch of SKUs in one call.
+///
+/// `?skus=a,b,c`. The handheld decodes SKUs out of the EPCs locally and asks
+/// here once per sweep for the distinct ones, so a rack of fifty tags costs one
+/// request rather than fifty.
+async fn catalog_identities(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<CatalogIdentityQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let codes: Vec<String> = query
+        .skus
+        .split(',')
+        .map(|code| code.trim().to_string())
+        .filter(|code| !code.is_empty())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let items = run_blocking(move || state.inventory.catalog_identities(&codes)).await?;
+    Ok(Json(json!({ "items": items })))
+}
+
+#[derive(serde::Deserialize)]
+struct CatalogIdentityQuery {
+    #[serde(default)]
+    skus: String,
 }
 
 async fn rfid_observations(

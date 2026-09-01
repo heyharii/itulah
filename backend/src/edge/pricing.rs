@@ -16,7 +16,7 @@
 use chrono::{DateTime, Utc};
 use pricing_engine::{
     price_cart, price_catalog, Campaign, CampaignStatus, Caps, CartLine, CatalogEntry, Coupon,
-    Currency, Markdown, Money, PriceEntry, PriceLevel, PricingContext, PricingError,
+    Currency, Markdown, Money, PriceEntry, PriceLevel, PricingError,
     PricingSnapshot, Rule,
 };
 use rusqlite::{params, Connection};
@@ -91,7 +91,7 @@ pub fn load_snapshot_for(
     let sql = format!(
         "SELECT p.version, p.effective_from, p.effective_to,
                 r.sku_code, r.site_id, r.channel, r.sellable, r.currency,
-                r.unit_price_minor, r.tax_category, r.site_ids_json, r.tier
+                r.unit_price_minor, r.tax_category, r.site_ids_json
            FROM commercial_price_rule r
            JOIN commercial_publication p ON p.id = r.publication_id
           WHERE r.sku_code IS NOT NULL
@@ -119,7 +119,6 @@ pub fn load_snapshot_for(
                 row.get::<_, i64>(8)?,
                 row.get::<_, String>(9)?,
                 row.get::<_, Option<String>>(10)?,
-                row.get::<_, Option<String>>(11)?,
             ))
         })
         .map_err(db)?;
@@ -139,12 +138,11 @@ pub fn load_snapshot_for(
             unit_price_minor,
             tax_category,
             site_ids_json,
-            tier,
         ) = row.map_err(db)?;
         publication_version = publication_version.max(version);
         entries.push(PriceEntry {
             sku_code,
-            applies_to: read_level(rule_site, site_ids_json.as_deref(), tier.as_deref())?,
+            applies_to: read_level(rule_site, site_ids_json.as_deref())?,
             channel: rule_channel,
             sellable: sellable != 0,
             currency: Currency(currency.trim().to_string()),
@@ -219,7 +217,6 @@ fn with_usage(mut caps: Caps, counted: Option<&(i64, i64)>) -> Caps {
 fn read_level(
     site_id: Option<String>,
     site_ids_json: Option<&str>,
-    tier: Option<&str>,
 ) -> Result<PriceLevel, EdgeError> {
     if let Some(site_id) = site_id {
         return Ok(PriceLevel::Site { site_id });
@@ -233,9 +230,11 @@ fn read_level(
             return Ok(PriceLevel::SiteGroup { site_ids });
         }
     }
-    if let Some(tier) = tier {
-        return Ok(PriceLevel::Tier { tier: tier.into() });
-    }
+    // A `tier` column with something in it is a row from before tiers were
+    // removed. It reads as a company price rather than being skipped: the
+    // alternative is a product that silently has no price at all, and a shop
+    // that cannot sell a shirt is worse than one that sells it at the
+    // company's number.
     Ok(PriceLevel::Company)
 }
 
@@ -345,7 +344,7 @@ fn load_markdowns(
     let sql = format!(
         "SELECT m.markdown_id, m.sku_code, m.article_code, m.site_id,
                 m.replacement_unit_price_minor, m.priority, m.effective_from, m.effective_to,
-                m.site_ids_json, m.tier, COALESCE(p.version, 0)
+                m.site_ids_json, COALESCE(p.version, 0)
            FROM commercial_markdown m
            LEFT JOIN commercial_publication p ON p.id = m.publication_id
           WHERE (m.site_id IS NULL OR m.site_id = ?1){narrowing}"
@@ -369,8 +368,7 @@ fn load_markdowns(
                 row.get::<_, String>(6)?,
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
-                row.get::<_, Option<String>>(9)?,
-                row.get::<_, i64>(10)?,
+                row.get::<_, i64>(9)?,
             ))
         })
         .map_err(db)?;
@@ -387,14 +385,13 @@ fn load_markdowns(
             effective_from,
             effective_to,
             site_ids_json,
-            tier,
             publication_version,
         ) = row.map_err(db)?;
         markdowns.push(Markdown {
             markdown_id,
             sku_code,
             article_code,
-            applies_to: read_level(row_site, site_ids_json.as_deref(), tier.as_deref())?,
+            applies_to: read_level(row_site, site_ids_json.as_deref())?,
             replacement_unit_price: Money::new(replacement),
             priority,
             publication_version,
@@ -771,6 +768,14 @@ pub struct QuotedLine {
     pub line_total_minor: i64,
     pub price_source: String,
     pub publication_version: i64,
+    /// Which clearance set this price, when one did.
+    ///
+    /// `price_source` says a markdown won; this says WHICH. Without it, asking
+    /// "what did the end-of-season sale do to this shirt" means joining a sold
+    /// line back to the markdown table by sku, publication version and date and
+    /// hoping exactly one candidate covered that instant — which is a
+    /// reconstruction, and a reconstruction is not evidence.
+    pub markdown_id: Option<String>,
 }
 
 /// An item the shopper is given, granted by a promotion.
@@ -915,6 +920,7 @@ pub fn quote(
                 line_total_minor: line.line_total.minor,
                 price_source: line.source.as_str().to_string(),
                 publication_version: line.publication_version,
+                markdown_id: line.markdown_id.clone(),
             })
             .collect(),
         granted_lines: result

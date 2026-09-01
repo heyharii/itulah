@@ -11,7 +11,7 @@ use crate::edge::{
     OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest, PickRequest, PickResult, Place,
     PoolBalance, PurchaseCountAwaitingVerification, PurchaseCountRequest, PurchaseCountResult,
     PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine,
-    ReceiveRequest, RecordInvoiceRequest, SaleRequest, SaleResult, SegregationPolicy, SiteId,
+    CatalogIdentity, ReceiveRequest, RecordInvoiceRequest, SaleRequest, SaleResult, SegregationPolicy, SiteId,
     SiteKind, SubjectId, SystemPlace, TaggingConfirmRequest, TaggingConfirmResult, TaggingWorkJob,
     TaggingWorkLine,
 };
@@ -162,6 +162,13 @@ pub(crate) const CATALOG_MERCHANDISE_SCHEMA: &str = include_str!(concat!(
 pub(crate) const SALE_TENDER_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0020_sale_tenders.sql"
+));
+
+/// The tier, removed. See the migration for why a level nothing can match is
+/// worse than no level at all.
+pub(crate) const RETIRE_TIER_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0021_retire_what_no_customer_carries.sql"
 ));
 
 /// The colourway and size a hang tag has to carry to be shoppable.
@@ -447,6 +454,19 @@ impl SqliteEdge {
             .map_err(db)?;
         if records_how_it_was_paid == 0 {
             connection.execute_batch(SALE_TENDER_SCHEMA).map_err(db)?;
+        }
+        // Asks whether the column is still there, which is the only way to
+        // tell a database that predates the removal from one that has had it.
+        let still_offers_a_tier: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('commercial_price_rule')
+                  WHERE name='tier'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if still_offers_a_tier > 0 {
+            connection.execute_batch(RETIRE_TIER_SCHEMA).map_err(db)?;
         }
         // Asks after the size, because that is the line a rail is shopped by.
         // A tag without it prices the garment correctly and never says whether
@@ -2112,6 +2132,11 @@ struct PricedLine {
     /// What it would have been before a clearance replaced the price, when a
     /// book was in force to say so.
     base_minor: Option<i64>,
+    /// Which clearance set it, when one did. Named rather than reconstructed:
+    /// joining back by sku and version and date guesses at which markdown
+    /// covered that instant, and a guess is not what a margin report should be
+    /// built on.
+    markdown_id: Option<String>,
     price_source: String,
     publication_version: Option<i64>,
 }
@@ -3315,6 +3340,7 @@ impl EdgeInventory for SqliteEdge {
                 .map(|line| PricedLine {
                     charged_minor: line.line_total_minor,
                     base_minor: Some(line.base_unit_price_minor),
+                    markdown_id: line.markdown_id.clone(),
                     price_source: line.price_source.clone(),
                     publication_version: Some(line.publication_version),
                 })
@@ -3323,6 +3349,7 @@ impl EdgeInventory for SqliteEdge {
                 .iter()
                 .map(|subject| PricedLine {
                     charged_minor: subject.unit_price_minor,
+                    markdown_id: None,
                     // No book, so no list price was ever quoted — the intake
                     // price is not one, it is what the shop paid.
                     base_minor: None,
@@ -3494,6 +3521,7 @@ impl EdgeInventory for SqliteEdge {
                             // Absent when no book was in force: the intake price
                             // is what the shop paid, not a price it ever asked.
                             "base_unit_price_minor": line.base_minor,
+                            "markdown_id": line.markdown_id,
                             "price_source": line.price_source,
                             "publication_version": line.publication_version,
                         })
@@ -3651,6 +3679,73 @@ impl EdgeInventory for SqliteEdge {
                 "total_minor": null,
             }),
         })
+    }
+
+    /// Resolve many SKUs in ONE query, at any node role.
+    ///
+    /// The handheld asks this once per sweep with the DISTINCT SKUs it decoded
+    /// locally — 49 tags on a rack are typically a dozen or so products — so
+    /// the cost is one round trip and one indexed lookup, not one per tag. The
+    /// EPC already carries its own SKU, so nothing here is on the path between
+    /// reading a tag and showing what it is; this only adds the human-readable
+    /// name.
+    fn catalog_identities(
+        &self,
+        sku_codes: &[String],
+    ) -> Result<Vec<CatalogIdentity>, EdgeError> {
+        if sku_codes.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Bounded so one malformed client cannot ask for the whole catalogue
+        // through a query string.
+        const MAX: usize = 500;
+        if sku_codes.len() > MAX {
+            return Err(EdgeError::Validation(format!(
+                "ask for at most {MAX} SKUs at a time, not {}",
+                sku_codes.len()
+            )));
+        }
+        let connection = self.lock()?;
+        let placeholders = std::iter::repeat("?")
+            .take(sku_codes.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT c.sku_code,c.name,c.article_code,c.division_code,c.barcode,
+                    c.base_price_minor,c.tags_json,c.active,
+                    COALESCE(
+                        (SELECT j.image_url FROM tagging_job j
+                          WHERE j.article_code = c.article_code
+                            AND j.image_url IS NOT NULL
+                          ORDER BY j.issued_at DESC LIMIT 1),
+                        (SELECT l.image_url FROM purchase_order_line l
+                          WHERE l.article_code = c.article_code
+                            AND l.image_url IS NOT NULL
+                          LIMIT 1)
+                    ) AS image_url
+             FROM catalog_item c WHERE c.sku_code IN ({placeholders})",
+        );
+        let mut statement = connection.prepare(&sql).map_err(db)?;
+        let params = rusqlite::params_from_iter(sku_codes.iter());
+        let rows = statement
+            .query_map(params, |row| {
+                let tags: Option<String> = row.get(6)?;
+                Ok(CatalogIdentity {
+                    sku_code: row.get(0)?,
+                    name: row.get(1)?,
+                    article_code: row.get(2)?,
+                    division_code: row.get(3)?,
+                    barcode: row.get(4)?,
+                    base_price_minor: row.get(5)?,
+                    tags: tags
+                        .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
+                        .unwrap_or_default(),
+                    active: row.get::<_, i64>(7)? == 1,
+                    image_url: row.get(8)?,
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)
     }
 
     fn store_catalog_page(

@@ -146,6 +146,33 @@ pub struct IntakeRequest {
     pub idempotency_key: String,
 }
 
+/// One SKU as the resident catalogue snapshot describes it.
+///
+/// `base_price_minor` is the floor the article was given at setup, not a shop's
+/// published price. It is carried so a handheld can show a number where one
+/// exists; a till must never read prices from here.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CatalogIdentity {
+    pub sku_code: String,
+    pub name: String,
+    pub article_code: Option<String>,
+    pub division_code: Option<String>,
+    pub barcode: Option<String>,
+    pub base_price_minor: Option<i64>,
+    pub tags: Vec<String>,
+    pub active: bool,
+    /// The article's photograph, when this node happens to hold one.
+    ///
+    /// The catalogue snapshot does NOT carry imagery — `catalog_item` has no
+    /// such column — so this is recovered from the tagging job or purchase
+    /// order line that brought the goods in. That covers exactly the articles
+    /// this node has handled, which is the population a handheld ever scans,
+    /// and is honestly null everywhere else rather than guessed from a URL
+    /// pattern.
+    pub image_url: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ReceiveRequest {
@@ -582,6 +609,16 @@ pub trait EdgeInventory: Send + Sync {
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError>;
     fn complete_sale(&self, request: SaleRequest) -> Result<SaleResult, EdgeError>;
     fn list_pools(&self) -> Result<Vec<PoolBalance>, EdgeError>;
+    /// Who these SKUs are, without pricing them.
+    ///
+    /// A DC has no catalogue in the selling sense — it does not sell, so it has
+    /// no price book, and `store_catalog` rightly refuses there. But every node
+    /// carries the catalogue SNAPSHOT, because identity travels with the goods:
+    /// a picker sweeping a rack needs to read "Sonny Denim, Indigo, M" off a
+    /// tag whether or not anything in the building has a price. This answers
+    /// that question and only that question, at any node.
+    fn catalog_identities(&self, sku_codes: &[String]) -> Result<Vec<CatalogIdentity>, EdgeError>;
+
     /// What this shop may sell right now, priced by the resident price book.
     ///
     /// Answered from the same evaluator the till uses, so the catalogue screen

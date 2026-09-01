@@ -8,6 +8,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +21,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.itulah.pindai.ui.kit.*
@@ -36,8 +41,15 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState) {
             HeroCount(state)
             ModeExtras(vm, state)
             if (state.seen.isNotEmpty()) {
-                SectionLabel("${state.seen.size} tag")
-                TagList(state)
+                val lines = state.grouped()
+                val unknown = state.seen.count { it.sku == null }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    SectionLabel("${lines.size} produk · ${state.seen.size} tag")
+                    state.resolveNote?.let {
+                        Text(it, style = Type.micro, color = Ink.text(.60f))
+                    }
+                }
+                ProductList(lines, unknown)
             }
             Spacer(Modifier.height(Space.sm))
         }
@@ -160,6 +172,93 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
                 }
             }
         }
+    }
+}
+
+/**
+ * The sweep as products: a picture, a name, and how many are in front of you.
+ *
+ * Quantity is the L3 column and the only number that repeats down the list, so
+ * it carries full ink while everything supporting it steps back. A line whose
+ * name has not resolved still shows its SKU and its count — the count is the
+ * thing somebody is standing there to learn, and it never depends on the
+ * network.
+ */
+@Composable
+private fun ProductList(lines: List<Grouped>, unknownTags: Int) {
+    Surface(shape = CardShape, color = Surface.card,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Ink.border(.04f)),
+        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+        LazyColumn {
+            items(lines.size) { index ->
+                val line = lines[index]
+                StaggeredRow(index) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Space.md),
+                    ) {
+                        Box(
+                            Modifier.size(44.dp).clip(RoundedCornerShape(8.dp))
+                                .background(Ink.fill(.06f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val url = line.identity?.imageUrl
+                            if (url != null) {
+                                RemoteThumb(url)
+                            } else {
+                                Text(line.sku.takeLast(3), style = Type.micro,
+                                    color = Ink.text(.36f))
+                            }
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                line.identity?.name ?: line.sku,
+                                style = Type.body,
+                                color = Ink.text(),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(line.sku, style = Type.mono, color = Ink.text(.60f))
+                        }
+                        Text("${line.qty}", style = Type.anchor, color = Ink.text())
+                    }
+                    if (index < lines.lastIndex) {
+                        Box(Modifier.fillMaxWidth().padding(horizontal = Space.lg)
+                            .height(1.dp).background(Ink.border(.04f)))
+                    }
+                }
+            }
+            if (unknownTags > 0) {
+                items(1) {
+                    Text(
+                        "$unknownTags tag bukan milik kita — tidak dihitung sebagai produk",
+                        style = Type.micro, color = Ink.text(.60f),
+                        modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.md),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A thumbnail fetched once and kept; failures simply leave the tile empty. */
+@Composable
+private fun RemoteThumb(url: String) {
+    var bitmap by remember(url) {
+        mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+    }
+    LaunchedEffect(url) {
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                java.net.URL(url).openStream().use { stream ->
+                    android.graphics.BitmapFactory.decodeStream(stream)
+                }?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    bitmap?.let {
+        Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop)
     }
 }
 
