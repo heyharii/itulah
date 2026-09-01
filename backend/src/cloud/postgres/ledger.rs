@@ -172,6 +172,11 @@ pub struct BookLocation {
 
 /// The locations finance keeps books for.
 ///
+/// Head office first, then the shops. Not a cosmetic ordering: the DC is HO,
+/// which is suffix `00` in the client's own codes and the location most
+/// mappings are set for, so a screen that listed it fourteenth would hide the
+/// one people open it to reach.
+///
 /// Derived from the chart rather than from the list of places a delivery can be
 /// sent to. They happen to be the same fourteen today, and they are not the same
 /// question: a shop that stops receiving stock still has a ledger, and a chart
@@ -181,7 +186,7 @@ pub async fn book_locations(pool: &PgPool) -> Result<Vec<BookLocation>, AppError
     let rows = sqlx::query(
         "SELECT s.id AS site_id, s.name, s.kind,
                 (SELECT COUNT(*) FROM ledger_account a WHERE a.site_id = s.id)::bigint AS account_count
-           FROM site s ORDER BY s.kind DESC, s.id",
+           FROM site s ORDER BY (s.kind <> 'DC'), s.id",
     )
     .fetch_all(pool)
     .await?;
@@ -644,6 +649,35 @@ pub async fn set_account_mapping(
     if key.is_empty() {
         return Err(AppError::Validation("semantic_key is required".into()));
     }
+
+    // Checked here as well as by the composite foreign key below, for the same
+    // reason the poster checks balance before the trigger does: the constraint
+    // is the guarantee, this is the explanation. A foreign-key violation is
+    // SQLSTATE 23503, which `into_response` does not recognise, so without this
+    // a person mapping a heading gets "database operation failed" and no idea
+    // which of the two things they chose was wrong.
+    let code = request.account_code.trim();
+    let account =
+        sqlx::query("SELECT name, is_group, is_active FROM ledger_account WHERE account_code = $1")
+            .bind(code)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::Validation(format!("no account {code} in the chart")))?;
+    if account.try_get::<bool, _>("is_group")? {
+        return Err(AppError::Validation(format!(
+            "{code} {} is a heading; it has a balance by summation and nothing may be \
+             posted to it. Map a postable account under it instead.",
+            account.try_get::<String, _>("name")?
+        )));
+    }
+    if !account.try_get::<bool, _>("is_active")? {
+        return Err(AppError::Validation(format!(
+            "{code} {} is inactive in the client's chart; mapping it would post to an \
+             account they have retired.",
+            account.try_get::<String, _>("name")?
+        )));
+    }
+
     sqlx::query(
         "INSERT INTO account_map (semantic_key, site_id, qualifier, account_code, set_by, note)
          VALUES ($1,$2,$3,$4,$5,$6)
@@ -656,7 +690,7 @@ pub async fn set_account_mapping(
     .bind(&key)
     .bind(&request.site_id)
     .bind(request.qualifier.trim())
-    .bind(request.account_code.trim())
+    .bind(code)
     .bind(actor)
     .bind(request.note.as_deref())
     .execute(pool)
