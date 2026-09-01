@@ -51,7 +51,7 @@ services:
   - type: web
     runtime: static
     name: itulah-frontend-new
-    buildCommand: cd frontend-new && npm install --no-audit --no-fund && npm run build
+    buildCommand: cd frontend-new && npm install --legacy-peer-deps --no-audit --no-fund && npm run build
     staticPublishPath: ./frontend-new/dist
     routes:
       - type: rewrite
