@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Lima selera · Ringkasan Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Archivo:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#ffffff; --ground:#f4f3ef; --fill:#eceae4;
+  --line:#dcd8d0; --line-soft:#eae7e0;
+  --ink:#1f2124; --ink-2:#5c5f66; --ink-3:#8b8e95;
+  --seal:#1b4fd8;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ground);color:var(--ink);
+  font-family:Archivo,-apple-system,"Segoe UI",sans-serif;
+  font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+:focus-visible{outline:2px solid var(--seal);outline-offset:2px;border-radius:4px}
+
+.wrap{max-width:1080px;margin:0 auto;padding:48px 24px 80px}
+
+header{border-bottom:1px solid var(--line);padding-bottom:26px;margin-bottom:32px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+h1{font-family:Newsreader,Georgia,serif;font-weight:400;font-size:38px;line-height:1.12;margin:10px 0 12px;letter-spacing:-.01em}
+header p{margin:0;max-width:70ch;color:var(--ink-2);font-size:15px}
+
+.why{
+  background:var(--paper);border:1px solid var(--line);border-radius:8px;
+  padding:18px 20px;margin-bottom:32px;
+}
+.why h2{font-family:Newsreader,Georgia,serif;font-weight:400;font-size:18px;margin:0 0 8px}
+.why p{margin:0 0 10px;max-width:78ch;color:var(--ink-2)}
+.why p:last-child{margin-bottom:0}
+.why b{font-weight:500;color:var(--ink)}
+
+.list{display:flex;flex-direction:column;gap:14px}
+
+.card{
+  display:grid;gap:0;grid-template-columns:1fr;
+  background:var(--paper);border:1px solid var(--line);border-radius:8px;overflow:hidden;
+  text-decoration:none;color:inherit;
+  transition:border-color 140ms cubic-bezier(.16,1,.3,1);
+}
+.card:hover{border-color:var(--seal)}
+@media(min-width:760px){.card{grid-template-columns:132px 1fr}}
+
+/* Sidik warna tiap selera: ground · kartu · aksen. Kartu yang tidak
+   menunjukkan warnanya menyuruh orang mengingat, bukan melihat. */
+.swatch{display:flex;min-height:70px}
+.swatch i{display:block;flex:1}
+@media(max-width:759px){.swatch{height:8px;min-height:0}}
+
+.body{padding:16px 20px}
+.head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:5px}
+.head b{font-family:Newsreader,Georgia,serif;font-weight:400;font-size:21px}
+.head .no{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
+.head .for{
+  margin-inline-start:auto;font-size:11.5px;color:var(--ink-2);
+  background:var(--fill);border-radius:99px;padding:3px 10px;white-space:nowrap;
+}
+.body p{margin:0 0 10px;color:var(--ink-2);max-width:74ch}
+.facts{display:flex;gap:8px;flex-wrap:wrap}
+.fact{
+  font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-2);
+  border:1px solid var(--line);border-radius:4px;padding:2px 7px;
+}
+
+.shared{
+  margin-top:34px;border:1px dashed var(--line);border-radius:8px;padding:18px 20px;color:var(--ink-2);
+}
+.shared h2{font-family:Newsreader,Georgia,serif;font-weight:400;font-size:18px;margin:0 0 10px;color:var(--ink)}
+.shared ul{margin:0;padding-inline-start:19px}
+.shared li+li{margin-top:6px}
+.shared b{font-weight:500;color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Retail Edge · prototipe</div>
+    <h1>Lima selera untuk satu layar ringkasan</h1>
+    <p>
+      Data, angka, dan perkaranya identik di kelimanya — yang berbeda adalah siapa yang
+      dibayangkan sedang membacanya. Buka berdampingan, lalu pilih satu. Sisanya dibuang.
+    </p>
+  </header>
+
+  <section class="why">
+    <h2>Kenapa lima, dan kenapa lima ini</h2>
+    <p>
+      Kelimanya tidak diambil dari lima referensi. Empat di antaranya diturunkan dari
+      <b>empat jarak baca</b> yang sudah tertulis di <span class="mono">KEPUTUSAN-DESIGN-SYSTEM §0</span>
+      — monitor HO, laptop, tablet tanpa keyboard, dan kertas. Yang kelima, Cetak, menjawab
+      pembaca yang selama ini tidak pernah dihitung: orang yang <b>memeriksa lalu menandatangani</b>,
+      dan tidak sedang mengoperasikan apa pun.
+    </p>
+    <p>
+      Ini juga sebabnya kelimanya tidak bisa digabung jadi satu. Kepadatan yang benar untuk
+      Konsol melanggar sasaran sentuh Kios; warna yang dibutuhkan Kartu tidak akan pernah lolos
+      daftar tertutup Garis. Memilih satu berarti memilih pembacanya.
+    </p>
+  </section>
+
+  <div class="list">
+
+    <a class="card" href="1-kartu.html">
+      <span class="swatch" aria-hidden="true">
+        <i style="background:#f6f7f9"></i><i style="background:#ffffff"></i><i style="background:#1d4ed8"></i>
+      </span>
+      <span class="body">
+        <span class="head">
+          <span class="no">01</span>
+          <b>Kartu</b>
+          <span class="for">manajer · beberapa kali sehari</span>
+        </span>
+        <p>
+          Turunan dari referensi HR dashboard itu: sidebar berkelompok, remah roti, deret kartu KPI,
+          chip, tabel dengan penyaring. Empat hal diperbaiki — warna dikembalikan jadi penilaian
+          (bukan identitas), cincin donat diganti bar berjalur tetap yang bisa dibandingkan,
+          keempat kartu KPI dibuat satu anatomi, dan status pakai bentuk + kata, bukan wajah.
+        </p>
+        <span class="facts">
+          <span class="fact">Plus Jakarta Sans</span>
+          <span class="fact">kartu membulat</span>
+          <span class="fact">warna = status saja</span>
+        </span>
+      </span>
+    </a>
+
+    <a class="card" href="2-garis.html">
+      <span class="swatch" aria-hidden="true">
+        <i style="background:#f3efe4"></i><i style="background:#fffdf8"></i><i style="background:#0f6f4d"></i>
+      </span>
+      <span class="body">
+        <span class="head">
+          <span class="no">02</span>
+          <b>Garis</b>
+          <span class="for">back-office HO · delapan jam</span>
+        </span>
+        <p>
+          Garis keturunan <span class="mono">Documents/fresh</span> — Tera, dengan dua revisi yang
+          menjawab keluhan nyata: ground dinaikkan jaraknya dari kartu (versi lama cuma beda 4%,
+          jadi semuanya terbaca sebagai satu lumpur), dan bobot huruf naik dari satu jadi dua.
+          Heronya persamaan neraca yang dirakit sebagai aritmatika, bukan empat kartu KPI.
+        </p>
+        <span class="facts">
+          <span class="fact">Newsreader · Archivo · Plex Mono</span>
+          <span class="fact">nol bayangan</span>
+          <span class="fact">daftar tertutup</span>
+        </span>
+      </span>
+    </a>
+
+    <a class="card" href="3-kios.html">
+      <span class="swatch" aria-hidden="true">
+        <i style="background:#e9ecee"></i><i style="background:#ffffff"></i><i style="background:#0b0d0e"></i>
+      </span>
+      <span class="body">
+        <span class="head">
+          <span class="no">03</span>
+          <b>Kios</b>
+          <span class="for">tablet gudang · tangan penuh</span>
+        </span>
+        <p>
+          Satu-satunya yang aturannya diturunkan dari fisik, bukan dari selera: jarak baca 60–80 cm,
+          jari bukan kursor, dan layar yang kadang kena matahari. Tidak ada teks di bawah 15px,
+          tidak ada sasaran sentuh di bawah 56px, chrome hitam-putih supaya warna tetap berarti
+          saat silau. Tabel sembilan kolom jadi kartu tiga angka.
+        </p>
+        <span class="facts">
+          <span class="fact">Manrope</span>
+          <span class="fact">angka pokok 64px</span>
+          <span class="fact">sentuh 56px</span>
+        </span>
+      </span>
+    </a>
+
+    <a class="card" href="4-cetak.html">
+      <span class="swatch" aria-hidden="true">
+        <i style="background:#fdfcfa"></i><i style="background:#ffffff"></i><i style="background:#1a1815"></i>
+      </span>
+      <span class="body">
+        <span class="head">
+          <span class="no">04</span>
+          <b>Cetak</b>
+          <span class="for">tutup harian · diperiksa lalu ditandatangani</span>
+        </span>
+        <p>
+          Menolak asumsi keempat selera lain: bahwa layar ringkasan harus berupa papan kontrol.
+          Pembacanya tidak sedang mengoperasikan apa pun. Angka hidup di dalam kalimat, tabel
+          bernomor dan berketerangan, yang tidak diketahui turun ke catatan kaki, negatif ditulis
+          dalam kurung dan tidak diberi warna — supaya fotokopi hitam putih membawa arti yang sama.
+        </p>
+        <span class="facts">
+          <span class="fact">Source Serif 4</span>
+          <span class="fact">A4 · @media print</span>
+          <span class="fact">nol tombol</span>
+        </span>
+      </span>
+    </a>
+
+    <a class="card" href="5-konsol.html">
+      <span class="swatch" aria-hidden="true">
+        <i style="background:#fcfcfa"></i><i style="background:#ffffff"></i><i style="background:#a16207"></i>
+      </span>
+      <span class="body">
+        <span class="head">
+          <span class="no">05</span>
+          <b>Konsol</b>
+          <span class="for">pengendali persediaan · tinggal di layar ini</span>
+        </span>
+        <p>
+          Untuk orang yang membuka layar ini pukul delapan dan menutupnya pukul lima. Baris 26px,
+          karena perbandingan antarbaris hanya mungkin kalau barisnya terlihat bersamaan. Setiap
+          aksi mencetak tutsnya di sebelahnya — pintasan yang cuma ada di lembar bantuan tidak akan
+          pernah dipakai. Monospace untuk segalanya, termasuk kalimat.
+        </p>
+        <span class="facts">
+          <span class="fact">JetBrains Mono</span>
+          <span class="fact">baris 26px</span>
+          <span class="fact">j/k · ⌘K · /</span>
+        </span>
+      </span>
+    </a>
+  </div>
+
+  <section class="shared">
+    <h2>Yang sama di kelimanya — dan ini bagian yang tidak dinegosiasikan</h2>
+    <ul>
+      <li><b>Ketiadaan tidak menyamar jadi nol.</b> Yang tidak diketahui ditulis <span class="mono">—</span>, dan mengatakan kenapa.</li>
+      <li><b>Rasio membawa penyebutnya.</b> Lost&nbsp;% selalu ditemani pembilang dan paparannya, supaya bisa dihitung ulang tanpa membuka sistem.</li>
+      <li><b>Gagal, sebagian, dan ditolak tidak boleh terlihat sama.</b> store-07 yang belum sinkron disebut namanya; selisih proyeksi yang tertutup tetap muncul sebagai baris, bukan dihapus jadi kosong.</li>
+      <li><b>Setiap angka membawa cap kapan ia benar</b>, dan dari node mana ia datang.</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

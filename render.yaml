@@ -1,0 +1,57 @@
+# Render Blueprint for the central Cloud runtime.
+#
+# The DC and Store binaries are intentionally deployed to their edge hosts,
+# not as public Render services: their SQLite files and RFID/physical-device
+# boundary belong at the site. The root Dockerfile still carries all three
+# binaries and can be reused by a private container host with APP_BIN=dc or
+# APP_BIN=store.
+
+services:
+  - type: web
+    runtime: docker
+    name: itulah-cloud
+    region: singapore
+    plan: 0.5c-512mb
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: APP_BIN
+        value: cloud
+      - key: FRONTEND_DIR
+        value: /app/frontend
+      - key: INVENTORY_NODE_ID
+        value: cloud-primary
+      - key: INVENTORY_NODE_ROLE
+        value: CLOUD
+      - key: INVENTORY_ORIGIN_GENERATION
+        value: "1"
+      - key: INVENTORY_AUTH_MODE
+        value: required
+      - key: INVENTORY_AUTH_COOKIE_SECURE
+        value: "true"
+      - key: INVENTORY_BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: SYNC_INGEST_KEY
+        generateValue: true
+      - key: SYNC_APPLY
+        value: "true"
+      - key: SYNC_ENQUEUE
+        value: "false"
+      - key: INVENTORY_ENABLE_TEST_CONTROLS
+        value: "false"
+      - key: RUST_LOG
+        value: inventory_backend=info,tower_http=info
+      - key: DATABASE_URL
+        fromDatabase:
+          name: itulah-postgres
+          property: connectionString
+
+databases:
+  - name: itulah-postgres
+    region: singapore
+    plan: 0.1c-256mb
+    databaseName: inventory
+    user: inventory
+    diskSizeGB: 5

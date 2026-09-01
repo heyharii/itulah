@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>RetailOS · Layar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* Daftar isi. Dikelompokkan menurut orang yang memakainya, bukan menurut
+   urutan pembuatan — nomor berkas kebetulan ikut berurutan, dan itu saja. */
+.hero{padding:20px 22px 18px}
+.hero h2{margin:0 0 6px;font-size:22px;font-weight:600;letter-spacing:-.02em}
+.hero p{margin:0;font-size:14px;color:var(--ink-2);max-width:64ch;line-height:1.6}
+.grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));margin-bottom:16px}
+@media(min-width:1700px){.grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}}
+a.tile{display:flex;flex-direction:column;gap:5px;padding:14px 15px;background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);text-decoration:none;color:inherit}
+a.tile:hover{box-shadow:var(--shadow-lift)}
+a.tile b{font-size:14px;font-weight:500;display:flex;align-items:center;gap:8px}
+a.tile b .no{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+a.tile span{font-size:12.5px;color:var(--ink-2);line-height:1.55}
+.gh{display:flex;align-items:center;gap:10px;margin:0 0 9px}
+.gh h3{margin:0;font-size:12px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.gh i{flex:1;height:1px;background:var(--line)}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="grp">Layar</div>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="10" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/></svg>Semua layar</a>
+    <div class="side-foot"><p class="node"><span class="chip">prototipe</span> html + css<br>18 layar · satu skin</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Layar</h1>
+      <span class="stamp"><i></i>Satu retail.css untuk semuanya</span>
+    </div>
+
+    <div class="content">
+      <section class="card hero" style="margin-bottom:14px">
+        <h2>Prototipe antarmuka RetailOS</h2>
+        <p>HTML dan CSS saja, tanpa langkah build. Setiap layar menaut <span class="mono">retail.css</span> yang sama,
+        dan <span class="mono">check-retail-css.mjs</span> menolak warna, radius, atau bayangan yang ditulis di luar berkas itu —
+        itulah yang menahan tampilannya supaya tidak pelan-pelan menyimpang antar layar.</p>
+      </section>
+
+      <div class="gh"><h3>Pengadaan</h3><i></i></div>
+      <div class="grid">
+        <a class="tile" href="7-sourcing.html"><b><span class="no">07</span>Sourcing</b><span>Katalog calon barang dari supplier, dengan penyaring dan grid gambar.</span></a>
+        <a class="tile" href="8-supplier.html"><b><span class="no">08</span>Supplier</b><span>Daftar pemasok, kelengkapan dokumen, dan hal yang memblokir order.</span></a>
+        <a class="tile" href="9-po.html"><b><span class="no">09</span>Purchase order</b><span>Rekonsiliasi dua sisi: yang dipesan dan yang sudah datang.</span></a>
+        <a class="tile" href="10-po-baru.html"><b><span class="no">10</span>Buat PO</b><span>Supplier dipilih lebih dulu, karena syaratnya menentukan sisanya.</span></a>
+      </div>
+
+      <div class="gh"><h3>Operasi</h3><i></i></div>
+      <div class="grid">
+        <a class="tile" href="18-receiving.html"><b><span class="no">18</span>Penerimaan</b><span>Hitung buta lalu diperiksa orang lain. Dua peran, dua tampilan berbeda.</span></a>
+        <a class="tile" href="11-operations.html"><b><span class="no">11</span>Pick &amp; pack</b><span>Daftar ambil yang diturunkan sistem, dan koli yang menentukan tujuan.</span></a>
+        <a class="tile" href="12-pos.html"><b><span class="no">12</span>Kasir</b><span>Layar jual, pembayaran, dan struk 58 mm.</span></a>
+      </div>
+
+      <div class="gh"><h3>Persediaan</h3><i></i></div>
+      <div class="grid">
+        <a class="tile" href="6-newton.html"><b><span class="no">06</span>Ringkasan</b><span>Keadaan persediaan hari ini dan apa yang perlu dikerjakan.</span></a>
+        <a class="tile" href="14-allotment.html"><b><span class="no">14</span>Allotment</b><span>Janji ke toko yang belum menggerakkan satu unit pun.</span></a>
+        <a class="tile" href="15-movement.html"><b><span class="no">15</span>Pergerakan</b><span>Buku besar barang: hanya bisa ditambah, tidak pernah disunting.</span></a>
+        <a class="tile" href="16-count.html"><b><span class="no">16</span>Official count</b><span>Selisih baru jadi fakta pada saat disetujui, bukan sebelumnya.</span></a>
+        <a class="tile" href="17-missing.html"><b><span class="no">17</span>Missing</b><span>Barang tak ketemu, tetap melekat pada pool asalnya.</span></a>
+      </div>
+
+      <div class="gh"><h3>Uang &amp; orang</h3><i></i></div>
+      <div class="grid">
+        <a class="tile" href="19-finance.html"><b><span class="no">19</span>Laporan harian</b><span>Angka untuk menutup hari, dengan dua persamaannya dihitung di layar.</span></a>
+        <a class="tile" href="20-hr.html"><b><span class="no">20</span>Orang &amp; akses</b><span>Cloud menerbitkan kebijakan; DC dan store yang menjalankan.</span></a>
+        <a class="tile" href="22-hr-store.html"><b><span class="no">22</span>Kehadiran site</b><span>Punch dari kiosk terdaftar, status yang diturunkan, koreksi yang tidak menimpa.</span></a>
+        <a class="tile" href="23-hr-ho.html"><b><span class="no">23</span>Persetujuan HO</b><span>Memutus usulan site dan menutup bulan, dengan penghalang yang menyebutkan alasannya.</span></a>
+        <a class="tile" href="13-discuss.html"><b><span class="no">13</span>Diskusi</b><span>Forum yang dibentuk oleh hal yang sedang dibicarakan.</span></a>
+        <a class="tile" href="21-chat.html"><b><span class="no">21</span>Percakapan</b><span>Chat realtime lewat SSE, dengan berkas dan sambungan yang jujur soal keadaannya.</span></a>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

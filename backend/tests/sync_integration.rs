@@ -9,13 +9,13 @@
 
 use axum::body::{to_bytes, Body};
 use http::Request;
-use inventory_edge::application::sync::{
+use inventory_backend::cloud::application::sync::{
     sync_cycle, CycleReport, SyncCycleConfig, SyncTransport,
 };
-use inventory_edge::domain::{BreakerPolicy, IngestBatch, IngestResponse};
-use inventory_edge::{
+use inventory_backend::cloud::domain::{BreakerPolicy, IngestBatch, IngestResponse};
+use inventory_backend::cloud::{
     application::{CreateMovementRequest, MovementLineRequest},
-    http as api_http, infrastructure, AppConfig, AppState,
+    http as api_http, postgres as infrastructure, AppConfig, AppState,
 };
 use serde_json::json;
 use sqlx::{PgPool, Row};
@@ -50,6 +50,8 @@ fn test_config() -> AppConfig {
         sync_apply_enabled: false,
         jwt_secret: None,
         auth_token_ttl_minutes: 60,
+        auth_session_idle_minutes: 30,
+        auth_cookie_secure: false,
         bootstrap_admin_password: None,
         cors_allowed_origins: None,
     }
@@ -63,6 +65,15 @@ fn cycle_config() -> SyncCycleConfig {
             base_cooldown_seconds: 30,
             max_cooldown_seconds: 900,
         },
+        command_key: None,
+    }
+}
+
+/// A cycle config whose store can verify commands signed for it.
+fn cycle_config_with_key(ingest_key: &str) -> SyncCycleConfig {
+    SyncCycleConfig {
+        command_key: Some(infrastructure::command_signing_key(ingest_key)),
+        ..cycle_config()
     }
 }
 
@@ -88,6 +99,17 @@ fn movement(epc: &str, key: &str) -> CreateMovementRequest {
 /// Drives the REAL receiver router in-process over the same database.
 struct RouterTransport {
     state: AppState,
+    /// Present once the origin is registered: per-origin auth then demands it.
+    key: Option<String>,
+}
+
+impl RouterTransport {
+    fn with_key(state: AppState, key: &str) -> Self {
+        Self {
+            state,
+            key: Some(key.to_string()),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -98,9 +120,12 @@ impl SyncTransport for RouterTransport {
         let request = Request::builder()
             .method("POST")
             .uri("/api/v1/sync/ingest")
-            .header("content-type", "application/json")
-            .body(Body::from(body))
-            .map_err(|e| e.to_string())?;
+            .header("content-type", "application/json");
+        let request = match &self.key {
+            Some(key) => request.header("x-sync-key", key),
+            None => request,
+        };
+        let request = request.body(Body::from(body)).map_err(|e| e.to_string())?;
         let response = app.oneshot(request).await.map_err(|e| e.to_string())?;
         if !response.status().is_success() {
             return Err(format!("ingest returned {}", response.status()));
@@ -139,15 +164,26 @@ async fn ingest_count(pool: &PgPool, status: &str) -> i64 {
         .get("count")
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn ordered_sync_end_to_end(pool: PgPool) {
+    const KEY: &str = "ordered-sync-integration-key-00000001";
     infrastructure::provision_origin(&pool, "store-e2e", 1, true)
         .await
         .unwrap_or_else(|e| panic!("provision: {e}"));
+    infrastructure::register_origin_credential_binding(
+        &pool,
+        "store-e2e",
+        KEY,
+        Some("Store E2E"),
+        Some("store-07"),
+        Some("STORE"),
+        Some(1),
+        Some(true),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("register inventory origin: {e}"));
     let state = AppState::new(pool.clone(), test_config());
-    let transport = RouterTransport {
-        state: state.clone(),
-    };
+    let transport = RouterTransport::with_key(state.clone(), KEY);
 
     // A movement commits its sync fact in the same transaction.
     infrastructure::create_movement(&pool, movement("EPC00000006", "sync-e2e-move-1"))
@@ -160,7 +196,7 @@ async fn ordered_sync_end_to_end(pool: PgPool) {
         .await
         .unwrap_or_else(|e| panic!("cycle: {e}"));
     assert_eq!(
-        report,
+        report.upstream,
         CycleReport::Advanced {
             sent: 1,
             advance_to: 1,
@@ -183,7 +219,7 @@ async fn ordered_sync_end_to_end(pool: PgPool) {
         .await
         .unwrap_or_else(|e| panic!("cycle 2: {e}"));
     assert_eq!(
-        report,
+        report.upstream,
         CycleReport::Advanced {
             sent: 1,
             advance_to: 2,
@@ -201,7 +237,7 @@ async fn ordered_sync_end_to_end(pool: PgPool) {
         .await
         .unwrap_or_else(|e| panic!("cycle 3: {e}"));
     assert_eq!(
-        report,
+        report.upstream,
         CycleReport::Advanced {
             sent: 2,
             advance_to: 2,
@@ -219,7 +255,7 @@ async fn ordered_sync_end_to_end(pool: PgPool) {
         .await
         .unwrap_or_else(|e| panic!("cycle 4: {e}"));
     assert_eq!(
-        report,
+        report.upstream,
         CycleReport::Advanced {
             sent: 1,
             advance_to: 3,
@@ -238,7 +274,7 @@ async fn ordered_sync_end_to_end(pool: PgPool) {
     let report = sync_cycle(&pool, &cycle_config(), &transport)
         .await
         .unwrap_or_else(|e| panic!("cycle 5: {e}"));
-    assert_eq!(report, CycleReport::Idle);
+    assert_eq!(report.upstream, CycleReport::Idle);
 
     // Observability surfaces answer.
     let app = api_http::router(state.clone());
@@ -281,7 +317,7 @@ async fn ordered_sync_end_to_end(pool: PgPool) {
     assert!(text.contains("sync_ingest_watermark_seq{origin=\"store-e2e\",generation=\"1\"} 3"));
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn breaker_opens_after_consecutive_failures_and_reset_closes_it(pool: PgPool) {
     infrastructure::provision_origin(&pool, "store-breaker", 1, true)
         .await
@@ -295,7 +331,7 @@ async fn breaker_opens_after_consecutive_failures_and_reset_closes_it(pool: PgPo
         let report = sync_cycle(&pool, &config, &FailingTransport)
             .await
             .unwrap_or_else(|e| panic!("cycle: {e}"));
-        match report {
+        match report.upstream {
             CycleReport::Failed {
                 consecutive_failures,
                 breaker_opened,
@@ -311,7 +347,10 @@ async fn breaker_opens_after_consecutive_failures_and_reset_closes_it(pool: PgPo
     let report = sync_cycle(&pool, &config, &FailingTransport)
         .await
         .unwrap_or_else(|e| panic!("skipped cycle: {e}"));
-    assert!(matches!(report, CycleReport::SkippedBreaker { .. }));
+    assert!(matches!(
+        report.upstream,
+        CycleReport::SkippedBreaker { .. }
+    ));
 
     // Operator reset: the sender tries again immediately (and fails afresh
     // with a clean streak — the breaker did not remember the old one).
@@ -322,7 +361,7 @@ async fn breaker_opens_after_consecutive_failures_and_reset_closes_it(pool: PgPo
         .await
         .unwrap_or_else(|e| panic!("post-reset cycle: {e}"));
     assert_eq!(
-        report,
+        report.upstream,
         CycleReport::Failed {
             error: "simulated transport failure".into(),
             consecutive_failures: 1,
@@ -345,14 +384,15 @@ fn movement_fact(
     seq: i64,
     group_id: uuid::Uuid,
     subject_id: uuid::Uuid,
-) -> inventory_edge::domain::SyncFact {
-    inventory_edge::domain::SyncFact {
+    site_id: &str,
+) -> inventory_backend::cloud::domain::SyncFact {
+    inventory_backend::cloud::domain::SyncFact {
         seq,
-        event_id: uuid::Uuid::new_v4(),
+        event_id: group_id,
         event_type: "inventory.movement".into(),
         payload: json!({
             "movement_group_id": group_id,
-            "cause": "NORMAL_MOVE",
+            "cause": "STORE_RECEIVE",
             "reason": "multi-store apply test",
             "reference_type": null,
             "reference_id": null,
@@ -361,8 +401,13 @@ fn movement_fact(
             "lines": [{
                 "subject_id": subject_id,
                 "quantity": 1,
-                "from_place_id": "store-07.warehouse:on_hand",
-                "to_place_id": "store-07.floor:on_hand",
+                // An inbound movement, so the fixture does not ask the centre
+                // to take stock out of a place that never had any. The centre
+                // now refuses a movement that would drive a position
+                // negative, which is right — a shop's history should never
+                // imply it shipped what it never held.
+                "from_place_id": "system/opening",
+                "to_place_id": format!("{site_id}.warehouse:on_hand"),
             }],
         }),
         created_at: chrono::Utc::now(),
@@ -389,24 +434,49 @@ async fn applied_seq(pool: &PgPool, origin: &str) -> i64 {
     .get("applied_seq")
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn thirty_store_apply_is_per_stream_and_idempotent(pool: PgPool) {
+    // Every shop that uploads is a registered origin — the centre keeps the
+    // position it derives per origin, and a position for a node it has never
+    // heard of would belong to nobody.
+    for (origin, site) in [("store-A", "store-07"), ("store-B", "store-12")] {
+        infrastructure::register_origin_credential(
+            &pool,
+            origin,
+            "fleet-integration-sync-key-00000001",
+            Some(origin),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("register {origin}: {e}"));
+        sqlx::query(
+            "UPDATE sync_origin_credential
+             SET site_id = $2, node_role = 'STORE', active_generation = 1, inventory_enabled = true
+             WHERE origin_id = $1",
+        )
+        .bind(origin)
+        .bind(site)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("bind {origin}: {e}"));
+    }
     let subject_a = seeded_subject(&pool, "EPC00000010").await;
     let subject_b = seeded_subject(&pool, "EPC00000011").await;
     let group_a = uuid::Uuid::new_v4();
     let group_b = uuid::Uuid::new_v4();
 
     // Two stores upload independently.
-    for (origin, group, subject) in [
-        ("store-A", group_a, subject_a),
-        ("store-B", group_b, subject_b),
+    for (origin, group, subject, site) in [
+        ("store-A", group_a, subject_a, "store-07"),
+        ("store-B", group_b, subject_b, "store-12"),
     ] {
         let response = infrastructure::ingest_batch(
             &pool,
             &IngestBatch {
                 origin_id: origin.into(),
                 generation: 1,
-                facts: vec![movement_fact(1, group, subject)],
+                command_watermark: 0,
+                command_blocked: None,
+                facts: vec![movement_fact(1, group, subject, site)],
             },
         )
         .await
@@ -418,16 +488,20 @@ async fn thirty_store_apply_is_per_stream_and_idempotent(pool: PgPool) {
     let report = infrastructure::apply_pending(&pool, 200)
         .await
         .unwrap_or_else(|e| panic!("apply: {e}"));
+    assert!(report.blocked.is_empty(), "blocked: {:?}", report.blocked);
     assert_eq!(report.applied, 2);
-    assert!(report.blocked.is_empty());
     for group in [group_a, group_b] {
-        let rows: i64 =
-            sqlx::query("SELECT count(*)::bigint AS count FROM movement WHERE movement_group_id = $1")
-                .bind(group)
-                .fetch_one(&pool)
-                .await
-                .unwrap_or_else(|e| panic!("movement rows: {e}"))
-                .get("count");
+        let rows: i64 = sqlx::query(
+            // Node history lands in the node-history tables, never in the
+            // centre's own ledger — the centre does not own this inventory.
+            "SELECT count(*)::bigint AS count FROM edge_movement_line
+             WHERE movement_group_id = $1",
+        )
+        .bind(group)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("movement rows: {e}"))
+        .get("count");
         assert_eq!(rows, 1);
     }
     assert_eq!(applied_seq(&pool, "store-A").await, 1);
@@ -446,7 +520,9 @@ async fn thirty_store_apply_is_per_stream_and_idempotent(pool: PgPool) {
         &IngestBatch {
             origin_id: "store-A".into(),
             generation: 1,
-            facts: vec![movement_fact(2, group_a, subject_a)],
+            command_watermark: 0,
+            command_blocked: None,
+            facts: vec![movement_fact(2, group_a, subject_a, "store-07")],
         },
     )
     .await
@@ -458,7 +534,7 @@ async fn thirty_store_apply_is_per_stream_and_idempotent(pool: PgPool) {
     assert_eq!(applied_seq(&pool, "store-A").await, 2);
 
     // A store with an unappliable fact blocks ALONE; the other 29 keep going.
-    let broken = inventory_edge::domain::SyncFact {
+    let broken = inventory_backend::cloud::domain::SyncFact {
         seq: 1,
         event_id: uuid::Uuid::new_v4(),
         event_type: "inventory.movement".into(),
@@ -470,6 +546,8 @@ async fn thirty_store_apply_is_per_stream_and_idempotent(pool: PgPool) {
         &IngestBatch {
             origin_id: "store-C".into(),
             generation: 1,
+            command_watermark: 0,
+            command_blocked: None,
             facts: vec![broken],
         },
     )
@@ -480,7 +558,14 @@ async fn thirty_store_apply_is_per_stream_and_idempotent(pool: PgPool) {
         &IngestBatch {
             origin_id: "store-B".into(),
             generation: 1,
-            facts: vec![movement_fact(2, uuid::Uuid::new_v4(), subject_b)],
+            command_watermark: 0,
+            command_blocked: None,
+            facts: vec![movement_fact(
+                2,
+                uuid::Uuid::new_v4(),
+                subject_b,
+                "store-12",
+            )],
         },
     )
     .await
@@ -547,29 +632,43 @@ async fn post_json(
         .status()
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn per_origin_keys_stop_store_spoofing(pool: PgPool) {
     let mut config = test_config();
-    config.sync_ingest_key = Some("master-key".into());
+    const MASTER_KEY: &str = "test-master-provisioning-key-00000001";
+    const STORE_A_KEY: &str = "store-a-integration-sync-key-00000001";
+    config.sync_ingest_key = Some(MASTER_KEY.into());
     let state = AppState::new(pool.clone(), config);
     let app = || api_http::router(state.clone());
     let empty_batch = |origin: &str| json!({"origin_id": origin, "generation": 1, "facts": []});
 
     // Registration needs the master key.
-    let register =
-        json!({"origin_id": "store-A", "ingest_key": "store-a-key", "label": "Store A"});
+    let register = json!({"origin_id": "store-A", "ingest_key": STORE_A_KEY, "label": "Store A"});
     assert_eq!(
         post_json(app(), "/api/v1/sync/origins", None, register.clone()).await,
         http::StatusCode::FORBIDDEN
     );
+    let weak_register =
+        json!({"origin_id": "store-weak", "ingest_key": "short-key", "label": "Weak"});
     assert_eq!(
-        post_json(app(), "/api/v1/sync/origins", Some("master-key"), register).await,
+        post_json(
+            app(),
+            "/api/v1/sync/origins",
+            Some(MASTER_KEY),
+            weak_register,
+        )
+        .await,
+        http::StatusCode::BAD_REQUEST,
+        "origin provisioning rejects weak machine credentials"
+    );
+    assert_eq!(
+        post_json(app(), "/api/v1/sync/origins", Some(MASTER_KEY), register).await,
         http::StatusCode::CREATED
     );
 
     // A registered origin is accepted ONLY with its own key: the master key
     // no longer lets anyone speak as store-A, and neither does store-B's key.
-    for wrong in [None, Some("master-key"), Some("some-other-key")] {
+    for wrong in [None, Some(MASTER_KEY), Some("some-other-key")] {
         assert_eq!(
             post_json(app(), "/api/v1/sync/ingest", wrong, empty_batch("store-A")).await,
             http::StatusCode::FORBIDDEN
@@ -579,7 +678,7 @@ async fn per_origin_keys_stop_store_spoofing(pool: PgPool) {
         post_json(
             app(),
             "/api/v1/sync/ingest",
-            Some("store-a-key"),
+            Some(STORE_A_KEY),
             empty_batch("store-A")
         )
         .await,
@@ -592,7 +691,7 @@ async fn per_origin_keys_stop_store_spoofing(pool: PgPool) {
         post_json(
             app(),
             "/api/v1/sync/ingest",
-            Some("master-key"),
+            Some(MASTER_KEY),
             empty_batch("store-B")
         )
         .await,
@@ -602,4 +701,277 @@ async fn per_origin_keys_stop_store_spoofing(pool: PgPool) {
         post_json(app(), "/api/v1/sync/ingest", None, empty_batch("store-B")).await,
         http::StatusCode::FORBIDDEN
     );
+}
+
+// ---- The downstream lane: cloud -> store commands -------------------------
+
+fn publication_payload(version: i64, price_minor: i64, sku_id: uuid::Uuid) -> serde_json::Value {
+    json!({
+        "publication_id": uuid::Uuid::new_v4(),
+        "version": version,
+        "name": format!("Harga v{version}"),
+        "effective_from": chrono::Utc::now(),
+        "effective_to": null,
+        "tax_rules": [{"tax_category": "STANDARD", "rate_bps": 1100, "tax_inclusive": true}],
+        "price_rules": [{
+            "sku_id": sku_id,
+            // The shop floor names products by code, not by the centre's UUID.
+            "sku_code": "SYNC-SKU",
+            "site_id": null,
+            "channel": "STORE",
+            "sellable": true,
+            "currency": "IDR",
+            "unit_price_minor": price_minor,
+            "tax_category": "STANDARD"
+        }],
+    })
+}
+
+async fn a_sku(pool: &PgPool) -> uuid::Uuid {
+    sqlx::query("SELECT id FROM sku ORDER BY id LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|e| panic!("sku: {e}"))
+        .get("id")
+}
+
+async fn store_command_watermark(pool: &PgPool) -> i64 {
+    infrastructure::command_watermark(pool)
+        .await
+        .unwrap_or_else(|e| panic!("command watermark: {e}"))
+        .0
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn commands_ride_the_upload_cycle_and_activate_pricing(pool: PgPool) {
+    const KEY: &str = "store-e2e-integration-sync-key-00000001";
+    infrastructure::provision_origin(&pool, "store-e2e", 1, true)
+        .await
+        .unwrap_or_else(|e| panic!("provision: {e}"));
+    infrastructure::register_origin_credential(&pool, "store-e2e", KEY, Some("Toko E2E"))
+        .await
+        .unwrap_or_else(|e| panic!("register: {e}"));
+    let state = AppState::new(pool.clone(), test_config());
+    let transport = RouterTransport::with_key(state.clone(), KEY);
+    let config = cycle_config_with_key(KEY);
+    let sku_id = a_sku(&pool).await;
+
+    // The cloud activates a publication for the whole fleet.
+    let payload = publication_payload(101, 25_000, sku_id);
+    let publication_id: uuid::Uuid =
+        serde_json::from_value(payload["publication_id"].clone()).unwrap_or_else(|e| panic!("{e}"));
+    let (command_id, targets) = infrastructure::issue_command(
+        &pool,
+        "commercial.publication.activate",
+        &payload,
+        "ho-pricing",
+        None,
+        &[],
+    )
+    .await
+    .unwrap_or_else(|e| panic!("issue: {e}"));
+    assert_eq!(targets, vec!["store-e2e".to_string()]);
+
+    // ONE cycle — with NOTHING to upload — carries it down and applies it.
+    // This is the piggyback: no second connection, no separate cadence.
+    let outcome = sync_cycle(&pool, &config, &transport)
+        .await
+        .unwrap_or_else(|e| panic!("cycle: {e}"));
+    assert_eq!(outcome.upstream, CycleReport::Idle);
+    assert_eq!(outcome.commands_blocked, None);
+    assert_eq!(outcome.commands_applied, 1);
+    assert_eq!(store_command_watermark(&pool).await, 1);
+
+    // The effect is real: the publication and its rules are live at the store.
+    let price: i64 =
+        sqlx::query("SELECT unit_price_minor FROM commercial_price_rule WHERE publication_id = $1")
+            .bind(publication_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("price rule: {e}"))
+            .get("unit_price_minor");
+    assert_eq!(price, 25_000);
+    let status: String = sqlx::query("SELECT status FROM commercial_publication WHERE id = $1")
+        .bind(publication_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("publication: {e}"))
+        .get("status");
+    assert_eq!(status, "PUBLISHED");
+
+    // Applying is idempotent and the stream drains.
+    let outcome = sync_cycle(&pool, &config, &transport)
+        .await
+        .unwrap_or_else(|e| panic!("cycle 2: {e}"));
+    assert_eq!(outcome.commands_applied, 0);
+
+    // The cloud sees convergence without asking the store anything extra.
+    let reach = infrastructure::command_reach(&pool, command_id)
+        .await
+        .unwrap_or_else(|e| panic!("reach: {e}"));
+    assert_eq!(reach["converged"], true);
+    assert_eq!(reach["settled_count"], 1);
+    assert_eq!(reach["pending_count"], 0);
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_forged_command_blocks_and_a_revoked_one_is_skipped(pool: PgPool) {
+    const KEY: &str = "store-e2e-integration-sync-key-00000001";
+    infrastructure::provision_origin(&pool, "store-e2e", 1, true)
+        .await
+        .unwrap_or_else(|e| panic!("provision: {e}"));
+    infrastructure::register_origin_credential(&pool, "store-e2e", KEY, None)
+        .await
+        .unwrap_or_else(|e| panic!("register: {e}"));
+    let sku_id = a_sku(&pool).await;
+
+    // A command signed for THIS store, tampered with in flight.
+    let (_, _) = infrastructure::issue_command(
+        &pool,
+        "commercial.publication.activate",
+        &publication_payload(9101, 10_000, sku_id),
+        "ho-pricing",
+        None,
+        &[],
+    )
+    .await
+    .unwrap_or_else(|e| panic!("issue: {e}"));
+    let mut delivered = infrastructure::commands_for(&pool, "store-e2e", 0, 20)
+        .await
+        .unwrap_or_else(|e| panic!("commands_for: {e}"));
+    assert_eq!(delivered.len(), 1);
+    let key = infrastructure::command_signing_key(KEY);
+    delivered[0].payload["price_rules"][0]["unit_price_minor"] = json!(1);
+    let report = infrastructure::apply_commands(&pool, key.as_bytes(), &delivered)
+        .await
+        .unwrap_or_else(|e| panic!("apply forged: {e}"));
+    assert_eq!(report.applied, 0);
+    let blocked = report.blocked.unwrap_or_else(|| panic!("expected a block"));
+    assert_eq!(blocked.seq, 1);
+    assert!(blocked.reason.contains("signature"));
+    assert_eq!(store_command_watermark(&pool).await, 0);
+
+    // The untampered command still applies — the block was about the forgery,
+    // not about the position, and it heals with no operator action.
+    let honest = infrastructure::commands_for(&pool, "store-e2e", 0, 20)
+        .await
+        .unwrap_or_else(|e| panic!("commands_for 2: {e}"));
+    let report = infrastructure::apply_commands(&pool, key.as_bytes(), &honest)
+        .await
+        .unwrap_or_else(|e| panic!("apply honest: {e}"));
+    assert_eq!(report.blocked, None);
+    assert_eq!(report.applied, 1);
+
+    // A second command, recalled before the store reads it, is skipped — and
+    // the prefix advances past it rather than damming the stream.
+    let (revoked_id, _) = infrastructure::issue_command(
+        &pool,
+        "commercial.publication.activate",
+        &publication_payload(9102, 99_000, sku_id),
+        "ho-pricing",
+        None,
+        &[],
+    )
+    .await
+    .unwrap_or_else(|e| panic!("issue 2: {e}"));
+    let caught = infrastructure::revoke_command(&pool, revoked_id, "harga salah")
+        .await
+        .unwrap_or_else(|e| panic!("revoke: {e}"));
+    assert_eq!(caught, 1, "the recall caught the store in time");
+    let after_revoke = infrastructure::commands_for(&pool, "store-e2e", 1, 20)
+        .await
+        .unwrap_or_else(|e| panic!("commands_for 3: {e}"));
+    assert!(after_revoke[0].revoked);
+    let report = infrastructure::apply_commands(&pool, key.as_bytes(), &after_revoke)
+        .await
+        .unwrap_or_else(|e| panic!("apply revoked: {e}"));
+    assert_eq!((report.applied, report.skipped), (0, 1));
+    assert_eq!(store_command_watermark(&pool).await, 2);
+    let never_applied: i64 =
+        sqlx::query("SELECT count(*)::bigint AS count FROM commercial_price_rule WHERE unit_price_minor = 99000")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("count: {e}"))
+            .get("count");
+    assert_eq!(never_applied, 0, "a recalled price never went live");
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_fleet_view_names_who_is_behind_and_who_is_stuck(pool: PgPool) {
+    for (origin, key) in [
+        ("store-01", "store-01-integration-sync-key-00000001"),
+        ("store-02", "store-02-integration-sync-key-00000001"),
+        ("store-03", "store-03-integration-sync-key-00000001"),
+    ] {
+        infrastructure::register_origin_credential(&pool, origin, key, Some(origin))
+            .await
+            .unwrap_or_else(|e| panic!("register {origin}: {e}"));
+    }
+    let sku_id = a_sku(&pool).await;
+    infrastructure::issue_command(
+        &pool,
+        "commercial.publication.activate",
+        &publication_payload(7, 5_000, sku_id),
+        "ho-pricing",
+        None,
+        &[],
+    )
+    .await
+    .unwrap_or_else(|e| panic!("issue: {e}"));
+
+    // store-01 applies, store-02 reports a block, store-03 says nothing.
+    infrastructure::record_command_ack(&pool, "store-01", 1, None)
+        .await
+        .unwrap_or_else(|e| panic!("ack 1: {e}"));
+    infrastructure::record_command_ack(
+        &pool,
+        "store-02",
+        0,
+        Some(&inventory_backend::cloud::domain::CommandBlock {
+            seq: 1,
+            reason: "sku tidak dikenal di toko ini".into(),
+        }),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("ack 2: {e}"));
+
+    let fleet = infrastructure::fleet_command_status(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("fleet: {e}"));
+    assert_eq!(fleet.len(), 3);
+    let by = |id: &str| {
+        fleet
+            .iter()
+            .find(|s| s.origin_id == id)
+            .unwrap_or_else(|| panic!("{id} missing"))
+            .clone()
+    };
+    assert!(by("store-01").converged());
+    assert_eq!(by("store-01").pending(), 0);
+    assert!(!by("store-02").converged());
+    assert_eq!(by("store-02").blocked_at_seq, Some(1));
+    assert!(by("store-02")
+        .blocked_reason
+        .unwrap_or_default()
+        .contains("sku"));
+    assert_eq!(
+        by("store-03").pending(),
+        1,
+        "silent store is counted behind"
+    );
+    assert!(by("store-03").blocked_at_seq.is_none());
+
+    // A store that recovers clears its own block on the next report.
+    infrastructure::record_command_ack(&pool, "store-02", 1, None)
+        .await
+        .unwrap_or_else(|e| panic!("ack 3: {e}"));
+    let fleet = infrastructure::fleet_command_status(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("fleet 2: {e}"));
+    let recovered = fleet
+        .iter()
+        .find(|s| s.origin_id == "store-02")
+        .unwrap_or_else(|| panic!("store-02 missing"));
+    assert!(recovered.converged());
+    assert!(recovered.blocked_at_seq.is_none());
 }

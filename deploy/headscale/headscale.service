@@ -1,0 +1,38 @@
+# systemd unit for the itulah control server.
+#
+# Runs unprivileged. Binding 443 normally needs root; the capability below
+# grants exactly that one power and nothing else, so a headscale compromise
+# does not hand over the machine.
+[Unit]
+Description=itulah fleet control server (headscale)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=headscale
+Group=headscale
+ExecStart=/usr/local/bin/headscale serve
+Restart=always
+RestartSec=5
+
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+RuntimeDirectory=headscale
+StateDirectory=headscale
+ConfigurationDirectory=headscale
+
+# The fleet's address book is worth protecting: the service gets a private
+# /tmp, no write access outside its own state, and no ability to gain
+# privileges it did not start with.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

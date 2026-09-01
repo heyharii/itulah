@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Allotment · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   ALLOTMENT — keputusan tujuan, bukan perpindahan barang
+   --------------------------------------------------------------------------
+   Satu kalimat menentukan seluruh bentuk layar ini, dan ia sudah ada di UI
+   kalian yang sekarang:
+
+     "Destination is decided before physical execution; creating an Allotment
+      creates no inventory movement."
+
+   Jadi Allotment BUKAN pengiriman. Ia janji: barang sekian, untuk toko itu,
+   diputuskan sekarang. Barangnya belum bergerak sepetak pun.
+
+   Konsekuensinya pada persamaan persediaan, dan ini yang paling sering
+   disalahpahami orang baru:
+
+     Stock    TETAP     — tidak ada yang keluar dari gudang
+     Allotted  +N       — sekian unit sudah punya tujuan
+     On Hand   −N       — sisa yang masih bebas dipesan orang lain berkurang
+
+   Maka pratinjau sebelum membuat menuliskan ketiganya secara harfiah, plus
+   kalimat "Menciptakan 0 pergerakan persediaan". Layar yang cuma bilang
+   "berhasil dibuat" membuat orang mengira barangnya sudah dikirim.
+
+   TIGA ANGKA PER BARIS, bukan satu. `quantity`, `executed_quantity`, dan
+   `cancelled_quantity` adalah tiga medan terpisah di wire, dan sisanya
+   diturunkan. Menampilkan sisanya saja menyembunyikan apakah kekurangan itu
+   karena belum dieksekusi atau karena sudah dibatalkan — dua hal yang
+   ditindaklanjuti dengan cara berbeda.
+
+   Kulitnya retail.css.
+   ========================================================================== */
+
+.hd{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.hd h1{margin:0 0 2px;font-size:20px;font-weight:600;letter-spacing:-.02em}
+.hd p{margin:0;color:var(--ink-2);font-size:13.5px}
+.hd .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+
+/* ── strip persamaan ───────────────────────────────────────
+   Empat suku digambar sebagai satu baris aritmatika, bukan empat kartu
+   terpisah: yang penting bukan angkanya sendiri-sendiri, tapi bahwa
+   Allotted dan On Hand bergerak berlawanan dari Stock yang sama. */
+.eq{display:flex;align-items:flex-end;gap:6px 22px;flex-wrap:wrap;padding:16px 18px}
+.eq-term{display:flex;flex-direction:column;gap:4px}
+.eq-term span{font-size:11.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.eq-term b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:27px;font-weight:600;letter-spacing:-.03em;line-height:1}
+.eq-term b.neg{color:var(--red)}
+.eq-op{font-size:17px;color:var(--ink-3);padding-bottom:5px}
+.eq-note{padding:0 18px 15px;font-size:12.5px;color:var(--ink-2);max-width:88ch}
+
+.pickpool{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 18px;border-bottom:1px solid var(--line)}
+.pickpool label{font-size:13px;color:var(--ink-2)}
+.pickpool select{width:auto;min-width:210px}
+
+.cols{display:grid;gap:12px;grid-template-columns:1fr;margin-top:12px}
+@media(min-width:1180px){.cols{grid-template-columns:1.5fr 1fr}}
+
+/* ── baris tujuan ──────────────────────────────────────── */
+.dest{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line)}
+.card .dest:last-child{border-bottom:0}
+.dest .who{flex:1;min-width:0}
+.dest .who b{display:block;font-weight:500;font-size:13.5px}
+.dest .who span{font-size:12px;color:var(--ink-3)}
+/* Batang tiga segmen: dieksekusi · dibatalkan · sisa. Menjumlah ke quantity. */
+.bar{display:flex;height:6px;width:104px;flex-shrink:0;border-radius:var(--radius-bar);overflow:hidden;background:var(--field)}
+.bar span{display:block}
+.dest .n{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:14px;min-width:64px;text-align:end;flex-shrink:0}
+
+/* ── kekurangan ────────────────────────────────────────── */
+.short{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);font-size:13px}
+.card .short:last-child{border-bottom:0}
+.short .sku{flex:1;min-width:0;font-family:var(--font-mono);font-size:13px}
+.short .v{font-family:var(--font-mono);font-variant-numeric:tabular-nums;min-width:62px;text-align:end}
+.short .v.neg{color:var(--red)}
+
+/* ── dialog buat ───────────────────────────────────────── */
+.dlg{
+  position:fixed;inset:0;display:none;place-items:center;padding:20px;z-index:60;
+  background:var(--scrim);
+}
+.dlg[data-open="true"]{display:grid}
+.dlg-box{width:min(760px,100%);max-height:calc(100dvh - 40px);background:var(--page);border-radius:var(--radius-window);box-shadow:var(--shadow-overlay);display:flex;flex-direction:column;overflow:hidden}
+.dlg-head{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.dlg-head h2{margin:0 0 3px;font-size:17px;font-weight:600;letter-spacing:-.015em}
+.dlg-head p{margin:0;font-size:13px;color:var(--ink-2)}
+.dlg-body{flex:1;overflow-y:auto;padding:14px 18px}
+.dlg-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+.row2{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:640px){.row2{grid-template-columns:repeat(2,1fr)}}
+
+.qty{width:82px;height:30px;text-align:end}
+.qty.over{box-shadow:0 0 0 1px var(--red)}
+
+/* Pratinjau menuliskan akibatnya, bukan cuma meringkas isian. */
+.preview{margin-top:14px;padding:13px 14px;border-radius:var(--radius-card);background:var(--inset)}
+.preview h3{margin:0 0 9px;font-size:12.5px;font-weight:600;color:var(--ink-3)}
+.prow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:13px;padding:3px 0}
+.prow span:last-child{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:500}
+.prow .up{color:var(--green)}
+.prow .down{color:var(--red)}
+.pnote{margin:9px 0 0;font-size:12px;color:var(--ink-2)}
+.pnote b{font-weight:500;color:var(--ink)}
+</style>
+</head>
+<body>
+
+<div class="window">
+
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS · Edge</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="#"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="2.5" y="2.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="7.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="12.5" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>Pool</a>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M9 2.5v5m0 0-4 3v5m4-8 4 3v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Allotment <span class="n">6</span></a>
+    <a href="11-operations.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 6.5h11m0 0-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 11.5h-11m0 0 3-3m-3 3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Operations</a>
+
+    <div class="grp">Pengadaan</div>
+    <a href="7-sourcing.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5"/><path d="m12 12 3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Sourcing</a>
+    <a href="9-po.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Purchase Order</a>
+    <a href="8-supplier.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 14.5V7l6.5-4 6.5 4v7.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5v-4h4v4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>Supplier</a>
+
+    <div class="side-foot"><p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>Allotment · 09:14</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Allotment</h1>
+      <span class="stamp"><i></i>dc.warehouse · 15:42</span>
+      <div class="right">
+        <button type="button" class="btn btn-primary btn-sm" id="new">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Allotment baru
+        </button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <div class="hd">
+        <div>
+          <h1 style="font-size:18px">Ketersediaan pool sumber</h1>
+          <p>Allotment memutuskan tujuan. Barangnya belum bergerak.</p>
+        </div>
+      </div>
+
+      <section class="card" style="margin-bottom:12px">
+        <div class="pickpool">
+          <label for="pool">Pool sumber</label>
+          <select class="inp" id="pool">
+            <option value="dc.warehouse">dc.warehouse</option>
+            <option value="dc.reject.dc">dc.reject.dc</option>
+            <option value="store-03.warehouse">store-03.warehouse</option>
+          </select>
+          <span class="nil" style="font-size:12.5px;margin-left:auto">
+            Stock = Allotted + On&nbsp;Hand + Missing
+          </span>
+        </div>
+
+        <div class="eq" id="eq"></div>
+        <p class="eq-note">
+          <b>On&nbsp;Hand</b> adalah yang masih bebas dijanjikan ke tujuan lain — ia berkurang saat
+          Allotment dibuat, meski tidak ada satu barang pun yang berpindah. <b>Stock</b> baru
+          berubah setelah Allotment dieksekusi dan pergerakan ditulis.
+        </p>
+      </section>
+
+      <div class="cols">
+        <section class="card">
+          <div class="ch"><h2>Allotment</h2><span class="meta" id="almeta"></span></div>
+          <div class="tw">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nomor</th><th>Jenis</th><th class="n">Dipesan</th>
+                  <th class="n">Dieksekusi</th><th class="n">Dibatalkan</th><th class="n">Sisa</th>
+                  <th>Status</th><th class="n">Dibuat</th><th aria-label="Buka"></th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <section class="card">
+            <div class="ch"><h2>Sisa per toko tujuan</h2></div>
+            <div id="dests"></div>
+          </section>
+
+          <section class="card">
+            <div class="ch"><h2>Kekurangan</h2><span class="meta" id="shmeta"></span></div>
+            <div id="shorts"></div>
+            <p class="cap">
+              Kekurangan muncul saat Allotted melampaui Stock, jadi On&nbsp;Hand jadi negatif.
+              Bukan barang hilang — janji yang melebihi persediaan. Ditutup dengan membatalkan
+              sisa Allotment, atau menambah stok sebelum eksekusi berikutnya.
+            </p>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ══ panel detail ══════════════════════════════════════ -->
+<div class="scrim" id="scrim" data-open="false"></div>
+<aside class="sheet sheet-wide" id="sheet" data-open="false" aria-hidden="true">
+  <div class="sheet-head">
+    <div style="flex:1;min-width:0"><h2 id="sh-no">—</h2><div class="sub" id="sh-sub"></div></div>
+    <button type="button" class="icon-btn" id="sh-close" aria-label="Tutup">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m3.5 3.5 7 7m0-7-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="sh-body"></div>
+  <div class="sheet-foot">
+    <button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="sh-cancel">Batalkan sisa</button>
+    <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="sh-exec">Eksekusi baris</button>
+  </div>
+</aside>
+
+<!-- ══ dialog buat ═══════════════════════════════════════ -->
+<div class="dlg" id="dlg" data-open="false">
+  <div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="dlg-t">
+    <div class="dlg-head">
+      <h2 id="dlg-t">Allotment baru</h2>
+      <p>Memutuskan tujuan. Tidak memindahkan barang, dan tidak menulis pergerakan.</p>
+    </div>
+    <div class="dlg-body">
+      <div class="row2">
+        <div class="f">
+          <label for="d-type">Jenis</label>
+          <select class="inp" id="d-type">
+            <option value="TO_STORE">Ke toko</option>
+            <option value="RETURN_TO_DC">Kembali ke DC</option>
+            <option value="RETURN_TO_SUPPLIER">Retur ke supplier</option>
+          </select>
+        </div>
+        <div class="f">
+          <label for="d-actor">Pelaku</label>
+          <input class="inp" id="d-actor" value="inventory-planner">
+        </div>
+        <div class="f" style="grid-column:1/-1">
+          <label for="d-note">Catatan <span class="opt-tag">· opsional</span></label>
+          <input class="inp" id="d-note" placeholder="Rujukan rencana, alasan, dsb.">
+        </div>
+      </div>
+
+      <h3 style="margin:16px 0 8px;font-size:12.5px;font-weight:600;color:var(--ink-3)">Baris</h3>
+      <div class="card"><div class="tw">
+        <table>
+          <thead><tr><th>SKU</th><th>Artikel</th><th class="n">On Hand</th><th>Tujuan</th><th class="n">Jumlah</th></tr></thead>
+          <tbody id="d-lines"></tbody>
+        </table>
+      </div></div>
+
+      <div class="preview" id="prev"></div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="d-cancel">Batal</button>
+      <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="d-make" disabled>Buat Allotment</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Medan mengikuti API yang sudah ada di frontend sekarang:
+   GET  /api/v1/inventory/availability?source_pool_id
+   GET  /api/v1/inventory/allotments?source_pool_id
+   POST /api/v1/inventory/allotments            · execute · cancel */
+
+var POOLS = {
+  "dc.warehouse": {
+    stock:21480, allotted:3104, missing:92,
+    items:[
+      {sku:"10230114502", article:"Celana kulot rayon · Krem · M", on_hand:840},
+      {sku:"10230114503", article:"Celana kulot rayon · Krem · L", on_hand:610},
+      {sku:"10231220871", article:"Celana palazzo motif · Cokelat · M", on_hand:520},
+      {sku:"10229907441", article:"Celana flanel kotak · Merah · L", on_hand:445},
+      {sku:"10228801220", article:"Kaos combed 30s · Putih · L", on_hand:1290},
+    ],
+  },
+  "dc.reject.dc": {stock:612, allotted:0, missing:0, items:[
+      {sku:"10229907442", article:"Celana flanel kotak · Merah · XL", on_hand:612}]},
+  "store-03.warehouse": {stock:1876, allotted:0, missing:31, items:[
+      {sku:"10230114502", article:"Celana kulot rayon · Krem · M", on_hand:210}]},
+};
+
+var STORES = ["store-01","store-02","store-03","store-07","store-11"];
+
+var ALLOTMENTS = [
+  {no:"AL-2609-0104", type:"TO_STORE", status:"OPEN", created:"1 Sep 2026",
+   qty:400, exec:120, cancel:0,
+   lines:[
+     {id:"L-1", sku:"10230114502", article:"Celana kulot rayon · Krem · M", dest:"store-03", qty:220, exec:80, cancel:0},
+     {id:"L-2", sku:"10231220871", article:"Celana palazzo motif · Cokelat · M", dest:"store-11", qty:180, exec:40, cancel:0},
+   ]},
+  {no:"AL-2608-0091", type:"TO_STORE", status:"OPEN", created:"26 Agu 2026",
+   qty:520, exec:441, cancel:0,
+   lines:[
+     {id:"L-1", sku:"10230114502", article:"Celana kulot rayon · Krem · M", dest:"store-03", qty:320, exec:297, cancel:0},
+     {id:"L-2", sku:"10230114502", article:"Celana kulot rayon · Krem · M", dest:"store-07", qty:200, exec:144, cancel:0},
+   ]},
+  {no:"AL-2608-0077", type:"TO_STORE", status:"PARTIALLY_CANCELLED", created:"18 Agu 2026",
+   qty:300, exec:180, cancel:120,
+   lines:[
+     {id:"L-1", sku:"10229907441", article:"Celana flanel kotak · Merah · L", dest:"store-01", qty:300, exec:180, cancel:120},
+   ]},
+  {no:"AL-2607-0052", type:"RETURN_TO_SUPPLIER", status:"COMPLETED", created:"29 Jul 2026",
+   qty:110, exec:110, cancel:0,
+   lines:[
+     {id:"L-1", sku:"10229907442", article:"Celana flanel kotak · Merah · XL", dest:"external/supplier", qty:110, exec:110, cancel:0},
+   ]},
+  {no:"AL-2607-0041", type:"RETURN_TO_DC", status:"OPEN", created:"14 Jul 2026",
+   qty:64, exec:0, cancel:0,
+   lines:[
+     {id:"L-1", sku:"10230114502", article:"Celana kulot rayon · Krem · M", dest:"dc", qty:64, exec:0, cancel:0},
+   ]},
+];
+
+var TYPE_LABEL = {TO_STORE:"Ke toko", RETURN_TO_DC:"Ke DC", RETURN_TO_SUPPLIER:"Retur supplier"};
+var STATUS = {OPEN:["orange","Terbuka"], PARTIALLY_CANCELLED:["neutral","Sebagian dibatalkan"],
+              COMPLETED:["green","Selesai"], CANCELLED:["neutral","Dibatalkan"]};
+
+var pool = "dc.warehouse";
+var open = null;
+
+function num(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+function rem(a){ return a.qty - a.exec - a.cancel; }
+
+/* ── strip persamaan ───────────────────────────────────── */
+function paintEq(){
+  var p = POOLS[pool];
+  var onHand = p.stock - p.allotted;
+  document.getElementById("eq").innerHTML =
+    '<span class="eq-term"><span>Stock</span><b>' + num(p.stock) + '</b></span>' +
+    '<span class="eq-op">=</span>' +
+    '<span class="eq-term"><span>Allotted</span><b>' + num(p.allotted) + '</b></span>' +
+    '<span class="eq-op">+</span>' +
+    '<span class="eq-term"><span>On Hand</span><b' + (onHand < 0 ? ' class="neg"' : '') + '>' + num(onHand) + '</b></span>' +
+    '<span class="eq-op">+</span>' +
+    '<span class="eq-term"><span>Missing</span><b>' + num(p.missing) + '</b></span>';
+}
+
+/* ── daftar allotment ──────────────────────────────────── */
+function paintRows(){
+  var list = ALLOTMENTS;
+  document.getElementById("almeta").textContent = list.length + " allotment";
+  document.getElementById("rows").innerHTML = list.map(function(a, i){
+    var s = STATUS[a.status];
+    var r = rem(a);
+    return '<tr data-i="' + i + '" tabindex="0">' +
+      '<td class="mono">' + a.no + '</td>' +
+      '<td><span class="chip">' + TYPE_LABEL[a.type] + '</span></td>' +
+      '<td class="n">' + num(a.qty) + '</td>' +
+      '<td class="n">' + num(a.exec) + '</td>' +
+      '<td class="n">' + (a.cancel ? num(a.cancel) : '<span class="nil">—</span>') + '</td>' +
+      '<td class="n">' + (r ? num(r) : '<span class="nil">—</span>') + '</td>' +
+      '<td><span class="pill" data-tone="' + s[0] + '">' + s[1] + '</span></td>' +
+      '<td class="n"><span class="nil">' + a.created + '</span></td>' +
+      '<td class="n"><span class="nil">›</span></td>' +
+    '</tr>';
+  }).join("");
+  document.querySelectorAll("#rows tr").forEach(function(tr){
+    tr.addEventListener("click", function(){ openSheet(Number(tr.dataset.i)); });
+  });
+}
+
+/* ── sisa per tujuan ───────────────────────────────────── */
+function paintDests(){
+  var by = {};
+  ALLOTMENTS.forEach(function(a){
+    a.lines.forEach(function(l){
+      if (!by[l.dest]) by[l.dest] = {qty:0, exec:0, cancel:0};
+      by[l.dest].qty += l.qty; by[l.dest].exec += l.exec; by[l.dest].cancel += l.cancel;
+    });
+  });
+  var keys = Object.keys(by).sort();
+  document.getElementById("dests").innerHTML = keys.map(function(k){
+    var d = by[k], sisa = d.qty - d.exec - d.cancel, t = d.qty || 1;
+    var seg = function(v, c){ return v > 0 ? '<span style="width:' + (v/t*100) + '%;background:' + c + '"></span>' : ""; };
+    return '<div class="dest">' +
+      '<span class="who"><b>' + k + '</b><span>' + num(d.qty) + ' dipesan · ' + num(d.exec) + ' dieksekusi' +
+        (d.cancel ? ' · ' + num(d.cancel) + ' dibatalkan' : '') + '</span></span>' +
+      '<span class="bar">' + seg(d.exec,"var(--green)") + seg(d.cancel,"var(--ink-3)") + seg(sisa,"var(--line-strong)") + '</span>' +
+      '<span class="n">' + num(sisa) + '</span>' +
+    '</div>';
+  }).join("");
+}
+
+/* ── kekurangan ────────────────────────────────────────── */
+function paintShorts(){
+  /* Kekurangan dihitung, bukan disimpan: Allotted per SKU melampaui stoknya. */
+  var need = {};
+  ALLOTMENTS.forEach(function(a){
+    a.lines.forEach(function(l){
+      need[l.sku] = (need[l.sku] || 0) + (l.qty - l.exec - l.cancel);
+    });
+  });
+  var rows = POOLS["dc.warehouse"].items.map(function(it){
+    var allotted = need[it.sku] || 0;
+    return {sku:it.sku, stock:it.on_hand + allotted, allotted:allotted, on_hand:it.on_hand};
+  }).filter(function(r){ return r.allotted > 0; });
+
+  var kurang = rows.filter(function(r){ return r.on_hand < 0; });
+  document.getElementById("shmeta").textContent = kurang.length ? kurang.length + " SKU" : "tidak ada";
+  document.getElementById("shorts").innerHTML = rows.length
+    ? rows.map(function(r){
+        return '<div class="short">' +
+          '<span class="sku">' + r.sku + '</span>' +
+          '<span class="v">' + num(r.stock) + '</span>' +
+          '<span class="v">' + num(r.allotted) + '</span>' +
+          '<span class="v' + (r.on_hand < 0 ? ' neg' : '') + '">' + num(r.on_hand) + '</span>' +
+        '</div>';
+      }).join("")
+    : '<div class="empty"><b>Tidak ada kekurangan</b>Semua Allotment masih di dalam stok pool sumbernya.</div>';
+}
+
+/* ── panel detail ──────────────────────────────────────── */
+var sheet = document.getElementById("sheet"), scrim = document.getElementById("scrim");
+
+function openSheet(i){
+  open = i;
+  var a = ALLOTMENTS[i], s = STATUS[a.status];
+  document.getElementById("sh-no").textContent = a.no;
+  document.getElementById("sh-sub").innerHTML =
+    '<span class="chip">' + TYPE_LABEL[a.type] + '</span>' +
+    '<span class="pill" data-tone="' + s[0] + '">' + s[1] + '</span>' +
+    '<span class="nil">dibuat ' + a.created + '</span>';
+
+  var t = a.qty || 1;
+  var seg = function(v, c){ return v > 0 ? '<span style="width:' + (v/t*100) + '%;background:' + c + '"></span>' : ""; };
+
+  var html =
+    '<div class="sec"><h3>Kuantitas · ' + num(a.qty) + ' dipesan</h3>' +
+      '<div class="card" style="padding:14px">' +
+        '<div class="bar" style="width:100%;height:9px;margin-bottom:11px">' +
+          seg(a.exec,"var(--green)") + seg(a.cancel,"var(--ink-3)") + seg(rem(a),"var(--line-strong)") +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:10px">' +
+          '<div><div class="nil" style="font-size:12px">Dieksekusi</div><b class="mono" style="font-size:17px">' + num(a.exec) + '</b></div>' +
+          '<div><div class="nil" style="font-size:12px">Dibatalkan</div><b class="mono" style="font-size:17px">' + num(a.cancel) + '</b></div>' +
+          '<div><div class="nil" style="font-size:12px">Sisa</div><b class="mono" style="font-size:17px">' + num(rem(a)) + '</b></div>' +
+        '</div>' +
+      '</div></div>';
+
+  html += '<div class="sec"><h3>Baris · ' + a.lines.length + '</h3><div class="card"><div class="tw"><table>' +
+    '<thead><tr><th>SKU</th><th>Tujuan</th><th class="n">Pesan</th><th class="n">Eksek.</th><th class="n">Batal</th><th class="n">Sisa</th><th></th></tr></thead><tbody>' +
+    a.lines.map(function(l, k){
+      var r = l.qty - l.exec - l.cancel;
+      return '<tr>' +
+        '<td><div class="mono" style="font-size:12.5px">' + l.sku + '</div>' +
+          '<div class="nil" style="font-size:11.5px">' + l.article + '</div></td>' +
+        '<td>' + l.dest + '</td>' +
+        '<td class="n">' + num(l.qty) + '</td>' +
+        '<td class="n">' + num(l.exec) + '</td>' +
+        '<td class="n">' + (l.cancel ? num(l.cancel) : '<span class="nil">—</span>') + '</td>' +
+        '<td class="n">' + (r ? num(r) : '<span class="nil">—</span>') + '</td>' +
+        '<td class="n">' + (r > 0
+          ? '<button type="button" class="btn btn-secondary btn-sm" data-exec="' + k + '">Eksekusi</button>'
+          : '<span class="nil">—</span>') + '</td>' +
+      '</tr>';
+    }).join("") + '</tbody></table></div></div></div>';
+
+  html += '<div class="sec"><h3>Akibat</h3><div class="band" data-tone="neutral">' +
+    '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+    '<span>Mengeksekusi satu baris menulis <b>satu pergerakan persediaan</b> secara atomik dan menurunkan Allotted. ' +
+    'Membatalkan sisa <b>tidak</b> menulis pergerakan apa pun — Allotted turun, On&nbsp;Hand naik kembali.</span></div></div>';
+
+  document.getElementById("sh-body").innerHTML = html;
+
+  document.querySelectorAll("[data-exec]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var l = a.lines[Number(b.dataset.exec)];
+      var sisa = l.qty - l.exec - l.cancel;
+      var v = window.prompt("Eksekusi berapa untuk " + l.sku + " → " + l.dest + "? (sisa " + sisa + ")", String(sisa));
+      if (v === null) return;
+      var n = Number(v);
+      if (!Number.isInteger(n) || n < 1 || n > sisa) { window.alert("Jumlah harus 1–" + sisa + "."); return; }
+      l.exec += n; a.exec += n;
+      POOLS[pool].stock -= n; POOLS[pool].allotted -= n;
+      if (rem(a) === 0) a.status = a.cancel ? "PARTIALLY_CANCELLED" : "COMPLETED";
+      render(); openSheet(open);
+    });
+  });
+
+  var cancelBtn = document.getElementById("sh-cancel");
+  cancelBtn.disabled = rem(a) === 0;
+  cancelBtn.onclick = function(){
+    var sisa = rem(a);
+    if (!window.confirm("Batalkan sisa " + num(sisa) + " unit? Tidak ada pergerakan persediaan yang ditulis; Allotted turun dan On Hand naik kembali.")) return;
+    a.lines.forEach(function(l){ l.cancel += l.qty - l.exec - l.cancel; });
+    a.cancel += sisa;
+    POOLS[pool].allotted -= sisa;
+    a.status = a.exec ? "PARTIALLY_CANCELLED" : "CANCELLED";
+    render(); openSheet(open);
+  };
+  document.getElementById("sh-exec").disabled = rem(a) === 0;
+
+  sheet.dataset.open = "true"; sheet.setAttribute("aria-hidden","false");
+  scrim.dataset.open = "true";
+}
+function closeSheet(){ sheet.dataset.open="false"; sheet.setAttribute("aria-hidden","true"); scrim.dataset.open="false"; }
+document.getElementById("sh-close").addEventListener("click", closeSheet);
+scrim.addEventListener("click", closeSheet);
+
+/* ── dialog buat ───────────────────────────────────────── */
+var dlg = document.getElementById("dlg");
+
+function paintDialogLines(){
+  var type = document.getElementById("d-type").value;
+  var opts = STORES.map(function(s){ return '<option>' + s + '</option>'; }).join("");
+  document.getElementById("d-lines").innerHTML = POOLS[pool].items.map(function(it, i){
+    var dest = type === "TO_STORE"
+      ? '<select class="inp" data-dest="' + i + '" style="height:30px;min-width:118px">' + opts + '</select>'
+      : (type === "RETURN_TO_DC" ? "dc" : "external/supplier");
+    return '<tr>' +
+      '<td class="mono" style="font-size:12.5px">' + it.sku + '</td>' +
+      '<td>' + it.article + '</td>' +
+      '<td class="n">' + num(it.on_hand) + '</td>' +
+      '<td>' + dest + '</td>' +
+      '<td class="n"><input class="inp qty" type="number" min="0" value="0" data-qty="' + i + '" data-max="' + it.on_hand + '"></td>' +
+    '</tr>';
+  }).join("");
+  document.querySelectorAll("[data-qty]").forEach(function(inp){
+    inp.addEventListener("input", paintPreview);
+  });
+  paintPreview();
+}
+
+function paintPreview(){
+  var p = POOLS[pool], total = 0, lines = 0, over = 0;
+  var dests = {};
+  document.querySelectorAll("[data-qty]").forEach(function(inp){
+    var v = Number(inp.value || 0), max = Number(inp.dataset.max);
+    inp.classList.toggle("over", v > max);
+    if (v > max) over += 1;
+    if (v > 0) {
+      total += v; lines += 1;
+      var sel = document.querySelector('[data-dest="' + inp.dataset.qty + '"]');
+      var d = sel ? sel.value : (document.getElementById("d-type").value === "RETURN_TO_DC" ? "dc" : "supplier");
+      dests[d] = true;
+    }
+  });
+
+  var onHand = p.stock - p.allotted;
+  document.getElementById("prev").innerHTML =
+    '<h3>Kalau dibuat sekarang</h3>' +
+    '<div class="prow"><span>Baris</span><span>' + lines + '</span></div>' +
+    '<div class="prow"><span>Unit</span><span>' + num(total) + '</span></div>' +
+    '<div class="prow"><span>Tujuan berbeda</span><span>' + Object.keys(dests).length + '</span></div>' +
+    '<div class="prow" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">' +
+      '<span>Stock</span><span>' + num(p.stock) + ' <span class="nil">tetap</span></span></div>' +
+    '<div class="prow"><span>Allotted</span><span class="up">' + num(p.allotted) + ' → ' + num(p.allotted + total) + '</span></div>' +
+    '<div class="prow"><span>On Hand</span><span class="down">' + num(onHand) + ' → ' + num(onHand - total) + '</span></div>' +
+    '<p class="pnote"><b>Menciptakan 0 pergerakan persediaan.</b> Barangnya tetap di rak; yang berubah cuma ' +
+    'berapa banyak yang masih bebas dijanjikan ke tujuan lain.</p>' +
+    (over ? '<p class="pnote" style="color:var(--red)"><b>' + over + ' baris melebihi On&nbsp;Hand.</b> ' +
+      'Boleh diteruskan — hasilnya kekurangan yang tampil di layar utama — tapi lebih baik dikurangi dulu.</p>' : "");
+
+  document.getElementById("d-make").disabled = lines === 0;
+}
+
+document.getElementById("new").addEventListener("click", function(){
+  dlg.dataset.open = "true"; paintDialogLines();
+});
+document.getElementById("d-type").addEventListener("change", paintDialogLines);
+document.getElementById("d-cancel").addEventListener("click", function(){ dlg.dataset.open = "false"; });
+dlg.addEventListener("click", function(e){ if (e.target === dlg) dlg.dataset.open = "false"; });
+
+document.getElementById("d-make").addEventListener("click", function(){
+  var type = document.getElementById("d-type").value, lines = [];
+  document.querySelectorAll("[data-qty]").forEach(function(inp){
+    var v = Number(inp.value || 0);
+    if (!v) return;
+    var i = inp.dataset.qty, it = POOLS[pool].items[i];
+    var sel = document.querySelector('[data-dest="' + i + '"]');
+    lines.push({id:"L-" + (lines.length + 1), sku:it.sku, article:it.article,
+      dest: sel ? sel.value : (type === "RETURN_TO_DC" ? "dc" : "external/supplier"),
+      qty:v, exec:0, cancel:0});
+  });
+  var total = lines.reduce(function(a, l){ return a + l.qty; }, 0);
+  ALLOTMENTS.unshift({no:"AL-2609-0" + Math.floor(100 + Math.random()*899), type:type, status:"OPEN",
+    created:"1 Sep 2026", qty:total, exec:0, cancel:0, lines:lines});
+  POOLS[pool].allotted += total;
+  dlg.dataset.open = "false";
+  render();
+});
+
+/* ── render ────────────────────────────────────────────── */
+function render(){ paintEq(); paintRows(); paintDests(); paintShorts(); }
+
+document.getElementById("pool").addEventListener("change", function(e){ pool = e.target.value; render(); });
+document.getElementById("theme").addEventListener("click", function(){ document.documentElement.classList.toggle("dark"); });
+document.addEventListener("keydown", function(e){ if (e.key === "Escape") { closeSheet(); dlg.dataset.open = "false"; } });
+
+render();
+</script>
+</body>
+</html>

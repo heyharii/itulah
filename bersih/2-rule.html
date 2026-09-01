@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Rule · Ringkasan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   02 · RULE — garis 1px yang membentuk kisi, dan tidak ada yang lain
+   Nol latar abu, nol radius, nol bayangan, nol kartu. Struktur seluruhnya
+   dikerjakan oleh garis rambut yang berjalan dari tepi ke tepi, sehingga
+   halaman terbaca sebagai satu kisi utuh, bukan tumpukan kotak.
+   Warna muncul tepat sekali: pada satu hal yang butuh orang.
+   ========================================================================== */
+:root{
+  --ink:#0b0b0c;
+  --mid:#5f6165;
+  --faint:#9a9ca0;
+  --line:#e7e7e9;
+  --alert:#b3261e;
+  --pad:26px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:#fff;color:var(--ink);
+  font-family:Inter,-apple-system,"Segoe UI",Helvetica,sans-serif;
+  font-size:14px;line-height:1.5;
+  font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
+}
+.nil{color:var(--faint)}
+.mid{color:var(--mid)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+
+.lab{font-size:11px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--faint)}
+
+/* ---------- kepala ---------- */
+.top{
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  padding:0 var(--pad);height:56px;
+  border-bottom:1px solid var(--line);
+}
+.top b{font-weight:500;letter-spacing:-.01em}
+.top .meta{margin-inline-start:auto;color:var(--faint);font-size:13px}
+
+/* ---------- kisi neraca: rusuk vertikal ikut menggambar ---------- */
+.balance{display:grid;grid-template-columns:1fr;border-bottom:1px solid var(--line)}
+@media(min-width:820px){.balance{grid-template-columns:1.6fr repeat(3,1fr)}}
+.cell{padding:22px var(--pad) 24px;display:flex;flex-direction:column;gap:11px;min-width:0}
+@media(min-width:820px){.cell + .cell{border-inline-start:1px solid var(--line)}}
+@media(max-width:819px){.cell + .cell{border-top:1px solid var(--line)}}
+.cell b{font-weight:400;letter-spacing:-.03em;line-height:1}
+.cell.lead b{font-size:52px}
+.cell b{font-size:30px}
+
+.verdict{
+  display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+  padding:14px var(--pad);border-bottom:1px solid var(--line);color:var(--mid);
+}
+.verdict b{font-weight:500;color:var(--ink)}
+
+/* ---------- bagian ---------- */
+.sec-top{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:13px var(--pad);border-bottom:1px solid var(--line);
+}
+.sec-top h2{margin:0;font-size:11px;font-weight:500;letter-spacing:.11em;text-transform:uppercase}
+.sec-top .meta{margin-inline-start:auto;color:var(--faint);font-size:13px}
+
+/* ---------- perlu perhatian ---------- */
+.att a{
+  display:grid;grid-template-columns:46px 1fr auto;align-items:center;gap:20px;
+  padding:13px var(--pad);border-bottom:1px solid var(--line);
+  color:inherit;text-decoration:none;
+}
+.att .qty{font-size:22px;font-weight:400;text-align:end;letter-spacing:-.02em;line-height:1}
+.att .what{min-width:0}
+.att .what b{display:block;font-weight:400}
+.att .what span{font-size:12.5px;color:var(--faint)}
+.att .go{font-size:12.5px;color:var(--faint);white-space:nowrap}
+.att a:hover .go{color:var(--ink)}
+/* Satu-satunya warna di halaman ini. */
+.att a[data-late] .qty{color:var(--alert)}
+.att a[data-locked] .qty{color:var(--faint)}
+.att a[data-locked]:hover .go{color:var(--faint)}
+
+/* ---------- pool ---------- */
+.tw{overflow-x:auto;border-bottom:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{
+  text-align:start;padding:9px var(--pad);white-space:nowrap;
+  font-size:11px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  border-bottom:1px solid var(--line);
+}
+td{padding:11px var(--pad);white-space:nowrap;border-bottom:1px solid var(--line)}
+tbody tr:last-child td{border-bottom:0}
+th.n,td.n{text-align:end}
+/* Rusuk vertikal hanya di depan blok angka: satu tepi yang memisahkan nama
+   dari nilai, bukan sembilan tepi yang mengurung tiap sel. */
+th.edge,td.edge{border-inline-start:1px solid var(--line)}
+.grp td{
+  padding-top:16px;padding-bottom:7px;
+  font-size:11px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);
+}
+.sum td{color:var(--mid)}
+.neg{color:var(--alert)}
+.den{display:block;font-size:11.5px;color:var(--faint);margin-top:1px}
+.src{font-size:12px;color:var(--faint)}
+
+/* ---------- kaki ---------- */
+.foot{display:grid;grid-template-columns:1fr}
+@media(min-width:820px){.foot{grid-template-columns:repeat(2,1fr)}}
+.foot .cell b{font-size:24px}
+
+.note{padding:16px var(--pad) 60px;color:var(--faint);font-size:12.5px;max-width:78ch;border-top:1px solid var(--line)}
+
+@media(max-width:720px){
+  :root{--pad:16px}
+  .cell.lead b{font-size:40px}
+  .att a{grid-template-columns:38px 1fr;gap:14px}
+  .att .go{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <b>Retail Edge</b>
+  <span class="mid">Ringkasan</span>
+  <span class="meta">cloud · 12 dari 13 node · 15:42</span>
+</div>
+
+<div class="balance">
+  <div class="cell lead">
+    <span class="lab">Stock</span>
+    <b>48.312</b>
+  </div>
+  <div class="cell">
+    <span class="lab">Allotted</span>
+    <b>3.104</b>
+  </div>
+  <div class="cell">
+    <span class="lab">On Hand</span>
+    <b>44.902</b>
+  </div>
+  <div class="cell">
+    <span class="lab">Missing</span>
+    <b>306</b>
+  </div>
+</div>
+
+<div class="verdict">
+  <b>Seimbang.</b>
+  <span>Ketiga suku menjumlah tepat ke Stock. store-07 belum sinkron sejak 14:02 dan belum ikut dihitung.</span>
+</div>
+
+<div class="sec-top">
+  <h2>Perlu perhatian</h2>
+  <span class="meta">18 terbuka · tertua 6 hari</span>
+</div>
+
+<div class="att">
+  <a href="#" data-late>
+    <span class="qty">12</span>
+    <span class="what"><b>Missing lewat 72 jam</b><span>9 di toko, 3 di DC · tertua 6 hari</span></span>
+    <span class="go">Selesaikan</span>
+  </a>
+  <a href="#">
+    <span class="qty">3</span>
+    <span class="what"><b>Official Count menunggu persetujuan</b><span>dc.warehouse · store-02.floor · store-11.warehouse</span></span>
+    <span class="go">Tinjau</span>
+  </a>
+  <a href="#" data-late>
+    <span class="qty">1</span>
+    <span class="what"><b>Allotment melebihi On Hand sumbernya</b><span>store-04.warehouse · On Hand −12</span></span>
+    <span class="go">Lihat</span>
+  </a>
+  <a href="#">
+    <span class="qty">2</span>
+    <span class="what"><b>Bacaan RFID tidak cocok dengan ledger</b><span>store-03.floor · 4 jam lalu</span></span>
+    <span class="go">Periksa</span>
+  </a>
+  <a href="#" data-locked>
+    <span class="qty">—</span>
+    <span class="what"><b>Selisih proyeksi buku besar</b><span>Angkanya tidak dibuka untuk peran kamu</span></span>
+    <span class="go">Butuh supervisor</span>
+  </a>
+</div>
+
+<div class="sec-top">
+  <h2>Pool</h2>
+  <span class="meta">Observed 24 jam · Lost 30 hari</span>
+</div>
+
+<div class="tw">
+  <table>
+    <thead>
+      <tr>
+        <th>Pool</th>
+        <th class="n edge">Stock</th>
+        <th class="n">Allotted</th>
+        <th class="n">On Hand</th>
+        <th class="n">Missing</th>
+        <th class="n">Observed</th>
+        <th class="n">Lost&nbsp;%</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="grp"><td colspan="7">Distribution Centre</td></tr>
+      <tr>
+        <td>dc.warehouse <span class="src">cloud</span></td>
+        <td class="n edge">21.480</td><td class="n">3.104</td><td class="n">18.376</td>
+        <td class="n">92</td><td class="n">18.301</td>
+        <td class="n">0,41%<span class="den">74 ÷ 18.052</span></td>
+      </tr>
+      <tr>
+        <td>dc.staging <span class="src">cloud</span></td>
+        <td class="n edge">1.240</td><td class="n nil">—</td><td class="n">1.240</td>
+        <td class="n">8</td><td class="n">1.236</td>
+        <td class="n">0,00%<span class="den">0 ÷ 1.244</span></td>
+      </tr>
+      <tr>
+        <td>dc.reject.dc <span class="src">cloud</span></td>
+        <td class="n edge">612</td><td class="n nil">—</td><td class="n">612</td>
+        <td class="n nil">—</td><td class="n">604</td>
+        <td class="n nil">—<span class="den">tanpa paparan</span></td>
+      </tr>
+      <tr class="sum">
+        <td>Jumlah</td>
+        <td class="n edge">23.332</td><td class="n">3.104</td><td class="n">20.228</td>
+        <td class="n">100</td><td class="n">20.141</td>
+        <td class="n">0,38%<span class="den">74 ÷ 19.296</span></td>
+      </tr>
+
+      <tr class="grp"><td colspan="7">Toko</td></tr>
+      <tr>
+        <td>store-01 <span class="src">edge</span></td>
+        <td class="n edge">2.104</td><td class="n nil">—</td><td class="n">2.104</td>
+        <td class="n">14</td><td class="n">2.088</td>
+        <td class="n">0,52%<span class="den">11 ÷ 2.115</span></td>
+      </tr>
+      <tr>
+        <td>store-03 <span class="src">edge</span></td>
+        <td class="n edge">1.876</td><td class="n nil">—</td><td class="n">1.876</td>
+        <td class="n">31</td><td class="n">1.840</td>
+        <td class="n">1,44%<span class="den">27 ÷ 1.874</span></td>
+      </tr>
+      <tr>
+        <td>store-04 <span class="src">edge</span></td>
+        <td class="n edge">1.512</td><td class="n">1.524</td><td class="n neg">−12</td>
+        <td class="n">9</td><td class="n">1.503</td>
+        <td class="n">0,60%<span class="den">9 ÷ 1.501</span></td>
+      </tr>
+      <tr>
+        <td>store-07 <span class="src">edge · putus 14:02</span></td>
+        <td class="n edge">1.944</td><td class="n nil">—</td><td class="n">1.944</td>
+        <td class="n">18</td><td class="n nil">—</td>
+        <td class="n nil">—<span class="den">belum sinkron</span></td>
+      </tr>
+      <tr class="sum">
+        <td>Jumlah · 12 dari 13 melapor</td>
+        <td class="n edge">24.980</td><td class="n">1.524</td><td class="n">24.674</td>
+        <td class="n">206</td><td class="n">24.401</td>
+        <td class="n">0,71%<span class="den">176 ÷ 24.788</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="foot">
+  <div class="cell">
+    <span class="lab">Penjualan hari ini</span>
+    <b>Rp 184.290.500</b>
+    <span class="mid" style="font-size:13px">1.208 transaksi · store-07 belum termasuk</span>
+  </div>
+  <div class="cell">
+    <span class="lab">Buku besar</span>
+    <b>Match</b>
+    <span class="mid" style="font-size:13px">Replay 15:30 · 0 selisih · 184.221 fakta</span>
+  </div>
+</div>
+
+<p class="note">
+  Prototipe. Lost&nbsp;% membawa pembilang dan paparannya supaya bisa dihitung ulang.
+  Tanda — berarti tidak diketahui, dan tidak sama dengan nol.
+</p>
+
+</body>
+</html>

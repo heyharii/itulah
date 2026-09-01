@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Itulah · Nordic Supplier Catalog Variants</title>
+  <style>
+    :root {
+      --canvas: #edf2f0;
+      --paper: #fbfcfb;
+      --ink: #1e2a28;
+      --muted: #71807d;
+      --line: #d8e1de;
+      --pine: #176b5c;
+      --pine-soft: #e5f1ed;
+      --blue: #557d91;
+      --warm: #a16d48;
+      --radius: 16px;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--canvas);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--canvas); }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; }
+    [hidden] { display: none !important; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .num { text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .scroll { overflow-x: auto; }
+
+    .lab-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      min-height: 70px;
+      padding: 11px max(22px, calc((100vw - 1480px) / 2));
+      border-bottom: 1px solid rgba(48,76,70,.13);
+      background: rgba(248,251,249,.91);
+      backdrop-filter: blur(18px);
+    }
+    .lab-brand { display: flex; align-items: center; gap: 11px; min-width: 230px; }
+    .lab-leaf { width: 29px; height: 29px; border: 7px solid var(--pine); border-radius: 50% 50% 50% 8px; transform: rotate(-17deg); }
+    .lab-brand strong { display: block; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+    .lab-brand span { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+    .variant-tabs { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+    .variant-tabs::-webkit-scrollbar { display: none; }
+    .variant-tabs button {
+      white-space: nowrap;
+      padding: 8px 10px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      color: #70807c;
+      background: transparent;
+      font-size: 11px;
+      font-weight: 750;
+    }
+    .variant-tabs button:hover { background: #e9efed; }
+    .variant-tabs button.active { border-color: #c9d9d4; color: #174d43; background: #fff; box-shadow: 0 3px 12px rgba(31,67,59,.07); }
+
+    .page { width: min(1480px, calc(100% - 34px)); margin: 0 auto; padding: 54px 0 70px; }
+    .hero { display: grid; grid-template-columns: 1.2fr .8fr; gap: 60px; align-items: end; padding: 28px 0 42px; }
+    .kicker { margin: 0 0 12px; color: var(--pine); font-size: 10px; font-weight: 850; letter-spacing: .14em; text-transform: uppercase; }
+    .hero h1 { max-width: 880px; margin: 0; font-size: clamp(42px, 6vw, 82px); line-height: .98; letter-spacing: -.06em; font-weight: 660; }
+    .hero h1 em { color: #61837a; font-family: Georgia, serif; font-weight: 400; }
+    .hero-copy { color: #60716d; font-size: 14px; line-height: 1.75; }
+    .hero-copy p { margin: 0 0 16px; }
+    .principles { display: flex; gap: 7px; flex-wrap: wrap; }
+    .principle { padding: 7px 9px; border: 1px solid #d5dfdc; border-radius: 999px; color: #63736f; background: rgba(255,255,255,.58); font-size: 9px; font-weight: 720; }
+
+    .comparison { overflow: hidden; margin: 0 0 48px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,.72); box-shadow: 0 15px 45px rgba(50,76,70,.05); }
+    .comparison-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding: 19px 21px; border-bottom: 1px solid var(--line); }
+    .comparison-head h2 { margin: 0 0 3px; font-size: 19px; letter-spacing: -.03em; }
+    .comparison-head p { margin: 0; color: var(--muted); font-size: 10px; }
+    .comparison table { min-width: 990px; }
+    .comparison th, .comparison td { padding: 13px 15px; border-bottom: 1px solid #e3eae7; text-align: left; vertical-align: top; }
+    .comparison th { color: #84918e; background: rgba(245,248,247,.7); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
+    .comparison td { color: #556560; font-size: 10px; line-height: 1.55; }
+    .comparison tbody tr:last-child td { border-bottom: 0; }
+    .comparison tbody tr:hover td { background: rgba(240,246,243,.72); }
+    .variant-name { color: #23332f; font-size: 11px; font-weight: 800; }
+    .variant-no { display: inline-grid; place-items: center; width: 23px; height: 23px; margin-right: 7px; border-radius: 7px; color: #fff; background: #6d8c84; font-size: 9px; }
+    .open-variant { padding: 6px 9px; border: 1px solid #c8d5d1; border-radius: 7px; color: #315e54; background: #fff; font-size: 9px; font-weight: 750; }
+    .tag { display: inline-flex; padding: 3px 6px; border-radius: 999px; color: #41675f; background: #e5f0ed; font-size: 8px; font-weight: 800; }
+
+    .stage { scroll-margin-top: 92px; }
+    .variant { display: none; }
+    .variant.active { display: block; animation: enter .25s ease-out; }
+    @keyframes enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+    .variant-intro { display: grid; grid-template-columns: 1fr auto; gap: 30px; align-items: end; margin-bottom: 16px; }
+    .variant-intro span { display: block; margin-bottom: 7px; color: #62857c; font-size: 9px; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
+    .variant-intro h2 { margin: 0 0 4px; font-size: 36px; letter-spacing: -.05em; }
+    .variant-intro p { max-width: 760px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .swatches { display: flex; gap: 7px; }
+    .swatch { width: 24px; height: 24px; border: 4px solid rgba(255,255,255,.75); border-radius: 50%; box-shadow: 0 0 0 1px rgba(50,70,65,.12); }
+    .mockup { overflow: hidden; min-height: 710px; margin-bottom: 52px; border: 1px solid rgba(49,75,69,.17); border-radius: 20px; box-shadow: 0 32px 90px rgba(43,70,63,.15); }
+    .status { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 999px; color: #697873; background: #edf1f0; font-size: 8px; font-weight: 850; }
+    .status.active { color: #17614f; background: #e3f2eb; }
+    .status.active::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #2c8a71; }
+    .demo { cursor: pointer; }
+
+    /* Fjord */
+    .fjord { --f-ink:#20332f; --f-muted:#71837e; --f-line:#d9e5e1; --f-accent:#087968; color: var(--f-ink); background: #f1f6f4; font: 12px/1.5 Inter, ui-sans-serif, sans-serif; }
+    .fjord-top { display: flex; align-items: center; justify-content: space-between; height: 62px; padding: 0 26px; border-bottom: 1px solid var(--f-line); background: #fbfdfc; }
+    .fjord-logo { display: flex; align-items: center; gap: 8px; font-weight: 820; }
+    .fjord-logo i { width: 17px; height: 17px; border: 4px solid var(--f-accent); border-radius: 50% 50% 50% 5px; transform: rotate(-17deg); }
+    .fjord-nav { display: flex; align-self: stretch; gap: 22px; color: var(--f-muted); font-size: 10px; }
+    .fjord-nav span { display: flex; align-items: center; border-bottom: 2px solid transparent; }
+    .fjord-nav .active { border-color: var(--f-accent); color: var(--f-ink); font-weight: 760; }
+    .fjord-avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: #fff; background: #365e55; font-size: 9px; }
+    .fjord-body { width: min(1170px, calc(100% - 48px)); margin: auto; padding: 35px 0 42px; }
+    .fjord-title, .fjord-tools, .fjord-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .fjord-title { align-items: end; margin-bottom: 24px; }
+    .fjord-title small { color: var(--f-accent); font-size: 8px; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
+    .fjord-title h3 { margin: 5px 0 4px; font-size: 30px; letter-spacing: -.045em; }
+    .fjord-title p { margin: 0; color: var(--f-muted); }
+    .fjord-btn { padding: 9px 13px; border: 0; border-radius: 8px; color: #fff; background: var(--f-accent); font-size: 10px; font-weight: 780; box-shadow: 0 7px 16px rgba(8,121,104,.14); }
+    .fjord-card { overflow: hidden; border: 1px solid var(--f-line); border-radius: 13px; background: #fff; }
+    .fjord-tools { padding: 12px 14px; border-bottom: 1px solid var(--f-line); }
+    .fjord-tools input { width: 260px; padding: 7px 3px; border: 0; border-bottom: 1px solid var(--f-line); color: var(--f-ink); }
+    .segmented { display: flex; gap: 3px; padding: 3px; border-radius: 8px; background: #eef3f1; }
+    .segmented button { padding: 5px 8px; border: 0; border-radius: 6px; color: var(--f-muted); background: transparent; font-size: 8px; font-weight: 750; }
+    .segmented button.active { color: var(--f-ink); background: #fff; box-shadow: 0 1px 5px rgba(35,67,59,.1); }
+    .fjord-table { min-width: 820px; }
+    .fjord-table th, .fjord-table td { padding: 14px 15px; border-bottom: 1px solid #e8efed; text-align: left; vertical-align: middle; }
+    .fjord-table th { color: #879591; background: #fbfdfc; font-size: 8px; letter-spacing: .09em; text-transform: uppercase; }
+    .fjord-table tbody tr:hover td { background: #f7fbf9; }
+    .fjord-table .selected td { background: #eaf5f1; }
+    .fjord-table b { display: block; font-size: 10px; }
+    .fjord-table small { color: var(--f-muted); font-size: 8px; }
+    .fjord-detail { display: grid; grid-template-columns: 240px minmax(0,1fr); gap: 22px; margin-top: 13px; padding: 18px; border: 1px solid var(--f-line); border-radius: 13px; background: #fff; }
+    .fjord-profile { padding-right: 20px; border-right: 1px solid var(--f-line); }
+    .fjord-profile h4 { margin: 4px 0 4px; font-size: 17px; }
+    .fjord-profile p { margin: 0 0 12px; color: var(--f-muted); font-size: 9px; }
+    .fjord-link { padding: 0; border: 0; color: var(--f-accent); background: none; font-size: 9px; font-weight: 760; }
+    .fjord-detail-head { margin-bottom: 7px; }
+    .fjord-detail-head h5 { margin: 0; font-size: 11px; }
+    .item-table { min-width: 570px; }
+    .item-table th, .item-table td { padding: 8px 7px; border-bottom: 1px solid #edf2f0; text-align: left; font-size: 9px; }
+    .item-table th { color: #82918d; font-size: 7px; letter-spacing: .08em; text-transform: uppercase; }
+
+    /* Snow */
+    .snow { color: #191d1c; background: #fff; font: 12px/1.5 Inter, ui-sans-serif, sans-serif; }
+    .snow-top { display: flex; align-items: center; justify-content: space-between; padding: 22px 32px; border-bottom: 1px solid #ecefed; }
+    .snow-wordmark { font-size: 12px; font-weight: 850; letter-spacing: .14em; text-transform: uppercase; }
+    .snow-top nav { display: flex; gap: 25px; color: #8a918e; font-size: 9px; }
+    .snow-top nav .active { color: #1d2220; font-weight: 760; }
+    .snow-user { color: #6e7673; font-size: 9px; }
+    .snow-body { width: min(1200px, calc(100% - 64px)); margin: auto; padding: 44px 0; }
+    .snow-heading { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: end; margin-bottom: 35px; }
+    .snow-heading h3 { margin: 0; font-size: 38px; letter-spacing: -.055em; font-weight: 560; }
+    .snow-heading p { max-width: 510px; margin: 7px 0 0; color: #7c8581; }
+    .snow-add { padding: 9px 0; border: 0; border-bottom: 1px solid #1c211f; color: #1c211f; background: transparent; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .snow-filter { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 2px solid #202522; }
+    .snow-filter input { width: 300px; padding: 7px 0; border: 0; color: #202522; background: transparent; }
+    .snow-filter span { color: #89918e; font-size: 8px; }
+    .snow-table { min-width: 850px; }
+    .snow-table th, .snow-table td { padding: 15px 8px; border-bottom: 1px solid #e5e9e7; text-align: left; vertical-align: middle; }
+    .snow-table th { color: #909793; font-size: 7px; letter-spacing: .12em; text-transform: uppercase; }
+    .snow-table .selected td { background: #f6f8f7; }
+    .snow-table b { font-size: 10px; font-weight: 650; }
+    .snow-table small { color: #8b928f; font-size: 8px; }
+    .snow-arrow { color: #9ba29f; text-align: right !important; }
+    .snow-expand td { padding: 0; background: #f6f8f7; }
+    .snow-disclosure { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 30px; padding: 24px 30px; border-left: 2px solid #3c7267; }
+    .snow-disclosure h4 { margin: 0 0 5px; font-size: 16px; font-weight: 600; }
+    .snow-disclosure p { margin: 0 0 15px; color: #7f8985; font-size: 9px; }
+    .snow-kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 8px; }
+    .snow-kv span:nth-child(odd) { color: #919995; }
+    .snow-items th, .snow-items td { padding: 8px 6px; border-bottom: 1px solid #e2e7e5; text-align: left; font-size: 8px; }
+    .snow-items th { color: #8d9591; font-size: 7px; text-transform: uppercase; }
+
+    /* Birch */
+    .birch { --b-ink:#342f28; --b-muted:#7a7165; --b-line:#ddd3c3; --b-olive:#667255; color: var(--b-ink); background: #f1ebdf; font: 12px/1.5 Inter, ui-sans-serif, sans-serif; }
+    .birch-top { display: flex; align-items: center; justify-content: space-between; padding: 18px 25px; border-bottom: 1px solid var(--b-line); background: #f8f3e9; }
+    .birch-logo { display: flex; align-items: center; gap: 9px; font-family: Georgia, serif; font-size: 17px; }
+    .birch-logo i { width: 8px; height: 25px; border-radius: 8px; background: linear-gradient(#8b775b 0 20%, #d8c6a9 20% 35%, #8b775b 35% 55%, #d8c6a9 55% 75%, #8b775b 75%); }
+    .birch-top nav { display: flex; gap: 18px; color: var(--b-muted); font-size: 9px; }
+    .birch-top nav .active { color: var(--b-olive); font-weight: 800; }
+    .birch-body { padding: 24px; }
+    .birch-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 17px; }
+    .birch-head span { color: var(--b-olive); font-size: 8px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+    .birch-head h3 { margin: 4px 0 3px; font: 30px/1.1 Georgia, serif; }
+    .birch-head p { margin: 0; color: var(--b-muted); }
+    .birch-btn { padding: 8px 12px; border: 1px solid #59634b; border-radius: 4px; color: #fff; background: var(--b-olive); font-size: 9px; font-weight: 760; }
+    .birch-grid { display: grid; grid-template-columns: minmax(0,.82fr) minmax(430px,1.18fr); min-height: 570px; border: 1px solid var(--b-line); background: #fbf7ef; }
+    .birch-register { border-right: 1px solid var(--b-line); }
+    .birch-tools { display: flex; align-items: center; justify-content: space-between; padding: 11px 12px; border-bottom: 1px solid var(--b-line); }
+    .birch-tools input { width: 190px; padding: 6px 4px; border: 0; border-bottom: 1px solid var(--b-line); background: transparent; }
+    .birch-tools button { padding: 4px 7px; border: 0; color: var(--b-muted); background: transparent; font-size: 8px; }
+    .birch-tools button.active { color: var(--b-olive); font-weight: 800; }
+    .birch-table { min-width: 510px; }
+    .birch-table th, .birch-table td { padding: 12px 11px; border-bottom: 1px solid #e5dccd; text-align: left; vertical-align: middle; }
+    .birch-table th { color: #948a7c; background: #f7f1e7; font-size: 7px; letter-spacing: .08em; text-transform: uppercase; }
+    .birch-table tr:hover td { background: #f5eee1; }
+    .birch-table .selected td { background: #ebe4d5; }
+    .birch-table b { display: block; font-size: 9px; }
+    .birch-table small { color: var(--b-muted); font-size: 8px; }
+    .birch-detail { padding: 20px; }
+    .birch-profile { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding-bottom: 15px; border-bottom: 3px double #c9beac; }
+    .birch-profile small { color: var(--b-olive); font-size: 7px; letter-spacing: .1em; text-transform: uppercase; }
+    .birch-profile h4 { margin: 5px 0 4px; font: 23px/1.1 Georgia, serif; }
+    .birch-profile p { margin: 0; color: var(--b-muted); font-size: 9px; }
+    .birch-revision { text-align: right; color: var(--b-muted); font-size: 8px; }
+    .birch-section { display: flex; align-items: center; justify-content: space-between; margin: 17px 0 8px; }
+    .birch-section h5 { margin: 0; font: 15px Georgia, serif; }
+    .birch-item-table { min-width: 580px; border-top: 1px solid #a99e8d; border-bottom: 1px solid #a99e8d; }
+    .birch-item-table th, .birch-item-table td { padding: 9px 7px; border-bottom: 1px solid #dfd5c5; text-align: left; font-size: 8px; }
+    .birch-item-table th { color: #8b8174; font-size: 7px; text-transform: uppercase; }
+    .birch-note { margin-top: 14px; padding: 10px; border-left: 3px solid var(--b-olive); color: #6f675c; background: #f1eadc; font-size: 8px; line-height: 1.55; }
+
+    /* Harbor */
+    .harbor { --h-ink:#1e3038; --h-muted:#6c7f87; --h-line:#d7e2e6; --h-blue:#3a7488; --h-soft:#e8f1f4; color: var(--h-ink); background: #edf3f5; font: 11px/1.45 Inter, ui-sans-serif, sans-serif; }
+    .harbor-shell { display: grid; grid-template-columns: 190px minmax(0,1fr); min-height: 710px; }
+    .harbor-side { display: flex; flex-direction: column; padding: 22px 16px; color: #dce8ec; background: #263d46; }
+    .harbor-brand { margin-bottom: 30px; font-size: 11px; font-weight: 850; letter-spacing: .09em; }
+    .harbor-side small { margin-bottom: 8px; color: #829ba5; font-size: 7px; letter-spacing: .1em; text-transform: uppercase; }
+    .harbor-side a { margin-bottom: 4px; padding: 8px 9px; border-radius: 7px; color: #aebfc6; text-decoration: none; font-size: 9px; }
+    .harbor-side a.active { color: #fff; background: #35535f; }
+    .harbor-user { margin-top: auto; padding-top: 14px; border-top: 1px solid #3c5660; color: #a9bbc2; font-size: 8px; }
+    .harbor-main { padding: 22px; }
+    .harbor-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .harbor-head h3 { margin: 0 0 3px; font-size: 23px; letter-spacing: -.04em; }
+    .harbor-head p { margin: 0; color: var(--h-muted); }
+    .harbor-btn { padding: 8px 11px; border: 0; border-radius: 6px; color: #fff; background: var(--h-blue); font-size: 9px; font-weight: 760; }
+    .harbor-metrics { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 9px; }
+    .harbor-metric { padding: 10px 11px; border: 1px solid var(--h-line); border-radius: 8px; background: #fff; }
+    .harbor-metric span { display: block; color: var(--h-muted); font-size: 7px; letter-spacing: .08em; text-transform: uppercase; }
+    .harbor-metric b { display: block; margin-top: 3px; font-size: 15px; }
+    .harbor-grid { display: grid; grid-template-columns: minmax(0,1.5fr) minmax(300px,.65fr); gap: 9px; }
+    .harbor-panel { overflow: hidden; border: 1px solid var(--h-line); border-radius: 9px; background: #fff; }
+    .harbor-panel-head { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 9px 11px; border-bottom: 1px solid var(--h-line); }
+    .harbor-panel-head h4 { margin: 0; font-size: 10px; }
+    .harbor-panel-head input { width: 190px; padding: 6px; border: 1px solid var(--h-line); border-radius: 5px; font-size: 8px; }
+    .harbor-table { min-width: 680px; }
+    .harbor-table th, .harbor-table td { padding: 10px; border-bottom: 1px solid #e7edef; text-align: left; vertical-align: middle; }
+    .harbor-table th { color: #809098; background: #f7fafb; font-size: 7px; letter-spacing: .08em; text-transform: uppercase; }
+    .harbor-table tr:hover td { background: #f4f8f9; }
+    .harbor-table .selected td { background: var(--h-soft); }
+    .harbor-table b { display: block; font-size: 9px; }
+    .harbor-table small { color: var(--h-muted); font-size: 7px; }
+    .harbor-inspector { padding: 14px; }
+    .harbor-inspector .overline { color: var(--h-blue); font-size: 7px; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
+    .harbor-inspector h4 { margin: 5px 0 3px; font-size: 16px; }
+    .harbor-inspector > p { margin: 0 0 12px; color: var(--h-muted); font-size: 8px; }
+    .harbor-kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; padding: 10px 0; border-top: 1px solid var(--h-line); border-bottom: 1px solid var(--h-line); font-size: 8px; }
+    .harbor-kv span:nth-child(odd) { color: var(--h-muted); }
+    .harbor-item { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; padding: 8px 0; border-bottom: 1px solid #e7edef; }
+    .harbor-item b { font-size: 8px; }
+    .harbor-item span { color: var(--h-muted); font-size: 7px; }
+    .harbor-item .price { grid-row: span 2; align-self: center; color: var(--h-ink); font-size: 8px; }
+    .harbor-callout { margin-top: 10px; padding: 8px; border-radius: 6px; color: #3d6674; background: var(--h-soft); font-size: 7px; line-height: 1.5; }
+
+    /* Aurora */
+    .aurora { --a-ink:#293141; --a-muted:#76808e; --a-line:#dde2eb; --a-purple:#6769a9; --a-green:#549281; --a-soft:#f0f0fa; color: var(--a-ink); background: #f4f5f9; font: 11px/1.45 Inter, ui-sans-serif, sans-serif; }
+    .aurora-top { display: flex; align-items: center; justify-content: space-between; padding: 16px 22px; border-bottom: 1px solid var(--a-line); background: rgba(255,255,255,.9); }
+    .aurora-logo { display: flex; align-items: center; gap: 8px; font-weight: 820; }
+    .aurora-logo i { width: 28px; height: 28px; border-radius: 9px; background: linear-gradient(145deg,#7b8fc4,#77b19d,#c6a5bc); }
+    .aurora-steps { display: flex; align-items: center; gap: 7px; color: var(--a-muted); font-size: 8px; }
+    .aurora-step { display: flex; align-items: center; gap: 4px; }
+    .aurora-step b { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; color: #fff; background: #a9afba; font-size: 7px; }
+    .aurora-step.active { color: var(--a-purple); font-weight: 750; }
+    .aurora-step.active b { background: var(--a-purple); }
+    .aurora-body { padding: 21px; background-image: radial-gradient(circle at 88% 8%,rgba(120,169,157,.14),transparent 29%),radial-gradient(circle at 22% 80%,rgba(116,119,183,.1),transparent 28%); }
+    .aurora-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .aurora-head h3 { margin: 0 0 3px; font-size: 24px; letter-spacing: -.04em; }
+    .aurora-head p { margin: 0; color: var(--a-muted); font-size: 9px; }
+    .aurora-chip { padding: 6px 8px; border: 1px solid #d7d8e9; border-radius: 999px; color: var(--a-purple); background: #fff; font-size: 8px; font-weight: 750; }
+    .aurora-grid { display: grid; grid-template-columns: minmax(230px,.46fr) minmax(0,1.1fr) minmax(235px,.43fr); gap: 10px; align-items: start; }
+    .aurora-card { overflow: hidden; border: 1px solid var(--a-line); border-radius: 12px; background: rgba(255,255,255,.94); box-shadow: 0 8px 22px rgba(61,70,96,.06); }
+    .aurora-card-head { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 11px 12px; border-bottom: 1px solid var(--a-line); }
+    .aurora-card-head h4 { margin: 0; font-size: 10px; }
+    .aurora-card-head span { color: var(--a-muted); font-size: 7px; }
+    .aurora-suppliers { min-width: 270px; }
+    .aurora-suppliers td { padding: 11px; border-bottom: 1px solid #e7e9ef; }
+    .aurora-suppliers .selected td { background: #efeff8; }
+    .aurora-suppliers b { display: block; font-size: 8px; }
+    .aurora-suppliers small { color: var(--a-muted); font-size: 7px; }
+    .aurora-items { min-width: 700px; }
+    .aurora-items th, .aurora-items td { padding: 9px 8px; border-bottom: 1px solid #e7e9ef; text-align: left; vertical-align: middle; }
+    .aurora-items th { color: #8b92a0; background: #fafafe; font-size: 7px; letter-spacing: .08em; text-transform: uppercase; }
+    .aurora-item { display: flex; align-items: center; gap: 7px; min-width: 165px; }
+    .aurora-thumb { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 8px; color: #4c566a; background: linear-gradient(145deg,#dae8e4,#bccfd5); font-size: 7px; font-weight: 850; }
+    .aurora-item b { display: block; font-size: 8px; }
+    .aurora-item small { color: var(--a-muted); font-size: 7px; }
+    .aurora-check { accent-color: var(--a-purple); }
+    .aurora-qty { width: 55px; padding: 5px; border: 1px solid var(--a-line); border-radius: 5px; text-align: right; }
+    .aurora-date { width: 105px; padding: 5px; border: 1px solid var(--a-line); border-radius: 5px; font-size: 7px; }
+    .aurora-summary { position: sticky; top: 10px; }
+    .aurora-form { padding: 12px; }
+    .aurora-field { display: block; margin-bottom: 9px; color: var(--a-muted); font-size: 7px; font-weight: 760; text-transform: uppercase; }
+    .aurora-field input, .aurora-field select, .aurora-field textarea { width: 100%; margin-top: 4px; padding: 7px; border: 1px solid var(--a-line); border-radius: 6px; color: var(--a-ink); background: #fff; font-size: 9px; text-transform: none; }
+    .aurora-field textarea { min-height: 48px; resize: vertical; }
+    .aurora-total { margin: 11px 0; padding: 10px 0; border-top: 1px solid var(--a-line); border-bottom: 1px solid var(--a-line); }
+    .aurora-total div { display: flex; justify-content: space-between; gap: 8px; margin: 4px 0; color: var(--a-muted); font-size: 8px; }
+    .aurora-total .grand { align-items: baseline; color: var(--a-ink); font-weight: 800; }
+    .aurora-total .grand b { font-size: 14px; }
+    .aurora-note { padding: 8px; border-radius: 7px; color: #4d6b64; background: #eaf4f1; font-size: 7px; line-height: 1.5; }
+    .aurora-issue { width: 100%; margin-top: 9px; padding: 9px; border: 0; border-radius: 7px; color: #fff; background: linear-gradient(110deg,var(--a-purple),#698b91); font-size: 9px; font-weight: 800; }
+    .aurora-local { margin-top: 6px; color: var(--a-muted); font-size: 7px; text-align: center; }
+
+    .contract { overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,.72); }
+    .contract-head { padding: 18px 20px; border-bottom: 1px solid var(--line); }
+    .contract-head h2 { margin: 0 0 3px; font-size: 18px; }
+    .contract-head p { margin: 0; color: var(--muted); font-size: 10px; }
+    .contract table { min-width: 930px; }
+    .contract th, .contract td { padding: 12px 14px; border-bottom: 1px solid #e2e9e6; text-align: left; vertical-align: top; }
+    .contract th { color: #85918e; background: #f6f9f8; font-size: 7px; letter-spacing: .09em; text-transform: uppercase; }
+    .contract td { color: #586863; font-size: 9px; line-height: 1.55; }
+    .contract tbody tr:last-child td { border-bottom: 0; }
+    .method { display: inline-flex; min-width: 42px; justify-content: center; padding: 3px 5px; border: 1px solid #c8d6d2; border-radius: 5px; color: #2f6459; font: 8px ui-monospace, monospace; }
+    .endpoint { color: #30443f; font: 8px ui-monospace, monospace; }
+    .footer { display: flex; justify-content: space-between; gap: 22px; padding: 22px 2px 0; color: #7d8b87; font-size: 9px; }
+    .footer strong { color: #40534e; }
+    #toast { position: fixed; left: 50%; bottom: 20px; z-index: 200; max-width: min(520px,calc(100vw - 28px)); padding: 10px 13px; border-radius: 9px; color: #fff; background: #263934; box-shadow: 0 12px 36px rgba(35,55,49,.24); font-size: 9px; opacity: 0; transform: translate(-50%,8px); pointer-events: none; transition: .18s; }
+    #toast.show { opacity: 1; transform: translate(-50%,0); }
+
+    @media (max-width: 1100px) {
+      .hero { grid-template-columns: 1fr; gap: 20px; }
+      .harbor-grid { grid-template-columns: 1fr; }
+      .aurora-grid { grid-template-columns: 230px minmax(600px,1fr); overflow-x: auto; }
+      .aurora-summary { position: static; grid-column: 1 / -1; }
+      .fjord-detail { grid-template-columns: 1fr; }
+      .fjord-profile { padding-right: 0; padding-bottom: 14px; border-right: 0; border-bottom: 1px solid var(--f-line); }
+    }
+    @media (max-width: 760px) {
+      .lab-header { align-items: flex-start; flex-direction: column; gap: 8px; padding: 10px 13px; }
+      .variant-tabs { width: 100%; }
+      .page { width: calc(100% - 20px); padding-top: 26px; }
+      .hero h1 { font-size: 43px; }
+      .comparison-head, .variant-intro, .fjord-title, .birch-head, .harbor-head, .aurora-head { align-items: flex-start; grid-template-columns: 1fr; flex-direction: column; }
+      .swatches { justify-content: flex-start; }
+      .mockup { min-height: 640px; border-radius: 12px; }
+      .fjord-nav span:not(.active), .snow-top nav { display: none; }
+      .fjord-body, .snow-body { width: calc(100% - 28px); padding-top: 26px; }
+      .fjord-title, .snow-heading { grid-template-columns: 1fr; align-items: flex-start; }
+      .snow-disclosure { grid-template-columns: 1fr; }
+      .birch-body, .harbor-main, .aurora-body { padding: 13px; }
+      .birch-grid { grid-template-columns: 1fr; }
+      .birch-register { border-right: 0; border-bottom: 1px solid var(--b-line); }
+      .harbor-shell { grid-template-columns: 1fr; }
+      .harbor-side { display: none; }
+      .harbor-metrics { grid-template-columns: repeat(2,1fr); }
+      .aurora-grid { grid-template-columns: 1fr; overflow: visible; }
+      .aurora-summary { grid-column: auto; }
+      .aurora-steps { display: none; }
+      .footer { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="lab-header">
+    <div class="lab-brand"><i class="lab-leaf"></i><div><strong>Nordic Supplier Lab</strong><span>Five calm operational variants</span></div></div>
+    <nav class="variant-tabs" aria-label="Nordic design variants" role="tablist">
+      <button class="active" role="tab" aria-selected="true" data-open="1">01 Fjord</button>
+      <button role="tab" aria-selected="false" data-open="2">02 Snow</button>
+      <button role="tab" aria-selected="false" data-open="3">03 Birch</button>
+      <button role="tab" aria-selected="false" data-open="4">04 Harbor</button>
+      <button role="tab" aria-selected="false" data-open="5">05 Aurora</button>
+    </nav>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div><p class="kicker">Itulah · Supplier Catalog · Nordic family</p><h1>Satu rasa tenang, lima <em>ritme kerja.</em></h1></div>
+      <div class="hero-copy"><p>Semua varian memakai prinsip Nordic—clarity, restraint, natural color, dan generous whitespace—tetapi masing-masing menguji hierarchy tabel dan workflow yang berbeda.</p><div class="principles"><span class="principle">Table first</span><span class="principle">IDR only</span><span class="principle">ACTIVE / INACTIVE</span><span class="principle">No delete</span><span class="principle">Direct → ISSUED</span><span class="principle">Exact DC</span></div></div>
+    </section>
+
+    <section class="comparison" aria-labelledby="compare-title">
+      <div class="comparison-head"><div><h2 id="compare-title">Nordic comparison</h2><p>Paletnya berkerabat; navigation, density, dan pola detailnya yang berubah.</p></div><span class="tag">Same backend contract</span></div>
+      <div class="scroll"><table><thead><tr><th>Variant</th><th>Temperature</th><th>Density</th><th>Detail pattern</th><th>Best for</th><th>Build note</th><th></th></tr></thead><tbody>
+        <tr><td><span class="variant-no">01</span><span class="variant-name">Fjord</span></td><td>Cool green</td><td>Balanced</td><td>Inline detail card</td><td>Default cross-functional UI</td><td>Closest to original Nordic option</td><td><button class="open-variant" data-open="1">Open</button></td></tr>
+        <tr><td><span class="variant-no">02</span><span class="variant-name">Snow</span></td><td>Pure neutral</td><td>Low chrome</td><td>Expandable row</td><td>Review-heavy buyer workflow</td><td>Strongest clarity, least decoration</td><td><button class="open-variant" data-open="2">Open</button></td></tr>
+        <tr><td><span class="variant-no">03</span><span class="variant-name">Birch</span></td><td>Warm natural</td><td>Medium</td><td>Persistent split ledger</td><td>Catalog maintenance</td><td>Distinctive but still restrained</td><td><button class="open-variant" data-open="3">Open</button></td></tr>
+        <tr><td><span class="variant-no">04</span><span class="variant-name">Harbor</span></td><td>Cool blue</td><td>High</td><td>Table + inspector</td><td>Operational power users</td><td>Most compatible with dense admin work</td><td><button class="open-variant" data-open="4">Open</button></td></tr>
+        <tr><td><span class="variant-no">05</span><span class="variant-name">Aurora</span></td><td>Soft spectrum</td><td>Medium</td><td>Guided 3-pane composer</td><td>Frequent PO creation</td><td>Best borrowed as wide PO page</td><td><button class="open-variant" data-open="5">Open</button></td></tr>
+      </tbody></table></div>
+    </section>
+
+    <section id="stage" class="stage" aria-live="polite">
+      <article class="variant active" data-variant="1" aria-labelledby="fjord-title">
+        <div class="variant-intro"><div><span>01 · Balanced default</span><h2 id="fjord-title">Fjord</h2><p>Cool evergreen, rounded surfaces, dan inline Supplier detail. Varian paling seimbang untuk dijadikan bahasa visual utama.</p></div><div class="swatches"><i class="swatch" style="background:#f1f6f4"></i><i class="swatch" style="background:#087968"></i><i class="swatch" style="background:#20332f"></i><i class="swatch" style="background:#d9e5e1"></i></div></div>
+        <div class="mockup fjord">
+          <header class="fjord-top"><div class="fjord-logo"><i></i> Itulah Cloud</div><nav class="fjord-nav"><span>Overview</span><span class="active">Suppliers</span><span>Purchase orders</span><span>Inventory</span></nav><span class="fjord-avatar">SW</span></header>
+          <div class="fjord-body">
+            <div class="fjord-title"><div><small>Purchasing directory</small><h3>Suppliers</h3><p>Current people, products, and purchase prices.</p></div><button class="fjord-btn demo" data-message="Create Supplier uses Idempotency-Key and the authenticated Principal actor.">Add supplier</button></div>
+            <section class="fjord-card"><div class="fjord-tools"><input placeholder="Filter loaded suppliers" aria-label="Filter loaded suppliers"><div class="segmented"><button class="active" data-filter="ALL">All</button><button data-filter="ACTIVE">Active</button><button data-filter="INACTIVE">Inactive</button></div></div><div class="scroll"><table class="fjord-table"><thead><tr><th>Supplier</th><th>Contact person</th><th>Contact</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>
+              <tr class="supplier-row selected" data-status="ACTIVE"><td><b>PT Sandang Nusantara</b><small class="mono">SUP-001</small></td><td>Sari Wulandari</td><td>sari@sandang.id</td><td><span class="status active">ACTIVE</span></td><td>30 Aug 2026</td><td>→</td></tr>
+              <tr class="supplier-row" data-status="ACTIVE"><td><b>CV Kain Rona</b><small class="mono">SUP-014</small></td><td>Dimas Putra</td><td>+62 812 3412 1020</td><td><span class="status active">ACTIVE</span></td><td>29 Aug 2026</td><td>→</td></tr>
+              <tr class="supplier-row" data-status="ACTIVE"><td><b>PT Benang Timur</b><small class="mono">SUP-019</small></td><td>Nadia Hartono</td><td>—</td><td><span class="status active">ACTIVE</span></td><td>27 Aug 2026</td><td>→</td></tr>
+              <tr class="supplier-row" data-status="INACTIVE"><td><b>Loom &amp; Co.</b><small class="mono">SUP-023</small></td><td>Rafi Aditya</td><td>rafi@loom.co</td><td><span class="status">INACTIVE</span></td><td>19 Aug 2026</td><td>→</td></tr>
+            </tbody></table></div></section>
+            <section class="fjord-detail"><div class="fjord-profile"><span class="status active">ACTIVE</span><h4>PT Sandang Nusantara</h4><p><span class="mono">SUP-001</span> · Version 7<br>Jakarta · Sari Wulandari</p><button class="fjord-link demo" data-message="Edit retains strong ETag and sends If-Match; stale versions resolve as conflict.">Edit details →</button></div><div><div class="fjord-detail-head"><h5>Current catalog items</h5><button class="fjord-link demo" data-message="New Supplier Item stores current IDR price and optional Article link.">Add item</button></div><div class="scroll"><table class="item-table"><thead><tr><th>Supplier item</th><th>Internal article</th><th class="num">Current price</th><th>Status</th></tr></thead><tbody><tr><td><b>Kemeja Oxford Panjang</b><br><span class="mono">KMJ-LP-001</span></td><td class="mono">ART-000143</td><td class="num">Rp189.000</td><td><span class="status active">ACTIVE</span></td></tr><tr><td><b>Kain Katun Poplin 240</b><br><span class="mono">KTN-240</span></td><td style="color:#087968">Link later</td><td class="num">Rp72.500</td><td><span class="status active">ACTIVE</span></td></tr><tr><td><b>Kancing Pearl 18L</b><br><span class="mono">BTN-PRL-18</span></td><td class="mono">ART-000212</td><td class="num">Rp1.450</td><td><span class="status">INACTIVE</span></td></tr></tbody></table></div></div></section>
+          </div>
+        </div>
+      </article>
+
+      <article class="variant" data-variant="2" aria-labelledby="snow-title">
+        <div class="variant-intro"><div><span>02 · Radical clarity</span><h2 id="snow-title">Snow</h2><p>Hampir tanpa chrome. Rules, spacing, dan type weight bekerja lebih keras daripada card, shadow, atau warna.</p></div><div class="swatches"><i class="swatch" style="background:#ffffff"></i><i class="swatch" style="background:#191d1c"></i><i class="swatch" style="background:#f6f8f7"></i><i class="swatch" style="background:#3c7267"></i></div></div>
+        <div class="mockup snow">
+          <header class="snow-top"><div class="snow-wordmark">Itulah</div><nav><span>Overview</span><span class="active">Suppliers</span><span>Purchase orders</span><span>Inventory</span></nav><span class="snow-user">Sari · Supervisor</span></header>
+          <div class="snow-body">
+            <div class="snow-heading"><div><h3>Supplier register</h3><p>Canonical records for the people and goods we buy from. Inactive records remain visible for history.</p></div><button class="snow-add demo" data-message="Create form contains only supported Supplier fields—no bank, terms, stock, or payment.">+ New supplier</button></div>
+            <div class="snow-filter"><input placeholder="Filter loaded records" aria-label="Filter loaded records"><span>4 records · current as of today</span></div>
+            <div class="scroll"><table class="snow-table"><thead><tr><th>Code</th><th>Supplier</th><th>Principal contact</th><th>Address</th><th>State</th><th>Revision</th><th></th></tr></thead><tbody>
+              <tr class="supplier-row selected" data-status="ACTIVE"><td class="mono">SUP-001</td><td><b>PT Sandang Nusantara</b></td><td>Sari Wulandari<br><small>sari@sandang.id</small></td><td>Jakarta</td><td><span class="status active">ACTIVE</span></td><td class="mono">v7</td><td class="snow-arrow">⌄</td></tr>
+              <tr class="snow-expand"><td colspan="7"><div class="snow-disclosure"><div><h4>PT Sandang Nusantara</h4><p>Record metadata remains secondary until needed.</p><div class="snow-kv"><span>Phone</span><b>+62 811 9210 112</b><span>Updated by</span><b>buyer-01</b><span>ETag</span><b class="mono">“7”</b><span>Action</span><button class="snow-add demo" data-message="Deactivate is a versioned POST action, never hard delete.">Edit / status</button></div></div><div><table class="snow-items"><thead><tr><th>Supplier item</th><th>Internal article</th><th class="num">Current IDR price</th><th>State</th></tr></thead><tbody><tr><td>Kemeja Oxford Panjang<br><span class="mono">KMJ-LP-001</span></td><td class="mono">ART-000143</td><td class="num">Rp189.000</td><td>Active</td></tr><tr><td>Kain Katun Poplin 240<br><span class="mono">KTN-240</span></td><td>Not linked</td><td class="num">Rp72.500</td><td>Active</td></tr><tr><td>Kancing Pearl 18L<br><span class="mono">BTN-PRL-18</span></td><td class="mono">ART-000212</td><td class="num">Rp1.450</td><td>Inactive</td></tr></tbody></table></div></div></td></tr>
+              <tr class="supplier-row" data-status="ACTIVE"><td class="mono">SUP-014</td><td><b>CV Kain Rona</b></td><td>Dimas Putra<br><small>+62 812 3412 1020</small></td><td>Bandung</td><td><span class="status active">ACTIVE</span></td><td class="mono">v3</td><td class="snow-arrow">›</td></tr>
+              <tr class="supplier-row" data-status="ACTIVE"><td class="mono">SUP-019</td><td><b>PT Benang Timur</b></td><td>Nadia Hartono</td><td>Surabaya</td><td><span class="status active">ACTIVE</span></td><td class="mono">v4</td><td class="snow-arrow">›</td></tr>
+              <tr class="supplier-row" data-status="INACTIVE"><td class="mono">SUP-023</td><td><b>Loom &amp; Co.</b></td><td>Rafi Aditya</td><td>Tangerang</td><td><span class="status">INACTIVE</span></td><td class="mono">v9</td><td class="snow-arrow">›</td></tr>
+            </tbody></table></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="variant" data-variant="3" aria-labelledby="birch-title">
+        <div class="variant-intro"><div><span>03 · Warm catalog stewardship</span><h2 id="birch-title">Birch</h2><p>Nordic yang lebih hangat dan tactile. Split ledger membuat Supplier list dan katalog aktif tetap terlihat bersamaan.</p></div><div class="swatches"><i class="swatch" style="background:#f1ebdf"></i><i class="swatch" style="background:#667255"></i><i class="swatch" style="background:#342f28"></i><i class="swatch" style="background:#ddd3c3"></i></div></div>
+        <div class="mockup birch">
+          <header class="birch-top"><div class="birch-logo"><i></i> Itulah Purchasing</div><nav><span>Overview</span><span class="active">Supplier catalog</span><span>Purchase orders</span><span>Receiving</span></nav><span class="mono" style="font-size:8px;color:#7a7165">CLOUD · BUYER-01</span></header>
+          <div class="birch-body">
+            <div class="birch-head"><div><span>Supplier authority</span><h3>Our trading partners</h3><p>One record per Supplier, one current catalog per relationship.</p></div><button class="birch-btn demo" data-message="Create Supplier defaults to ACTIVE unless the user explicitly chooses INACTIVE.">Add supplier</button></div>
+            <div class="birch-grid">
+              <section class="birch-register"><div class="birch-tools"><input placeholder="Filter loaded list"><div><button class="active" data-filter="ALL">All</button><button data-filter="ACTIVE">Active</button><button data-filter="INACTIVE">Inactive</button></div></div><div class="scroll"><table class="birch-table"><thead><tr><th>Supplier</th><th>Contact</th><th>State</th><th></th></tr></thead><tbody><tr class="supplier-row selected" data-status="ACTIVE"><td><b>PT Sandang Nusantara</b><small class="mono">SUP-001</small></td><td>Sari W.</td><td><span class="status active">ACTIVE</span></td><td>→</td></tr><tr class="supplier-row" data-status="ACTIVE"><td><b>CV Kain Rona</b><small class="mono">SUP-014</small></td><td>Dimas P.</td><td><span class="status active">ACTIVE</span></td><td>→</td></tr><tr class="supplier-row" data-status="ACTIVE"><td><b>PT Benang Timur</b><small class="mono">SUP-019</small></td><td>Nadia H.</td><td><span class="status active">ACTIVE</span></td><td>→</td></tr><tr class="supplier-row" data-status="INACTIVE"><td><b>Loom &amp; Co.</b><small class="mono">SUP-023</small></td><td>Rafi A.</td><td><span class="status">INACTIVE</span></td><td>→</td></tr></tbody></table></div></section>
+              <section class="birch-detail"><div class="birch-profile"><div><small>Selected supplier</small><h4>PT Sandang Nusantara</h4><p><span class="mono">SUP-001</span> · Jakarta · Sari Wulandari<br>sari@sandang.id · +62 811 9210 112</p></div><div class="birch-revision"><span class="status active">ACTIVE</span><br><br>Revision 7<br>30 Aug 2026</div></div><div class="birch-section"><h5>Goods we purchase</h5><button class="birch-btn demo" data-message="Items cannot be moved between Suppliers; create under the canonical parent Supplier.">Add catalog item</button></div><div class="scroll"><table class="birch-item-table"><thead><tr><th>Supplier item</th><th>Description</th><th>Article link</th><th class="num">Current price</th><th>State</th></tr></thead><tbody><tr><td><b>Kemeja Oxford Panjang</b><br><span class="mono">KMJ-LP-001</span></td><td>Oxford cotton · long sleeve</td><td class="mono">ART-000143</td><td class="num">Rp189.000</td><td>Active</td></tr><tr><td><b>Kain Katun Poplin 240</b><br><span class="mono">KTN-240</span></td><td>Poplin 240 GSM</td><td>Not linked</td><td class="num">Rp72.500</td><td>Active</td></tr><tr><td><b>Kancing Pearl 18L</b><br><span class="mono">BTN-PRL-18</span></td><td>Pearl button</td><td class="mono">ART-000212</td><td class="num">Rp1.450</td><td>Inactive</td></tr></tbody></table></div><div class="birch-note">Catalog price is current guidance for future purchase orders. Each issued PO keeps its own immutable Supplier, item, and price snapshots.</div></section>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="variant" data-variant="4" aria-labelledby="harbor-title">
+        <div class="variant-intro"><div><span>04 · Dense Nordic operations</span><h2 id="harbor-title">Harbor</h2><p>Cool blue, persistent navigation, dan compact inspector. Nordic untuk tim yang tetap membutuhkan banyak informasi dalam satu viewport.</p></div><div class="swatches"><i class="swatch" style="background:#edf3f5"></i><i class="swatch" style="background:#263d46"></i><i class="swatch" style="background:#3a7488"></i><i class="swatch" style="background:#d7e2e6"></i></div></div>
+        <div class="mockup harbor">
+          <div class="harbor-shell">
+            <aside class="harbor-side"><div class="harbor-brand">ITULAH CLOUD</div><small>Purchasing</small><a href="#">Overview</a><a href="#" class="active">Suppliers</a><a href="#">Purchase orders</a><small style="margin-top:20px">Operations</small><a href="#">DC fleet</a><a href="#">Inventory</a><a href="#">Control</a><div class="harbor-user">buyer-01<br>SUPERVISOR</div></aside>
+            <div class="harbor-main"><div class="harbor-head"><div><h3>Supplier Catalog</h3><p>Canonical Supplier directory and current purchasable goods.</p></div><button class="harbor-btn demo" data-message="Mutations require SUPERVISOR or ADMIN through the existing role ladder.">Create Supplier</button></div><div class="harbor-metrics"><div class="harbor-metric"><span>Loaded</span><b>4</b></div><div class="harbor-metric"><span>Active</span><b>3</b></div><div class="harbor-metric"><span>Inactive</span><b>1</b></div><div class="harbor-metric"><span>Currency</span><b>IDR</b></div></div><div class="harbor-grid"><section class="harbor-panel"><div class="harbor-panel-head"><h4>Supplier register</h4><input placeholder="Filter loaded list"></div><div class="scroll"><table class="harbor-table"><thead><tr><th>Code</th><th>Supplier</th><th>Contact</th><th>State</th><th>Version</th><th>Updated</th></tr></thead><tbody><tr class="supplier-row selected" data-status="ACTIVE"><td class="mono">SUP-001</td><td><b>PT Sandang Nusantara</b><small>Jakarta</small></td><td>Sari Wulandari</td><td><span class="status active">ACTIVE</span></td><td>7</td><td>30 Aug</td></tr><tr class="supplier-row" data-status="ACTIVE"><td class="mono">SUP-014</td><td><b>CV Kain Rona</b><small>Bandung</small></td><td>Dimas Putra</td><td><span class="status active">ACTIVE</span></td><td>3</td><td>29 Aug</td></tr><tr class="supplier-row" data-status="ACTIVE"><td class="mono">SUP-019</td><td><b>PT Benang Timur</b><small>Surabaya</small></td><td>Nadia Hartono</td><td><span class="status active">ACTIVE</span></td><td>4</td><td>27 Aug</td></tr><tr class="supplier-row" data-status="INACTIVE"><td class="mono">SUP-023</td><td><b>Loom &amp; Co.</b><small>Tangerang</small></td><td>Rafi Aditya</td><td><span class="status">INACTIVE</span></td><td>9</td><td>19 Aug</td></tr></tbody></table></div></section><aside class="harbor-panel harbor-inspector"><span class="overline">Selected · v7</span><h4>PT Sandang Nusantara</h4><p><span class="mono">SUP-001</span> · canonical record</p><div class="harbor-kv"><span>Contact</span><b>Sari Wulandari</b><span>Email</span><b>sari@sandang.id</b><span>Phone</span><b>+62 811 9210 112</b><span>State</span><b style="color:#287862">ACTIVE</b></div><div style="margin-top:10px;color:#3a7488;font-size:7px;font-weight:850;letter-spacing:.08em;text-transform:uppercase">Current catalog</div><div class="harbor-item"><b>KMJ-LP-001</b><span>Kemeja Oxford Panjang</span><span class="price">Rp189.000</span></div><div class="harbor-item"><b>KTN-240</b><span>Kain Katun Poplin 240</span><span class="price">Rp72.500</span></div><div class="harbor-callout">Create &amp; issue PO sends canonical item IDs and quantities only. Backend reloads and snapshots commercial fields.</div><button class="harbor-btn demo" style="width:100%;margin-top:9px" data-message="Catalog PO atomically commits PO, lines, exact DC command, activation ID, and idempotency receipt.">Create &amp; issue PO</button></aside></div></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="variant" data-variant="5" aria-labelledby="aurora-title">
+        <div class="variant-intro"><div><span>05 · Guided purchase flow</span><h2 id="aurora-title">Aurora</h2><p>Soft spectrum untuk membantu orientation tanpa berubah menjadi consumer checkout. Satu Supplier, active items, lalu direct issue ke exact DC.</p></div><div class="swatches"><i class="swatch" style="background:#f4f5f9"></i><i class="swatch" style="background:#6769a9"></i><i class="swatch" style="background:#549281"></i><i class="swatch" style="background:#c6a5bc"></i></div></div>
+        <div class="mockup aurora">
+          <header class="aurora-top"><div class="aurora-logo"><i></i> Itulah Purchasing</div><div class="aurora-steps"><span class="aurora-step active"><b>1</b> Supplier</span><span>—</span><span class="aurora-step active"><b>2</b> Items</span><span>—</span><span class="aurora-step"><b>3</b> Issue PO</span></div><span class="aurora-chip">buyer-01 · Supervisor</span></header>
+          <div class="aurora-body"><div class="aurora-head"><div><h3>Create direct purchase order</h3><p>Selection stays local until one atomic create-and-issue request.</p></div><span class="aurora-chip">Current price · IDR</span></div><div class="aurora-grid"><section class="aurora-card"><div class="aurora-card-head"><div><h4>1 · Supplier</h4><span>One Supplier per PO</span></div><span class="status active">ACTIVE</span></div><div class="scroll"><table class="aurora-suppliers"><tbody><tr class="selected"><td><b>PT Sandang Nusantara</b><small class="mono">SUP-001</small></td><td>→</td></tr><tr><td><b>CV Kain Rona</b><small class="mono">SUP-014</small></td><td>→</td></tr><tr><td><b>PT Benang Timur</b><small class="mono">SUP-019</small></td><td>→</td></tr><tr style="opacity:.48"><td><b>Loom &amp; Co.</b><small>Inactive · view only</small></td><td>—</td></tr></tbody></table></div></section><section class="aurora-card"><div class="aurora-card-head"><div><h4>2 · Catalog items</h4><span>Active items only</span></div><span>2 available to select</span></div><div class="scroll"><table class="aurora-items"><thead><tr><th>Select</th><th>Supplier item</th><th>Article link</th><th class="num">Current price</th><th>Qty</th><th>Promised</th></tr></thead><tbody><tr class="order-line" data-price="189000"><td><input class="aurora-check line-check" type="checkbox" checked aria-label="Select Kemeja Oxford Panjang"></td><td><div class="aurora-item"><span class="aurora-thumb">KO</span><div><b>Kemeja Oxford Panjang</b><small class="mono">KMJ-LP-001</small></div></div></td><td class="mono">ART-000143</td><td class="num">Rp189.000</td><td><input class="aurora-qty qty" type="number" min="1" value="100" aria-label="Quantity Kemeja Oxford"></td><td><input class="aurora-date" type="date" value="2026-09-15" aria-label="Promised date Kemeja Oxford"></td></tr><tr class="order-line" data-price="72500"><td><input class="aurora-check line-check" type="checkbox" checked aria-label="Select Kain Katun Poplin"></td><td><div class="aurora-item"><span class="aurora-thumb">KP</span><div><b>Kain Katun Poplin 240</b><small class="mono">KTN-240</small></div></div></td><td style="color:#6769a9">Not linked</td><td class="num">Rp72.500</td><td><input class="aurora-qty qty" type="number" min="1" value="40" aria-label="Quantity Kain Katun"></td><td><input class="aurora-date" type="date" value="2026-09-20" aria-label="Promised date Kain Katun"></td></tr><tr style="opacity:.42"><td><input type="checkbox" disabled aria-label="Kancing Pearl inactive"></td><td><div class="aurora-item"><span class="aurora-thumb">KP</span><div><b>Kancing Pearl 18L</b><small>INACTIVE</small></div></div></td><td class="mono">ART-000212</td><td class="num">Rp1.450</td><td>—</td><td>—</td></tr></tbody></table></div></section><aside class="aurora-card aurora-summary"><div class="aurora-card-head"><div><h4>3 · Issue summary</h4><span>Direct → ISSUED</span></div></div><div class="aurora-form"><label class="aurora-field">PO number<input value="PO-2026-000184"></label><label class="aurora-field">Registered DC<select><option>DC Jakarta · dc-01</option><option>DC Bandung · dc-02</option></select></label><label class="aurora-field">Notes<textarea>September core replenishment</textarea></label><div class="aurora-total"><div><span>Selected lines</span><b class="selected-count">2</b></div><div><span>Total pieces</span><b class="piece-count">140</b></div><div class="grand"><span>Local preview</span><b class="order-total">Rp21.800.000</b></div></div><div class="aurora-note">Preview is not authoritative. Server revalidates Supplier, items, status, ownership, price, image, and currency.</div><button class="aurora-issue demo" data-message="POST /api/v1/purchase-orders/catalog creates an ISSUED DIRECT PO and exact-target DC command.">Create &amp; issue PO</button><div class="aurora-local">No saved cart · no approval stage · no payment</div></div></aside></div></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="contract" aria-labelledby="contract-title">
+      <div class="contract-head"><h2 id="contract-title">Shared implementation contract</h2><p>Kelima Nordic variant berbeda secara visual, tetapi membaca dan menulis backend yang sama.</p></div><div class="scroll"><table><thead><tr><th>UI action</th><th>Endpoint</th><th>Required contract</th><th>Nordic interaction rule</th></tr></thead><tbody>
+        <tr><td>Supplier list</td><td><span class="method">GET</span> <span class="endpoint">/api/v1/suppliers?status=…</span></td><td>Loaded array; no server search/pagination</td><td>Search labeled as filter over loaded rows</td></tr>
+        <tr><td>Create / edit Supplier</td><td><span class="method">POST</span> / <span class="method">PATCH</span></td><td>Idempotency-Key; strong If-Match for update</td><td>Quiet form, explicit stale-version recovery</td></tr>
+        <tr><td>Supplier Items</td><td><span class="method">GET</span> <span class="endpoint">/api/v1/suppliers/{id}/items</span></td><td>Current IDR price, optional Article link</td><td>Always label price as current, never stock/terms</td></tr>
+        <tr><td>Status change</td><td><span class="method">POST</span> <span class="endpoint">…/activate | deactivate</span></td><td>If-Match + Idempotency-Key; no DELETE</td><td>Use calm warning confirmation, never trash icon</td></tr>
+        <tr><td>Direct catalog PO</td><td><span class="method">POST</span> <span class="endpoint">/api/v1/purchase-orders/catalog</span></td><td>Canonical IDs, positive qty, exact DC, key</td><td>CTA says Create &amp; issue; local preview is clearly non-authoritative</td></tr>
+      </tbody></table></div>
+    </section>
+
+    <footer class="footer"><span><strong>Recommendation:</strong> Fjord as the product shell; Aurora as the wide PO composer; Harbor density for advanced tables.</span><span>Standalone visual prototype · no API calls · backend-informed</span></footer>
+  </main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script>
+    (() => {
+      const variants = [...document.querySelectorAll('.variant')];
+      const tabs = [...document.querySelectorAll('.variant-tabs [data-open]')];
+      const toast = document.getElementById('toast');
+      let toastTimer;
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
+      }
+
+      function openVariant(id, shouldScroll = true) {
+        variants.forEach(variant => variant.classList.toggle('active', variant.dataset.variant === String(id)));
+        tabs.forEach(tab => {
+          const active = tab.dataset.open === String(id);
+          tab.classList.toggle('active', active);
+          tab.setAttribute('aria-selected', String(active));
+        });
+        try {
+          history.replaceState(null, '', `#nordic-${id}`);
+        } catch {
+          // Direct file:// previews may disallow History API URL updates.
+        }
+        if (shouldScroll) document.getElementById('stage').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      document.querySelectorAll('[data-open]').forEach(button => {
+        button.addEventListener('click', () => openVariant(button.dataset.open));
+      });
+
+      document.querySelectorAll('.demo').forEach(button => {
+        button.addEventListener('click', event => {
+          event.preventDefault();
+          showToast(button.dataset.message || 'Visual prototype action only.');
+        });
+      });
+
+      document.querySelectorAll('.variant').forEach(variant => {
+        variant.querySelectorAll('[data-filter]').forEach(button => {
+          button.addEventListener('click', () => {
+            const status = button.dataset.filter;
+            variant.querySelectorAll('[data-filter]').forEach(peer => peer.classList.toggle('active', peer === button));
+            variant.querySelectorAll('.supplier-row').forEach(row => {
+              row.hidden = status !== 'ALL' && row.dataset.status !== status;
+            });
+            const disclosure = variant.querySelector('.snow-expand');
+            if (disclosure) disclosure.hidden = status === 'INACTIVE';
+          });
+        });
+      });
+
+      function formatIDR(value) {
+        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value);
+      }
+
+      function updateOrderPreview() {
+        const aurora = document.querySelector('[data-variant="5"]');
+        let selected = 0;
+        let pieces = 0;
+        let total = 0;
+        aurora.querySelectorAll('.order-line').forEach(row => {
+          const checked = row.querySelector('.line-check');
+          const quantity = row.querySelector('.qty');
+          if (!checked?.checked || !quantity) return;
+          const qty = Math.max(1, Number.parseInt(quantity.value, 10) || 1);
+          selected += 1;
+          pieces += qty;
+          total += Number(row.dataset.price) * qty;
+        });
+        aurora.querySelector('.selected-count').textContent = selected;
+        aurora.querySelector('.piece-count').textContent = pieces.toLocaleString('id-ID');
+        aurora.querySelector('.order-total').textContent = formatIDR(total);
+      }
+
+      document.querySelectorAll('.line-check, .qty').forEach(control => control.addEventListener('input', updateOrderPreview));
+      updateOrderPreview();
+
+      const match = location.hash.match(/^#nordic-([1-5])$/);
+      openVariant(match ? match[1] : '1', false);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Kolom · Ringkasan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   04 · KOLOM — satu kolom sempit, dibaca dari atas ke bawah
+   Tidak ada sidebar, tidak ada tabel lebar, tidak ada apa pun di kanan.
+   Lebar dikunci 660px karena itu batas satu kolom teks yang nyaman dibaca,
+   dan seluruh halaman tunduk pada batas itu — termasuk datanya.
+
+   Konsekuensinya diambil dengan sadar: tabel Pool tujuh kolom TIDAK muat,
+   jadi ia bukan tabel. Tiap pool jadi satu baris dengan satu angka besar
+   (On Hand — angka yang paling sering ditanya) dan sisanya sebagai kalimat
+   di bawahnya. Yang hilang bukan datanya, tapi kemampuan membandingkan enam
+   kolom sekaligus. Itu harga yang dibayar untuk kolom yang bisa dibaca.
+   Warna muncul tepat sekali: pada satu hal yang butuh orang.
+   ========================================================================== */
+:root{
+  --ink:#0a0a0a;
+  --mid:#5d5f63;
+  --faint:#9b9da1;
+  --line:#eaeaec;
+  --alert:#b3261e;
+  --col:660px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:#fff;color:var(--ink);
+  font-family:"Inter Tight",-apple-system,"Segoe UI",Helvetica,sans-serif;
+  font-size:15px;line-height:1.6;
+  font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
+}
+.nil{color:var(--faint)}
+.mid{color:var(--mid)}
+.lab{font-size:11.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:2px}
+
+/* Bar atas menempel, tipis, dan tidak membawa apa pun selain identitas dan
+   kesegaran — dua hal yang harus tetap terlihat saat kolomnya digulir jauh. */
+.top{
+  position:sticky;top:0;z-index:10;background:#fff;
+  border-bottom:1px solid var(--line);
+}
+.top-in{
+  max-width:var(--col);margin:0 auto;padding:0 24px;height:52px;
+  display:flex;align-items:center;gap:14px;
+}
+.top b{font-weight:500;letter-spacing:-.01em}
+.top .meta{margin-inline-start:auto;color:var(--faint);font-size:12.5px}
+
+.col{max-width:var(--col);margin:0 auto;padding:0 24px 110px}
+
+/* ---------- neraca ---------- */
+.hero{padding:56px 0 0}
+.hero .fig{font-size:72px;font-weight:400;letter-spacing:-.045em;line-height:1;margin:12px 0 0}
+.terms{display:flex;gap:40px;flex-wrap:wrap;margin-top:30px}
+.terms div{display:flex;flex-direction:column;gap:5px}
+.terms b{font-size:23px;font-weight:400;letter-spacing:-.02em;line-height:1}
+.verdict{margin:30px 0 0;color:var(--mid)}
+.verdict b{font-weight:500;color:var(--ink)}
+
+h2{
+  margin:0;font-size:11.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+}
+.sec{padding-top:56px}
+.sec-top{display:flex;align-items:baseline;gap:14px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.sec-top .meta{margin-inline-start:auto;color:var(--faint);font-size:12.5px}
+
+/* ---------- perlu perhatian ---------- */
+.att a{
+  display:flex;align-items:baseline;gap:18px;
+  padding:16px 0;border-bottom:1px solid var(--line);
+  color:inherit;text-decoration:none;
+}
+.att .qty{font-size:23px;font-weight:400;letter-spacing:-.02em;line-height:1;min-width:36px;text-align:end;flex-shrink:0}
+.att .what{flex:1;min-width:0}
+.att .what b{display:block;font-weight:400}
+.att .what span{font-size:13px;color:var(--faint)}
+.att .go{font-size:13px;color:var(--faint);white-space:nowrap;flex-shrink:0}
+.att a:hover .go{color:var(--ink)}
+/* Satu-satunya warna di halaman ini. */
+.att a[data-late] .qty{color:var(--alert)}
+.att a[data-locked] .qty{color:var(--faint)}
+.att a[data-locked]:hover .go{color:var(--faint)}
+
+/* ---------- pool: baris, bukan tabel ---------- */
+.pool-grp{padding:26px 0 4px}
+.pool{
+  display:flex;align-items:baseline;gap:18px;
+  padding:14px 0;border-bottom:1px solid var(--line);
+}
+.pool .name{flex:1;min-width:0}
+.pool .name b{display:block;font-weight:400}
+.pool .name span{font-size:13px;color:var(--faint)}
+.pool .val{text-align:end;flex-shrink:0}
+.pool .val b{display:block;font-size:23px;font-weight:400;letter-spacing:-.02em;line-height:1.05}
+.pool .val span{font-size:12px;color:var(--faint)}
+.pool .val b.neg{color:var(--alert)}
+.pool-sum{color:var(--mid)}
+.pool-sum .val b{font-size:19px}
+
+/* ---------- kaki ---------- */
+.foot{display:flex;gap:48px;flex-wrap:wrap;padding-top:52px}
+.foot div{display:flex;flex-direction:column;gap:6px}
+.foot b{font-size:21px;font-weight:400;letter-spacing:-.02em;line-height:1.1}
+.foot small{font-size:12.5px;color:var(--faint)}
+
+.note{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:var(--faint);font-size:13px}
+
+@media(max-width:620px){
+  .hero{padding-top:36px}
+  .hero .fig{font-size:52px}
+  .terms{gap:26px}
+  .att .go{display:none}
+  .foot{gap:28px}
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="top-in">
+    <b>Retail Edge</b>
+    <span class="mid">Ringkasan</span>
+    <span class="meta">12 dari 13 node · 15:42</span>
+  </div>
+</div>
+
+<div class="col">
+
+  <div class="hero">
+    <div class="lab">Stock</div>
+    <div class="fig">48.312</div>
+    <div class="terms">
+      <div><span class="lab">Allotted</span><b>3.104</b></div>
+      <div><span class="lab">On Hand</span><b>44.902</b></div>
+      <div><span class="lab">Missing</span><b>306</b></div>
+    </div>
+    <p class="verdict">
+      <b>Seimbang.</b> Ketiga suku menjumlah tepat ke Stock.
+      store-07 belum sinkron sejak 14:02 dan belum ikut dihitung.
+    </p>
+  </div>
+
+  <section class="sec">
+    <div class="sec-top">
+      <h2>Perlu perhatian</h2>
+      <span class="meta">18 terbuka</span>
+    </div>
+    <div class="att">
+      <a href="#" data-late>
+        <span class="qty">12</span>
+        <span class="what"><b>Missing lewat 72 jam</b><span>9 di toko, 3 di DC · tertua 6 hari</span></span>
+        <span class="go">Selesaikan</span>
+      </a>
+      <a href="#">
+        <span class="qty">3</span>
+        <span class="what"><b>Official Count menunggu persetujuan</b><span>dc.warehouse · store-02.floor · store-11.warehouse</span></span>
+        <span class="go">Tinjau</span>
+      </a>
+      <a href="#" data-late>
+        <span class="qty">1</span>
+        <span class="what"><b>Allotment melebihi On Hand sumbernya</b><span>store-04.warehouse · On Hand −12</span></span>
+        <span class="go">Lihat</span>
+      </a>
+      <a href="#">
+        <span class="qty">2</span>
+        <span class="what"><b>Bacaan RFID tidak cocok dengan ledger</b><span>store-03.floor · 4 jam lalu</span></span>
+        <span class="go">Periksa</span>
+      </a>
+      <a href="#" data-locked>
+        <span class="qty">—</span>
+        <span class="what"><b>Selisih proyeksi buku besar</b><span>Angkanya tidak dibuka untuk peran kamu</span></span>
+        <span class="go">Butuh supervisor</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-top">
+      <h2>Pool</h2>
+      <span class="meta">Angka besar = On Hand</span>
+    </div>
+
+    <div class="pool-grp lab">Distribution Centre</div>
+
+    <div class="pool">
+      <span class="name"><b>dc.warehouse</b><span>cloud · Stock 21.480 · Allotted 3.104 · Missing 92 · Lost 0,41% (74 ÷ 18.052)</span></span>
+      <span class="val"><b>18.376</b></span>
+    </div>
+    <div class="pool">
+      <span class="name"><b>dc.staging</b><span>cloud · Stock 1.240 · Allotted — · Missing 8 · Lost 0,00% (0 ÷ 1.244)</span></span>
+      <span class="val"><b>1.240</b></span>
+    </div>
+    <div class="pool">
+      <span class="name"><b>dc.reject.dc</b><span>cloud · Stock 612 · Allotted — · Missing — · Lost — (tanpa paparan)</span></span>
+      <span class="val"><b>612</b></span>
+    </div>
+    <div class="pool pool-sum">
+      <span class="name"><b>Jumlah Distribution Centre</b><span>Stock 23.332 · Allotted 3.104 · Missing 100 · Lost 0,38% (74 ÷ 19.296)</span></span>
+      <span class="val"><b>20.228</b></span>
+    </div>
+
+    <div class="pool-grp lab">Toko</div>
+
+    <div class="pool">
+      <span class="name"><b>store-01</b><span>edge · Stock 2.104 · Missing 14 · Lost 0,52% (11 ÷ 2.115)</span></span>
+      <span class="val"><b>2.104</b></span>
+    </div>
+    <div class="pool">
+      <span class="name"><b>store-03</b><span>edge · Stock 1.876 · Missing 31 · Lost 1,44% (27 ÷ 1.874)</span></span>
+      <span class="val"><b>1.876</b></span>
+    </div>
+    <div class="pool">
+      <span class="name"><b>store-04</b><span>edge · Stock 1.512 · Allotted 1.524 · Missing 9 · Lost 0,60% (9 ÷ 1.501)</span></span>
+      <span class="val"><b class="neg">−12</b></span>
+    </div>
+    <div class="pool">
+      <span class="name"><b>store-07</b><span>edge · putus 14:02 · Stock 1.944 · Missing 18 · Lost — (belum sinkron)</span></span>
+      <span class="val"><b>1.944</b><span>terakhir 14:02</span></span>
+    </div>
+    <div class="pool pool-sum">
+      <span class="name"><b>Jumlah Toko</b><span>12 dari 13 melapor · Stock 24.980 · Allotted 1.524 · Missing 206 · Lost 0,71% (176 ÷ 24.788)</span></span>
+      <span class="val"><b>24.674</b></span>
+    </div>
+  </section>
+
+  <div class="foot">
+    <div>
+      <span class="lab">Penjualan hari ini</span>
+      <b>Rp 184.290.500</b>
+      <small>1.208 transaksi · store-07 belum termasuk</small>
+    </div>
+    <div>
+      <span class="lab">Buku besar</span>
+      <b>Match</b>
+      <small>Replay 15:30 · 0 selisih · 184.221 fakta</small>
+    </div>
+  </div>
+
+  <p class="note">
+    Prototipe. Lost&nbsp;% membawa pembilang dan paparannya supaya bisa dihitung ulang.
+    Tanda — berarti tidak diketahui, dan tidak sama dengan nol.
+  </p>
+</div>
+</body>
+</html>

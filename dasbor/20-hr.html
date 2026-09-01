@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Orang &amp; akses · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   ORANG & AKSES — pembagian kerja cloud/edge, apa adanya dari backend
+   --------------------------------------------------------------------------
+   Permintaannya: cloud memantau dan menyetujui; DC dan store yang mengerjakan.
+   Backend kita sudah berbentuk persis begitu, dan bukan sebagai konvensi —
+   sebagai endpoint:
+
+     GET/POST /api/v1/auth/users                       ← identitas, milik cloud
+     POST     /api/v1/auth/edge-assignments            ← siapa boleh apa, di site mana
+     PUT      /api/v1/auth/edge-assignments/{o}/{u}/active
+     POST     /api/v1/auth/edge-policies/{origin}/publish   ← cloud menerbitkan
+     POST     /api/v1/auth/rfid-devices                ← alat, terikat ke pool
+     POST     /api/v1/auth/rfid-devices/{id}/rotate
+
+   Yang menarik: cloud tidak "mengizinkan tiap kali". Cloud MENERBITKAN sebuah
+   kebijakan ke sebuah origin, lalu site itu berjalan sendiri — termasuk saat
+   internetnya mati. Itulah arti `offline_ttl_seconds`. Jadi layar ini bukan
+   kotak masuk persetujuan; ia papan penerbitan.
+
+   TIGA TANGGA, BUKAN LEBIH. Role di src/cloud/domain/auth.rs cuma
+   CASHIER · SUPERVISOR · ADMIN. Layar ini tidak mengarang jabatan lain.
+
+   KATA SANDI EDGE TIDAK PERNAH TERLIHAT. Komentar kontraknya:
+   "The plaintext is hashed immediately and never stored or sent to the Edge."
+   Maka tidak ada tempat di layar ini yang bisa menampilkan sandi seseorang —
+   yang ada hanya menetapkan yang baru.
+
+   YANG BELUM ADA, DITULIS SEBAGAI BELUM ADA. Absensi, cuti, dan lembur tidak
+   punya satu pun endpoint di backend kita hari ini. Menggambarnya seolah jalan
+   akan membuat layar ini berbohong, jadi bagian itu ditandai sebagai rencana.
+   ========================================================================== */
+
+.sum{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));margin-bottom:12px}
+.stat{padding:12px 14px;display:flex;flex-direction:column;gap:5px}
+.stat span{font-size:12.5px;color:var(--ink-2)}
+.stat b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:500;letter-spacing:-.03em;line-height:1}
+.stat small{font-size:11.5px;color:var(--ink-3)}
+
+.split{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:1180px){.split{grid-template-columns:minmax(0,1fr) 400px}}
+@media(min-width:1700px){.split{grid-template-columns:minmax(0,1fr) 440px}}
+
+.row{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.card .row:last-of-type{border-bottom:0}
+.row .who{flex:1;min-width:150px}
+.row .who b{display:block;font-size:13.5px;font-weight:500}
+.row .who span{display:block;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-3)}
+.row .sites{display:flex;gap:5px;flex-wrap:wrap;flex-shrink:0}
+.row .ttl{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--ink-2);min-width:74px;text-align:end;flex-shrink:0}
+.row .ttl span{display:block;font-size:11px;color:var(--ink-3);font-family:var(--font-sans)}
+.row[data-off="true"]{opacity:.55}
+
+.orig{padding:12px 16px;border-bottom:1px solid var(--line)}
+.card .orig:last-of-type{border-bottom:0}
+.orig .oh{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:7px}
+.orig .oh b{font-family:var(--font-mono);font-size:13px;font-weight:500}
+.orig .ob{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-3)}
+.gen{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+
+.plan{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+a.plan:hover{background:var(--hover)}
+.card .plan:last-of-type{border-bottom:0}
+.plan b{font-size:13.5px;font-weight:500;flex:1;min-width:140px}
+.willmove{padding:11px 13px;border-radius:var(--radius-card);background:var(--inset);font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--ink-2);white-space:pre-wrap}
+.plan span{font-size:12.5px;color:var(--ink-3)}
+
+.dlg{position:fixed;inset:0;display:none;place-items:center;padding:20px;z-index:60;background:var(--scrim)}
+.dlg[data-open="true"]{display:grid}
+.dlg-box{width:min(520px,100%);background:var(--page);border-radius:var(--radius-window);box-shadow:var(--shadow-overlay);overflow:hidden}
+.dlg-head{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.dlg-head h2{margin:0 0 3px;font-size:17px;font-weight:600;letter-spacing:-.015em}
+.dlg-head p{margin:0;font-size:13px;color:var(--ink-2)}
+.dlg-body{padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+.dlg-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS · Cloud</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="grp">Organisasi</div>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="2.75" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 15c.6-2.6 2.8-4 5.5-4s4.9 1.4 5.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Orang &amp; akses</a>
+    <a href="19-finance.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="2.5" y="4.5" width="13" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="2" stroke="currentColor" stroke-width="1.4"/></svg>Laporan harian</a>
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="18-receiving.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 13V6h9v7M11.5 8.5h3l2.5 2.5V13" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>Penerimaan</a>
+    <div class="side-foot"><p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>Akses · 09:14</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Orang &amp; akses</h1>
+      <span class="stamp"><i></i>Cloud menerbitkan · site menjalankan</span>
+      <div class="right">
+        <button type="button" class="btn btn-secondary btn-sm" id="adduser">Tambah orang</button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="sum" id="sum"></div>
+
+      <div class="split">
+        <div>
+          <section class="card" style="margin-bottom:12px">
+            <div class="ch"><h2>Orang</h2>
+              <span class="fchips">
+                <button type="button" class="fchip" aria-pressed="true" data-r="">Semua</button>
+                <button type="button" class="fchip" aria-pressed="false" data-r="CASHIER">Kasir</button>
+                <button type="button" class="fchip" aria-pressed="false" data-r="SUPERVISOR">Supervisor</button>
+                <button type="button" class="fchip" aria-pressed="false" data-r="ADMIN">Admin</button>
+              </span>
+            </div>
+            <div id="users"></div>
+            <p class="cap">Satu orang bisa punya peran berbeda di site berbeda: kasir di store-03 dan supervisor di store-07
+            adalah dua penugasan, bukan satu jabatan. Peran melekat pada penugasan, bukan pada orangnya.</p>
+          </section>
+
+          <section class="card">
+            <div class="ch"><h2>Kerja HR</h2><span class="meta">Dibagi menurut siapa yang mengerjakan</span></div>
+            <a class="plan" href="22-hr-store.html" style="text-decoration:none;color:inherit">
+              <b>Kehadiran di store &amp; DC</b>
+              <span>punch dari kiosk, roster hari ini, ajukan koreksi/cuti/lembur</span>
+              <span class="pill" data-tone="neutral">Site yang bekerja</span></a>
+            <a class="plan" href="23-hr-ho.html" style="text-decoration:none;color:inherit">
+              <b>Persetujuan &amp; tutup bulan</b>
+              <span>memutus usulan site, menutup periode per tempat</span>
+              <span class="pill" data-tone="accent">HO yang memutuskan</span></a>
+            <p class="cap">Layar akses ini menjawab <b>siapa boleh apa</b>; dua layar di atas menjawab
+            <b>siapa hadir kapan</b>. Keduanya sengaja dipisah: mencabut akses seseorang dan menandai dia tidak masuk
+            adalah dua kejadian berbeda yang kebetulan menyangkut orang yang sama.</p>
+          </section>
+        </div>
+
+        <div>
+          <section class="card" style="margin-bottom:12px">
+            <div class="ch"><h2>Kebijakan per site</h2><span class="meta">publish</span></div>
+            <div id="origins"></div>
+            <p class="cap">Menerbitkan bukan memberi izin sekali jalan. Setelah terbit, site menjalankan kebijakan itu
+            sendiri — termasuk saat sambungan ke cloud putus, selama TTL-nya belum habis.</p>
+          </section>
+
+          <section class="card">
+            <div class="ch"><h2>Alat RFID</h2><span class="meta">terikat ke pool</span></div>
+            <div id="devices"></div>
+            <p class="cap">Sebuah alat hanya boleh membaca pool yang tertulis padanya. Alat yang hilang dirotasi kuncinya,
+            bukan dihapus: bacaan yang sudah terkirim tetap harus bisa dijelaskan.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="dlg" id="dlg" data-open="false">
+  <div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="d-t">
+    <div class="dlg-head"><h2 id="d-t">—</h2><p id="d-p"></p></div>
+    <div class="dlg-body" id="d-body"></div>
+    <div class="dlg-foot">
+      <button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="d-no">Batal</button>
+      <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="d-yes">Lanjut</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Bentuk dari src/cloud/application/mod.rs:
+   UpsertEdgeAssignmentRequest · SetEdgeAssignmentActiveRequest ·
+   RegisterRfidDeviceRequest · Role{CASHIER,SUPERVISOR,ADMIN} */
+
+var USERS = [
+  {id:"u-1", name:"Budi Santoso", login:"budi.s", active:true, assignments:[
+    {origin:"store-03", role:"CASHIER", ttl:28800, active:true}]},
+  {id:"u-2", name:"Sari Mulyani", login:"sari.m", active:true, assignments:[
+    {origin:"store-03", role:"SUPERVISOR", ttl:43200, active:true},
+    {origin:"store-07", role:"SUPERVISOR", ttl:43200, active:true}]},
+  {id:"u-3", name:"Dedi Firmansyah", login:"dedi.f", active:true, assignments:[
+    {origin:"dc-01", role:"ADMIN", ttl:86400, active:true}]},
+  {id:"u-4", name:"Rina Kartika", login:"rina.k", active:true, assignments:[
+    {origin:"store-07", role:"CASHIER", ttl:28800, active:true}]},
+  {id:"u-5", name:"Agus Prakoso", login:"agus.p", active:false, assignments:[
+    {origin:"store-03", role:"CASHIER", ttl:28800, active:false}]},
+];
+
+var ORIGINS = [
+  {id:"dc-01", label:"DC Cikarang", role:"DC", generation:7, published:"31 Agu 08:40", dirty:false, people:12},
+  {id:"store-03", label:"Store Kelapa Gading", role:"STORE", generation:5, published:"30 Agu 17:12", dirty:true, people:6},
+  {id:"store-07", label:"Store Bintaro", role:"STORE", generation:5, published:"30 Agu 17:12", dirty:false, people:4},
+];
+
+var DEVICES = [
+  {id:"RD-0114", origin:"dc-01", label:"Gate masuk", pools:["dc.staging","dc.warehouse"], ttl:3600, active:true},
+  {id:"RD-0115", origin:"dc-01", label:"Meja packing", pools:["dc.outbound.packing"], ttl:3600, active:true},
+  {id:"RD-0207", origin:"store-03", label:"Handheld lantai", pools:["store-03.floor"], ttl:1800, active:true},
+  {id:"RD-0208", origin:"store-03", label:"Handheld gudang", pools:["store-03.warehouse"], ttl:1800, active:false},
+];
+
+var ROLE_TONE = {CASHIER:"neutral", SUPERVISOR:"accent", ADMIN:"orange"};
+var filter = "";
+
+function ttlWord(s){
+  if (s % 86400 === 0) return (s / 86400) + " hari";
+  if (s % 3600 === 0) return (s / 3600) + " jam";
+  return Math.round(s / 60) + " menit";
+}
+
+function render(){
+  var aktif = USERS.filter(function(u){ return u.active; });
+  var penugasan = USERS.reduce(function(a, u){ return a + u.assignments.filter(function(x){ return x.active; }).length; }, 0);
+  var belum = ORIGINS.filter(function(o){ return o.dirty; }).length;
+
+  document.getElementById("sum").innerHTML =
+    '<div class="card stat"><span>Orang aktif</span><b>' + aktif.length + '</b><small>dari ' + USERS.length + ' terdaftar</small></div>' +
+    '<div class="card stat"><span>Penugasan aktif</span><b>' + penugasan + '</b><small>di ' + ORIGINS.length + ' site</small></div>' +
+    '<div class="card stat"><span>Site perlu terbit ulang</span><b' + (belum ? ' style="color:var(--orange)"' : '') + '>' + belum + '</b><small>kebijakan berubah</small></div>' +
+    '<div class="card stat"><span>Alat RFID aktif</span><b>' + DEVICES.filter(function(d){ return d.active; }).length + '</b><small>dari ' + DEVICES.length + ' terdaftar</small></div>';
+
+  var list = USERS.filter(function(u){
+    return !filter || u.assignments.some(function(a){ return a.role === filter; });
+  });
+  document.getElementById("users").innerHTML = list.map(function(u){
+    return '<div class="row" data-off="' + (!u.active) + '">' +
+      '<span class="who"><b>' + u.name + '</b><span>' + u.login + '</span></span>' +
+      '<span class="sites">' + u.assignments.map(function(a){
+        return '<span class="pill" data-tone="' + ROLE_TONE[a.role] + '">' + a.origin + ' · ' + a.role.toLowerCase() + '</span>';
+      }).join("") + '</span>' +
+      '<span class="ttl">' + ttlWord(u.assignments[0].ttl) + '<span>batas luring</span></span>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-u="' + u.id + '">' + (u.active ? "Nonaktifkan" : "Aktifkan") + '</button>' +
+    '</div>';
+  }).join("") || '<div class="empty"><b>Tidak ada</b>Tidak ada orang dengan peran itu.</div>';
+
+  document.getElementById("origins").innerHTML = ORIGINS.map(function(o){
+    return '<div class="orig">' +
+      '<div class="oh"><b>' + o.id + '</b><span class="chip">' + o.role.toLowerCase() + '</span>' +
+        (o.dirty ? '<span class="pill" data-tone="orange">Perlu terbit ulang</span>' : '<span class="pill" data-tone="green">Terkini</span>') + '</div>' +
+      '<div class="ob"><span>' + o.label + '</span><span>·</span><span>' + o.people + ' orang</span>' +
+        '<span>·</span><span class="gen">generasi ' + o.generation + '</span>' +
+        '<button type="button" class="btn ' + (o.dirty ? "btn-primary" : "btn-secondary") + ' btn-sm" style="margin-left:auto" data-pub="' + o.id + '">Terbitkan</button></div>' +
+      '<p class="hint" style="margin:6px 0 0">Terbit terakhir ' + o.published + '</p>' +
+    '</div>';
+  }).join("");
+
+  document.getElementById("devices").innerHTML = DEVICES.map(function(d){
+    return '<div class="row" data-off="' + (!d.active) + '">' +
+      '<span class="who"><b>' + d.label + '</b><span>' + d.id + ' · ' + d.origin + '</span></span>' +
+      '<span class="sites">' + d.pools.map(function(p){ return '<span class="chip">' + p + '</span>'; }).join("") + '</span>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-rot="' + d.id + '">Rotasi kunci</button>' +
+    '</div>';
+  }).join("");
+
+  document.querySelectorAll("[data-u]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var u = USERS.find(function(x){ return x.id === b.dataset.u; });
+      u.active = !u.active;
+      u.assignments.forEach(function(a){ a.active = u.active; });
+      ORIGINS.forEach(function(o){
+        if (u.assignments.some(function(a){ return a.origin === o.id; })) o.dirty = true;
+      });
+      render();
+    });
+  });
+  document.querySelectorAll("[data-pub]").forEach(function(b){
+    b.addEventListener("click", function(){ publish(b.dataset.pub); });
+  });
+  document.querySelectorAll("[data-rot]").forEach(function(b){
+    b.addEventListener("click", function(){ rotate(b.dataset.rot); });
+  });
+}
+
+var dlg = document.getElementById("dlg");
+function ask(title, sub, body, okLabel, onOk){
+  document.getElementById("d-t").textContent = title;
+  document.getElementById("d-p").textContent = sub;
+  document.getElementById("d-body").innerHTML = body;
+  var yes = document.getElementById("d-yes");
+  yes.textContent = okLabel;
+  yes.onclick = function(){ dlg.dataset.open = "false"; onOk(); };
+  dlg.dataset.open = "true";
+}
+document.getElementById("d-no").addEventListener("click", function(){ dlg.dataset.open = "false"; });
+dlg.addEventListener("click", function(e){ if (e.target === dlg) dlg.dataset.open = "false"; });
+
+function publish(id){
+  var o = ORIGINS.find(function(x){ return x.id === id; });
+  ask("Terbitkan ke " + o.id, o.label,
+    '<div class="band" data-tone="neutral"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+    '<span>Generasi <b class="gen">' + o.generation + ' → ' + (o.generation + 1) + '</b>. ' + o.people + ' orang dan alat di site ini akan berjalan dengan kebijakan baru.</span></div>' +
+    '<p style="margin:0;font-size:13px;color:var(--ink-2)">Site menyimpan kebijakan ini dan tetap bekerja saat sambungan putus. ' +
+    'Perubahan berikutnya baru terasa di sana setelah diterbitkan lagi.</p>',
+    "Terbitkan", function(){ o.generation += 1; o.dirty = false; o.published = "1 Sep 09:20"; render(); });
+}
+
+function rotate(id){
+  var d = DEVICES.find(function(x){ return x.id === id; });
+  ask("Rotasi kunci " + d.id, d.label,
+    '<p style="margin:0;font-size:13.5px;color:var(--ink-2)">Kunci lama berhenti berlaku saat kunci baru dipasang di alat. ' +
+    'Bacaan yang sudah terkirim tidak tersentuh — alat dirotasi, bukan dihapus, supaya riwayat bacaannya tetap bisa dijelaskan.</p>' +
+    '<div class="willmove">' +
+    'POST /auth/rfid-devices/' + d.id + '/rotate</div>',
+    "Rotasi", function(){});
+}
+
+document.getElementById("adduser").addEventListener("click", function(){
+  ask("Tambah orang", "Identitas dibuat di cloud, penugasan menyusul",
+    '<div class="f"><label for="a-name">Nama</label><input class="inp" id="a-name" placeholder="Nama lengkap"></div>' +
+    '<div class="f"><label for="a-login">Login</label><input class="inp" id="a-login" placeholder="nama.x"></div>' +
+    '<div class="f"><label for="a-role">Peran di site pertama</label><select class="inp" id="a-role"><option>CASHIER</option><option>SUPERVISOR</option><option>ADMIN</option></select></div>' +
+    '<div class="f"><label for="a-site">Site</label><select class="inp" id="a-site">' +
+      ORIGINS.map(function(o){ return '<option>' + o.id + '</option>'; }).join("") + '</select></div>' +
+    '<div class="f"><label for="a-pin">PIN edge</label><input class="inp" id="a-pin" type="password" placeholder="••••••"></div>' +
+    '<p class="hint" style="margin:0">PIN langsung di-hash dan tidak pernah disimpan atau dikirim ke edge dalam bentuk aslinya. ' +
+    'Tidak ada layar mana pun yang bisa menampilkannya kembali — yang bisa dilakukan hanya menetapkan yang baru.</p>',
+    "Tambahkan", function(){});
+});
+
+document.querySelectorAll("[data-r]").forEach(function(b){
+  b.addEventListener("click", function(){
+    filter = b.dataset.r;
+    document.querySelectorAll("[data-r]").forEach(function(o){ o.setAttribute("aria-pressed", String(o === b)); });
+    render();
+  });
+});
+document.getElementById("theme").addEventListener("click", function(){ document.documentElement.classList.toggle("dark"); });
+document.addEventListener("keydown", function(e){ if (e.key === "Escape") dlg.dataset.open = "false"; });
+render();
+</script>
+</body>
+</html>

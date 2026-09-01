@@ -1,0 +1,190 @@
+*
+*::after
+*::before
+.achip
+.achip button
+.achip button:hover
+.applied[hidden]
+.av
+.av.sm
+.band
+.band .push
+.band b
+.band svg
+.band ul
+.band[data-tone="neutral"]
+.band[data-tone="neutral"] svg
+.band[data-tone="orange"]
+.band[data-tone="orange"] svg
+.band[data-tone="red"]
+.band[data-tone="red"] svg
+.btn
+.btn-block
+.btn-go
+.btn-go:hover
+.btn-lg
+.btn-primary
+.btn-primary:hover
+.btn-quiet
+.btn-quiet:hover
+.btn-secondary
+.btn-secondary:hover
+.btn-sm
+.btn:active
+.btn:disabled
+.cap
+.card
+.cb
+.ch
+.ch .meta
+.ch h2
+.chip
+.chip[data-src="EDGE"]
+.chip[data-tone="accent"]
+.chip[data-tone="orange"]
+.content
+.dark
+.den
+.dim
+.empty
+.empty b
+.f
+.f > label
+.f > label .opt-tag
+.fchip
+.fchip .n
+.fchip i
+.fchip:hover
+.fchip[aria-pressed="true"]
+.fdrop
+.fdrop > summary
+.fdrop > summary svg
+.fdrop > summary::-webkit-details-marker
+.fdrop > summary:hover
+.fdrop > summary[data-on="true"]
+.fdrop[open] > summary
+.fpanel
+.fpanel-right
+.grp-row td
+.hint
+.icon-btn
+.icon-btn:hover
+.icon-btn[hidden]
+.inp
+.inp-num
+.inp::placeholder
+.inp:focus
+.locked
+.main
+.mono
+.nil
+.opt
+.opt .n
+.opt input
+.opt input:checked
+.opt input:checked::after
+.opt input[type=radio]
+.opt input[type=radio]:checked::after
+.opt:has(input:checked)
+.opt:hover
+.pager
+.pager > button
+.pager > button:disabled
+.pager > button:hover
+.pager b
+.pill
+.pill::before
+.pill[data-tone="accent"]
+.pill[data-tone="green"]
+.pill[data-tone="neutral"]
+.pill[data-tone="neutral"]::before
+.pill[data-tone="orange"]
+.pill[data-tone="red"]
+.scrim
+.scrim[data-open="true"]
+.search
+.search input
+.search input::placeholder
+.search svg
+.search:focus-within
+.sec
+.sec h3
+.sheet
+.sheet-body
+.sheet-foot
+.sheet-head
+.sheet-head .sub
+.sheet-head h2
+.sheet-wide
+.sheet:not([data-open="true"])
+.sheet[data-open="true"]
+.side
+.side .badge
+.side .grp
+.side .n
+.side .n[data-tone="red"]
+.side .ws
+.side .ws .m
+.side .ws b
+.side .ws svg
+.side .ws:hover
+.side a
+.side a svg
+.side a:hover
+.side a[aria-current="page"]
+.side a[aria-current="page"] svg
+.side button.nav
+.side button.nav svg
+.side button.nav:hover
+.side button.nav[aria-current="true"]
+.side button.nav[aria-current="true"] svg
+.side-foot
+.side-foot .node
+.stamp
+.stamp i
+.sum-row td
+.sum-row:hover td
+.theme-switching *
+.theme-switching *::after
+.theme-switching *::before
+.tlab
+.toolbar
+.top
+.top .right
+.top .sub
+.top h1
+.trow
+.trow + .trow
+.tsep
+.tw
+.window
+::selection
+:focus-visible
+:root
+a
+body
+button:not(:disabled)
+h1
+h2
+h3
+html
+input:focus-visible
+kbd
+label:has(input)
+p
+select.inp
+select:focus-visible
+summary
+table
+tbody td
+tbody tr
+tbody tr:hover td
+tbody tr:last-child td
+tbody tr[aria-selected="true"] td
+td.n
+td.n.neg
+textarea.inp
+textarea:focus-visible
+th.n
+thead th
+tr[hidden]

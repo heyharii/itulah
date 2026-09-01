@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Itulah · 5 Opsi Desain Supplier Catalog</title>
+  <style>
+    :root {
+      --lab-bg: #0d1017;
+      --lab-panel: #151a24;
+      --lab-panel-2: #1b2130;
+      --lab-line: #2a3243;
+      --lab-text: #f4f6fb;
+      --lab-muted: #9da8ba;
+      --lab-accent: #8ea8ff;
+      --lab-radius: 18px;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--lab-text);
+      background: var(--lab-bg);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--lab-bg); }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    table { border-collapse: collapse; width: 100%; }
+    a { color: inherit; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+
+    .lab-topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      min-height: 72px;
+      padding: 12px max(22px, calc((100vw - 1500px) / 2));
+      border-bottom: 1px solid rgba(255,255,255,.09);
+      background: rgba(13,16,23,.9);
+      backdrop-filter: blur(18px);
+    }
+    .lab-brand { display: flex; align-items: center; gap: 13px; min-width: 210px; }
+    .lab-mark {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border: 1px solid #56627a;
+      border-radius: 11px;
+      background: linear-gradient(145deg, #2a3550, #131824);
+      font-weight: 850;
+      letter-spacing: -.06em;
+    }
+    .lab-brand strong { display: block; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; }
+    .lab-brand span { color: var(--lab-muted); font-size: 11px; }
+    .option-switcher { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+    .option-switcher::-webkit-scrollbar { display: none; }
+    .option-switcher button {
+      white-space: nowrap;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 8px 11px;
+      color: var(--lab-muted);
+      background: transparent;
+      font-size: 12px;
+      font-weight: 720;
+    }
+    .option-switcher button:hover { color: #fff; background: #1b2130; }
+    .option-switcher button.active { color: #0d1017; background: #f4f6fb; }
+
+    .lab-main { width: min(1500px, calc(100% - 36px)); margin: 0 auto; padding: 56px 0 72px; }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(360px, .75fr);
+      gap: 50px;
+      align-items: end;
+      padding: 36px 0 50px;
+    }
+    .eyebrow { margin: 0 0 15px; color: #9db1ff; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .hero h1 { max-width: 900px; margin: 0; font-size: clamp(42px, 6.2vw, 88px); line-height: .96; letter-spacing: -.055em; }
+    .hero h1 em { color: #a7baff; font-family: Georgia, serif; font-weight: 400; }
+    .hero-copy { padding-bottom: 6px; }
+    .hero-copy p { margin: 0 0 20px; color: #b8c1d0; font-size: 15px; line-height: 1.7; }
+    .research-note { padding: 15px 16px; border: 1px solid var(--lab-line); border-radius: 12px; background: #121722; color: #aeb8c9; font-size: 12px; line-height: 1.6; }
+    .research-note strong { color: #f6f8fc; }
+
+    .guardrails { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; margin: 0 0 50px; }
+    .guardrail { min-height: 92px; padding: 15px; border: 1px solid var(--lab-line); border-radius: 13px; background: var(--lab-panel); }
+    .guardrail b { display: block; margin-bottom: 5px; font-size: 20px; letter-spacing: -.04em; }
+    .guardrail span { color: var(--lab-muted); font-size: 11px; line-height: 1.4; }
+
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin: 0 0 17px; }
+    .section-head h2 { margin: 0; font-size: 25px; letter-spacing: -.03em; }
+    .section-head p { max-width: 650px; margin: 0; color: var(--lab-muted); font-size: 13px; line-height: 1.6; }
+    .comparison-shell, .contract-shell { overflow: hidden; margin-bottom: 54px; border: 1px solid var(--lab-line); border-radius: var(--lab-radius); background: var(--lab-panel); }
+    .comparison-scroll, .contract-scroll { overflow-x: auto; }
+    .comparison-table, .contract-table { min-width: 1040px; }
+    .comparison-table th, .comparison-table td, .contract-table th, .contract-table td { padding: 15px 16px; border-bottom: 1px solid var(--lab-line); vertical-align: top; text-align: left; }
+    .comparison-table th, .contract-table th { color: #8895aa; background: #111620; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+    .comparison-table td, .contract-table td { color: #c6cedb; font-size: 12px; line-height: 1.5; }
+    .comparison-table tbody tr:last-child td, .contract-table tbody tr:last-child td { border-bottom: 0; }
+    .comparison-table tbody tr:hover td, .contract-table tbody tr:hover td { background: #181e2a; }
+    .option-name { color: #fff; font-size: 13px; font-weight: 780; }
+    .option-number { display: inline-grid; place-items: center; width: 25px; height: 25px; margin-right: 8px; border: 1px solid #47526a; border-radius: 7px; color: #acbeff; }
+    .lab-pill { display: inline-flex; align-items: center; border: 1px solid #39445a; border-radius: 999px; padding: 3px 7px; color: #a9b4c5; font-size: 10px; font-weight: 750; }
+    .lab-pill.recommended { border-color: #526da5; color: #c8d4ff; background: #1f2b45; }
+    .open-option {
+      border: 1px solid #46516a;
+      border-radius: 8px;
+      padding: 7px 9px;
+      color: #f5f7fb;
+      background: #222a39;
+      font-size: 11px;
+      font-weight: 720;
+    }
+    .open-option:hover { border-color: #7890c7; }
+
+    .design-stage { scroll-margin-top: 95px; }
+    .concept { display: none; }
+    .concept.active { display: block; animation: reveal .28s ease-out; }
+    @keyframes reveal { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .concept-intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .62fr); gap: 36px; align-items: end; margin: 0 0 18px; }
+    .concept-index { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 10px; color: #91a9ff; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .concept-intro h2 { margin: 0 0 5px; font-size: clamp(28px, 4vw, 44px); letter-spacing: -.045em; }
+    .concept-intro p { margin: 0; color: var(--lab-muted); line-height: 1.6; }
+    .concept-facts { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    .concept-fact { padding: 8px 10px; border: 1px solid var(--lab-line); border-radius: 9px; color: #b1bbca; background: #121722; font-size: 11px; }
+    .mockup { overflow: hidden; min-height: 730px; margin-bottom: 56px; border: 1px solid #333c4f; border-radius: 19px; box-shadow: 0 34px 100px rgba(0,0,0,.32); }
+    .table-scroll { overflow-x: auto; }
+    .demo-btn { border: 0; }
+    [hidden] { display: none !important; }
+
+    /* Option 1 — Operations Console */
+    .ops-app { --ink: #18212f; --muted: #677386; --line: #dbe1e8; --soft: #f5f7fa; --blue: #1456d9; --blue-soft: #edf3ff; --ok: #147a45; --warn: #a75b00; color: var(--ink); background: #eef1f5; font: 13px/1.45 Inter, ui-sans-serif, sans-serif; }
+    .ops-top { display: flex; align-items: center; justify-content: space-between; height: 58px; padding: 0 22px; border-bottom: 1px solid var(--line); background: #fff; }
+    .ops-top strong { font-size: 12px; letter-spacing: .14em; }
+    .ops-node { margin-left: 10px; padding: 4px 7px; border-radius: 4px; color: var(--muted); background: var(--soft); font-size: 10px; }
+    .ops-nav { display: flex; align-self: stretch; gap: 2px; }
+    .ops-nav span { display: flex; align-items: center; padding: 0 11px; border-bottom: 3px solid transparent; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .ops-nav .active { border-color: var(--blue); color: var(--blue); }
+    .ops-body { padding: 22px; }
+    .ops-page-head, .ops-toolbar, .ops-drawer-head, .ops-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .ops-page-head { align-items: flex-start; margin-bottom: 16px; }
+    .ops-page-head h3 { margin: 0 0 3px; font-size: 22px; }
+    .ops-page-head p { margin: 0; color: var(--muted); }
+    .ops-button { padding: 8px 11px; border: 1px solid var(--blue); border-radius: 5px; color: #fff; background: var(--blue); font-size: 11px; font-weight: 720; }
+    .ops-button.secondary { border-color: var(--line); color: var(--ink); background: #fff; }
+    .ops-metrics { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 12px; border: 1px solid var(--line); background: #fff; }
+    .ops-metric { padding: 11px 13px; border-right: 1px solid var(--line); }
+    .ops-metric:last-child { border-right: 0; }
+    .ops-metric span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+    .ops-metric b { display: block; margin-top: 2px; font-size: 18px; }
+    .ops-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(330px, .72fr); gap: 12px; }
+    .ops-panel, .ops-drawer { border: 1px solid var(--line); background: #fff; }
+    .ops-toolbar { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+    .ops-toolbar input { width: 215px; min-height: 34px; padding: 7px 9px; border: 1px solid #bdc6d2; border-radius: 4px; }
+    .filter-group { display: flex; gap: 4px; }
+    .ops-filter { padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); background: #fff; font-size: 10px; font-weight: 700; }
+    .ops-filter.active { border-color: #b8caf2; color: var(--blue); background: var(--blue-soft); }
+    .ops-table { min-width: 690px; }
+    .ops-table th, .ops-table td { padding: 10px 11px; border-bottom: 1px solid #e7ebf0; text-align: left; vertical-align: middle; }
+    .ops-table th { color: var(--muted); background: #fafbfc; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+    .ops-table tr.selected td { background: var(--blue-soft); }
+    .ops-table tbody tr:hover td { background: #f3f6fc; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+    .ops-status, .calm-status, .market-status { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 7px; color: #526074; background: #eef1f5; font-size: 9px; font-weight: 800; }
+    .ops-status.active, .calm-status.active, .market-status.active { color: var(--ok, #147a45); background: #eaf7ef; }
+    .ops-drawer { padding: 16px; }
+    .ops-drawer-head { align-items: flex-start; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+    .ops-drawer h4 { margin: 0 0 4px; font-size: 17px; }
+    .ops-drawer p { margin: 0; color: var(--muted); font-size: 11px; }
+    .ops-meta { align-items: flex-start; padding: 13px 0; border-bottom: 1px solid var(--line); }
+    .ops-meta div { flex: 1; }
+    .ops-meta span { display: block; color: var(--muted); font-size: 9px; text-transform: uppercase; }
+    .ops-meta b { display: block; margin-top: 3px; font-size: 11px; }
+    .ops-section-title { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 8px; }
+    .ops-section-title b { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .ops-item-table { min-width: 430px; }
+    .ops-item-table th, .ops-item-table td { padding: 8px 7px; border-bottom: 1px solid #e8ebf0; text-align: left; font-size: 10px; }
+    .ops-item-table th { color: var(--muted); background: #fafbfc; font-size: 8px; text-transform: uppercase; }
+    .money { white-space: nowrap; text-align: right !important; font-variant-numeric: tabular-nums; font-weight: 720; }
+    .ops-callout { margin-top: 14px; padding: 10px; border-left: 3px solid var(--blue); color: #3f4f69; background: var(--blue-soft); font-size: 10px; }
+
+    /* Option 2 — Editorial Ledger */
+    .ledger-app { color: #27231d; background: #eee8da; font: 13px/1.45 Georgia, "Times New Roman", serif; }
+    .ledger-masthead { display: grid; grid-template-columns: 180px 1fr 180px; align-items: center; padding: 17px 24px; border-bottom: 3px double #403a30; background: #f8f3e8; }
+    .ledger-masthead .edition, .ledger-masthead .date { font: 10px/1.4 ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
+    .ledger-masthead h3 { margin: 0; text-align: center; font-size: 25px; letter-spacing: -.02em; }
+    .ledger-masthead .date { text-align: right; }
+    .ledger-body { display: grid; grid-template-columns: 200px minmax(0,1fr); min-height: 670px; }
+    .ledger-rail { padding: 24px 18px; border-right: 1px solid #bcb3a1; background: #e8e0cf; }
+    .ledger-rail small { display: block; margin-bottom: 17px; font: 9px ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
+    .ledger-rail a { display: block; padding: 9px 0; border-bottom: 1px solid #c8beab; color: #655f54; text-decoration: none; }
+    .ledger-rail a.active { color: #8c291f; font-weight: 700; }
+    .ledger-quote { margin-top: 40px; padding-top: 14px; border-top: 3px double #aca18d; color: #6d6558; font-size: 11px; font-style: italic; }
+    .ledger-content { padding: 27px 30px 36px; background-color: #f8f3e8; background-image: linear-gradient(rgba(73,62,44,.035) 1px, transparent 1px); background-size: 100% 25px; }
+    .ledger-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 19px; padding-bottom: 13px; border-bottom: 1px solid #9f9583; }
+    .ledger-heading h2 { margin: 0; font-size: 35px; font-weight: 500; letter-spacing: -.04em; }
+    .ledger-heading p { max-width: 470px; margin: 0; color: #6c6458; font-size: 11px; text-align: right; }
+    .ledger-tools { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .ledger-tools label { font: 9px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+    .ledger-tools input { display: block; width: 240px; margin-top: 5px; padding: 7px 0; border: 0; border-bottom: 1px solid #736b5d; background: transparent; }
+    .ledger-button { padding: 8px 12px; border: 1px solid #39342c; color: #f8f3e8; background: #39342c; font: 10px ui-monospace, monospace; letter-spacing: .04em; text-transform: uppercase; }
+    .ledger-table { min-width: 780px; border-top: 2px solid #332f28; border-bottom: 2px solid #332f28; }
+    .ledger-table th, .ledger-table td { padding: 10px 9px; border-bottom: 1px solid #bdb3a1; text-align: left; vertical-align: top; }
+    .ledger-table th { font: 9px ui-monospace, monospace; letter-spacing: .07em; text-transform: uppercase; }
+    .ledger-table tbody tr:hover td { background: rgba(166,146,112,.12); }
+    .ledger-table .selected td { background: #e8dfcc; }
+    .ledger-state { color: #6d665b; font: 9px ui-monospace, monospace; letter-spacing: .05em; text-transform: uppercase; }
+    .ledger-state.active { color: #316240; }
+    .ledger-expansion td { padding: 0; background: #eee6d5 !important; }
+    .ledger-detail { display: grid; grid-template-columns: 220px minmax(0,1fr); gap: 22px; padding: 17px 18px 20px; border-left: 4px solid #8c291f; }
+    .ledger-detail h4 { margin: 0 0 6px; font-size: 18px; }
+    .ledger-detail p { margin: 0 0 12px; color: #696154; font-size: 11px; }
+    .ledger-detail dl { margin: 0; }
+    .ledger-detail dt { margin-top: 7px; font: 8px ui-monospace, monospace; text-transform: uppercase; }
+    .ledger-detail dd { margin: 2px 0 0; font-size: 11px; }
+    .ledger-items { min-width: 520px; }
+    .ledger-items th, .ledger-items td { padding: 7px 6px; border-bottom: 1px dotted #aa9f8d; text-align: left; font-size: 10px; }
+    .ledger-items th { font: 8px ui-monospace, monospace; text-transform: uppercase; }
+    .ledger-footnote { margin-top: 11px; color: #756d60; font-size: 10px; font-style: italic; }
+
+    /* Option 3 — Midnight Control Room */
+    .control-app { --cyan: #5ce1e6; --lime: #a8f06a; --amber: #ffbf57; color: #dce5ee; background: #080d12; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .control-top { display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 18px; border-bottom: 1px solid #22303b; background: #0b1219; }
+    .control-brand { display: flex; align-items: center; gap: 10px; color: var(--cyan); font-weight: 800; letter-spacing: .09em; }
+    .control-signal { width: 8px; height: 8px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 12px var(--lime); }
+    .control-top-meta { display: flex; gap: 20px; color: #718393; font-size: 9px; }
+    .control-shell { display: grid; grid-template-columns: 62px minmax(0,1fr); min-height: 674px; }
+    .control-rail { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 15px 0; border-right: 1px solid #22303b; background: #0b1219; }
+    .control-icon { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #253746; border-radius: 7px; color: #718493; background: #0d171f; font-size: 10px; }
+    .control-icon.active { border-color: #357b80; color: var(--cyan); background: #0f2529; }
+    .control-content { padding: 19px; }
+    .control-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 13px; }
+    .control-title h3 { margin: 0 0 4px; color: #f1f6fa; font-size: 18px; letter-spacing: -.03em; }
+    .control-title p { margin: 0; color: #6f8291; font-size: 10px; }
+    .control-action { padding: 8px 11px; border: 1px solid var(--cyan); border-radius: 4px; color: #041316; background: var(--cyan); font-size: 9px; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; }
+    .control-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 7px; margin-bottom: 10px; }
+    .control-stat { padding: 10px; border: 1px solid #21303a; background: #0c141b; }
+    .control-stat span { display: block; color: #667a89; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .control-stat b { display: block; margin-top: 4px; color: #edf5fa; font-size: 16px; }
+    .control-stat b.ok { color: var(--lime); }
+    .control-grid { display: grid; grid-template-columns: minmax(0,1.45fr) minmax(300px,.65fr); gap: 9px; }
+    .control-panel { border: 1px solid #21303a; background: #0b1218; }
+    .control-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 8px 10px; border-bottom: 1px solid #21303a; color: #8496a4; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .control-filter { display: flex; gap: 4px; }
+    .control-filter button { padding: 4px 6px; border: 1px solid #263946; border-radius: 3px; color: #7f919e; background: #0d171e; font-size: 8px; }
+    .control-filter button.active { border-color: #397d83; color: var(--cyan); }
+    .control-table { min-width: 700px; }
+    .control-table th, .control-table td { padding: 9px 9px; border-bottom: 1px solid #192730; text-align: left; vertical-align: middle; }
+    .control-table th { color: #526672; background: #0a1117; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .control-table tbody tr:hover td { background: #0f1c24; }
+    .control-table .selected td { background: #0d2528; }
+    .control-code { color: var(--cyan); }
+    .control-state { color: #758894; font-size: 8px; }
+    .control-state.active { color: var(--lime); }
+    .control-inspector { padding: 13px; }
+    .control-inspector .label { margin-bottom: 5px; color: #59707d; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .control-inspector h4 { margin: 0; color: #fff; font-size: 15px; }
+    .control-inspector .id { margin: 4px 0 13px; color: var(--cyan); font-size: 9px; }
+    .control-kv { display: grid; grid-template-columns: 1fr auto; gap: 7px 12px; padding: 11px 0; border-top: 1px solid #21303a; border-bottom: 1px solid #21303a; }
+    .control-kv span:nth-child(odd) { color: #667b88; }
+    .control-kv span:nth-child(even) { color: #d7e1e8; text-align: right; }
+    .control-item-list { margin-top: 11px; }
+    .control-item { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid #1a2932; }
+    .control-item b { color: #dfe8ed; font-size: 9px; }
+    .control-item span { color: #6d8290; font-size: 8px; }
+    .control-item .price { grid-row: span 2; align-self: center; color: #f1f5f8; font-size: 9px; }
+    .control-warning { margin-top: 12px; padding: 9px; border: 1px solid #5c4524; color: #e1ad56; background: #1b160e; font-size: 8px; }
+
+    /* Option 4 — Nordic Workspace */
+    .calm-app { --ink: #20312f; --muted: #70817e; --line: #dce5e2; --mint: #0b806f; --mint-soft: #e7f4f1; --ok: #26745e; color: var(--ink); background: #f4f7f6; font: 13px/1.5 Inter, ui-sans-serif, sans-serif; }
+    .calm-top { display: flex; align-items: center; justify-content: space-between; padding: 20px 28px; border-bottom: 1px solid var(--line); background: #fbfdfc; }
+    .calm-logo { display: flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: -.02em; }
+    .calm-logo i { width: 19px; height: 19px; border: 5px solid var(--mint); border-radius: 50% 50% 50% 8px; transform: rotate(-18deg); }
+    .calm-nav { display: flex; gap: 24px; color: var(--muted); font-size: 11px; }
+    .calm-nav .active { color: var(--ink); font-weight: 750; }
+    .calm-user { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 50%; color: #fff; background: #274c46; font-size: 10px; }
+    .calm-body { width: min(1180px, calc(100% - 50px)); margin: auto; padding: 38px 0 45px; }
+    .calm-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
+    .calm-heading .overline { display: block; margin-bottom: 7px; color: var(--mint); font-size: 9px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    .calm-heading h3 { margin: 0 0 5px; font-size: 31px; letter-spacing: -.045em; }
+    .calm-heading p { margin: 0; color: var(--muted); }
+    .calm-primary { padding: 10px 14px; border: 0; border-radius: 9px; color: #fff; background: var(--mint); font-size: 11px; font-weight: 750; box-shadow: 0 7px 18px rgba(11,128,111,.17); }
+    .calm-summary { display: flex; gap: 28px; margin-bottom: 17px; padding: 0 2px; }
+    .calm-summary div { display: flex; align-items: baseline; gap: 6px; }
+    .calm-summary b { font-size: 18px; }
+    .calm-summary span { color: var(--muted); font-size: 10px; }
+    .calm-card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: 0 12px 30px rgba(43,72,66,.055); }
+    .calm-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .calm-search { display: flex; align-items: center; gap: 7px; width: 290px; color: var(--muted); }
+    .calm-search input { width: 100%; padding: 7px 4px; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); background: transparent; }
+    .calm-filter { display: flex; gap: 5px; padding: 3px; border-radius: 8px; background: #f0f4f3; }
+    .calm-filter button { padding: 5px 9px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 9px; font-weight: 720; }
+    .calm-filter button.active { color: var(--ink); background: #fff; box-shadow: 0 1px 5px rgba(40,70,65,.1); }
+    .calm-table { min-width: 820px; }
+    .calm-table th, .calm-table td { padding: 15px 16px; border-bottom: 1px solid #e8eeec; text-align: left; vertical-align: middle; }
+    .calm-table th { color: #8a9996; background: #fbfdfc; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
+    .calm-table tbody tr:hover td { background: #f7fbfa; }
+    .calm-table .selected td { background: var(--mint-soft); }
+    .calm-name { font-weight: 750; }
+    .calm-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; }
+    .calm-detail { display: grid; grid-template-columns: 250px minmax(0,1fr); gap: 24px; margin-top: 16px; padding: 19px 20px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+    .calm-profile { padding-right: 22px; border-right: 1px solid var(--line); }
+    .calm-profile span { color: var(--mint); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .calm-profile h4 { margin: 5px 0 3px; font-size: 19px; }
+    .calm-profile p { margin: 0 0 14px; color: var(--muted); font-size: 10px; }
+    .calm-link { padding: 0; border: 0; color: var(--mint); background: none; font-size: 10px; font-weight: 750; }
+    .calm-items-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .calm-items-head h5 { margin: 0; font-size: 12px; }
+    .calm-item-table { min-width: 600px; }
+    .calm-item-table th, .calm-item-table td { padding: 9px 8px; border-bottom: 1px solid #edf1f0; text-align: left; font-size: 10px; }
+    .calm-item-table th { color: var(--muted); font-size: 8px; text-transform: uppercase; }
+
+    /* Option 5 — Marketplace Workbench */
+    .market-app { --ink: #242138; --muted: #746f89; --line: #e4dff0; --purple: #5b3fd0; --purple-soft: #f0edff; --coral: #e95d45; --sun: #f6c95c; --ok: #147a45; color: var(--ink); background: #f5f2fa; font: 13px/1.45 Inter, ui-sans-serif, sans-serif; }
+    .market-top { display: flex; align-items: center; justify-content: space-between; padding: 16px 22px; border-bottom: 1px solid var(--line); background: #fff; }
+    .market-brand { display: flex; align-items: center; gap: 9px; font-weight: 850; }
+    .market-brand i { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 9px; color: #fff; background: linear-gradient(145deg, var(--purple), #8c63ef); font-style: normal; }
+    .market-steps { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 9px; font-weight: 720; }
+    .market-step { display: flex; align-items: center; gap: 5px; }
+    .market-step b { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: #fff; background: #aaa3ba; font-size: 8px; }
+    .market-step.active { color: var(--purple); }
+    .market-step.active b { background: var(--purple); }
+    .market-user { padding: 7px 9px; border-radius: 999px; color: #514a68; background: #f3f0f8; font-size: 9px; }
+    .market-body { padding: 20px; }
+    .market-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
+    .market-heading h3 { margin: 0 0 3px; font-size: 24px; letter-spacing: -.035em; }
+    .market-heading p { margin: 0; color: var(--muted); font-size: 10px; }
+    .market-layout { display: grid; grid-template-columns: minmax(260px,.48fr) minmax(0,1.2fr) minmax(245px,.45fr); gap: 11px; align-items: start; }
+    .market-card { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #fff; box-shadow: 0 9px 24px rgba(52,39,94,.06); }
+    .market-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 13px; border-bottom: 1px solid var(--line); }
+    .market-card-head h4 { margin: 0; font-size: 12px; }
+    .market-card-head span { color: var(--muted); font-size: 9px; }
+    .market-supplier-table { min-width: 300px; }
+    .market-supplier-table td { padding: 12px; border-bottom: 1px solid #ece8f3; vertical-align: middle; }
+    .market-supplier-table tr:hover td { background: #faf8ff; }
+    .market-supplier-table .selected td { background: var(--purple-soft); }
+    .market-supplier-table b { display: block; font-size: 10px; }
+    .market-supplier-table small { color: var(--muted); font-size: 8px; }
+    .market-supplier-table .arrow { color: #9a91af; text-align: right; }
+    .market-catalog-tools { display: flex; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+    .market-catalog-tools input { flex: 1; min-width: 130px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; }
+    .market-filter { padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: #fff; font-size: 9px; }
+    .market-filter.active { border-color: #c3b8ef; color: var(--purple); background: var(--purple-soft); }
+    .market-item-table { min-width: 720px; }
+    .market-item-table th, .market-item-table td { padding: 10px 9px; border-bottom: 1px solid #ece8f3; text-align: left; vertical-align: middle; }
+    .market-item-table th { color: #8b849c; background: #fbfaff; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .market-item { display: flex; align-items: center; gap: 8px; min-width: 175px; }
+    .thumb { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 8px; color: #5d4e33; background: linear-gradient(145deg, #eadfc8, #cdb999); font-size: 8px; font-weight: 850; }
+    .thumb.blue { color: #385271; background: linear-gradient(145deg, #d9e9f1, #a8c5d6); }
+    .market-item b { display: block; font-size: 9px; }
+    .market-item small { color: var(--muted); font-size: 8px; }
+    .line-check { width: 15px; height: 15px; accent-color: var(--purple); }
+    .qty { width: 60px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; text-align: right; }
+    .promised { width: 112px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 8px; }
+    .market-summary { position: sticky; top: 12px; }
+    .market-form { padding: 13px; }
+    .market-field { display: block; margin-bottom: 10px; color: var(--muted); font-size: 8px; font-weight: 750; text-transform: uppercase; }
+    .market-field input, .market-field select, .market-field textarea { width: 100%; margin-top: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: #fff; font-size: 10px; text-transform: none; }
+    .market-field textarea { min-height: 54px; resize: vertical; }
+    .market-totals { margin: 13px 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .market-total-row { display: flex; justify-content: space-between; gap: 10px; margin: 5px 0; color: var(--muted); font-size: 9px; }
+    .market-total-row.grand { align-items: baseline; color: var(--ink); font-weight: 800; }
+    .market-total-row.grand b { font-size: 16px; }
+    .market-note { padding: 9px; border-radius: 8px; color: #675926; background: #fff6d9; font-size: 8px; line-height: 1.5; }
+    .market-issue { width: 100%; margin-top: 10px; padding: 10px; border: 0; border-radius: 8px; color: #fff; background: var(--purple); font-size: 10px; font-weight: 800; box-shadow: 0 7px 18px rgba(91,63,208,.2); }
+    .market-local { margin-top: 7px; color: var(--muted); font-size: 8px; text-align: center; }
+
+    .contract-section { margin-top: 8px; }
+    .method { display: inline-block; min-width: 43px; padding: 3px 6px; border: 1px solid #435069; border-radius: 5px; color: #b9c8ff; text-align: center; font: 9px ui-monospace, monospace; }
+    .endpoint { color: #eef2fa; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+    .lab-footer { display: flex; justify-content: space-between; gap: 24px; padding-top: 10px; color: #748094; font-size: 11px; }
+    .lab-footer strong { color: #c9d1dc; }
+
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: 22px;
+      z-index: 200;
+      max-width: min(520px, calc(100vw - 30px));
+      padding: 11px 14px;
+      border: 1px solid #56627a;
+      border-radius: 10px;
+      color: #fff;
+      background: #171d28;
+      box-shadow: 0 14px 42px rgba(0,0,0,.35);
+      font-size: 11px;
+      opacity: 0;
+      transform: translate(-50%, 10px);
+      pointer-events: none;
+      transition: .2s ease;
+    }
+    #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 1100px) {
+      .hero { grid-template-columns: 1fr; gap: 24px; }
+      .guardrails { grid-template-columns: repeat(3,1fr); }
+      .concept-intro { grid-template-columns: 1fr; gap: 14px; }
+      .concept-facts { justify-content: flex-start; }
+      .ops-layout, .control-grid { grid-template-columns: 1fr; }
+      .ledger-detail { grid-template-columns: 1fr; }
+      .market-layout { grid-template-columns: 260px minmax(600px,1fr); overflow-x: auto; }
+      .market-summary { position: static; grid-column: 1 / -1; }
+    }
+    @media (max-width: 760px) {
+      .lab-topbar { align-items: flex-start; flex-direction: column; gap: 9px; padding: 10px 14px; }
+      .option-switcher { width: 100%; }
+      .lab-main { width: min(100% - 22px, 1500px); padding-top: 28px; }
+      .hero { padding-top: 22px; }
+      .hero h1 { font-size: 43px; }
+      .guardrails { grid-template-columns: repeat(2,1fr); }
+      .section-head { align-items: flex-start; flex-direction: column; }
+      .mockup { min-height: 650px; border-radius: 12px; }
+      .ops-nav span:not(.active), .calm-nav { display: none; }
+      .ops-body, .control-content { padding: 13px; }
+      .ops-page-head, .calm-heading, .market-heading { align-items: flex-start; flex-direction: column; }
+      .ops-metrics, .control-stats { grid-template-columns: repeat(2,1fr); }
+      .ops-metric:nth-child(2) { border-right: 0; }
+      .ops-metric:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .ledger-masthead { grid-template-columns: 1fr; gap: 4px; text-align: center; }
+      .ledger-masthead .date { text-align: center; }
+      .ledger-body { grid-template-columns: 1fr; }
+      .ledger-rail { display: flex; gap: 14px; overflow-x: auto; padding: 9px 15px; border-right: 0; border-bottom: 1px solid #bcb3a1; }
+      .ledger-rail small, .ledger-quote { display: none; }
+      .ledger-rail a { white-space: nowrap; border: 0; }
+      .ledger-content { padding: 20px 14px; }
+      .ledger-heading { align-items: flex-start; flex-direction: column; }
+      .ledger-heading p { text-align: left; }
+      .control-shell { grid-template-columns: 1fr; }
+      .control-rail { display: none; }
+      .calm-body { width: calc(100% - 28px); padding-top: 24px; }
+      .calm-summary { flex-wrap: wrap; }
+      .calm-detail { grid-template-columns: 1fr; }
+      .calm-profile { padding-right: 0; padding-bottom: 14px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .market-steps { display: none; }
+      .market-layout { grid-template-columns: minmax(240px,1fr); overflow: visible; }
+      .market-summary { grid-column: auto; }
+      .lab-footer { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="lab-topbar">
+    <div class="lab-brand">
+      <div class="lab-mark">IT</div>
+      <div><strong>Supplier UI Lab</strong><span>Backend-informed design study</span></div>
+    </div>
+    <nav class="option-switcher" aria-label="Pilih opsi desain" role="tablist">
+      <button class="active" role="tab" aria-selected="true" data-open="1">01 Ops Console</button>
+      <button role="tab" aria-selected="false" data-open="2">02 Ledger</button>
+      <button role="tab" aria-selected="false" data-open="3">03 Control Room</button>
+      <button role="tab" aria-selected="false" data-open="4">04 Nordic</button>
+      <button role="tab" aria-selected="false" data-open="5">05 Workbench</button>
+    </nav>
+  </header>
+
+  <main class="lab-main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div>
+        <p class="eyebrow">Itulah · Supplier Catalog · Design exploration</p>
+        <h1 id="hero-title">Lima taste. Satu kontrak <em>operasional.</em></h1>
+      </div>
+      <div class="hero-copy">
+        <p>Studi UI table-first untuk Supplier → Supplier Items → Purchase Order. Kelima opsi memakai data dan aksi yang benar-benar tersedia di backend, sehingga perbedaannya murni pada taste, density, hierarchy, dan ritme kerja.</p>
+        <div class="research-note"><strong>Basis riset:</strong> Cloud Rust/Axum, PostgreSQL Supplier Catalog, role SUPERVISOR, idempotency, ETag, IDR-only price, serta exact-target DC command. File ini adalah prototype visual—tidak melakukan request API.</div>
+      </div>
+    </section>
+
+    <section class="guardrails" aria-label="Backend guardrails">
+      <div class="guardrail"><b>2</b><span>master saja: Supplier dan Supplier Item</span></div>
+      <div class="guardrail"><b>IDR</b><span>harga integer minor-unit, satu currency V1</span></div>
+      <div class="guardrail"><b>2 state</b><span>ACTIVE atau INACTIVE, tanpa hard delete</span></div>
+      <div class="guardrail"><b>Direct</b><span>PO langsung ISSUED, bukan draft approval</span></div>
+      <div class="guardrail"><b>1 DC</b><span>destination harus exact registered DC</span></div>
+      <div class="guardrail"><b>Server</b><span>name, image, price, currency disnapshot backend</span></div>
+    </section>
+
+    <section aria-labelledby="comparison-title">
+      <div class="section-head">
+        <div><h2 id="comparison-title">Comparison matrix</h2></div>
+        <p>Semua opsi mempunyai feature parity. Pilih berdasarkan persona utama dan kedekatannya dengan bahasa visual Itulah saat ini—bukan berdasarkan fitur tambahan.</p>
+      </div>
+      <div class="comparison-shell">
+        <div class="comparison-scroll">
+          <table class="comparison-table">
+            <thead><tr><th>Opsi</th><th>Taste</th><th>Density</th><th>Pola detail</th><th>Paling cocok</th><th>Trade-off</th><th>Fit backend</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><span class="option-number">01</span><span class="option-name">Operations Console</span></td><td>Familiar, utilitarian, biru netral</td><td>Tinggi</td><td>Table + side inspector</td><td>Tim operasional existing</td><td>Paling aman, paling sedikit “brand surprise”</td><td><span class="lab-pill recommended">Recommended</span></td><td><button class="open-option" data-open="1">Lihat</button></td></tr>
+              <tr><td><span class="option-number">02</span><span class="option-name">Editorial Ledger</span></td><td>Warm, tactile, procurement ledger</td><td>Sedang</td><td>Expandable table row</td><td>Buyer yang fokus review</td><td>Karakter kuat; kontras dengan UI existing</td><td><span class="lab-pill">Exact</span></td><td><button class="open-option" data-open="2">Lihat</button></td></tr>
+              <tr><td><span class="option-number">03</span><span class="option-name">Midnight Control Room</span></td><td>Dark, technical, live command</td><td>Sangat tinggi</td><td>Table + telemetry inspector</td><td>Power user / NOC-like desk</td><td>Kurang nyaman untuk sesi panjang di kantor terang</td><td><span class="lab-pill">Exact</span></td><td><button class="open-option" data-open="3">Lihat</button></td></tr>
+              <tr><td><span class="option-number">04</span><span class="option-name">Nordic Workspace</span></td><td>Calm, airy, low cognitive load</td><td>Rendah</td><td>Table + inline detail card</td><td>User lintas fungsi</td><td>Lebih banyak scrolling untuk katalog besar</td><td><span class="lab-pill">Exact</span></td><td><button class="open-option" data-open="4">Lihat</button></td></tr>
+              <tr><td><span class="option-number">05</span><span class="option-name">Marketplace Workbench</span></td><td>Merchandise-rich, guided flow</td><td>Sedang</td><td>Supplier + item + issue summary</td><td>Buyer yang sering membuat PO</td><td>Paling kompleks untuk dibangun responsif</td><td><span class="lab-pill">Exact</span></td><td><button class="open-option" data-open="5">Lihat</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="design-stage" class="design-stage" aria-live="polite">
+      <article class="concept active" data-concept="1" aria-labelledby="concept-1-title">
+        <div class="concept-intro">
+          <div><span class="concept-index">Option 01 · Safest evolution</span><h2 id="concept-1-title">Operations Console</h2><p>Evolusi langsung dari UI Itulah saat ini: table density tinggi, uppercase labels, status badges, dan side inspector untuk Supplier yang dipilih.</p></div>
+          <div class="concept-facts"><span class="concept-fact">Inter / system sans</span><span class="concept-fact">#1456D9</span><span class="concept-fact">Dense tables</span><span class="concept-fact">Drawer pattern</span></div>
+        </div>
+        <div class="mockup ops-app">
+          <header class="ops-top"><div><strong>RETAIL EDGE</strong><span class="ops-node">Cloud · Healthy</span></div><nav class="ops-nav"><span>Commercial</span><span class="active">Suppliers</span><span>Purchase Orders</span><span>Control</span></nav></header>
+          <div class="ops-body">
+            <div class="ops-page-head"><div><h3>Supplier Catalog</h3><p>Supplier identity, current item price, and direct purchase ordering.</p></div><div><button class="ops-button secondary demo-btn" data-message="Refresh memakai GET /api/v1/suppliers.">Refresh</button> <button class="ops-button demo-btn" data-message="Form create Supplier: code, name, contact, status. Mutation membutuhkan Idempotency-Key.">Create Supplier</button></div></div>
+            <div class="ops-metrics"><div class="ops-metric"><span>Loaded suppliers</span><b>4</b></div><div class="ops-metric"><span>Active</span><b>3</b></div><div class="ops-metric"><span>Inactive</span><b>1</b></div><div class="ops-metric"><span>Currency</span><b>IDR</b></div></div>
+            <div class="ops-layout">
+              <section class="ops-panel">
+                <div class="ops-toolbar"><input aria-label="Filter supplier yang sudah dimuat" placeholder="Filter loaded supplier…"><div class="filter-group"><button class="ops-filter active" data-filter="ALL">All</button><button class="ops-filter" data-filter="ACTIVE">Active</button><button class="ops-filter" data-filter="INACTIVE">Inactive</button></div></div>
+                <div class="table-scroll"><table class="ops-table"><thead><tr><th>Supplier code</th><th>Supplier</th><th>Contact</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>
+                  <tr class="supplier-row selected" data-status="ACTIVE"><td class="code">SUP-001</td><td><b>PT Sandang Nusantara</b><br><span style="color:#677386;font-size:10px">Jakarta</span></td><td>Sari Wulandari<br><span style="color:#677386;font-size:10px">sari@sandang.id</span></td><td><span class="ops-status active">ACTIVE</span></td><td>30 Aug 2026</td><td><button class="ops-button secondary demo-btn" data-message="Detail membawa ETag untuk edit/status mutation berikutnya.">Open</button></td></tr>
+                  <tr class="supplier-row" data-status="ACTIVE"><td class="code">SUP-014</td><td><b>CV Kain Rona</b><br><span style="color:#677386;font-size:10px">Bandung</span></td><td>Dimas Putra<br><span style="color:#677386;font-size:10px">+62 812 3412 1020</span></td><td><span class="ops-status active">ACTIVE</span></td><td>29 Aug 2026</td><td><button class="ops-button secondary">Open</button></td></tr>
+                  <tr class="supplier-row" data-status="ACTIVE"><td class="code">SUP-019</td><td><b>PT Benang Timur</b><br><span style="color:#677386;font-size:10px">Surabaya</span></td><td>Nadia Hartono</td><td><span class="ops-status active">ACTIVE</span></td><td>27 Aug 2026</td><td><button class="ops-button secondary">Open</button></td></tr>
+                  <tr class="supplier-row" data-status="INACTIVE"><td class="code">SUP-023</td><td><b>Loom &amp; Co.</b><br><span style="color:#677386;font-size:10px">Tangerang</span></td><td>Rafi Aditya</td><td><span class="ops-status">INACTIVE</span></td><td>19 Aug 2026</td><td><button class="ops-button secondary">Open</button></td></tr>
+                </tbody></table></div>
+              </section>
+              <aside class="ops-drawer">
+                <div class="ops-drawer-head"><div><h4>PT Sandang Nusantara</h4><p><span class="code">SUP-001</span> · Version 7</p></div><span class="ops-status active">ACTIVE</span></div>
+                <div class="ops-meta"><div><span>Contact</span><b>Sari Wulandari</b></div><div><span>Phone</span><b>+62 811 9210 112</b></div></div>
+                <div class="ops-meta"><div><span>Email</span><b>sari@sandang.id</b></div><div><span>Last update</span><b>30 Aug · buyer-01</b></div></div>
+                <div class="ops-section-title"><b>Catalog items</b><button class="ops-button secondary demo-btn" data-message="Item create berada di /api/v1/suppliers/{supplier_id}/items.">Add item</button></div>
+                <div class="table-scroll"><table class="ops-item-table"><thead><tr><th>Item</th><th>Article link</th><th class="money">Current price</th><th>Status</th></tr></thead><tbody>
+                  <tr><td><b>Kemeja Oxford Panjang</b><br><span class="code">KMJ-LP-001</span></td><td class="code">ART-000143</td><td class="money">Rp189.000</td><td><span class="ops-status active">ACTIVE</span></td></tr>
+                  <tr><td><b>Kain Katun Poplin 240</b><br><span class="code">KTN-240</span></td><td style="color:#a75b00">Not linked</td><td class="money">Rp72.500</td><td><span class="ops-status active">ACTIVE</span></td></tr>
+                  <tr><td><b>Kancing Pearl 18L</b><br><span class="code">BTN-PRL-18</span></td><td class="code">ART-000212</td><td class="money">Rp1.450</td><td><span class="ops-status">INACTIVE</span></td></tr>
+                </tbody></table></div>
+                <div class="ops-callout">Catalog PO hanya memakai active Supplier + active items. Harga dan nama diambil ulang serta disnapshot server saat issue.</div>
+                <div style="margin-top:12px;text-align:right"><button class="ops-button demo-btn" data-message="Membuka composer yang hanya mengirim Supplier UUID, item UUID, quantity, promised date, PO number, DC, dan notes.">Create &amp; issue PO</button></div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="concept" data-concept="2" aria-labelledby="concept-2-title">
+        <div class="concept-intro">
+          <div><span class="concept-index">Option 02 · Distinctive procurement identity</span><h2 id="concept-2-title">Editorial Ledger</h2><p>Supplier register terasa seperti buku pembelian modern: hangat, typographic, dan fokus pada review record—tanpa kehilangan density tabel.</p></div>
+          <div class="concept-facts"><span class="concept-fact">Georgia + mono</span><span class="concept-fact">Warm paper</span><span class="concept-fact">Expandable rows</span><span class="concept-fact">Buyer-centric</span></div>
+        </div>
+        <div class="mockup ledger-app">
+          <header class="ledger-masthead"><div class="edition">Procurement office<br>Cloud authority</div><h3>The Supplier Register</h3><div class="date">Monday<br>31 August 2026</div></header>
+          <div class="ledger-body">
+            <aside class="ledger-rail"><small>Index / 04</small><a href="#" class="active">Supplier register</a><a href="#">Catalog items</a><a href="#">Purchase orders</a><a href="#">DC directory</a><div class="ledger-quote">“Current catalog values become immutable agreement snapshots at the moment an order is issued.”</div></aside>
+            <section class="ledger-content">
+              <div class="ledger-heading"><h2>Trading houses on record</h2><p>Canonical Supplier identities. Deactivated records remain legible for historical purchase orders.</p></div>
+              <div class="ledger-tools"><label>Filter loaded register<input placeholder="Name, code, or contact"></label><div><button class="ledger-button demo-btn" data-message="Create Supplier adalah mutation SUPERVISOR dengan Idempotency-Key.">Enter new supplier</button></div></div>
+              <div class="table-scroll"><table class="ledger-table"><thead><tr><th>No.</th><th>House / Supplier</th><th>Principal contact</th><th>Address</th><th>State</th><th>Revision</th></tr></thead><tbody>
+                <tr class="supplier-row selected" data-status="ACTIVE"><td class="code">001</td><td><b>PT Sandang Nusantara</b><br><span class="code">SUP-001</span></td><td>Sari Wulandari<br>sari@sandang.id</td><td>Jakarta</td><td><span class="ledger-state active">● Active</span></td><td class="code">v7 / 30.08</td></tr>
+                <tr class="ledger-expansion"><td colspan="6"><div class="ledger-detail"><div><h4>Current particulars</h4><p>Supplier code is business-facing; canonical UUID remains hidden from daily work.</p><dl><dt>Telephone</dt><dd>+62 811 9210 112</dd><dt>Last changed by</dt><dd>buyer-01</dd><dt>Optimistic revision</dt><dd>Strong ETag “7”</dd></dl><p style="margin-top:13px"><button class="ledger-button demo-btn" data-message="Status tidak dihapus; deactivate/activate membutuhkan If-Match dan Idempotency-Key.">Amend particulars</button></p></div><div><table class="ledger-items"><thead><tr><th>Supplier item</th><th>Internal article</th><th>Current agreed guide</th><th>State</th></tr></thead><tbody><tr><td>Kemeja Oxford Panjang<br><span class="code">KMJ-LP-001</span></td><td class="code">ART-000143</td><td>Rp189.000 / piece</td><td><span class="ledger-state active">Active</span></td></tr><tr><td>Kain Katun Poplin 240<br><span class="code">KTN-240</span></td><td>Unresolved</td><td>Rp72.500 / piece</td><td><span class="ledger-state active">Active</span></td></tr><tr><td>Kancing Pearl 18L<br><span class="code">BTN-PRL-18</span></td><td class="code">ART-000212</td><td>Rp1.450 / piece</td><td><span class="ledger-state">Inactive</span></td></tr></tbody></table><div class="ledger-footnote">Prices are current catalog values, not a terms history. Issued orders retain their own snapshots.</div></div></div></td></tr>
+                <tr class="supplier-row" data-status="ACTIVE"><td class="code">014</td><td><b>CV Kain Rona</b><br><span class="code">SUP-014</span></td><td>Dimas Putra<br>+62 812 3412 1020</td><td>Bandung</td><td><span class="ledger-state active">● Active</span></td><td class="code">v3 / 29.08</td></tr>
+                <tr class="supplier-row" data-status="ACTIVE"><td class="code">019</td><td><b>PT Benang Timur</b><br><span class="code">SUP-019</span></td><td>Nadia Hartono</td><td>Surabaya</td><td><span class="ledger-state active">● Active</span></td><td class="code">v4 / 27.08</td></tr>
+                <tr class="supplier-row" data-status="INACTIVE"><td class="code">023</td><td><b>Loom &amp; Co.</b><br><span class="code">SUP-023</span></td><td>Rafi Aditya</td><td>Tangerang</td><td><span class="ledger-state">○ Inactive</span></td><td class="code">v9 / 19.08</td></tr>
+              </tbody></table></div>
+            </section>
+          </div>
+        </div>
+      </article>
+
+      <article class="concept" data-concept="3" aria-labelledby="concept-3-title">
+        <div class="concept-intro">
+          <div><span class="concept-index">Option 03 · Power-user environment</span><h2 id="concept-3-title">Midnight Control Room</h2><p>Dark operational cockpit untuk buyer yang hidup di data: status, revisions, exact DC command, dan high-density inspector berada dalam satu viewport.</p></div>
+          <div class="concept-facts"><span class="concept-fact">Monospace</span><span class="concept-fact">Cyan / lime</span><span class="concept-fact">Maximum density</span><span class="concept-fact">Telemetry feel</span></div>
+        </div>
+        <div class="mockup control-app">
+          <header class="control-top"><div class="control-brand"><span class="control-signal"></span>ITULAH / PROCUREMENT CTRL</div><div class="control-top-meta"><span>NODE cloud-primary</span><span>ROLE SUPERVISOR</span><span>SYNC HEALTHY</span><span>20:38:14 WIB</span></div></header>
+          <div class="control-shell">
+            <aside class="control-rail"><span class="control-icon">OV</span><span class="control-icon active">SU</span><span class="control-icon">PO</span><span class="control-icon">DC</span><span class="control-icon">AU</span></aside>
+            <div class="control-content">
+              <div class="control-title"><div><h3>SUPPLIER_AUTHORITY</h3><p>canonical masters // current purchasing catalog // exact target issue</p></div><button class="control-action demo-btn" data-message="New Supplier request: Idempotency-Key + Principal actor; no actor field from UI.">+ INIT SUPPLIER</button></div>
+              <div class="control-stats"><div class="control-stat"><span>Records loaded</span><b>0004</b></div><div class="control-stat"><span>Active</span><b class="ok">0003</b></div><div class="control-stat"><span>Currency rule</span><b>IDR</b></div><div class="control-stat"><span>Write guard</span><b class="ok">ETAG</b></div></div>
+              <div class="control-grid">
+                <section class="control-panel"><div class="control-panel-head"><span>Supplier register / client-filtered</span><div class="control-filter"><button class="active" data-filter="ALL">ALL</button><button data-filter="ACTIVE">ACTIVE</button><button data-filter="INACTIVE">INACTIVE</button></div></div><div class="table-scroll"><table class="control-table"><thead><tr><th>Canonical code</th><th>Legal / display name</th><th>Principal</th><th>State</th><th>Ver.</th><th>Updated</th></tr></thead><tbody>
+                  <tr class="supplier-row selected" data-status="ACTIVE"><td class="control-code">SUP-001</td><td>PT SANDANG NUSANTARA</td><td>SARI_WULANDARI</td><td><span class="control-state active">● ACTIVE</span></td><td>0007</td><td>2026-08-30 14:22</td></tr>
+                  <tr class="supplier-row" data-status="ACTIVE"><td class="control-code">SUP-014</td><td>CV KAIN RONA</td><td>DIMAS_PUTRA</td><td><span class="control-state active">● ACTIVE</span></td><td>0003</td><td>2026-08-29 11:04</td></tr>
+                  <tr class="supplier-row" data-status="ACTIVE"><td class="control-code">SUP-019</td><td>PT BENANG TIMUR</td><td>NADIA_HARTONO</td><td><span class="control-state active">● ACTIVE</span></td><td>0004</td><td>2026-08-27 09:18</td></tr>
+                  <tr class="supplier-row" data-status="INACTIVE"><td class="control-code">SUP-023</td><td>LOOM &amp; CO.</td><td>RAFI_ADITYA</td><td><span class="control-state">○ INACTIVE</span></td><td>0009</td><td>2026-08-19 16:40</td></tr>
+                </tbody></table></div></section>
+                <aside class="control-panel control-inspector"><div class="label">Selected authority</div><h4>PT SANDANG NUSANTARA</h4><div class="id">supplier_ref // 9f8c…1a42</div><div class="control-kv"><span>business_code</span><span>SUP-001</span><span>state</span><span style="color:#a8f06a">ACTIVE</span><span>revision</span><span>7 / “7”</span><span>currency</span><span>IDR only</span><span>contact</span><span>Sari Wulandari</span></div><div class="control-item-list"><div class="label">Active catalog snapshot source</div><div class="control-item"><b>KMJ-LP-001</b><span>Kemeja Oxford Panjang</span><span class="price">Rp189.000</span></div><div class="control-item"><b>KTN-240</b><span>Kain Katun Poplin 240</span><span class="price">Rp72.500</span></div></div><div class="control-warning">ISSUE MODE // catalog PO commits order + lines + exact DC command + idempotency receipt atomically.</div><button class="control-action demo-btn" style="width:100%;margin-top:10px" data-message="POST /api/v1/purchase-orders/catalog langsung menghasilkan ISSUED DIRECT PO.">COMPOSE &amp; ISSUE PO</button></aside>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="concept" data-concept="4" aria-labelledby="concept-4-title">
+        <div class="concept-intro">
+          <div><span class="concept-index">Option 04 · Lowest cognitive load</span><h2 id="concept-4-title">Nordic Workspace</h2><p>Whitespace, soft green, dan progressive disclosure. Tabel tetap menjadi authority, tetapi detail dan metadata terasa tenang untuk user lintas fungsi.</p></div>
+          <div class="concept-facts"><span class="concept-fact">Soft neutral</span><span class="concept-fact">Evergreen</span><span class="concept-fact">Airy rows</span><span class="concept-fact">Inline detail</span></div>
+        </div>
+        <div class="mockup calm-app">
+          <header class="calm-top"><div class="calm-logo"><i></i> Itulah Cloud</div><nav class="calm-nav"><span>Overview</span><span class="active">Suppliers</span><span>Purchase orders</span><span>Inventory</span></nav><span class="calm-user">SW</span></header>
+          <div class="calm-body">
+            <div class="calm-heading"><div><span class="overline">Purchasing directory</span><h3>Suppliers</h3><p>Simple, current records for the people and goods we purchase from.</p></div><button class="calm-primary demo-btn" data-message="Create form keeps only code, name, optional contacts, and initial status.">Add supplier</button></div>
+            <div class="calm-summary"><div><b>4</b><span>loaded</span></div><div><b>3</b><span>active</span></div><div><b>1</b><span>inactive</span></div><div><b>IDR</b><span>purchase currency</span></div></div>
+            <section class="calm-card"><div class="calm-tools"><label class="calm-search"><span>⌕</span><input aria-label="Filter loaded suppliers" placeholder="Filter loaded suppliers"></label><div class="calm-filter"><button class="active" data-filter="ALL">All</button><button data-filter="ACTIVE">Active</button><button data-filter="INACTIVE">Inactive</button></div></div><div class="table-scroll"><table class="calm-table"><thead><tr><th>Supplier</th><th>Contact person</th><th>Contact</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>
+              <tr class="supplier-row selected" data-status="ACTIVE"><td><span class="calm-name">PT Sandang Nusantara</span><span class="calm-sub code">SUP-001</span></td><td>Sari Wulandari</td><td>sari@sandang.id</td><td><span class="calm-status active">ACTIVE</span></td><td>30 Aug 2026</td><td>→</td></tr>
+              <tr class="supplier-row" data-status="ACTIVE"><td><span class="calm-name">CV Kain Rona</span><span class="calm-sub code">SUP-014</span></td><td>Dimas Putra</td><td>+62 812 3412 1020</td><td><span class="calm-status active">ACTIVE</span></td><td>29 Aug 2026</td><td>→</td></tr>
+              <tr class="supplier-row" data-status="ACTIVE"><td><span class="calm-name">PT Benang Timur</span><span class="calm-sub code">SUP-019</span></td><td>Nadia Hartono</td><td>—</td><td><span class="calm-status active">ACTIVE</span></td><td>27 Aug 2026</td><td>→</td></tr>
+              <tr class="supplier-row" data-status="INACTIVE"><td><span class="calm-name">Loom &amp; Co.</span><span class="calm-sub code">SUP-023</span></td><td>Rafi Aditya</td><td>rafi@loom.co</td><td><span class="calm-status">INACTIVE</span></td><td>19 Aug 2026</td><td>→</td></tr>
+            </tbody></table></div></section>
+            <section class="calm-detail"><div class="calm-profile"><span>Selected supplier · v7</span><h4>PT Sandang Nusantara</h4><p>Jakarta · Sari Wulandari · +62 811 9210 112</p><button class="calm-link demo-btn" data-message="Edit memakai strong If-Match ETag; stale revision menghasilkan conflict, bukan overwrite.">Edit supplier details →</button></div><div><div class="calm-items-head"><h5>Current catalog items</h5><button class="calm-link demo-btn" data-message="Add item menyimpan current IDR price dan optional internal Article code.">Add item</button></div><div class="table-scroll"><table class="calm-item-table"><thead><tr><th>Supplier item</th><th>Internal article</th><th class="money">Current price</th><th>Status</th></tr></thead><tbody><tr><td><b>Kemeja Oxford Panjang</b><br><span class="code">KMJ-LP-001</span></td><td class="code">ART-000143</td><td class="money">Rp189.000</td><td><span class="calm-status active">ACTIVE</span></td></tr><tr><td><b>Kain Katun Poplin 240</b><br><span class="code">KTN-240</span></td><td style="color:#0b806f">Link later</td><td class="money">Rp72.500</td><td><span class="calm-status active">ACTIVE</span></td></tr><tr><td><b>Kancing Pearl 18L</b><br><span class="code">BTN-PRL-18</span></td><td class="code">ART-000212</td><td class="money">Rp1.450</td><td><span class="calm-status">INACTIVE</span></td></tr></tbody></table></div></div></section>
+          </div>
+        </div>
+      </article>
+
+      <article class="concept" data-concept="5" aria-labelledby="concept-5-title">
+        <div class="concept-intro">
+          <div><span class="concept-index">Option 05 · Purchase-flow optimized</span><h2 id="concept-5-title">Marketplace Workbench</h2><p>Rasa marketplace tanpa fitur palsu: pilih satu Supplier, pilih active items, preview nilai lokal, lalu issue PO langsung ke registered DC.</p></div>
+          <div class="concept-facts"><span class="concept-fact">Merchandise-rich</span><span class="concept-fact">Purple / coral</span><span class="concept-fact">3-pane table</span><span class="concept-fact">PO-first</span></div>
+        </div>
+        <div class="mockup market-app">
+          <header class="market-top"><div class="market-brand"><i>IT</i> Supplier Market</div><div class="market-steps"><span class="market-step active"><b>1</b> Supplier</span><span>—</span><span class="market-step active"><b>2</b> Items</span><span>—</span><span class="market-step"><b>3</b> Issue PO</span></div><span class="market-user">buyer-01 · Supervisor</span></header>
+          <div class="market-body">
+            <div class="market-heading"><div><h3>Build a direct purchase order</h3><p>Only active catalog items. Final snapshots are always resolved again by the server.</p></div><button class="market-filter demo-btn" data-message="Supplier management remains available; this taste prioritizes frequent purchase ordering.">Manage catalog</button></div>
+            <div class="market-layout">
+              <section class="market-card"><div class="market-card-head"><div><h4>1 · Supplier</h4><span>One Supplier per PO</span></div><span class="market-status active">ACTIVE</span></div><div class="table-scroll"><table class="market-supplier-table"><tbody><tr class="selected"><td><b>PT Sandang Nusantara</b><small class="code">SUP-001</small></td><td class="arrow">→</td></tr><tr><td><b>CV Kain Rona</b><small class="code">SUP-014</small></td><td class="arrow">→</td></tr><tr><td><b>PT Benang Timur</b><small class="code">SUP-019</small></td><td class="arrow">→</td></tr><tr><td><b style="color:#958da5">Loom &amp; Co.</b><small>Inactive · view only</small></td><td class="arrow">—</td></tr></tbody></table></div></section>
+              <section class="market-card"><div class="market-card-head"><div><h4>2 · Select catalog items</h4><span>Current IDR price · server revalidates at issue</span></div><span>2 active items</span></div><div class="market-catalog-tools"><input placeholder="Filter loaded items"><button class="market-filter active">Active</button></div><div class="table-scroll"><table class="market-item-table"><thead><tr><th>Select</th><th>Supplier item</th><th>Article link</th><th class="money">Current price</th><th>Qty</th><th>Promised date</th></tr></thead><tbody>
+                <tr class="order-line" data-price="189000"><td><input class="line-check" type="checkbox" checked aria-label="Pilih Kemeja Oxford Panjang"></td><td><div class="market-item"><span class="thumb blue">KO</span><div><b>Kemeja Oxford Panjang</b><small class="code">KMJ-LP-001</small></div></div></td><td class="code">ART-000143</td><td class="money">Rp189.000</td><td><input class="qty" type="number" min="1" value="100" aria-label="Quantity Kemeja Oxford"></td><td><input class="promised" type="date" value="2026-09-15" aria-label="Promised date Kemeja Oxford"></td></tr>
+                <tr class="order-line" data-price="72500"><td><input class="line-check" type="checkbox" checked aria-label="Pilih Kain Katun Poplin"></td><td><div class="market-item"><span class="thumb">KP</span><div><b>Kain Katun Poplin 240</b><small class="code">KTN-240</small></div></div></td><td style="color:#e95d45">Not linked</td><td class="money">Rp72.500</td><td><input class="qty" type="number" min="1" value="40" aria-label="Quantity Kain Katun"></td><td><input class="promised" type="date" value="2026-09-20" aria-label="Promised date Kain Katun"></td></tr>
+                <tr style="opacity:.48"><td><input class="line-check" type="checkbox" disabled aria-label="Kancing Pearl inactive"></td><td><div class="market-item"><span class="thumb">KP</span><div><b>Kancing Pearl 18L</b><small class="code">BTN-PRL-18 · INACTIVE</small></div></div></td><td class="code">ART-000212</td><td class="money">Rp1.450</td><td>—</td><td>—</td></tr>
+              </tbody></table></div></section>
+              <aside class="market-card market-summary"><div class="market-card-head"><div><h4>3 · Issue summary</h4><span>Direct → ISSUED</span></div></div><div class="market-form"><label class="market-field">PO number<input value="PO-2026-000184"></label><label class="market-field">Registered DC<select><option>DC Jakarta · dc-01</option><option>DC Bandung · dc-02</option></select></label><label class="market-field">Notes<textarea placeholder="Optional purchasing note">September core replenishment</textarea></label><div class="market-totals"><div class="market-total-row"><span>Selected lines</span><b class="selected-count">2</b></div><div class="market-total-row"><span>Total pieces</span><b class="piece-count">140</b></div><div class="market-total-row grand"><span>Local preview</span><b class="order-total">Rp21.800.000</b></div></div><div class="market-note">This preview is not sent as authority. Server reloads item name, image, price, currency, status, and ownership before committing.</div><button class="market-issue demo-btn" data-message="POST catalog PO commits the ISSUED order and exact-target DC command atomically.">Create &amp; issue PO</button><div class="market-local">Local selection · no saved cart or approval stage</div></div></aside>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="contract-section" aria-labelledby="contract-title">
+      <div class="section-head"><div><h2 id="contract-title">UI → backend contract</h2></div><p>Checklist implementasi bersama untuk kelima taste. Core mutation sudah tersedia; sumber dropdown registered DC tetap perlu dihubungkan ke fleet/config surface yang dapat diakses buyer.</p></div>
+      <div class="contract-shell"><div class="contract-scroll"><table class="contract-table"><thead><tr><th>UI intent</th><th>Endpoint</th><th>Headers / input</th><th>Authoritative behavior</th><th>Design implication</th></tr></thead><tbody>
+        <tr><td>Load Supplier directory</td><td><span class="method">GET</span> <span class="endpoint">/api/v1/suppliers?status=…</span></td><td>Status optional</td><td>Bare array; active first, then name</td><td>Search adalah client-side atas loaded rows; jangan tampilkan pagination palsu</td></tr>
+        <tr><td>Create Supplier</td><td><span class="method">POST</span> <span class="endpoint">/api/v1/suppliers</span></td><td>Idempotency-Key</td><td>Code/name required; contact optional; returns ETag</td><td>Form pendek, tanpa bank/payment/terms</td></tr>
+        <tr><td>Edit Supplier</td><td><span class="method">PATCH</span> <span class="endpoint">/api/v1/suppliers/{id}</span></td><td>If-Match “version” + Idempotency-Key</td><td>Stale version → 409; null clears optional field</td><td>Simpan ETag dan tampilkan refresh/reconcile conflict</td></tr>
+        <tr><td>Load Supplier Items</td><td><span class="method">GET</span> <span class="endpoint">/api/v1/suppliers/{id}/items</span></td><td>Status optional</td><td>Current price, IDR, optional Article link</td><td>Harga diberi label “current”; bukan terms/history</td></tr>
+        <tr><td>Activate / deactivate</td><td><span class="method">POST</span> <span class="endpoint">…/{id}/activate | deactivate</span></td><td>If-Match + Idempotency-Key</td><td>Version increments; no delete or cascade</td><td>Gunakan warning confirmation, jangan ikon trash</td></tr>
+        <tr><td>Create direct PO</td><td><span class="method">POST</span> <span class="endpoint">/api/v1/purchase-orders/catalog</span></td><td>Supplier/item UUID, qty, date, DC, key</td><td>Server snapshots values and immediately issues to one DC</td><td>CTA harus “Create &amp; issue PO”; preview total hanya lokal</td></tr>
+      </tbody></table></div></div>
+    </section>
+
+    <footer class="lab-footer"><span><strong>Recommendation:</strong> mulai dari Option 01 untuk integrasi tercepat; pinjam PO composer Option 05 sebagai wide dialog/page.</span><span>Standalone prototype · no API calls · based on backend as of 31 Aug 2026</span></footer>
+  </main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      const concepts = [...document.querySelectorAll('.concept')];
+      const tabs = [...document.querySelectorAll('.option-switcher [data-open]')];
+      const toast = document.getElementById('toast');
+      let toastTimer;
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+      }
+
+      function openConcept(id, shouldScroll = true) {
+        concepts.forEach(concept => concept.classList.toggle('active', concept.dataset.concept === String(id)));
+        tabs.forEach(tab => {
+          const active = tab.dataset.open === String(id);
+          tab.classList.toggle('active', active);
+          tab.setAttribute('aria-selected', String(active));
+        });
+        try {
+          history.replaceState(null, '', `#option-${id}`);
+        } catch {
+          // Direct file:// previews may disallow History API URL updates.
+        }
+        if (shouldScroll) document.getElementById('design-stage').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      document.querySelectorAll('[data-open]').forEach(button => {
+        button.addEventListener('click', () => openConcept(button.dataset.open));
+      });
+
+      document.querySelectorAll('.demo-btn').forEach(button => {
+        button.addEventListener('click', event => {
+          event.preventDefault();
+          showToast(button.dataset.message || 'Prototype action only.');
+        });
+      });
+
+      document.querySelectorAll('.concept').forEach(concept => {
+        concept.querySelectorAll('[data-filter]').forEach(button => {
+          button.addEventListener('click', () => {
+            const status = button.dataset.filter;
+            concept.querySelectorAll('[data-filter]').forEach(peer => peer.classList.toggle('active', peer === button));
+            concept.querySelectorAll('.supplier-row').forEach(row => {
+              row.hidden = status !== 'ALL' && row.dataset.status !== status;
+            });
+            const expansion = concept.querySelector('.ledger-expansion');
+            if (expansion) expansion.hidden = status === 'INACTIVE';
+          });
+        });
+      });
+
+      function formatIDR(value) {
+        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value);
+      }
+
+      function updateOrderPreview() {
+        const market = document.querySelector('[data-concept="5"]');
+        let total = 0;
+        let pieces = 0;
+        let selected = 0;
+        market.querySelectorAll('.order-line').forEach(row => {
+          const checkbox = row.querySelector('.line-check');
+          const quantity = row.querySelector('.qty');
+          if (!checkbox || !checkbox.checked || !quantity) return;
+          const qty = Math.max(1, Number.parseInt(quantity.value, 10) || 1);
+          selected += 1;
+          pieces += qty;
+          total += Number(row.dataset.price) * qty;
+        });
+        market.querySelector('.selected-count').textContent = selected;
+        market.querySelector('.piece-count').textContent = pieces.toLocaleString('id-ID');
+        market.querySelector('.order-total').textContent = formatIDR(total);
+      }
+
+      document.querySelectorAll('.line-check, .qty').forEach(control => control.addEventListener('input', updateOrderPreview));
+      updateOrderPreview();
+
+      const hashMatch = location.hash.match(/^#option-([1-5])$/);
+      openConcept(hashMatch ? hashMatch[1] : '1', false);
+    })();
+  </script>
+</body>
+</html>

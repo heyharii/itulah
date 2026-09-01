@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Sourcing · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   SOURCING — bentuk katalog belanja, isi katalog sourcing
+   --------------------------------------------------------------------------
+   Bentuknya diambil dari halaman hasil pencarian marketplace: pencarian di
+   atas, penyaring di kolom kiri, hasil sebagai grid kartu. Bentuk itu dipakai
+   karena pekerjaannya memang sama — menyisir banyak kandidat dan menyimpan
+   yang menarik — bukan karena kelihatan bagus.
+
+   Isinya kosakata sourcing yang sudah ada di sistem (SourcingListItem):
+   code · supplier · division · color · tags[] · unit_cost · moq ·
+   lead_time_days · status. Tidak ada medan yang dikarang.
+
+   Padanannya, dan kenapa:
+     harga coret  → tidak ada. Sourcing tidak punya "harga sebelum diskon";
+                    yang berguna adalah selisih terhadap median divisi, karena
+                    itu yang menjawab "ini mahal atau tidak".
+     lokasi       → supplier. Yang ditanya orang bukan barangnya dari mana,
+                    tapi dari siapa.
+     bintang      → lead time. Sourcing belum punya skor pemasok; yang sudah
+                    ada dan langsung dipakai untuk memutuskan adalah berapa
+                    lama barangnya datang.
+     keranjang    → shortlist. Sudah ada di sistem sebagai ShortlistSummary.
+
+   Kulitnya Beautiful UI — token, bayangan, dan bentuk kontrol diangkat dari
+   ~/newton/app/globals.css, sama seperti berkas 6-newton.html.
+   ========================================================================== */
+
+/* ── rail navigasi aplikasi ────────────────────────────── */
+.ws{
+  display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;margin-bottom:14px;
+  border:0;background:none;border-radius:var(--radius-control);
+  color:var(--ink);font-family:inherit;font-size:13.5px;text-align:start;
+  transition:background-color 150ms var(--ease-out-strong);
+}
+.ws:hover{background:var(--hover)}
+.ws .mono-badge{
+  width:26px;height:26px;flex-shrink:0;border-radius:var(--radius-chip);
+  background:var(--ink);color:var(--page);display:grid;place-items:center;
+  font-weight:600;font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
+}
+.ws b{font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws svg{color:var(--ink-3);flex-shrink:0}
+.grp{padding:14px 8px 5px;font-size:11.5px;font-weight:500;color:var(--ink-3)}
+.count{margin-left:auto;font-size:11.5px;font-weight:500;color:var(--ink-3);font-family:"Geist Mono",ui-monospace,monospace}
+.node{font-size:11.5px;color:var(--ink-3);line-height:1.45;padding:0 8px;margin:0}
+
+/* ── kontrol ───────────────────────────────────────────── */
+
+/* ── kanvas ────────────────────────────────────────────── */
+
+/* Baris pencarian: setara bar oranye Shopee, tapi tanpa warna merek — di
+   Beautiful UI kolom pencarian adalah field, dan tombolnya yang berisi. */
+.searchbar{
+  padding:14px 20px;border-bottom:1px solid var(--line);background:var(--page);
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  position:sticky;top:0;z-index:10;
+}
+.searchbox{
+  flex:1;min-width:260px;max-width:720px;display:flex;align-items:center;gap:9px;
+  height:38px;padding:0 6px 0 12px;background:var(--surface);
+  border-radius:999px;box-shadow:var(--shadow-btn);
+  transition:box-shadow 150ms var(--ease-out-strong);
+}
+.searchbox:focus-within{box-shadow:0 0 0 1px var(--accent), var(--shadow-xs)}
+.searchbox svg{color:var(--ink-3);flex-shrink:0}
+.searchbox input{
+  flex:1;min-width:0;border:0;outline:0;background:none;
+  font-family:inherit;font-size:14px;color:var(--ink);letter-spacing:-.01em;
+}
+.searchbox input::placeholder{color:var(--ink-3)}
+.searchbox .btn{height:30px;padding:0 15px}
+.sb-right{margin-left:auto;display:flex;align-items:center;gap:9px}
+
+/* Keranjang Shopee → shortlist. */
+.shortlist{
+  display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 13px;
+  border:0;border-radius:999px;background:var(--surface);box-shadow:var(--shadow-btn);
+  color:var(--ink);font-family:inherit;font-size:13px;font-weight:500;
+}
+.shortlist:hover{background:var(--inset)}
+.shortlist b{font-family:"Geist Mono",ui-monospace,monospace;font-size:12px;
+  background:var(--ink);color:var(--page);border-radius:999px;padding:1px 7px;font-weight:500}
+
+/* Baris saran: setara deretan kata kunci di bawah kotak Shopee. */
+.suggest{
+  display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+  padding:9px 20px;border-bottom:1px solid var(--line);background:var(--page);
+  font-size:12.5px;color:var(--ink-3);
+}
+.suggest a{
+  color:var(--ink-2);text-decoration:none;background:var(--inset);
+  border-radius:999px;padding:3px 10px;
+  transition:background-color 150ms var(--ease-out-strong),color 150ms var(--ease-out-strong);
+}
+.suggest a:hover{background:var(--hover-2);color:var(--ink)}
+
+.body{display:flex;align-items:flex-start;min-height:0}
+
+/* ── kolom penyaring ───────────────────────────────────── */
+.filters{
+  width:238px;flex-shrink:0;align-self:stretch;
+  border-right:1px solid var(--line);background:var(--page);
+  padding:16px 14px 40px;
+}
+.fh{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.fh h2{margin:0;font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.fh svg{color:var(--ink-3)}
+.fh button{
+  margin-left:auto;border:0;background:none;padding:0;
+  font-family:inherit;font-size:12.5px;color:var(--accent-ink);
+}
+.fgrp{padding:16px 0 0;border-top:1px solid var(--line);margin-top:14px}
+.fgrp:first-of-type{border-top:0;margin-top:8px;padding-top:0}
+.fgrp h3{margin:0 0 8px;font-size:12.5px;font-weight:600;color:var(--ink)}
+.more{
+  display:inline-flex;align-items:center;gap:5px;margin-top:6px;
+  border:0;background:none;padding:0;font-family:inherit;font-size:12.5px;color:var(--ink-2);
+}
+.more:hover{color:var(--ink)}
+
+/* Rentang angka: dua field kecil, bukan slider — nilai sourcing diketik,
+   bukan digeser, dan slider tidak pernah bisa menyatakan "tak terbatas". */
+.range{display:flex;align-items:center;gap:7px}
+.range input[type=number]{
+  width:100%;min-width:0;height:30px;padding:0 8px;border:0;
+  background:var(--field);border-radius:var(--radius-chip);
+  box-shadow:0 0 0 1px var(--line);
+  font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px;color:var(--ink);
+}
+.range input:focus{box-shadow:0 0 0 1px var(--accent)}
+.range span{color:var(--ink-3);flex-shrink:0}
+
+/* ── hasil ─────────────────────────────────────────────── */
+.results{flex:1;min-width:0;padding:16px 20px 44px}
+
+.banner{
+  display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:14px;
+  background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);
+  text-decoration:none;color:inherit;
+  transition:box-shadow 150ms var(--ease-out-strong);
+}
+.banner:hover{box-shadow:var(--shadow-raised)}
+.banner .mark{
+  width:34px;height:34px;flex-shrink:0;border-radius:var(--radius-chip);
+  background:var(--accent-tint);color:var(--accent-ink);display:grid;place-items:center;
+}
+.banner b{display:block;font-weight:500;font-size:13.5px}
+.banner span{display:block;font-size:12.5px;color:var(--ink-2)}
+.banner .go{margin-left:auto;color:var(--ink-3)}
+
+.resultline{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:13.5px;color:var(--ink-2)}
+.resultline b{color:var(--ink);font-weight:500}
+
+.sortbar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:9px 12px;margin-bottom:14px;
+  background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);
+}
+.sortbar .lab{font-size:13px;color:var(--ink-2);margin-right:2px}
+.sortchip{
+  height:30px;padding:0 13px;border:0;border-radius:999px;
+  background:var(--inset);color:var(--ink-2);
+  font-family:inherit;font-size:13px;font-weight:500;
+  transition:background-color 150ms var(--ease-out-strong),color 150ms var(--ease-out-strong);
+}
+.sortchip:hover{background:var(--hover-2)}
+.sortchip[aria-pressed="true"]{background:var(--ink);color:var(--page);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.sortsel{
+  height:30px;padding:0 10px;border:0;border-radius:999px;
+  background:var(--inset);color:var(--ink-2);
+  font-family:inherit;font-size:13px;font-weight:500;
+}
+.pager .mono b{color:var(--ink);font-weight:500}
+.pager button{
+  width:28px;height:28px;padding:0;border:0;border-radius:999px;
+  background:var(--surface);box-shadow:var(--shadow-btn);color:var(--ink-2);
+  display:grid;place-items:center;
+}
+.pager button:hover{background:var(--inset);color:var(--ink)}
+.pager button:disabled{opacity:.4;pointer-events:none}
+
+/* ── grid kartu ────────────────────────────────────────── */
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
+
+.item{
+  background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);
+  overflow:hidden;display:flex;flex-direction:column;
+  text-decoration:none;color:inherit;
+  transition:box-shadow 180ms var(--ease-out-strong),transform 180ms var(--ease-out-strong);
+}
+.item:hover{box-shadow:var(--shadow-raised);transform:translateY(-1px)}
+
+/* Slot foto yang belum terisi memakai garis diagonal yang sama dengan latar
+   halaman — jadi ia terbaca sebagai "tempat gambar", bukan sebagai kartu yang
+   kosong. Kotak putih besar tanpa apa-apa selalu terlihat seperti gagal muat. */
+.thumb{
+  position:relative;aspect-ratio:1;
+  background-color:var(--field);
+  background-image:repeating-linear-gradient(-45deg,transparent 0,transparent 7px,var(--stripe) 7px,var(--stripe) 8px);
+  display:grid;place-items:center;border-bottom:1px solid var(--line);
+}
+.thumb svg{color:var(--ink-3);opacity:.45}
+.thumb .badges{position:absolute;left:8px;top:8px;display:flex;gap:5px;flex-wrap:wrap}
+.thumb .save{
+  position:absolute;right:8px;top:8px;width:28px;height:28px;
+  border:0;border-radius:999px;background:var(--surface);box-shadow:var(--shadow-btn);
+  color:var(--ink-3);display:grid;place-items:center;
+  transition:color 150ms ease-out,background-color 150ms ease-out;
+}
+.thumb .save:hover{color:var(--ink)}
+.thumb .save[aria-pressed="true"]{background:var(--ink);color:var(--page)}
+.thumb .colorchip{
+  position:absolute;left:8px;bottom:8px;display:inline-flex;align-items:center;gap:6px;
+  height:22px;padding:0 8px 0 6px;border-radius:999px;
+  background:var(--surface);box-shadow:var(--shadow-btn);
+  font-size:11.5px;color:var(--ink-2);
+}
+.thumb .colorchip i{width:10px;height:10px;border-radius:999px;box-shadow:0 0 0 1px var(--line-strong)}
+
+.body-txt{padding:11px 12px 12px;display:flex;flex-direction:column;gap:7px;flex:1}
+.code{font-family:"Geist Mono",ui-monospace,monospace;font-size:11.5px;color:var(--ink-3)}
+.name{
+  font-size:13.5px;font-weight:500;line-height:1.35;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.price{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.price b{
+  font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;
+  font-size:17px;font-weight:500;letter-spacing:-.02em;
+}
+.vs{font-size:11.5px;font-weight:500}
+.vs[data-dir="below"]{color:var(--green)}
+.vs[data-dir="above"]{color:var(--red)}
+.vs[data-dir="flat"]{color:var(--ink-3)}
+
+.facts{display:flex;gap:6px;flex-wrap:wrap}
+.fact{
+  display:inline-flex;align-items:center;gap:5px;height:21px;padding:0 8px;
+  border-radius:999px;background:var(--inset);color:var(--ink-2);font-size:11.5px;
+}
+.fact b{font-family:"Geist Mono",ui-monospace,monospace;font-weight:500;color:var(--ink)}
+.fact[data-slow="true"]{background:var(--orange-tint);color:var(--orange)}
+.fact[data-slow="true"] b{color:var(--orange)}
+
+.supplier{
+  margin-top:auto;padding-top:9px;border-top:1px solid var(--line);
+  display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2);min-width:0;
+}
+.supplier svg{color:var(--ink-3);flex-shrink:0}
+.supplier span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.tail{
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  padding:26px 0 0;color:var(--ink-2);font-size:13px;
+}
+
+@media(max-width:1180px){ .filters{width:212px} }
+@media(max-width:980px){
+  .ws,.grp,.side-foot{display:none}
+  .body{display:block}
+  .filters{width:auto;border-right:0;border-bottom:1px solid var(--line);padding:14px}
+  .results{padding:14px}
+  .searchbar{padding:12px 14px}
+  .suggest{padding:9px 14px}
+}
+@media(prefers-reduced-motion:reduce){}
+</style>
+</head>
+<body>
+
+<div class="window">
+
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws">
+      <span class="m" aria-hidden="true">R</span>
+      <b>RetailOS · Edge</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <div class="grp">Pengadaan</div>
+    <a href="#" aria-current="page">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5"/><path d="m12 12 3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Sourcing
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 4.5h11M3.5 9h11M3.5 13.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Shortlist
+      <span class="count">4</span>
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5M6.25 12.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Purchase Order
+      <span class="count">7</span>
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 14.5V7l6.5-4 6.5 4v7.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5v-4h4v4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      Supplier
+    </a>
+
+    <div class="grp">Persediaan</div>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Ringkasan
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="7.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="12.5" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>
+      Pool
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.8 2.4"/><path d="M9 5.75v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="12" r=".85" fill="currentColor"/></svg>
+      Missing
+      <span class="count">12</span>
+    </a>
+
+    <div class="side-foot">
+      <p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>Katalog sourcing · 15:42</p>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <!-- ── pencarian ─────────────────────────────────── -->
+    <div class="searchbar">
+      <label class="searchbox">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/><path d="m10.6 10.6 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input id="q" type="search" value="celana" aria-label="Cari kandidat sourcing" placeholder="Cari nama, kode, atau supplier">
+        <button type="button" class="btn btn-primary btn-sm">Cari</button>
+      </label>
+      <div class="sb-right">
+        <button type="button" class="shortlist">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 2.5h8v11l-4-2.6-4 2.6v-11Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          Shortlist <b>24</b>
+        </button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="suggest">
+      Pencarian tersimpan
+      <a href="#">Celana kulot rayon</a>
+      <a href="#">Kaos combed 30s</a>
+      <a href="#">Denim non-stretch</a>
+      <a href="#">Lead time ≤ 21 hari</a>
+      <a href="#">Supplier Bandung</a>
+    </div>
+
+    <div class="body">
+
+      <!-- ── penyaring ───────────────────────────────── -->
+      <aside class="filters" aria-label="Penyaring">
+        <div class="fh">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 4h12M4.5 8h7M6.5 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <h2>Filter</h2>
+          <button type="button">Reset</button>
+        </div>
+
+        <div class="fgrp">
+          <h3>Divisi</h3>
+          <label class="opt-tag"><input type="checkbox" checked> Bawahan <span class="n">184</span></label>
+          <label class="opt-tag"><input type="checkbox"> Atasan <span class="n">312</span></label>
+          <label class="opt-tag"><input type="checkbox"> Outerwear <span class="n">96</span></label>
+          <label class="opt-tag"><input type="checkbox"> Aksesori <span class="n">54</span></label>
+          <button type="button" class="more">Lainnya
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <div class="fgrp">
+          <h3>Supplier</h3>
+          <label class="opt-tag"><input type="checkbox"> PT Sinar Garmindo <span class="n">62</span></label>
+          <label class="opt-tag"><input type="checkbox" checked> CV Mitra Tekstil <span class="n">48</span></label>
+          <label class="opt-tag"><input type="checkbox"> Bandung Knit Works <span class="n">37</span></label>
+          <label class="opt-tag"><input type="checkbox"> PT Anugerah Denim <span class="n">21</span></label>
+          <button type="button" class="more">Lainnya
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <div class="fgrp">
+          <h3>Harga satuan</h3>
+          <div class="range">
+            <input type="number" placeholder="Min" aria-label="Harga minimum">
+            <span>–</span>
+            <input type="number" placeholder="Maks" aria-label="Harga maksimum">
+          </div>
+        </div>
+
+        <div class="fgrp">
+          <h3>MOQ maksimum</h3>
+          <label class="opt-tag"><input type="checkbox"> ≤ 50 pcs <span class="n">31</span></label>
+          <label class="opt-tag"><input type="checkbox" checked> ≤ 100 pcs <span class="n">78</span></label>
+          <label class="opt-tag"><input type="checkbox"> ≤ 300 pcs <span class="n">142</span></label>
+        </div>
+
+        <div class="fgrp">
+          <h3>Lead time</h3>
+          <label class="opt-tag"><input type="checkbox"> ≤ 14 hari <span class="n">22</span></label>
+          <label class="opt-tag"><input type="checkbox"> ≤ 21 hari <span class="n">67</span></label>
+          <label class="opt-tag"><input type="checkbox"> ≤ 30 hari <span class="n">128</span></label>
+        </div>
+
+        <div class="fgrp">
+          <h3>Warna</h3>
+          <label class="opt-tag"><input type="checkbox"> Hitam <span class="n">88</span></label>
+          <label class="opt-tag"><input type="checkbox"> Krem <span class="n">41</span></label>
+          <label class="opt-tag"><input type="checkbox"> Navy <span class="n">36</span></label>
+          <label class="opt-tag"><input type="checkbox"> Cokelat <span class="n">29</span></label>
+        </div>
+
+        <div class="fgrp">
+          <h3>Status</h3>
+          <label class="opt-tag"><input type="checkbox" checked> Aktif <span class="n">184</span></label>
+          <label class="opt-tag"><input type="checkbox"> Nonaktif <span class="n">17</span></label>
+          <label class="opt-tag"><input type="checkbox"> Arsip <span class="n">63</span></label>
+        </div>
+      </aside>
+
+      <!-- ── hasil ───────────────────────────────────── -->
+      <section class="results" aria-label="Hasil sourcing">
+
+        <a class="banner" href="#">
+          <span class="mark" aria-hidden="true">
+            <svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M4 2.5h10v13l-5-3.2-5 3.2v-13Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </span>
+          <span>
+            <b>Shortlist aktif — Koleksi Raya 2027</b>
+            <span>24 kandidat dari 6 supplier · belum ada PO</span>
+          </span>
+          <span class="go" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+        </a>
+
+        <p class="resultline">
+          Hasil pencarian untuk <b>‘celana’</b>
+          <span class="nil">· 184 kandidat aktif · harga pembanding dari median divisi Bawahan</span>
+        </p>
+
+        <div class="sortbar">
+          <span class="lab">Urutkan</span>
+          <button type="button" class="sortchip" aria-pressed="true">Terkait</button>
+          <button type="button" class="sortchip" aria-pressed="false">Terbaru</button>
+          <button type="button" class="sortchip" aria-pressed="false">Lead time tercepat</button>
+          <button type="button" class="sortchip" aria-pressed="false">MOQ terendah</button>
+          <select class="sortsel" aria-label="Urutkan harga">
+            <option>Harga</option>
+            <option>Harga terendah</option>
+            <option>Harga tertinggi</option>
+          </select>
+          <span class="pager">
+            <span class="mono"><b>1</b>/16</span>
+            <button type="button" disabled aria-label="Halaman sebelumnya">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m10 4-4 4 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button type="button" aria-label="Halaman berikutnya">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </span>
+        </div>
+
+        <div class="grid" id="grid"></div>
+
+        <p class="tail">
+          <span>Menampilkan 12 dari 184 kandidat</span>
+          <button type="button" class="btn btn-secondary btn-sm">Muat 12 lagi</button>
+        </p>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+/* Kandidat sourcing. Medannya persis SourcingListItem di `lib/api/contract.ts`:
+   code · name · supplier · division · color · tags[] · currency · unit_cost ·
+   moq · lead_time_days · status. `median` bukan medan wire — ia dihitung di
+   layar sebagai pembanding, dan itu sebabnya ia diberi label "vs median",
+   bukan disamarkan jadi harga coret. */
+var ITEMS = [
+  {code:"SRC-2411-0182", name:"Celana kulot rayon lipat depan, pinggang karet", supplier:"CV Mitra Tekstil", division:"Bawahan", color:"Krem", swatch:"#d8cbb4", tags:["rayon","kulot"], unit_cost:48500, median:53500, moq:60, lead:18, status:"active", saved:true},
+  {code:"SRC-2411-0177", name:"Celana cargo panjang pria, katun ripstop", supplier:"PT Sinar Garmindo", division:"Bawahan", color:"Hitam", swatch:"#2b2b2e", tags:["katun","cargo"], unit_cost:72000, median:69000, moq:100, lead:24, status:"active", saved:false},
+  {code:"SRC-2410-0951", name:"Celana jeans baggy non-stretch 12 oz", supplier:"PT Anugerah Denim", division:"Bawahan", color:"Navy", swatch:"#2f3a52", tags:["denim","baggy"], unit_cost:96500, median:112000, moq:120, lead:32, status:"active", saved:false},
+  {code:"SRC-2411-0203", name:"Sweatpants loose fleece brushed, tali pinggang", supplier:"Bandung Knit Works", division:"Bawahan", color:"Abu", swatch:"#a8adb3", tags:["fleece","loose"], unit_cost:41200, median:44800, moq:50, lead:14, status:"active", saved:false},
+  {code:"SRC-2409-0664", name:"Celana panjang flanel kotak unisex", supplier:"CV Mitra Tekstil", division:"Bawahan", color:"Merah", swatch:"#8d3a34", tags:["flanel","unisex"], unit_cost:53000, median:51500, moq:80, lead:21, status:"active", saved:false},
+  {code:"SRC-2411-0210", name:"Celana palazzo motif lipat, pinggang tinggi", supplier:"CV Mitra Tekstil", division:"Bawahan", color:"Cokelat", swatch:"#6b4a35", tags:["palazzo","motif"], unit_cost:57800, median:53500, moq:60, lead:19, status:"active", saved:true},
+  {code:"SRC-2408-0412", name:"Celana chino slim, katun twill 2/1", supplier:"PT Sinar Garmindo", division:"Bawahan", color:"Krem", swatch:"#cdbb9c", tags:["chino","twill"], unit_cost:64000, median:66500, moq:100, lead:26, status:"active", saved:false},
+  {code:"SRC-2411-0195", name:"Celana wide leg linen look, saku samping", supplier:"Bandung Knit Works", division:"Bawahan", color:"Putih", swatch:"#eae6de", tags:["linen","wide"], unit_cost:69900, median:71000, moq:75, lead:16, status:"active", saved:false},
+  {code:"SRC-2407-0238", name:"Celana jogger rib ankle, poliester spandex", supplier:"Bandung Knit Works", division:"Bawahan", color:"Hitam", swatch:"#2b2b2e", tags:["jogger","spandex"], unit_cost:38500, median:42000, moq:50, lead:15, status:"active", saved:false},
+  {code:"SRC-2406-0107", name:"Celana pendek katun rami, tali serut", supplier:"PT Sinar Garmindo", division:"Bawahan", color:"Olive", swatch:"#5d6448", tags:["rami","pendek"], unit_cost:34200, median:37500, moq:100, lead:22, status:"inactive", saved:false},
+  {code:"SRC-2411-0221", name:"Celana kulot denim washed, potongan A", supplier:"PT Anugerah Denim", division:"Bawahan", color:"Biru", swatch:"#5b7fa6", tags:["denim","kulot"], unit_cost:88000, median:84000, moq:150, lead:38, status:"active", saved:false},
+  {code:"SRC-2405-0079", name:"Celana bahan formal pria, wool blend", supplier:"CV Mitra Tekstil", division:"Bawahan", color:"Abu", swatch:"#7d8189", tags:["formal","wool"], unit_cost:118000, median:118000, moq:60, lead:28, status:"archived", saved:false},
+];
+
+var rupiah = function (n) {
+  return "Rp " + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+};
+
+/* Perbandingan terhadap median divisi. Nol selisih ditulis "setara median",
+   bukan "0%" — nol persen terbaca seperti diskon nol, padahal artinya
+   harganya persis di tengah. */
+function versus(cost, median) {
+  var diff = Math.round(((cost - median) / median) * 1000) / 10;
+  if (diff === 0) return { dir: "flat", text: "setara median" };
+  if (diff < 0) return { dir: "below", text: diff.toFixed(1).replace(".", ",") + "% di bawah median" };
+  return { dir: "above", text: "+" + diff.toFixed(1).replace(".", ",") + "% di atas median" };
+}
+
+var STATUS = {
+  active: ["green", "Aktif"],
+  inactive: ["orange", "Nonaktif"],
+  archived: ["neutral", "Arsip"],
+};
+
+var GARMENT = '<svg width="46" height="46" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M16 6h16l2 9-3 27h-7l-1-19-1 19h-7l-3-27 2-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M20 6c0 2 1.8 3.4 4 3.4S28 8 28 6" stroke="currentColor" stroke-width="1.6"/></svg>';
+
+function card(item) {
+  var vs = versus(item.unit_cost, item.median);
+  var st = STATUS[item.status];
+  var slow = item.lead > 30;
+  return (
+    '<a class="item" href="#">' +
+      '<span class="thumb">' + GARMENT +
+        '<span class="badges">' +
+          '<span class="pill" data-tone="' + st[0] + '">' + st[1] + '</span>' +
+        '</span>' +
+        '<button type="button" class="save" aria-pressed="' + item.saved + '" aria-label="Simpan ke shortlist">' +
+          '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 2.5h8v11l-4-2.6-4 2.6v-11Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>' +
+        '</button>' +
+        '<span class="colorchip"><i style="background:' + item.swatch + '"></i>' + item.color + '</span>' +
+      '</span>' +
+      '<span class="body-txt">' +
+        '<span class="code">' + item.code + '</span>' +
+        '<span class="name">' + item.name + '</span>' +
+        '<span class="price">' +
+          '<b>' + rupiah(item.unit_cost) + '</b>' +
+          '<span class="vs" data-dir="' + vs.dir + '">' + vs.text + '</span>' +
+        '</span>' +
+        '<span class="facts">' +
+          '<span class="fact">MOQ <b>' + item.moq + '</b></span>' +
+          '<span class="fact" data-slow="' + slow + '">Lead <b>' + item.lead + '</b> hari</span>' +
+        '</span>' +
+        '<span class="supplier">' +
+          '<svg width="13" height="13" viewBox="0 0 18 18" fill="none"><path d="M2.5 14.5V7l6.5-4 6.5 4v7.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5v-4h4v4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>' +
+          '<span>' + item.supplier + '</span>' +
+        '</span>' +
+      '</span>' +
+    '</a>'
+  );
+}
+
+document.getElementById("grid").innerHTML = ITEMS.map(card).join("");
+
+/* Simpan ke shortlist tanpa membuka kartunya — di grid penyisiran, menyimpan
+   adalah aksi yang paling sering dilakukan dan paling mahal kalau harus
+   masuk-keluar halaman detail. */
+document.querySelectorAll(".save").forEach(function (button) {
+  button.addEventListener("click", function (event) {
+    event.preventDefault();
+    var on = button.getAttribute("aria-pressed") === "true";
+    button.setAttribute("aria-pressed", String(!on));
+  });
+});
+
+document.querySelectorAll(".sortchip").forEach(function (chip) {
+  chip.addEventListener("click", function () {
+    document.querySelectorAll(".sortchip").forEach(function (other) {
+      other.setAttribute("aria-pressed", String(other === chip));
+    });
+  });
+});
+
+document.getElementById("theme").addEventListener("click", function () {
+  var root = document.documentElement;
+  root.classList.add("theme-switching");
+  root.classList.toggle("dark");
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () { root.classList.remove("theme-switching"); });
+  });
+});
+
+/* Pencarian menyaring grid di tempat — kotaknya bukan hiasan. */
+document.getElementById("q").addEventListener("input", function (event) {
+  var term = event.target.value.trim().toLowerCase();
+  var shown = ITEMS.filter(function (item) {
+    return !term ||
+      (item.name + " " + item.code + " " + item.supplier + " " + item.color + " " + item.tags.join(" "))
+        .toLowerCase().indexOf(term) !== -1;
+  });
+  document.getElementById("grid").innerHTML = shown.map(card).join("");
+  document.querySelectorAll(".save").forEach(function (button) {
+    button.addEventListener("click", function (e) {
+      e.preventDefault();
+      button.setAttribute("aria-pressed", String(button.getAttribute("aria-pressed") !== "true"));
+    });
+  });
+});
+</script>
+</body>
+</html>

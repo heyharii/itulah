@@ -1,0 +1,43 @@
+// The fleet's access policy (HuJSON — JSON that permits these comments).
+//
+// Headscale compiles this into a per-node packet filter, and the RECEIVING
+// node enforces it. That is what makes it trustworthy against a compromised
+// shop: the box it wants to reach is the one that says no, and that box is
+// not under the attacker's control.
+//
+// Default is deny. Only what is written below is possible.
+{
+  // Only the fleet admin may issue these tags. A node cannot tag itself,
+  // which is precisely what stops a shop box from claiming to be the cloud.
+  "tagOwners": {
+    "tag:cloud": ["fleet-admin@"],
+    "tag:dc":    ["fleet-admin@"],
+    "tag:store": ["fleet-admin@"]
+  },
+
+  "acls": [
+    // The only rule the fleet needs. Shops and DCs reach the cloud's ingest
+    // port; nothing else, in no other direction.
+    //
+    // Note what is absent: any rule pointing at a shop. Our sync is one-way
+    // by design — commands from head office ride the reply to a shop's own
+    // upload — so nothing in the fleet ever dials a shop, and no shop needs
+    // to be reachable.
+    {
+      "action": "accept",
+      "src": ["tag:store", "tag:dc"],
+      "dst": ["tag:cloud:8080"]
+    }
+  ],
+
+  // Admins reach fleet boxes over the tailnet, so no shop needs a public SSH
+  // port. Drop this block if you administer them some other way.
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["fleet-admin@"],
+      "dst": ["tag:cloud", "tag:dc", "tag:store"],
+      "users": ["root", "itulah"]
+    }
+  ]
+}

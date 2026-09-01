@@ -1,7 +1,7 @@
 use axum::body::{to_bytes, Body};
 use chrono::{Duration, Utc};
 use http::Request;
-use inventory_edge::{
+use inventory_backend::cloud::{
     application::{
         AddSaleLineRequest, AddSalePaymentRequest, AllotmentQuery, AvailabilityQuery,
         CancelAllotmentRequest, CommandRequest, CommercialOfferRuleInput, CommercialTaxRuleInput,
@@ -11,7 +11,7 @@ use inventory_edge::{
         ObservationBatchRequest, ReplayRequest, ReplayScope, RepostRequest, ResolveOfferQuery,
     },
     domain::{AllotmentType, CommercialChannel, CountKind, DestinationType, RfidRead},
-    http as api_http, infrastructure, AppConfig, AppState,
+    http as api_http, postgres as infrastructure, AppConfig, AppState,
 };
 use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, path::PathBuf};
@@ -63,7 +63,7 @@ async fn sku_place_quantity(pool: &PgPool, sku_id: Uuid, place_id: &str) -> i64 
         .get("quantity")
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn inventory_foundation_end_to_end(pool: PgPool) {
     let pools = infrastructure::list_pools(&pool, None, 24, 30)
         .await
@@ -71,10 +71,10 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
     let pool_items = pools["items"]
         .as_array()
         .unwrap_or_else(|| panic!("pool array"));
-    assert_eq!(pool_items.len(), 60);
+    assert_eq!(pool_items.len(), 112);
     assert_eq!(
         pool_items.iter().filter(|p| p["site_id"] == "dc").count(),
-        21
+        73
     );
     assert_eq!(
         pool_items
@@ -114,6 +114,8 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
             sync_apply_enabled: false,
             jwt_secret: None,
             auth_token_ttl_minutes: 720,
+            auth_session_idle_minutes: 30,
+            auth_cookie_secure: false,
             bootstrap_admin_password: None,
             cors_allowed_origins: None,
         },
@@ -176,7 +178,7 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
         .is_err());
 
     // Placement correction remains a fact and can cross sites only via the correction path.
-    let correction = inventory_edge::application::CorrectPlacementRequest {
+    let correction = inventory_backend::cloud::application::CorrectPlacementRequest {
         idempotency_key: "test-correction-cross-site".into(),
         actor_id: "inventory-auditor".into(),
         occurred_at: None,
@@ -488,7 +490,7 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
     assert_eq!(final_replay["status"], "MATCH");
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: PgPool) {
     let sku_rows = sqlx::query("SELECT id,sku_code FROM sku WHERE active ORDER BY sku_code")
         .fetch_all(&pool)
@@ -507,6 +509,8 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
         .iter()
         .enumerate()
         .map(|(index, row)| CommercialOfferRuleInput {
+            site_ids: None,
+            tier: None,
             sku_id: row.get("id"),
             site_id: None,
             channel: CommercialChannel::Store,
@@ -517,6 +521,8 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
         })
         .collect();
     offer_rules.push(CommercialOfferRuleInput {
+        site_ids: None,
+        tier: None,
         sku_id: target_sku,
         site_id: Some("store-07".into()),
         channel: CommercialChannel::Store,
@@ -526,6 +532,10 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
         tax_category: "STANDARD".into(),
     });
     let publication_request = CreateCommercialPublicationRequest {
+        campaigns: Vec::new(),
+        markdowns: Vec::new(),
+        rules: Vec::new(),
+        coupons: Vec::new(),
         version: 2,
         name: "Integration Store Price Book v2".into(),
         effective_from: Utc::now() - Duration::minutes(1),
@@ -713,6 +723,8 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
             sync_apply_enabled: false,
             jwt_secret: None,
             auth_token_ttl_minutes: 720,
+            auth_session_idle_minutes: 30,
+            auth_cookie_secure: false,
             bootstrap_admin_password: None,
             cors_allowed_origins: None,
         },
@@ -865,7 +877,7 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
     assert_eq!(replay["status"], "MATCH");
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgPool) {
     let availability = infrastructure::get_availability(&pool, AvailabilityQuery::default())
         .await
@@ -875,7 +887,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .unwrap_or_else(|| panic!("availability items"))
         .iter()
         .filter_map(|item| {
-            let available = item["available_qty"].as_i64()?;
+            let available = item["on_hand_qty"].as_i64()?;
             (available > 20).then(|| {
                 (
                     Uuid::parse_str(item["sku_id"].as_str().unwrap_or_default())
@@ -932,8 +944,8 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .iter()
         .find(|item| item["sku_id"] == cancel_sku.to_string())
         .unwrap_or_else(|| panic!("created SKU availability"));
-    assert_eq!(created_sku["allotment_qty"], 10);
-    assert_eq!(created_sku["available_qty"], cancel_available - 10);
+    assert_eq!(created_sku["allotted_qty"], 10);
+    assert_eq!(created_sku["on_hand_qty"], cancel_available - 10);
 
     let allotment_id = Uuid::parse_str(created["id"].as_str().unwrap_or_default())
         .unwrap_or_else(|e| panic!("allotment UUID: {e}"));
@@ -967,8 +979,8 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .iter()
         .find(|item| item["sku_id"] == cancel_sku.to_string())
         .unwrap_or_else(|| panic!("cancelled SKU availability"));
-    assert_eq!(cancelled_sku["allotment_qty"], 0);
-    assert_eq!(cancelled_sku["available_qty"], cancel_available);
+    assert_eq!(cancelled_sku["allotted_qty"], 0);
+    assert_eq!(cancelled_sku["on_hand_qty"], cancel_available);
 
     // Store destinations remain independent for the same SKU.
     let store_01 = infrastructure::create_allotment(
@@ -1023,7 +1035,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
                     .iter()
                     .find(|item| item["sku_id"] == pick_sku.to_string())
             })
-            .and_then(|item| item["remaining_qty"].as_i64())
+            .and_then(|item| item["remaining_quantity"].as_i64())
             .unwrap_or_default()
     };
     assert_eq!(store_remaining(&store_01_view), 5);
@@ -1055,10 +1067,11 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .iter()
         .find(|item| item["sku_id"] == pick_sku.to_string())
         .unwrap_or_else(|| panic!("pick SKU before"));
-    let available_before_pick = pick_before["available_qty"].as_i64().unwrap_or_default();
-    let allotment_before_pick = pick_before["allotment_qty"].as_i64().unwrap_or_default();
+    let available_before_pick = pick_before["on_hand_qty"].as_i64().unwrap_or_default();
+    let allotment_before_pick = pick_before["allotted_qty"].as_i64().unwrap_or_default();
     let warehouse_before_pick = sku_place_quantity(&pool, pick_sku, "dc.warehouse:on_hand").await;
-    let picked_before = sku_place_quantity(&pool, pick_sku, "dc.outbound.picked:on_hand").await;
+    let picked_before =
+        sku_place_quantity(&pool, pick_sku, "dc.outbound.picked.store-02:on_hand").await;
     let facts_before_pick = fact_count(&pool).await;
     let pick_request = ExecuteAllotmentRequest {
         allotment_line_id: store_02_line_id,
@@ -1086,7 +1099,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         warehouse_before_pick - 3
     );
     assert_eq!(
-        sku_place_quantity(&pool, pick_sku, "dc.outbound.picked:on_hand").await,
+        sku_place_quantity(&pool, pick_sku, "dc.outbound.picked.store-02:on_hand").await,
         picked_before + 3
     );
     let availability_after_pick =
@@ -1099,8 +1112,8 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .iter()
         .find(|item| item["sku_id"] == pick_sku.to_string())
         .unwrap_or_else(|| panic!("pick SKU after"));
-    assert_eq!(pick_after["allotment_qty"], allotment_before_pick - 3);
-    assert_eq!(pick_after["available_qty"], available_before_pick);
+    assert_eq!(pick_after["allotted_qty"], allotment_before_pick - 3);
+    assert_eq!(pick_after["on_hand_qty"], available_before_pick);
     assert!(
         infrastructure::execute_allotment(
             &pool,
@@ -1120,11 +1133,13 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let detail = infrastructure::get_allotment(&pool, store_02_id)
         .await
         .unwrap_or_else(|e| panic!("allotment detail: {e}"));
-    assert_eq!(detail["destination_store_id"], "store-02");
+    assert_eq!(detail["lines"][0]["destination_id"], "store-02");
     assert!(detail["movements"].as_array().is_some_and(|rows| {
         rows.iter().all(|movement| {
-            movement["reference_id"] == store_02_id.to_string()
-                && movement["destination_store_id"] == "store-02"
+            movement["reference_type"] == "ALLOTMENT_LINE"
+                && movement["allotment_id"] == store_02_id.to_string()
+                && movement["allotment_line_id"] == store_02_line_id.to_string()
+                && movement["destination_id"] == "store-02"
         })
     }));
 
@@ -1145,7 +1160,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
             occurred_at: None,
             reason: "Continue outbound flow with destination provenance".into(),
             reference_type: Some(reference_type.into()),
-            reference_id: Some(store_02_id.to_string()),
+            reference_id: Some(store_02_line_id.to_string()),
             cause: Some("NORMAL_MOVE".into()),
             lines: vec![MovementLineRequest {
                 subject_id: Some(outbound_subject),
@@ -1158,8 +1173,8 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     assert!(infrastructure::create_manual_movement(
         &pool,
         outbound_move(
-            "dc.outbound.picked:on_hand",
-            "dc.outbound.packed:on_hand",
+            "dc.outbound.picked.store-02:on_hand",
+            "dc.outbound.packed.store-02:on_hand",
             "outbound-without-allotment-provenance",
             "TEST",
         ),
@@ -1168,33 +1183,36 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     .is_err());
     for (from, to, key) in [
         (
-            "dc.outbound.picked:on_hand",
-            "dc.outbound.packed:on_hand",
+            "dc.outbound.picked.store-02:on_hand",
+            "dc.outbound.packed.store-02:on_hand",
             "allotment-outbound-packed",
         ),
         (
-            "dc.outbound.packed:on_hand",
-            "dc.outbound.shipment:on_hand",
+            "dc.outbound.packed.store-02:on_hand",
+            "dc.outbound.shipment.store-02:on_hand",
             "allotment-outbound-shipment",
         ),
         (
-            "dc.outbound.shipment:on_hand",
-            "dc.outbound.in-transit:on_hand",
+            "dc.outbound.shipment.store-02:on_hand",
+            "dc.outbound.in-transit.store-02:on_hand",
             "allotment-outbound-transit",
         ),
     ] {
-        infrastructure::create_manual_movement(&pool, outbound_move(from, to, key, "ALLOTMENT"))
-            .await
-            .unwrap_or_else(|e| panic!("continue Allotment outbound: {e}"));
+        infrastructure::create_manual_movement(
+            &pool,
+            outbound_move(from, to, key, "ALLOTMENT_LINE"),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("continue Allotment outbound: {e}"));
     }
     assert!(
         infrastructure::create_manual_movement(
             &pool,
             outbound_move(
-                "dc.outbound.in-transit:on_hand",
+                "dc.outbound.in-transit.store-02:on_hand",
                 "store-01.warehouse:on_hand",
                 "allotment-wrong-store",
-                "ALLOTMENT",
+                "ALLOTMENT_LINE",
             ),
         )
         .await
@@ -1204,10 +1222,10 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     infrastructure::create_manual_movement(
         &pool,
         outbound_move(
-            "dc.outbound.in-transit:on_hand",
+            "dc.outbound.in-transit.store-02:on_hand",
             "store-02.warehouse:on_hand",
             "allotment-correct-store",
-            "ALLOTMENT",
+            "ALLOTMENT_LINE",
         ),
     )
     .await
@@ -1222,7 +1240,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .unwrap_or_else(|| panic!("race availability items"))
         .iter()
         .find(|item| item["sku_id"] == race_sku.to_string())
-        .and_then(|item| item["available_qty"].as_i64())
+        .and_then(|item| item["on_hand_qty"].as_i64())
         .unwrap_or_default();
     assert!(race_available > 0);
     let race_request = |store: &str, key: &str| CreateAllotmentRequest {
@@ -1294,7 +1312,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .unwrap_or_else(|| panic!("shortage availability items"))
         .iter()
         .find(|item| item["sku_id"] == cancel_sku.to_string())
-        .and_then(|item| item["available_qty"].as_i64())
+        .and_then(|item| item["on_hand_qty"].as_i64())
         .unwrap_or_default();
     assert!(shortage_available > 0);
     let shortage_allotment = infrastructure::create_allotment(
@@ -1385,19 +1403,18 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .iter()
         .find(|item| item["sku_id"] == cancel_sku.to_string())
         .unwrap_or_else(|| panic!("shortage SKU"));
-    assert_eq!(shortage_sku["on_hand_qty"], 0);
-    assert_eq!(shortage_sku["allotment_qty"], shortage_available);
-    assert_eq!(shortage_sku["available_qty"], -shortage_available);
-    assert_eq!(shortage_sku["shortage_qty"], shortage_available);
+    assert_eq!(shortage_sku["allotted_qty"], shortage_available);
+    assert_eq!(shortage_sku["on_hand_qty"], -shortage_available);
+    assert_eq!(shortage_sku["missing_qty"], shortage_available);
     assert!(
         sku_place_quantity(&pool, cancel_sku, "dc.warehouse:missing").await > 0,
-        "Missing remains physical state and is excluded from Available"
+        "Missing remains physical state and is excluded from On Hand"
     );
     let shortage_detail = infrastructure::get_allotment(&pool, shortage_allotment_id)
         .await
         .unwrap_or_else(|e| panic!("shortage Allotment detail: {e}"));
     assert_eq!(shortage_detail["status"], "ACTIVE");
-    assert_eq!(shortage_detail["remaining_qty"], shortage_available);
+    assert_eq!(shortage_detail["remaining_quantity"], shortage_available);
     let shortage_events: i64 = sqlx::query("SELECT count(*)::bigint count FROM allotment_event WHERE event_type='ALLOTMENT_SHORTAGE' AND reference_id=$1 AND sku_id=$2")
         .bind(count_id.to_string())
         .bind(cancel_sku)
@@ -1430,14 +1447,20 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .iter()
         .find(|item| item["id"] == "dc.warehouse")
         .unwrap_or_else(|| panic!("DC Warehouse row"));
-    assert_eq!(warehouse["allotment"], shortage_after["allotment_qty"]);
-    assert_eq!(warehouse["available"], shortage_after["available_qty"]);
+    assert_eq!(warehouse["allotted"], shortage_after["allotted_qty"]);
+    assert_eq!(warehouse["on_hand"], shortage_after["on_hand_qty"]);
     let list = infrastructure::list_allotments(&pool, AllotmentQuery::default())
         .await
         .unwrap_or_else(|e| panic!("Allotment list: {e}"));
-    assert!(list["by_destination"]
+    let destinations = list["by_destination"]
         .as_array()
-        .is_some_and(|rows| rows.len() == 13));
+        .unwrap_or_else(|| panic!("Allotment destination summary"));
+    assert!(destinations
+        .iter()
+        .any(|row| row["destination_id"] == "store-02"));
+    assert!(destinations
+        .iter()
+        .any(|row| row["destination_id"] == "store-06"));
     assert!(list["shortages"]
         .as_array()
         .is_some_and(|rows| !rows.is_empty()));
@@ -1471,6 +1494,8 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
             sync_apply_enabled: false,
             jwt_secret: None,
             auth_token_ttl_minutes: 720,
+            auth_session_idle_minutes: 30,
+            auth_cookie_secure: false,
             bootstrap_admin_password: None,
             cors_allowed_origins: None,
         },

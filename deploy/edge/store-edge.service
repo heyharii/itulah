@@ -1,0 +1,29 @@
+# systemd unit for a shop's edge node.
+#
+# The shop keeps trading when the network is down: its facts accumulate in the
+# local SQLite outbox and drain when the tunnel returns. So this service has no
+# dependency on the tailnet being up — starting without it is normal, not a
+# failure.
+[Unit]
+Description=itulah Store Edge
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=itulah
+Group=itulah
+WorkingDirectory=/var/lib/itulah
+EnvironmentFile=/etc/itulah/store.env
+ExecStart=/usr/local/bin/store
+Restart=always
+RestartSec=5
+
+StateDirectory=itulah
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

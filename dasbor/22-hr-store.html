@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Kehadiran · Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   KEHADIRAN — sisi yang bekerja: store dan DC
+   --------------------------------------------------------------------------
+   Empat sifat dari attendance-domain menentukan seluruh bentuk layar ini, dan
+   tiga di antaranya melawan kebiasaan aplikasi absensi pada umumnya.
+
+   1 · HASIL DITURUNKAN, TIDAK PERNAH DISIMPAN SEBAGAI KEBENARAN.
+       LATE, ABSENT, APPROVED_OVERTIME adalah FUNGSI dari
+       (roster hari itu, punch, policy berlaku, persetujuan, koreksi berlaku).
+       Maka di layar ini status tidak pernah bisa "diedit" — tidak ada
+       dropdown untuk mengubah seseorang dari ABSENT jadi ON_TIME. Yang bisa
+       diubah cuma masukannya, dan hasilnya menyusul sendiri. Setiap status
+       diberi keterangan asalnya, supaya orang tahu ke mana harus protes.
+
+   2 · PUNCH ITU FAKTA, BUKAN MEDAN. Tidak ada jalur UPDATE. Koreksi adalah
+       lapisan terpisah yang hanya bisa ditambah, dan TIDAK PERNAH menimpa apa
+       yang dilihat alat. Karena itu baris yang dikoreksi menampilkan KEDUANYA:
+       angka asli tetap terbaca, koreksi berdiri di sebelahnya. Menyembunyikan
+       yang asli akan membuat lapisan koreksi jadi penyuntingan diam-diam.
+
+   3 · OTORITAS ABSEN ADALAH KIOSK TERDAFTAR, DAN ITU SEBUAH TIPE.
+       `Punch` tidak bisa dibangun tanpa `KioskAttestation`, yang medannya
+       privat, tanpa konstruktor publik dan tanpa Deserialize. Ponsel pribadi
+       tidak bisa mencetaknya karena memang tidak ada fungsi yang menghasilkan
+       satu pun. Jadi tombol absen di sini tidak "dinonaktifkan dengan sopan"
+       saat dibuka dari ponsel — ia menjelaskan bahwa alat inilah syaratnya.
+
+   4 · MENUTUP PERIODE MEMBEKUKAN BULAN — dan itu urusan HO, bukan layar ini.
+       Yang layar ini tanggung: begitu bulannya ditutup, punch, koreksi, DAN
+       roster sama-sama ditolak. Sebab kalau roster masih bisa disisipkan,
+       sebuah hari SCHEDULED yang ditambahkan belakangan akan mencetak ABSENT
+       baru — dan konsekuensi gaji baru — di bulan yang sudah dibereskan.
+   ========================================================================== */
+
+.sum{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));margin-bottom:12px}
+.stat{padding:12px 14px;display:flex;flex-direction:column;gap:5px}
+.stat span{font-size:12.5px;color:var(--ink-2)}
+.stat b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:500;letter-spacing:-.03em;line-height:1}
+.stat small{font-size:11.5px;color:var(--ink-3)}
+
+.kiosk{display:flex;align-items:center;gap:14px;padding:14px 16px;flex-wrap:wrap;margin-bottom:12px}
+.kiosk .idn{flex:1;min-width:180px}
+.kiosk .idn b{display:block;font-size:14px;font-weight:600;letter-spacing:-.01em}
+.kiosk .idn span{display:block;font-size:12.5px;color:var(--ink-3)}
+.kiosk .acts{display:flex;gap:8px;flex-wrap:wrap}
+.kiosk .btn{height:42px;padding:0 20px}
+
+/* Grid, bukan flex-wrap. Dengan flex-wrap urutan jatuhnya tidak bisa
+   diramalkan: pil status dan tombol mendarat berdampingan dengan keterangan
+   yang menjelaskan pil itu, dan keduanya jadi terbaca sebagai satu kalimat.
+   Grid membuat tiap kolom punya tempat tetap, dan di layar sempit ia menumpuk
+   dalam urutan yang sama seperti dibacanya. */
+.row{display:grid;grid-template-columns:1fr;gap:7px;align-items:center;
+  padding:11px 16px;border-bottom:1px solid var(--line)}
+@media(min-width:768px){
+  .row{grid-template-columns:minmax(150px,1fr) 122px minmax(160px,200px) auto;gap:12px}
+}
+.card .row:last-of-type{border-bottom:0}
+.row .who{min-width:0}
+.row .who b{display:block;font-size:13.5px;font-weight:500}
+.row .who span{display:block;font-size:11.5px;color:var(--ink-3)}
+.row .punch{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:13px}
+.row .punch s{color:var(--ink-3);text-decoration-thickness:1px}
+.row .punch em{font-style:normal;color:var(--accent)}
+.row .out{min-width:0}
+.row .acts{display:flex;gap:6px;justify-content:flex-start}
+@media(min-width:768px){.row .acts{justify-content:flex-end}}
+
+.derived{display:inline-flex;align-items:center;gap:6px}
+.derived .fx{font-size:11px;color:var(--ink-3);white-space:nowrap}
+
+.ovl{margin-top:4px;padding:5px 0 0 10px;border-left:2px solid var(--accent);font-size:11.5px;color:var(--ink-3)}
+
+.dlg{position:fixed;inset:0;display:none;place-items:center;padding:20px;z-index:60;background:var(--scrim)}
+.dlg[data-open="true"]{display:grid}
+.dlg-box{width:min(540px,100%);background:var(--page);border-radius:var(--radius-window);box-shadow:var(--shadow-overlay);overflow:hidden}
+.dlg-head{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.dlg-head h2{margin:0 0 3px;font-size:17px;font-weight:600;letter-spacing:-.015em}
+.dlg-head p{margin:0;font-size:13px;color:var(--ink-2)}
+.dlg-body{padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+.dlg-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+.keeps{padding:11px 13px;border-radius:var(--radius-card);background:var(--inset);font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--ink-2);white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS · Store</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="grp">Kepegawaian</div>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5V9l2.5 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Kehadiran hari ini</a>
+    <a href="23-hr-ho.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3.5 9.5 7 13l7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Persetujuan HO</a>
+    <a href="20-hr.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="2.75" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 15c.6-2.6 2.8-4 5.5-4s4.9 1.4 5.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Orang &amp; akses</a>
+    <div class="grp">Toko</div>
+    <a href="12-pos.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 3.5h2l1.6 8.2a1.4 1.4 0 0 0 1.4 1.1h6.1a1.4 1.4 0 0 0 1.4-1.1L16 6.5H5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Kasir</a>
+    <a href="16-count.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Official Count</a>
+    <div class="side-foot"><p class="node"><span class="chip">store-03</span> Kelapa Gading<br>Periode Agustus · terbuka</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Kehadiran hari ini</h1>
+      <span class="stamp"><i></i>Semua status diturunkan, bukan disimpan</span>
+      <div class="right">
+        <button type="button" class="btn btn-secondary btn-sm" id="ajukan">Ajukan cuti / lembur</button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="sum" id="sum"></div>
+
+      <section class="card kiosk" id="kioskcard">
+        <div class="idn" id="kioskid"></div>
+        <div class="acts" id="kioskacts"></div>
+      </section>
+
+      <section class="card" style="margin-bottom:12px">
+        <div class="ch"><h2>Roster hari ini</h2>
+          <span class="fchips">
+            <button type="button" class="fchip" aria-pressed="true" data-f="">Semua</button>
+            <button type="button" class="fchip" aria-pressed="false" data-f="perlu">Perlu tindakan</button>
+          </span>
+          <span class="meta">Rabu, 1 September 2026</span>
+        </div>
+        <div id="rows"></div>
+        <p class="cap">Tidak ada tempat di layar ini untuk mengubah status seseorang. Status adalah hasil hitungan dari
+        roster, punch, policy, persetujuan, dan koreksi — mengetiknya langsung berarti menyimpan kesimpulan tanpa alasannya.
+        Yang bisa diubah cuma masukannya, lewat koreksi.</p>
+      </section>
+
+      <section class="card">
+        <div class="ch"><h2>Koreksi yang saya ajukan</h2><span class="meta">Lapisan tambahan, bukan penyuntingan</span></div>
+        <div id="corrs"></div>
+        <p class="cap">Koreksi tidak pernah menimpa apa yang dilihat alat. Angka asli tetap ada dan tetap terbaca —
+        koreksi berdiri di sebelahnya sebagai lapisan yang bisa disetujui atau ditolak.</p>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="dlg" id="dlg" data-open="false">
+  <div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="d-t">
+    <div class="dlg-head"><h2 id="d-t">—</h2><p id="d-p"></p></div>
+    <div class="dlg-body" id="d-body"></div>
+    <div class="dlg-foot">
+      <button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="d-no">Batal</button>
+      <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="d-yes">Lanjut</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Bentuk dari fresh/crates/attendance-domain:
+   AttendanceOutcome · Correction{Effect,State} · KioskAttestation · PeriodStatus */
+
+/* Alat ini kiosk terdaftar. Kalau layar yang sama dibuka dari ponsel, nilainya
+   null — dan absen tidak tersedia, bukan karena tombolnya disembunyikan tapi
+   karena tidak ada yang bisa mencetak attestation-nya. */
+var KIOSK = {id:"KSK-0031", label:"Kiosk pintu belakang", place:"store-03", registered:true};
+var PERIOD = {month:"2026-08", status:"OPEN"};
+
+var OUT = {
+  ON_TIME:        {tone:"green",   label:"Tepat waktu"},
+  LATE:           {tone:"orange",  label:"Terlambat"},
+  EARLY_LEAVE:    {tone:"orange",  label:"Pulang awal"},
+  ABSENT:         {tone:"red",     label:"Tidak hadir"},
+  MISSING_PUNCH:  {tone:"red",     label:"Punch tidak lengkap"},
+  APPROVED_LEAVE: {tone:"neutral", label:"Cuti disetujui"},
+  APPROVED_OVERTIME:{tone:"accent",label:"Lembur disetujui"},
+};
+
+var ROSTER = [
+  {id:"e-1", name:"Rina Kartika", role:"Kasir", plan:"09:00–17:00",
+   arr:"08:56", dep:"17:04", outcome:"ON_TIME", minutes:null, corr:null},
+  {id:"e-2", name:"Agus Prakoso", role:"Kasir", plan:"09:00–17:00",
+   arr:"09:23", dep:"17:02", outcome:"LATE", minutes:23, corr:null},
+  {id:"e-3", name:"Sari Mulyani", role:"Supervisor", plan:"08:00–16:00",
+   arr:"07:58", dep:null, outcome:"MISSING_PUNCH", minutes:null, corr:null},
+  {id:"e-4", name:"Yuni Astuti", role:"Kasir", plan:"09:00–17:00",
+   arr:null, dep:null, outcome:"ABSENT", minutes:null, corr:null},
+  {id:"e-5", name:"Bagus Hartono", role:"Gudang", plan:"08:00–16:00",
+   arr:"07:52", dep:"18:40", outcome:"APPROVED_OVERTIME", minutes:160, corr:null},
+  {id:"e-6", name:"Fitri Handayani", role:"Kasir", plan:"09:00–17:00",
+   arr:null, dep:null, outcome:"APPROVED_LEAVE", minutes:null, corr:null},
+  {id:"e-7", name:"Doni Saputra", role:"Gudang", plan:"08:00–16:00",
+   arr:"08:02", dep:"15:20", outcome:"EARLY_LEAVE", minutes:40,
+   corr:{effect:"Departure", to:"16:05", state:"Pending", reason:"Mesin mati saat pulang"}},
+];
+
+var CORRS = [
+  {id:"cr-1", emp:"Doni Saputra", date:"1 Sep", effect:"Departure",
+   was:"15:20", to:"16:05", state:"Pending", reason:"Mesin mati saat pulang"},
+  {id:"cr-2", emp:"Sari Mulyani", date:"29 Agu", effect:"ArrivalAndDeparture",
+   was:"— / —", to:"08:00 / 16:00", state:"Approved", reason:"Kiosk offline sehari penuh"},
+  {id:"cr-3", emp:"Agus Prakoso", date:"28 Agu", effect:"Arrival",
+   was:"09:41", to:"09:05", state:"Rejected", reason:"Klaim macet tanpa bukti"},
+];
+
+var EFFECT_ID = {
+  Arrival:"jam masuk", Departure:"jam pulang",
+  ArrivalAndDeparture:"jam masuk dan pulang", ApprovedLeave:"jadi cuti disetujui",
+};
+var STATE_TONE = {Pending:"orange", Approved:"green", Rejected:"red", Withdrawn:"neutral"};
+var STATE_ID = {Pending:"Diajukan", Approved:"Disetujui", Rejected:"Ditolak", Withdrawn:"Ditarik"};
+
+var filter = "";
+
+function mins(m){ return m >= 60 ? Math.floor(m/60) + " j " + (m%60) + " m" : m + " menit"; }
+
+/* Keterangan asal setiap status — supaya orang tahu ke mana harus protes. */
+function why(r){
+  switch (r.outcome) {
+    case "ON_TIME": return "punch masuk di dalam toleransi";
+    case "LATE": return mins(r.minutes) + " setelah jadwal";
+    case "EARLY_LEAVE": return mins(r.minutes) + " sebelum jadwal";
+    case "ABSENT": return "dijadwalkan, tanpa punch, tanpa cuti";
+    case "MISSING_PUNCH": return "pasangan punch belum lengkap";
+    case "APPROVED_LEAVE": return "tertutup catatan cuti";
+    case "APPROVED_OVERTIME": return mins(r.minutes) + " lewat jadwal, ada izin";
+  }
+  return "";
+}
+
+function render(){
+  var perlu = ROSTER.filter(function(r){ return r.outcome === "MISSING_PUNCH" || r.outcome === "ABSENT"; });
+  var hadir = ROSTER.filter(function(r){ return r.arr; });
+  var telat = ROSTER.filter(function(r){ return r.outcome === "LATE"; });
+
+  document.getElementById("sum").innerHTML =
+    '<div class="card stat"><span>Dijadwalkan</span><b>' + ROSTER.length + '</b><small>hari ini</small></div>' +
+    '<div class="card stat"><span>Sudah punch</span><b>' + hadir.length + '</b><small>dari kiosk terdaftar</small></div>' +
+    '<div class="card stat"><span>Terlambat</span><b' + (telat.length ? ' style="color:var(--orange)"' : '') + '>' + telat.length + '</b><small>diturunkan dari policy</small></div>' +
+    '<div class="card stat"><span>Perlu tindakan</span><b' + (perlu.length ? ' style="color:var(--red)"' : '') + '>' + perlu.length + '</b><small>menghalangi tutup bulan</small></div>';
+
+  /* Kiosk: kalau alatnya bukan kiosk terdaftar, absen memang tidak ada. */
+  document.getElementById("kioskid").innerHTML = KIOSK.registered
+    ? '<b>' + KIOSK.label + '</b><span class="mono">' + KIOSK.id + ' · ' + KIOSK.place + '</span>'
+    : '<b>Alat ini bukan kiosk terdaftar</b><span>Absen tidak tersedia di sini</span>';
+  document.getElementById("kioskacts").innerHTML = KIOSK.registered
+    ? '<button type="button" class="btn btn-primary" id="in">Punch masuk</button>' +
+      '<button type="button" class="btn btn-secondary" id="out">Punch pulang</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="flip">Buka dari ponsel</button>'
+    : '<span class="pill" data-tone="red">Tanpa kiosk, punch tidak bisa dibuat</span>' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="flip">Kembali ke kiosk</button>';
+
+  document.getElementById("flip").addEventListener("click", function(){
+    KIOSK.registered = !KIOSK.registered; render();
+  });
+  if (KIOSK.registered) {
+    document.getElementById("in").addEventListener("click", function(){ punch("masuk"); });
+    document.getElementById("out").addEventListener("click", function(){ punch("pulang"); });
+  }
+
+  var list = filter === "perlu" ? perlu : ROSTER;
+  document.getElementById("rows").innerHTML = list.map(function(r){
+    var o = OUT[r.outcome];
+    return '<div class="row">' +
+      '<span class="who"><b>' + r.name + '</b><span>' + r.role + ' · <span class="mono">' + r.plan + '</span></span></span>' +
+      '<span class="punch">' +
+        (r.corr && r.corr.state === "Pending"
+          ? '<s>' + (r.arr || "—") + ' / ' + (r.dep || "—") + '</s><br><em>' + r.corr.to + ' diajukan</em>'
+          : (r.arr || '<span class="nil">—</span>') + ' / ' + (r.dep || '<span class="nil">—</span>')) +
+      '</span>' +
+      '<span class="out"><span class="derived"><span class="pill" data-tone="' + o.tone + '">' + o.label + '</span></span>' +
+        '<span class="fx" style="display:block;margin-top:3px">' + why(r) + '</span></span>' +
+      '<span class="acts">' +
+        (r.corr
+          ? '<span class="pill" data-tone="' + STATE_TONE[r.corr.state] + '">Koreksi ' + STATE_ID[r.corr.state].toLowerCase() + '</span>'
+          : '<button type="button" class="btn btn-secondary btn-sm" data-corr="' + r.id + '">Koreksi</button>') +
+      '</span>' +
+    '</div>';
+  }).join("");
+
+  document.querySelectorAll("[data-corr]").forEach(function(b){
+    b.addEventListener("click", function(){ koreksi(b.dataset.corr); });
+  });
+
+  document.getElementById("corrs").innerHTML = CORRS.map(function(c){
+    return '<div class="row">' +
+      '<span class="who"><b>' + c.emp + '</b><span>' + c.date + ' · ' + EFFECT_ID[c.effect] + '</span></span>' +
+      '<span class="punch"><s>' + c.was + '</s><br><em>' + c.to + '</em></span>' +
+      '<span class="out"><span class="pill" data-tone="' + STATE_TONE[c.state] + '">' + STATE_ID[c.state] + '</span>' +
+        '<span class="fx" style="display:block;margin-top:3px">' + c.reason + '</span></span>' +
+      '<span class="acts">' + (c.state === "Pending"
+        ? '<button type="button" class="btn btn-secondary btn-sm" data-wd="' + c.id + '">Tarik</button>'
+        : '') + '</span>' +
+    '</div>';
+  }).join("") || '<div class="empty"><b>Belum ada koreksi</b>Semua hari terbaca sebagaimana alat mencatatnya.</div>';
+
+  document.querySelectorAll("[data-wd]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var c = CORRS.find(function(x){ return x.id === b.dataset.wd; });
+      c.state = "Withdrawn";
+      var r = ROSTER.find(function(x){ return x.name === c.emp; });
+      if (r && r.corr) r.corr = null;
+      render();
+    });
+  });
+}
+
+var dlg = document.getElementById("dlg");
+function ask(title, sub, body, okLabel, onOk){
+  document.getElementById("d-t").textContent = title;
+  document.getElementById("d-p").textContent = sub;
+  document.getElementById("d-body").innerHTML = body;
+  var yes = document.getElementById("d-yes");
+  yes.textContent = okLabel;
+  yes.onclick = function(){ dlg.dataset.open = "false"; onOk(); };
+  dlg.dataset.open = "true";
+}
+document.getElementById("d-no").addEventListener("click", function(){ dlg.dataset.open = "false"; });
+dlg.addEventListener("click", function(e){ if (e.target === dlg) dlg.dataset.open = "false"; });
+
+function punch(arah){
+  ask("Punch " + arah, KIOSK.label,
+    '<div class="keeps">kiosk ' + KIOSK.id + '\nplace ' + KIOSK.place + '\narah ' + arah.toUpperCase() + '\nwaktu 09:31</div>' +
+    '<p style="margin:0;font-size:13px;color:var(--ink-2)">Punch tercatat sebagai fakta dan tidak bisa disunting setelahnya. ' +
+    'Kalau nanti keliru, yang dibuat adalah koreksi di sebelahnya — angka ini tetap terbaca.</p>',
+    "Catat", function(){});
+}
+
+function koreksi(id){
+  var r = ROSTER.find(function(x){ return x.id === id; });
+  ask("Ajukan koreksi · " + r.name, r.plan + " · " + (r.arr || "—") + " / " + (r.dep || "—"),
+    '<div class="f"><label for="k-eff">Yang dikoreksi</label><select class="inp" id="k-eff">' +
+      Object.keys(EFFECT_ID).map(function(k){ return '<option value="' + k + '">' + EFFECT_ID[k] + '</option>'; }).join("") +
+    '</select></div>' +
+    '<div class="f"><label for="k-val">Nilai yang benar</label><input class="inp" id="k-val" placeholder="08:00 / 16:00"></div>' +
+    '<div class="f"><label for="k-why">Alasan <span class="opt-tag">· wajib</span></label>' +
+      '<input class="inp" id="k-why" placeholder="Kenapa alat mencatat berbeda"></div>' +
+    '<div class="band" data-tone="neutral"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+    '<span>Ini <b>tidak menimpa</b> punch aslinya. Yang asli tetap tersimpan dan tetap ditampilkan; koreksi berdiri di sebelahnya ' +
+    'sampai HO memutuskan. Statusnya nanti ikut berubah sendiri, karena status memang dihitung dari lapisan ini.</span></div>',
+    "Ajukan", function(){
+      r.corr = {effect:"Departure", to:"—", state:"Pending", reason:"Diajukan dari store"};
+      CORRS.unshift({id:"cr-" + Date.now(), emp:r.name, date:"1 Sep", effect:"Departure",
+        was:(r.arr || "—") + " / " + (r.dep || "—"), to:"diajukan", state:"Pending", reason:"Diajukan dari store"});
+      render();
+    });
+}
+
+document.getElementById("ajukan").addEventListener("click", function(){
+  ask("Ajukan cuti atau lembur", "Diputuskan HO, dikerjakan di sini",
+    '<div class="f"><label for="a-jenis">Jenis</label><select class="inp" id="a-jenis"><option>Cuti</option><option>Lembur</option></select></div>' +
+    '<div class="f"><label for="a-org">Orang</label><select class="inp" id="a-org">' +
+      ROSTER.map(function(r){ return '<option>' + r.name + '</option>'; }).join("") + '</select></div>' +
+    '<div class="f"><label for="a-tgl">Tanggal</label><input class="inp" id="a-tgl" type="date" value="2026-09-03"></div>' +
+    '<div class="f"><label for="a-why">Alasan</label><input class="inp" id="a-why" placeholder="Keperluan"></div>' +
+    '<p class="hint" style="margin:0">Cuti yang disetujui mengubah hari itu dari <span class="mono">ABSENT</span> jadi ' +
+    '<span class="mono">APPROVED_LEAVE</span> — dan perubahannya terjadi karena persetujuannya, bukan karena ada yang mengetik ulang statusnya.</p>',
+    "Ajukan", function(){});
+});
+
+document.querySelectorAll("[data-f]").forEach(function(b){
+  b.addEventListener("click", function(){
+    filter = b.dataset.f;
+    document.querySelectorAll("[data-f]").forEach(function(o){ o.setAttribute("aria-pressed", String(o === b)); });
+    render();
+  });
+});
+document.getElementById("theme").addEventListener("click", function(){ document.documentElement.classList.toggle("dark"); });
+document.addEventListener("keydown", function(e){ if (e.key === "Escape") dlg.dataset.open = "false"; });
+render();
+</script>
+</body>
+</html>

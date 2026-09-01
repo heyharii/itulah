@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>POS · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* Terminal kasir: tombolnya ditekan ratusan kali per shift, jadi lebih tinggi
+   dari bawaan sistem. Ini satu-satunya layar yang berhak menaikkannya. */
+.btn{height:40px;padding:0 18px}
+.btn-lg{height:52px;font-size:16px;padding:0 24px}
+.btn-sm{height:32px;padding:0 12px}
+
+/* ==========================================================================
+   POS — kasir toko
+   --------------------------------------------------------------------------
+   Bentuknya mengikuti pos-electron (pindai · keranjang · tender · aksi),
+   tapi empat hal diperbaiki, dan semuanya datang dari kontrak `itulah`
+   sendiri, bukan dari selera:
+
+   1 · EPC ADALAH SATU BARANG, bukan kuantitas.
+       `AddSaleLineRequest { epc, quantity, ... }` memindai potongan tertentu.
+       Jadi keranjangnya berisi barang, bukan baris SKU dengan angka. Memindai
+       EPC yang sama dua kali ditolak — benda fisiknya cuma satu. Model
+       SKU × jumlah tidak bisa menyatakan itu.
+
+   2 · PAJAK DIHITUNG PERSIS SEPERTI SERVER.
+       `calculate_line_totals` memakai bilangan bulat dengan pembagian
+       terpotong:
+         inklusif : tax = base × rate / (10000 + rate); net = base − tax
+         eksklusif: tax = base × rate / 10000;          total = base + tax
+       Prototipe yang memakai pecahan akan meleset satu rupiah di sebagian
+       harga, dan itu selisih yang muncul di setoran akhir shift.
+
+   3 · VERSI PUBLIKASI DIPAKU DAN DITULIS.
+       Invarian #17: penjualan lama memakai potret baris dan tidak pernah
+       menghitung ulang harga. Jadi tiap baris menyebut publikasi mana yang
+       memberinya harga. Kalau katalog berubah tengah shift, kasir bisa
+       menjawab kenapa harga di struk beda dari yang di rak.
+
+   4 · YANG BELUM ADA TIDAK DITAWARKAN.
+       V1 tidak punya retur untuk penjualan yang sudah selesai — hanya void
+       untuk penjualan yang masih OPEN. Referensinya punya tombol retur;
+       di sini tidak ada, dan alasannya ditulis. Tombol yang tidak bekerja
+       lebih mahal daripada tombol yang tidak ada.
+
+   Kulitnya Beautiful UI — token dari ~/newton/app/globals.css.
+   ========================================================================== */
+
+/* ── bar atas ──────────────────────────────────────────── */
+.top .brand{display:flex;align-items:center;gap:9px}
+.top .brand .m{width:26px;height:26px;border-radius:var(--radius-chip);background:var(--ink);color:var(--page);display:grid;place-items:center;font-weight:600;font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.top .brand b{font-weight:600;letter-spacing:-.01em}
+.top .sep{width:1px;height:20px;background:var(--line)}
+.top .who{font-size:13px;color:var(--ink-2)}
+
+/* ── badan ─────────────────────────────────────────────── */
+.body{flex:1;display:flex;min-height:0;background:var(--canvas)}
+.left{flex:1;min-width:0;display:flex;flex-direction:column;padding:14px 16px;gap:12px}
+.right{width:376px;flex-shrink:0;border-left:1px solid var(--line);background:var(--page);display:flex;flex-direction:column}
+
+/* ── pindai ────────────────────────────────────────────── */
+.scan{display:flex;align-items:center;gap:10px;background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);padding:10px 12px}
+.scan svg{color:var(--ink-3);flex-shrink:0}
+.scan input{
+  flex:1;min-width:0;height:44px;border:0;outline:0;background:none;
+  font-family:"Geist Mono",ui-monospace,monospace;font-size:19px;letter-spacing:.01em;color:var(--ink);
+}
+.scan input::placeholder{color:var(--ink-3);font-size:16px;letter-spacing:-.01em;font-family:Inter,sans-serif}
+
+/* ── keranjang ─────────────────────────────────────────── */
+.cart{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
+.cart-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.cart-head h2{margin:0;font-size:14px;font-weight:600}
+.cart-head .meta{margin-left:auto;font-size:12.5px;color:var(--ink-3)}
+.cart-body{flex:1;overflow-y:auto}
+
+.line{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.line:last-child{border-bottom:0}
+.line:hover{background:var(--hover)}
+.line .n{width:22px;flex-shrink:0;font-family:"Geist Mono",ui-monospace,monospace;font-size:12px;color:var(--ink-3);text-align:end}
+.line .what{flex:1;min-width:0}
+.line .what b{display:block;font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.line .what .sub{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:2px}
+.line .money{text-align:end;flex-shrink:0}
+.line .money b{display:block;font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:15px;font-weight:500}
+.line .money span{font-size:11.5px;color:var(--ink-3)}
+.line .del{width:30px;height:30px;flex-shrink:0;border:0;border-radius:999px;background:none;color:var(--ink-3);display:grid;place-items:center}
+.line .del:hover{background:var(--red-tint);color:var(--red)}
+.empty span{font-size:13px;text-align:center;max-width:38ch}
+
+/* ── total & tender ────────────────────────────────────── */
+.totals{padding:16px;border-bottom:1px solid var(--line)}
+.grand{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px}
+.grand span{font-size:13px;color:var(--ink-2)}
+.grand b{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:34px;font-weight:600;letter-spacing:-.035em;line-height:1}
+.trow span:first-child{color:var(--ink-2)}
+.trow span:last-child{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.tnote{margin-top:8px;font-size:11.5px;color:var(--ink-3);line-height:1.45}
+
+.tender{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.methods{display:flex;gap:6px}
+.methods button{
+  flex:1;height:36px;border:0;border-radius:var(--radius-control);
+  background:var(--inset);color:var(--ink-2);font-family:inherit;font-size:13px;font-weight:500;
+  transition:background-color 140ms var(--ease),color 140ms var(--ease);
+}
+.methods button:hover{background:var(--hover-2)}
+.methods button[aria-pressed="true"]{background:var(--ink);color:var(--page);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.amt{display:flex;gap:8px}
+.amt input{
+  flex:1;min-width:0;height:44px;padding:0 13px;border:0;
+  background:var(--field);border-radius:var(--radius-control);box-shadow:0 0 0 1px var(--line);
+  font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;
+  font-size:18px;text-align:end;color:var(--ink);
+}
+.amt input:focus{box-shadow:0 0 0 1px var(--accent)}
+.quick{display:flex;gap:6px;flex-wrap:wrap}
+.quick button{
+  flex:1;min-width:72px;height:32px;border:0;border-radius:var(--radius-chip);
+  background:var(--surface);box-shadow:var(--shadow-btn);color:var(--ink-2);
+  font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px;
+}
+.quick button:hover{background:var(--inset);color:var(--ink)}
+
+.paid{display:flex;flex-direction:column;border-bottom:1px solid var(--line)}
+.paid-row{display:flex;align-items:center;gap:10px;padding:8px 16px;font-size:13px;border-top:1px solid var(--line)}
+.paid-row:first-child{border-top:0}
+.paid-row .m{flex:1;min-width:0;color:var(--ink-2)}
+.paid-row .v{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.paid-row .x{width:26px;height:26px;border:0;border-radius:999px;background:none;color:var(--ink-3);display:grid;place-items:center}
+.paid-row .x:hover{background:var(--red-tint);color:var(--red)}
+
+.due{padding:12px 16px;display:flex;align-items:baseline;justify-content:space-between;gap:12px;background:var(--inset)}
+.due span{font-size:13px;font-weight:500}
+.due b{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;letter-spacing:-.02em}
+.due[data-state="change"]{background:var(--green-tint)}
+.due[data-state="change"] b,.due[data-state="change"] span{color:var(--green)}
+.due[data-state="short"] b{color:var(--orange)}
+
+.finish{margin-top:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+
+/* ── bar aksi ──────────────────────────────────────────── */
+.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px;border-top:1px solid var(--line);background:var(--page)}
+.actions .hint{margin-left:auto;font-size:11.5px;color:var(--ink-3);display:flex;gap:12px;flex-wrap:wrap}
+
+/* ── overlay ───────────────────────────────────────────── */
+.dialog{width:min(430px,100%);background:var(--page);border-radius:var(--radius-window);box-shadow:var(--shadow-overlay);overflow:hidden}
+.dialog-head{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.dialog-head h2{margin:0 0 3px;font-size:17px;font-weight:600;letter-spacing:-.015em}
+.dialog-head p{margin:0;font-size:13px;color:var(--ink-2)}
+.dialog-body{padding:14px 18px}
+.dialog-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+.big{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:38px;font-weight:600;letter-spacing:-.03em;line-height:1;text-align:center;padding:10px 0 4px}
+.big-lab{text-align:center;font-size:13px;color:var(--ink-2);padding-bottom:8px}
+
+@media(max-width:1080px){
+  .body{flex-direction:column}
+  .right{width:auto;border-left:0;border-top:1px solid var(--line)}
+  .finish{margin-top:0}
+}
+@media(prefers-reduced-motion:reduce){}
+</style>
+</head>
+<body>
+
+<div class="window">
+
+  <div class="top">
+    <span class="brand"><span class="m">R</span><b>Kasir</b></span>
+    <span class="sep"></span>
+    <span class="who">store-07 · Toko Dago · kasir <b style="font-weight:500">sari.m</b></span>
+    <span class="pill" data-tone="green">Shift buka 08:00</span>
+    <span class="pill" data-tone="neutral" id="pubpill">Publikasi v12</span>
+    <span class="right">
+      <span class="pill" data-tone="green" id="net">Tersambung</span>
+      <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+  </div>
+
+  <div class="body">
+
+    <div class="left">
+      <label class="scan">
+        <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/><rect x="12.5" y="3.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/><rect x="3.5" y="12.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/><path d="M12.5 12.5h3v3m3 0v3h-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <input id="epc" autofocus autocomplete="off" placeholder="Pindai EPC barang" aria-label="Pindai EPC barang">
+        <span class="chip">EPC</span>
+      </label>
+
+      <div class="cart">
+        <div class="cart-head">
+          <h2>Keranjang</h2>
+          <span class="meta" id="cartmeta">kosong</span>
+        </div>
+        <div class="cart-body" id="lines"></div>
+      </div>
+    </div>
+
+    <aside class="right">
+      <div class="totals">
+        <div class="grand"><span>Total</span><b id="total">Rp 0</b></div>
+        <div class="trow"><span>Barang</span><span id="netv">—</span></div>
+        <div class="trow"><span id="taxlab">PPN</span><span id="taxv">—</span></div>
+        <p class="tnote" id="taxnote">Belum ada barang.</p>
+      </div>
+
+      <div class="tender">
+        <div class="methods" role="group" aria-label="Metode pembayaran">
+          <button type="button" aria-pressed="true" data-m="CASH">Tunai</button>
+          <button type="button" aria-pressed="false" data-m="CARD">Kartu</button>
+          <button type="button" aria-pressed="false" data-m="QRIS">QRIS</button>
+        </div>
+        <div class="amt">
+          <input id="amount" type="text" inputmode="numeric" placeholder="0" aria-label="Jumlah dibayar">
+          <button type="button" class="btn btn-primary" id="addpay">Catat</button>
+        </div>
+        <div class="quick" id="quick"></div>
+      </div>
+
+      <div class="paid" id="paid"></div>
+      <div class="due" id="due" data-state="short"><span>Kurang</span><b>Rp 0</b></div>
+
+      <div class="finish">
+        <button type="button" class="btn btn-go btn-lg" id="complete" disabled>
+          Selesaikan &nbsp;<kbd style="border-color:rgba(255,255,255,.35);background:transparent;color:#fff">F12</kbd>
+        </button>
+        <button type="button" class="btn btn-secondary" id="void">Batalkan penjualan</button>
+        <p class="tnote">
+          Penyelesaian mengunci tiap EPC dan menulis satu grup pergerakan sekaligus.
+          Kalau pembayaran kurang, tidak ada yang tercatat separuh.
+        </p>
+      </div>
+    </aside>
+  </div>
+
+  <div class="actions">
+    <button type="button" class="btn btn-secondary btn-sm" id="hold">Tahan <kbd>F2</kbd></button>
+    <button type="button" class="btn btn-secondary btn-sm" id="price">Cek harga <kbd>F3</kbd></button>
+    <button type="button" class="btn btn-secondary btn-sm">Setoran kas</button>
+    <button type="button" class="btn btn-secondary btn-sm">Tutup shift</button>
+    <span class="hint">
+      <span>Retur penjualan selesai belum ada di V1 — yang tersedia hanya batal untuk penjualan yang masih terbuka.</span>
+    </span>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" data-open="false">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+    <div class="dialog-head"><h2 id="dlg-title">—</h2><p id="dlg-sub"></p></div>
+    <div class="dialog-body" id="dlg-body"></div>
+    <div class="dialog-foot" id="dlg-foot"></div>
+  </div>
+</div>
+
+<script>
+/* ══ katalog ═══════════════════════════════════════════════
+   Medannya ResolvedOffer: publication_id/version, sku, unit_price_minor,
+   tax_rate_bps, tax_inclusive. Harga dalam MINOR (sen), seperti di wire. */
+var PUBLICATION = { version: 12, id: "pub-2609-0003" };
+
+var CATALOG = {
+  "10230114502": {name:"Celana kulot rayon", variant:"Krem · M",  unit_price_minor: 12_900_000, tax_rate_bps: 1100, tax_inclusive: true},
+  "10231220871": {name:"Celana palazzo motif", variant:"Cokelat · M", unit_price_minor: 15_900_000, tax_rate_bps: 1100, tax_inclusive: true},
+  "10229907441": {name:"Celana flanel kotak", variant:"Merah · L", unit_price_minor: 13_500_000, tax_rate_bps: 1100, tax_inclusive: true},
+  "10228801220": {name:"Kaos combed 30s", variant:"Putih · L",   unit_price_minor:  8_900_000, tax_rate_bps: 1100, tax_inclusive: false},
+  "10227700915": {name:"Tas belanja kanvas", variant:"Natural",   unit_price_minor:  2_500_000, tax_rate_bps:    0, tax_inclusive: false},
+};
+
+/* EPC contoh → SKU. Di sistem nyata pemetaan ini milik server; yang penting
+   di sini: satu EPC adalah satu potong barang tertentu. */
+var EPC_MAP = {
+  "A0B1C2D3E4F50001":"10230114502", "A0B1C2D3E4F50002":"10230114502",
+  "A0B1C2D3E4F50003":"10231220871", "A0B1C2D3E4F50004":"10229907441",
+  "A0B1C2D3E4F50005":"10228801220", "A0B1C2D3E4F50006":"10227700915",
+  "A0B1C2D3E4F50007":"10231220871", "A0B1C2D3E4F50008":"10230114502",
+};
+var EPCS = Object.keys(EPC_MAP);
+
+/* ══ matematika uang ═══════════════════════════════════════
+   Disalin persis dari `calculate_line_totals` di
+   src/edge/domain/commercial.rs — bilangan bulat, pembagian terpotong.
+   Memakai pecahan di sini akan meleset satu rupiah di sebagian harga, dan
+   selisih itu yang muncul saat setoran akhir shift. */
+function lineTotals(unit_price_minor, quantity, tax_rate_bps, tax_inclusive){
+  var base = unit_price_minor * quantity;
+  var rate = tax_rate_bps;
+  if (tax_inclusive) {
+    var taxIn = Math.trunc(base * rate / (10000 + rate));
+    return {net: base - taxIn, tax: taxIn, total: base};
+  }
+  var taxEx = Math.trunc(base * rate / 10000);
+  return {net: base, tax: taxEx, total: base + taxEx};
+}
+
+/* Minor → rupiah. Dibulatkan hanya untuk TAMPILAN; yang dijumlahkan selalu
+   minor, supaya jumlah baris dan total tidak pernah berbeda satu rupiah. */
+function rp(minor){
+  var whole = Math.trunc(minor / 100);
+  return "Rp " + String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+var sale = { id: null, lines: [], payments: [], method: "CASH", status: "OPEN" };
+
+function totals(){
+  var net = 0, tax = 0, total = 0;
+  sale.lines.forEach(function(l){
+    net += l.t.net; tax += l.t.tax; total += l.t.total;
+  });
+  var paid = sale.payments.reduce(function(a, p){ return a + p.amount; }, 0);
+  return {net: net, tax: tax, total: total, paid: paid, due: total - paid};
+}
+
+/* ══ keranjang ═════════════════════════════════════════════ */
+function paintLines(){
+  var box = document.getElementById("lines");
+
+  if (!sale.lines.length) {
+    box.innerHTML =
+      '<div class="empty">' +
+        '<b>Belum ada barang</b>' +
+        '<span>Pindai EPC untuk memulai. Tiap pindaian menambah satu potong barang — bukan menambah jumlah.</span>' +
+      '</div>';
+    document.getElementById("cartmeta").textContent = "kosong";
+    paintTotals();
+    return;
+  }
+
+  box.innerHTML = sale.lines.map(function(l, i){
+    return '<div class="line">' +
+      '<span class="n">' + (i + 1) + '</span>' +
+      '<span class="what">' +
+        '<b>' + l.name + '</b>' +
+        '<span class="sub">' +
+          '<span class="chip">' + l.epc + '</span>' +
+          '<span class="nil" style="font-size:12px">' + l.variant + '</span>' +
+          /* Versi publikasi ditulis per baris: penjualan lama tidak pernah
+             menghitung ulang harga, jadi baris harus bisa menjelaskan dirinya. */
+          '<span class="chip" data-tone="accent">v' + l.pub + '</span>' +
+          (l.tax_rate_bps === 0
+            ? '<span class="nil" style="font-size:11.5px">tanpa PPN</span>'
+            : '<span class="nil" style="font-size:11.5px">' +
+              (l.tax_inclusive ? "termasuk" : "+") + " PPN " + (l.tax_rate_bps / 100) + "%</span>") +
+        '</span>' +
+      '</span>' +
+      '<span class="money"><b>' + rp(l.t.total) + '</b>' +
+        '<span>' + rp(l.t.net) + " + " + rp(l.t.tax) + '</span></span>' +
+      '<button type="button" class="del" data-del="' + i + '" aria-label="Hapus baris">' +
+        '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="m4 4 8 8m0-8-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' +
+      '</button>' +
+    '</div>';
+  }).join("");
+
+  document.getElementById("cartmeta").textContent = sale.lines.length + " barang";
+
+  box.querySelectorAll("[data-del]").forEach(function(button){
+    button.addEventListener("click", function(){
+      sale.lines.splice(Number(button.dataset.del), 1);
+      paintLines();
+    });
+  });
+
+  paintTotals();
+}
+
+function paintTotals(){
+  var t = totals();
+  document.getElementById("total").textContent = rp(t.total);
+  document.getElementById("netv").textContent = sale.lines.length ? rp(t.net) : "—";
+  document.getElementById("taxv").textContent = sale.lines.length ? rp(t.tax) : "—";
+
+  /* Inklusif dan eksklusif tidak boleh diringkas jadi satu kalimat: yang satu
+     sudah ada di dalam harga, yang satu ditambahkan. Kasir yang ditanya
+     pembeli harus bisa menjawabnya dari layar ini. */
+  var anyIncl = sale.lines.some(function(l){ return l.tax_inclusive && l.tax_rate_bps > 0; });
+  var anyExcl = sale.lines.some(function(l){ return !l.tax_inclusive && l.tax_rate_bps > 0; });
+  var note = !sale.lines.length ? "Belum ada barang."
+    : anyIncl && anyExcl ? "Sebagian harga sudah termasuk PPN, sebagian ditambahkan. Rinciannya ada di tiap baris."
+    : anyIncl ? "Harga sudah termasuk PPN. Total tidak bertambah karenanya."
+    : anyExcl ? "PPN ditambahkan di atas harga barang."
+    : "Tidak ada barang kena PPN.";
+  document.getElementById("taxnote").textContent = note;
+
+  var due = document.getElementById("due");
+  if (t.due > 0) {
+    due.dataset.state = "short";
+    due.innerHTML = "<span>Kurang</span><b>" + rp(t.due) + "</b>";
+  } else if (t.due < 0) {
+    due.dataset.state = "change";
+    due.innerHTML = "<span>Kembalian</span><b>" + rp(-t.due) + "</b>";
+  } else {
+    due.dataset.state = "exact";
+    due.innerHTML = "<span>Pas</span><b>" + rp(0) + "</b>";
+  }
+
+  document.getElementById("complete").disabled = !sale.lines.length || t.due > 0;
+  paintPaid();
+  paintQuick();
+}
+
+function paintPaid(){
+  var box = document.getElementById("paid");
+  box.innerHTML = sale.payments.map(function(p, i){
+    return '<div class="paid-row">' +
+      '<span class="m">' + ({CASH:"Tunai",CARD:"Kartu",QRIS:"QRIS"}[p.method] || p.method) + '</span>' +
+      '<span class="v">' + rp(p.amount) + '</span>' +
+      '<button type="button" class="x" data-pay="' + i + '" aria-label="Hapus pembayaran">' +
+        '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="m4 4 8 8m0-8-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' +
+      '</button>' +
+    '</div>';
+  }).join("");
+  box.querySelectorAll("[data-pay]").forEach(function(button){
+    button.addEventListener("click", function(){
+      sale.payments.splice(Number(button.dataset.pay), 1);
+      paintTotals();
+    });
+  });
+}
+
+/* Pecahan uang yang benar-benar beredar, dan hanya yang >= kekurangannya —
+   tombol yang menawarkan uang lebih kecil dari tagihan cuma menambah langkah. */
+function paintQuick(){
+  var t = totals();
+  var box = document.getElementById("quick");
+  if (sale.method !== "CASH" || t.due <= 0) { box.innerHTML = ""; return; }
+  var notes = [5000000, 10000000, 20000000, 50000000, 100000000];
+  var options = notes.filter(function(n){ return n >= t.due; }).slice(0, 3);
+  var rounded = Math.ceil(t.due / 5000000) * 5000000;
+  if (!options.includes(rounded)) options.unshift(rounded);
+  options.unshift(t.due);
+  box.innerHTML = options.slice(0, 4).map(function(n, i){
+    return '<button type="button" data-q="' + n + '">' + (i === 0 ? "Pas" : rp(n)) + '</button>';
+  }).join("");
+  box.querySelectorAll("[data-q]").forEach(function(button){
+    button.addEventListener("click", function(){
+      document.getElementById("amount").value = Math.trunc(Number(button.dataset.q) / 100).toLocaleString("id-ID");
+      document.getElementById("amount").focus();
+    });
+  });
+}
+
+/* ══ pindai ════════════════════════════════════════════════ */
+var epcInput = document.getElementById("epc");
+
+function scan(raw){
+  var epc = raw.trim().toUpperCase();
+  if (!epc) return;
+
+  var sku = EPC_MAP[epc];
+  if (!sku) { dialog("EPC tidak dikenal", epc, "Barang ini tidak ada di katalog toko. Periksa tagnya, atau panggil supervisor.", [{label:"Tutup"}]); return; }
+
+  /* Satu EPC adalah satu benda fisik. Memindainya dua kali bukan "tambah
+     jumlah" — itu barang yang sama, dan model SKU × jumlah tidak bisa
+     menyatakan bedanya. */
+  if (sale.lines.some(function(l){ return l.epc === epc; })) {
+    dialog("Sudah ada di keranjang", epc,
+      "EPC menandai satu potong barang tertentu, jadi ia hanya bisa masuk sekali. Kalau pembeli membawa dua potong, pindai tag yang satunya.",
+      [{label:"Mengerti"}]);
+    return;
+  }
+
+  var item = CATALOG[sku];
+  var t = lineTotals(item.unit_price_minor, 1, item.tax_rate_bps, item.tax_inclusive);
+  sale.lines.push({
+    epc: epc, sku: sku, name: item.name, variant: item.variant,
+    unit_price_minor: item.unit_price_minor,
+    tax_rate_bps: item.tax_rate_bps, tax_inclusive: item.tax_inclusive,
+    pub: PUBLICATION.version, t: t,
+  });
+  if (!sale.id) sale.id = "SL-2609-" + String(Math.floor(1000 + Math.random() * 8999));
+  paintLines();
+}
+
+epcInput.addEventListener("keydown", function(e){
+  if (e.key !== "Enter") return;
+  scan(epcInput.value);
+  epcInput.value = "";
+});
+
+/* ══ pembayaran ════════════════════════════════════════════ */
+document.querySelectorAll(".methods button").forEach(function(button){
+  button.addEventListener("click", function(){
+    sale.method = button.dataset.m;
+    document.querySelectorAll(".methods button").forEach(function(o){
+      o.setAttribute("aria-pressed", String(o === button));
+    });
+    paintQuick();
+  });
+});
+
+document.getElementById("amount").addEventListener("input", function(e){
+  var digits = e.target.value.replace(/\D/g, "");
+  e.target.value = digits ? Number(digits).toLocaleString("id-ID") : "";
+});
+
+function addPayment(){
+  var field = document.getElementById("amount");
+  var rupiah = Number(field.value.replace(/\D/g, ""));
+  if (!rupiah) { field.focus(); return; }
+  sale.payments.push({method: sale.method, amount: rupiah * 100});
+  field.value = "";
+  paintTotals();
+}
+document.getElementById("addpay").addEventListener("click", addPayment);
+document.getElementById("amount").addEventListener("keydown", function(e){
+  if (e.key === "Enter") addPayment();
+});
+
+/* ══ selesai & batal ═══════════════════════════════════════ */
+document.getElementById("complete").addEventListener("click", function(){
+  var t = totals();
+
+  /* Invarian: tepat satu pemenang kalau dua keranjang berbayar mengincar EPC
+     yang sama. Jadi penyelesaian bisa gagal di detik terakhir, dan layarnya
+     harus bisa mengatakan itu — bukan berpura-pura selalu berhasil. */
+  var stolen = sale.lines.find(function(l){ return l.epc.endsWith("0008"); });
+  if (stolen) {
+    dialog("Penjualan tidak jadi", sale.id,
+      "EPC " + stolen.epc + " sudah terjual di kasir lain beberapa detik lalu. Tidak ada yang tercatat: " +
+      "tidak ada pergerakan persediaan, tidak ada pembayaran yang masuk. Hapus barisnya lalu ulangi.",
+      [{label:"Hapus baris itu", primary:true, act:function(){
+        sale.lines = sale.lines.filter(function(l){ return l !== stolen; });
+        paintLines();
+      }}, {label:"Tutup"}]);
+    return;
+  }
+
+  dialog("Selesai", sale.id,
+    "", [{label:"Penjualan baru", primary:true, act:reset}],
+    '<div class="big">' + rp(t.due < 0 ? -t.due : 0) + '</div>' +
+    '<div class="big-lab">kembalian</div>' +
+    '<div class="trow"><span>Total</span><span>' + rp(t.total) + '</span></div>' +
+    '<div class="trow"><span>Dibayar</span><span>' + rp(t.paid) + '</span></div>' +
+    '<div class="trow"><span>Barang</span><span>' + sale.lines.length + ' potong</span></div>' +
+    '<p class="tnote">Satu grup pergerakan persediaan ditulis bersamaan dengan penguncian pembayaran. ' +
+    'Struk memakai potret baris, jadi harga di struk tidak akan berubah walau katalog berubah besok.</p>');
+});
+
+document.getElementById("void").addEventListener("click", function(){
+  if (!sale.lines.length && !sale.payments.length) return;
+  dialog("Batalkan penjualan?", sale.id || "penjualan baru",
+    "Penjualan yang masih terbuka bisa dibatalkan tanpa menulis pergerakan persediaan apa pun. Yang sudah selesai tidak bisa — V1 belum punya retur.",
+    [{label:"Ya, batalkan", primary:true, act:reset}, {label:"Kembali"}]);
+});
+
+function reset(){
+  sale = {id:null, lines:[], payments:[], method:sale.method, status:"OPEN"};
+  document.getElementById("amount").value = "";
+  paintLines();
+  epcInput.focus();
+}
+
+/* ══ dialog ════════════════════════════════════════════════ */
+var scrim = document.getElementById("scrim");
+function dialog(title, sub, text, buttons, html){
+  document.getElementById("dlg-title").textContent = title;
+  document.getElementById("dlg-sub").textContent = sub || "";
+  document.getElementById("dlg-body").innerHTML = html || ('<p style="margin:0;font-size:13.5px;color:var(--ink-2)">' + text + "</p>");
+  var foot = document.getElementById("dlg-foot");
+  foot.innerHTML = buttons.map(function(b, i){
+    return '<button type="button" class="btn ' + (b.primary ? "btn-primary" : "btn-secondary") + '" style="flex:1" data-b="' + i + '">' + b.label + "</button>";
+  }).join("");
+  foot.querySelectorAll("[data-b]").forEach(function(button){
+    button.addEventListener("click", function(){
+      var b = buttons[Number(button.dataset.b)];
+      scrim.dataset.open = "false";
+      if (b.act) b.act();
+      epcInput.focus();
+    });
+  });
+  scrim.dataset.open = "true";
+}
+scrim.addEventListener("click", function(e){ if (e.target === scrim) { scrim.dataset.open = "false"; epcInput.focus(); } });
+
+/* ══ papan tombol ══════════════════════════════════════════ */
+document.getElementById("hold").addEventListener("click", function(){
+  dialog("Tahan penjualan", sale.id || "—",
+    "Keranjang disimpan dan kasir bebas melayani pembeli berikutnya. Penjualan yang ditahan masih berstatus OPEN, jadi belum ada persediaan yang bergerak.",
+    [{label:"Tahan", primary:true, act:reset}, {label:"Batal"}]);
+});
+document.getElementById("price").addEventListener("click", function(){
+  dialog("Cek harga", "tanpa menambah ke keranjang",
+    "Pindai EPC untuk melihat harganya. Pengecekan tidak menyentuh keranjang dan tidak menahan barang.",
+    [{label:"Tutup"}]);
+});
+
+document.addEventListener("keydown", function(e){
+  if (e.key === "F2") { e.preventDefault(); document.getElementById("hold").click(); }
+  if (e.key === "F3") { e.preventDefault(); document.getElementById("price").click(); }
+  if (e.key === "F12") { e.preventDefault(); var c = document.getElementById("complete"); if (!c.disabled) c.click(); }
+  if (e.key === "Escape") { scrim.dataset.open = "false"; epcInput.focus(); }
+});
+
+document.getElementById("theme").addEventListener("click", function(){
+  document.documentElement.classList.toggle("dark");
+});
+
+/* Beberapa EPC contoh dipasang di placeholder supaya prototipe bisa dicoba
+   tanpa alat pemindai. */
+epcInput.placeholder = "Pindai EPC — coba " + EPCS[0];
+paintLines();
+epcInput.focus();
+</script>
+</body>
+</html>

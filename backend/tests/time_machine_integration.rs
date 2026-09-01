@@ -6,10 +6,10 @@
 //! what-if), and edge fact log vs cloud ingest log (multi node: a tampered
 //! fact is found at its exact sequence number with a reproducing fixture).
 
-use inventory_edge::{
+use inventory_backend::cloud::{
     application::{CorruptProjectionRequest, CreateMovementRequest, MovementLineRequest},
-    infrastructure,
-    infrastructure::{
+    postgres as infrastructure,
+    postgres::{
         SyncDivergenceQuery, TimeMachineScope, TimeMachineStateQuery, WhatIfLine, WhatIfRequest,
     },
 };
@@ -37,13 +37,16 @@ fn delta_for<'a>(report: &'a Value, subject: Uuid, place: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no delta for {subject}@{place} in {report}"))
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn ledger_projection_divergence_is_localised_and_what_if_repairs_it(pool: PgPool) {
     // A healthy seeded node: ledger fold and projection agree everywhere.
     let baseline = infrastructure::time_machine_divergence(&pool, TimeMachineScope::default())
         .await
         .unwrap_or_else(|e| panic!("baseline divergence: {e}"));
-    assert_eq!(baseline["status"], "MATCH", "seed should be consistent: {baseline}");
+    assert_eq!(
+        baseline["status"], "MATCH",
+        "seed should be consistent: {baseline}"
+    );
 
     // Sequence-based travel is deterministic: same log, same hash, twice.
     let state_query = || TimeMachineStateQuery {
@@ -87,7 +90,10 @@ async fn ledger_projection_divergence_is_localised_and_what_if_repairs_it(pool: 
     let after_move = infrastructure::time_machine_divergence(&pool, TimeMachineScope::default())
         .await
         .unwrap_or_else(|e| panic!("post-move divergence: {e}"));
-    assert_eq!(after_move["status"], "MATCH", "a normal movement keeps both in step");
+    assert_eq!(
+        after_move["status"], "MATCH",
+        "a normal movement keeps both in step"
+    );
 
     // Corrupt the projection row by +3 and expect exactly that row flagged,
     // with the ledger's full history of the row attached.
@@ -108,7 +114,10 @@ async fn ledger_projection_divergence_is_localised_and_what_if_repairs_it(pool: 
         .await
         .unwrap_or_else(|e| panic!("divergence report: {e}"));
     assert_eq!(report["status"], "DIVERGENCE");
-    assert_eq!(report["divergent_subjects"], 1, "only the corrupted row: {report}");
+    assert_eq!(
+        report["divergent_subjects"], 1,
+        "only the corrupted row: {report}"
+    );
     let delta = delta_for(&report, subject, place);
     let quantity_diff = delta["diffs"]
         .as_array()
@@ -199,7 +208,7 @@ async fn insert_fact(
         .unwrap_or_else(|e| panic!("insert {table} seq {seq}: {e}"));
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn sync_divergence_localises_a_tampered_cloud_fact(pool: PgPool) {
     let subject = Uuid::new_v4();
 

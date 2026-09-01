@@ -1,0 +1,18 @@
+{
+  "name": "itulah-frontend",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:pos": "npm run dev --workspace apps/pos"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "7.1.5"
+  }
+}

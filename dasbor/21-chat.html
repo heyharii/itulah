@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Percakapan · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   PERCAKAPAN — realtime yang jujur soal keadaannya sendiri
+   --------------------------------------------------------------------------
+   Transportnya SSE, dan bentuknya sudah ditentukan collaboration/sse.go:
+
+     id: <event_id>
+     event: <kind>
+     data: <json>
+
+   Ditambah parameter `after`. Artinya sambungan yang putus TIDAK memulai dari
+   nol — ia menyambung dari peristiwa terakhir yang sudah sampai. Karena itu
+   penunjuk sambungan di layar ini tidak boleh cuma titik hijau/merah: ia
+   menyebut nomor peristiwa yang sedang disusul, karena itulah yang sebenarnya
+   sedang terjadi dan itu yang menjelaskan kenapa pesan muncul terlambat.
+
+   YANG BELUM DIBACA ADALAH GARIS, BUKAN LENCANA. `ChatConversation` membawa
+   `last_read_seq`, `latest_message_seq`, dan `unread_count` — bukan boolean.
+   Karena batasnya sebuah nomor urut, tempatnya di dalam percakapan bisa
+   digambar persis: satu garis "belum dibaca" di posisi yang benar. Lencana
+   angka saja membuang informasi yang sudah dikirim server.
+
+   KIRIM OPTIMIS AMAN KARENA ADA KUNCI IDEMPOTENSI. `SendMessageCommand` punya
+   `IdempotencyKey`. Maka pesan boleh langsung tampil sebelum server menjawab,
+   dan pengiriman ulang setelah sambungan pulih tidak menggandakannya. Pesan
+   yang belum di-ack ditandai — bukan disembunyikan, bukan pula dipura-purakan
+   sudah terkirim.
+
+   SEQ MILIK PERCAKAPAN, BUKAN MILIK GLOBAL. Urutan pesan dibaca dari `seq`,
+   bukan dari jam pengirim. Jam ponsel kasir bisa salah; `seq` tidak.
+
+   LAMPIRAN TERIKAT PERCAKAPAN. Rutenya
+   /api/v1/chat/conversations/{conversation_id}/attachments/{file_id} —
+   bukan URL berkas global. Jadi tidak ada tautan berkas yang bisa dibagikan
+   keluar percakapan, dan layar ini tidak berpura-pura punya satu.
+   ========================================================================== */
+
+/* Chat satu-satunya layar yang menggulir DI DALAM dirinya sendiri: utasnya
+   boleh sepanjang apa pun, tapi kotak tulis harus selalu terlihat. Untuk itu
+   jendelanya dipatok SETINGGI layar, bukan sekadar "paling tidak setinggi
+   layar" — sebuah rantai flex yang cuma punya min-height tidak punya batas
+   atas, jadi .msgs melar mengikuti isinya dan overflow-y-nya tidak pernah
+   terpakai. Itu yang membuat kotak tulis jatuh di bawah lipatan. */
+html,body{height:100%}
+body{overflow:hidden}
+.window{height:100%;min-height:0}
+.main{min-height:0}
+@media(max-width:767px){
+  .window{display:flex;flex-direction:column;height:100%}
+  .side{flex-shrink:0}
+  .main{flex:1;min-height:0}
+}
+
+
+.chat{display:grid;grid-template-columns:1fr;min-height:0;flex:1;background:var(--surface)}
+@media(min-width:768px){.chat{grid-template-columns:264px minmax(0,1fr)}}
+@media(min-width:1080px){.chat{grid-template-columns:296px minmax(0,1fr)}}
+@media(min-width:1400px){.chat{grid-template-columns:296px minmax(0,1fr) 292px}}
+
+.clist{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.csearch{padding:10px 12px;border-bottom:1px solid var(--line)}
+.croll{overflow-y:auto;flex:1;min-height:0}
+.croll{padding:6px}
+.conv{display:flex;gap:10px;padding:9px 10px;width:100%;text-align:start;background:none;border:0;
+  border-radius:var(--radius-control);font-family:inherit;color:inherit}
+.conv + .conv{margin-top:2px}
+.conv:hover{background:var(--inset)}
+.conv[aria-selected="true"]{background:var(--hover)}
+.conv .av{width:34px;height:34px;flex-shrink:0;border-radius:999px;display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--page)}
+.conv .av.grp2{border-radius:var(--radius-control);background:var(--inset);color:var(--ink-2)}
+.conv .cm{flex:1;min-width:0}
+.conv .cm b{display:block;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv .cm span{display:block;font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv .cr{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.conv .cr time{font-size:11px;color:var(--ink-3);white-space:nowrap}
+.unread{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--accent);color:var(--page);font-family:var(--font-mono);font-size:11px;display:grid;place-items:center}
+
+.thread{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.thead{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.thead b{font-size:14px;font-weight:600;letter-spacing:-.01em}
+.thead .who{font-size:12.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+.live{display:inline-flex;align-items:center;gap:7px;padding:3px 10px;border-radius:999px;background:var(--inset);font-size:12px;color:var(--ink-2);white-space:nowrap}
+.live i{width:7px;height:7px;border-radius:999px;background:var(--green);flex-shrink:0}
+.live[data-s="reconnecting"]{background:var(--orange-tint);color:var(--orange)}
+.live[data-s="reconnecting"] i{background:var(--orange)}
+.live[data-s="offline"]{background:var(--red-tint);color:var(--red)}
+.live[data-s="offline"] i{background:var(--red)}
+.live .seq{font-family:var(--font-mono);opacity:.75}
+
+/* min-height:0 wajib: sebuah flex item TIDAK akan menyusut di bawah tinggi
+   isinya tanpa ini, jadi utas yang panjang mendorong kotak tulis keluar
+   layar alih-alih menggulir sendiri. */
+.msgs{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px 16px;display:flex;flex-direction:column;gap:2px;min-height:0}
+.day{align-self:center;margin:10px 0 6px;padding:3px 10px;border-radius:999px;background:var(--inset);font-size:11.5px;color:var(--ink-3)}
+.newline{display:flex;align-items:center;gap:10px;margin:12px 0 6px}
+.newline i{flex:1;height:1px;background:var(--red)}
+.newline span{font-size:11.5px;color:var(--red);white-space:nowrap}
+
+.msg{display:flex;gap:9px;padding:3px 0;max-width:min(680px,100%)}
+.msg.me{align-self:flex-end;flex-direction:row-reverse}
+.msg .av{width:28px;height:28px;flex-shrink:0;border-radius:999px;display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--page)}
+.msg .av.hidden{visibility:hidden}
+.msg .bub{min-width:0}
+.msg .nm{display:flex;align-items:baseline;gap:7px;margin-bottom:2px}
+.msg .nm b{font-size:12.5px;font-weight:500}
+.msg .nm time{font-size:11px;color:var(--ink-3)}
+.msg .nm .sq{font-family:var(--font-mono);font-size:10.5px;color:var(--ink-3);opacity:.7}
+.msg .txt{padding:8px 12px;border-radius:var(--radius-card);background:var(--hover);font-size:13.5px;line-height:1.55}
+.msg.me .txt{background:var(--ink);color:var(--page)}
+.msg[data-pending="true"] .txt{opacity:.62}
+.msg .st{font-size:11px;color:var(--ink-3);margin-top:3px}
+.msg.me .st{text-align:end}
+.reply{margin-bottom:4px;padding:2px 0 2px 9px;font-size:12px;color:var(--ink-3);
+  border-left:2px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+
+.att{display:flex;align-items:center;gap:10px;margin-top:5px;padding:8px 10px;border-radius:var(--radius-card);background:var(--inset);text-decoration:none;color:inherit;max-width:340px}
+.att:hover{background:var(--hover)}
+.att .ic{width:30px;height:30px;flex-shrink:0;border-radius:var(--radius-xs);background:var(--surface);display:grid;place-items:center;font-family:var(--font-mono);font-size:9.5px;font-weight:500;color:var(--ink-3)}
+.att .fm{min-width:0;flex:1}
+.att .fm b{display:block;font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.att .fm span{display:block;font-size:11px;color:var(--ink-3);font-family:var(--font-mono)}
+.att .bar{height:3px;border-radius:var(--radius-bar);background:var(--inset);overflow:hidden;margin-top:4px}
+.att .bar i{display:block;height:100%;background:var(--accent)}
+
+.compose{border-top:1px solid var(--line);padding:10px 14px 12px}
+.drop{border-radius:var(--radius-card);background:var(--inset);padding:10px 12px}
+.drop[data-over="true"]{background:var(--accent-tint)}
+.ctools{display:flex;align-items:center;gap:8px;margin-top:8px}
+.ctools .grow{flex:1}
+.pend{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.ta{width:100%;border:0;background:none;resize:none;font-family:inherit;font-size:13.5px;line-height:1.55;color:var(--ink);min-height:22px;max-height:132px}
+.ta:focus{outline:none}
+
+.aside{border-left:1px solid var(--line);padding:14px 16px;overflow-y:auto;display:none}
+@media(min-width:1400px){.aside{display:block}}
+.aside h3{margin:0 0 9px;font-size:12px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.aside .p{display:flex;align-items:center;gap:9px;padding:6px 0}
+.aside .p .av{width:26px;height:26px;border-radius:999px;display:grid;place-items:center;font-size:10.5px;font-weight:600;color:var(--page);flex-shrink:0}
+.aside .p b{font-size:13px;font-weight:500;flex:1;min-width:0}
+.aside .fl{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+
+.backer{display:inline-flex}
+@media(min-width:768px){.backer{display:none}}
+@media(max-width:767px){
+  .chat[data-view="thread"] .clist{display:none}
+  .chat[data-view="list"] .thread{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="grp">Bicara</div>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M15.5 9.5c0 2.8-2.9 5-6.5 5-.8 0-1.6-.1-2.3-.3L2.5 15.5l1.2-3.2C2.9 11.5 2.5 10.5 2.5 9.5c0-2.8 2.9-5 6.5-5s6.5 2.2 6.5 5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>Percakapan <span class="n" data-tone="red">4</span></a>
+    <a href="13-discuss.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3.5 4.5h11M3.5 9h11M3.5 13.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Diskusi</a>
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="18-receiving.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 13V6h9v7M11.5 8.5h3l2.5 2.5V13" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>Penerimaan</a>
+    <div class="side-foot"><p class="node"><span class="chip">sse</span> collaboration<br>Tersambung · 09:14</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Percakapan</h1>
+      <span class="live" id="live" data-s="live"><i></i>Tersambung · <span class="seq" id="seq">#0</span></span>
+      <div class="right">
+        <button type="button" class="btn btn-secondary btn-sm" id="drop">Putuskan</button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="chat" id="chat" data-view="list">
+      <div class="clist">
+        <div class="csearch"><input class="inp" id="q" placeholder="Cari percakapan"></div>
+        <div class="croll" id="convs" role="listbox" aria-label="Percakapan"></div>
+      </div>
+
+      <div class="thread">
+        <div class="thead">
+          <button type="button" class="btn btn-secondary btn-sm backer" id="back">Kembali</button>
+          <span><b id="t-title">—</b></span>
+          <span class="who" id="t-who"></span>
+        </div>
+
+        <div class="msgs" id="msgs"></div>
+
+        <div class="compose">
+          <div class="drop" id="dropzone">
+            <div class="pend" id="pendfiles"></div>
+            <textarea class="ta" id="ta" rows="1" placeholder="Tulis pesan"></textarea>
+            <div class="ctools">
+              <button type="button" class="btn btn-secondary btn-sm" id="pick">Lampirkan</button>
+              <span class="grow"></span>
+              <span class="hint" id="idem"></span>
+              <button type="button" class="btn btn-primary btn-sm" id="send">Kirim</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="aside">
+        <h3>Peserta</h3>
+        <div id="people"></div>
+        <h3 style="margin-top:16px">Berkas di percakapan ini</h3>
+        <div class="fl" id="files"></div>
+        <p class="cap" style="padding:0;margin-top:10px">Berkas diambil lewat rute yang membawa id percakapan.
+        Tidak ada tautan berkas yang berdiri sendiri, jadi tidak ada yang bisa dibagikan keluar dari sini.</p>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<script>
+/* Bentuk dari newton/internal/chat/model.go dan collaboration/sse.go */
+
+var ME = "sari.m";
+var HUE = {"sari.m":212, "budi.s":152, "dedi.f":32, "rina.k":286, "agus.p":8};
+function av(u){ return 'oklch(58% .13 ' + (HUE[u] || 200) + ')'; }
+function ini(u){ return u.slice(0,1).toUpperCase() + (u.split(".")[1] || "").slice(0,1).toUpperCase(); }
+
+var CONVS = [
+  {id:"cv-1", kind:"GROUP", title:"Penerimaan DC-01", who:"budi.s · dedi.f · sari.m",
+   latest_seq:1184, last_read_seq:1181, participants:["budi.s","dedi.f","sari.m"]},
+  {id:"cv-2", kind:"DIRECT", title:"budi.s", who:"Langsung",
+   latest_seq:412, last_read_seq:412, participants:["budi.s","sari.m"]},
+  {id:"cv-3", kind:"GROUP", title:"Store 03 — lantai", who:"rina.k · agus.p · sari.m",
+   latest_seq:9032, last_read_seq:9031, participants:["rina.k","agus.p","sari.m"]},
+  {id:"cv-4", kind:"DIRECT", title:"dedi.f", who:"Langsung",
+   latest_seq:77, last_read_seq:77, participants:["dedi.f","sari.m"]},
+];
+
+var MSGS = {
+  "cv-1":[
+    {seq:1179, author:"budi.s", at:"08:41", body:"Truk Mitra Tekstil sudah bongkar. Lima baris, dua PO."},
+    {seq:1180, author:"dedi.f", at:"08:44", body:"Hitung dulu semuanya baru saya periksa. Jangan dibalik."},
+    {seq:1181, author:"sari.m", at:"08:46", body:"Siap. Saya ambil L-3 dan L-4."},
+    {seq:1182, author:"budi.s", at:"09:02", body:"ART-5510 hasilnya 164. Ini foto tumpukannya sebelum dibuka.",
+     att:[{file_id:"f-8821", file_name:"tumpukan-art5510.jpg", content_type:"image/jpeg", size:2411984, sha:"9f2c41ae"}]},
+    {seq:1183, author:"dedi.f", at:"09:05", body:"Kurang 16 dari pesanan. Saya terima apa adanya, bukan diperbaiki jadi 180.", reply:1182},
+    {seq:1184, author:"budi.s", at:"09:06", body:"Faktur saya scan ya.",
+     att:[{file_id:"f-8822", file_name:"faktur-MT-2609.pdf", content_type:"application/pdf", size:184320, sha:"c70b1d55"}]},
+  ],
+  "cv-2":[{seq:412, author:"budi.s", at:"kemarin", body:"Besok saya masuk siang."}],
+  "cv-3":[
+    {seq:9030, author:"rina.k", at:"07:58", body:"Rak depan kosong tiga ukuran."},
+    {seq:9031, author:"agus.p", at:"08:03", body:"Sudah saya ajukan allotment ke DC."},
+    {seq:9032, author:"rina.k", at:"08:20", body:"Oke. Saya count ulang setelah restock."},
+  ],
+  "cv-4":[{seq:77, author:"dedi.f", at:"Jumat", body:"Laporan harian store-03 sudah cocok."}],
+};
+
+var active = "cv-1";
+var eventId = 4471;                 /* id peristiwa SSE terakhir yang sampai */
+var conn = "live";                  /* live · reconnecting · offline */
+var staged = [];                    /* berkas yang sudah diunggah, siap dilampirkan */
+var pending = [];                   /* pesan optimis yang belum di-ack */
+
+function bytes(n){
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n/1024).toFixed(0) + " KB";
+  return (n/1048576).toFixed(1) + " MB";
+}
+function ext(name){ return (name.split(".").pop() || "?").toUpperCase().slice(0,4); }
+
+function paintConns(){
+  var text = {live:"Tersambung", reconnecting:"Menyambung ulang", offline:"Terputus"}[conn];
+  var el = document.getElementById("live");
+  el.dataset.s = conn;
+  el.innerHTML = '<i></i>' + text + ' · <span class="seq">#' + eventId + '</span>';
+  document.getElementById("drop").textContent = conn === "live" ? "Putuskan" : "Sambungkan";
+}
+
+function paintConvs(){
+  var q = (document.getElementById("q").value || "").toLowerCase();
+  document.getElementById("convs").innerHTML = CONVS.filter(function(c){
+    return !q || c.title.toLowerCase().includes(q);
+  }).map(function(c){
+    var unread = c.latest_seq - c.last_read_seq;
+    var last = (MSGS[c.id] || []).slice(-1)[0];
+    return '<button type="button" class="conv" role="option" aria-selected="' + (c.id === active) + '" data-c="' + c.id + '">' +
+      (c.kind === "DIRECT"
+        ? '<span class="av" style="background:' + av(c.title) + '">' + ini(c.title) + '</span>'
+        : '<span class="av grp2">' + c.title.slice(0,1).toUpperCase() + '</span>') +
+      '<span class="cm"><b>' + c.title + '</b><span>' +
+        (last ? (c.kind === "DIRECT" ? last.body : last.author + ": " + last.body) : "—") + '</span></span>' +
+      '<span class="cr"><time>' + (last ? last.at : "") + '</time>' +
+        (unread > 0 ? '<span class="unread">' + unread + '</span>' : '') + '</span>' +
+    '</button>';
+  }).join("");
+
+  document.querySelectorAll("[data-c]").forEach(function(b){
+    b.addEventListener("click", function(){
+      active = b.dataset.c;
+      document.getElementById("chat").dataset.view = "thread";
+      paintConvs(); paintThread();
+    });
+  });
+}
+
+function paintThread(){
+  var c = CONVS.find(function(x){ return x.id === active; });
+  var list = (MSGS[active] || []).concat(pending.filter(function(p){ return p.conv === active; }));
+  document.getElementById("t-title").textContent = c.title;
+  document.getElementById("t-who").textContent = c.who;
+
+  var html = '<div class="day">Hari ini</div>';
+  var prev = null, drawnLine = false;
+  list.forEach(function(m){
+    /* Garis belum-dibaca digambar di posisi yang ditunjuk last_read_seq —
+       nomor urutnya sudah dikirim server, jadi tempatnya bukan tebakan. */
+    if (!drawnLine && !m.pending && m.seq > c.last_read_seq) {
+      html += '<div class="newline"><span>Belum dibaca</span><i></i></div>';
+      drawnLine = true;
+    }
+    var me = m.author === ME;
+    var sameAuthor = prev && prev.author === m.author;
+    var replyTo = m.reply ? list.find(function(x){ return x.seq === m.reply; }) : null;
+
+    html += '<div class="msg' + (me ? " me" : "") + '" data-pending="' + !!m.pending + '">' +
+      '<span class="av' + (sameAuthor ? " hidden" : "") + '" style="background:' + av(m.author) + '">' + ini(m.author) + '</span>' +
+      '<span class="bub">' +
+        (sameAuthor ? "" : '<span class="nm"><b>' + m.author + '</b><time>' + m.at + '</time>' +
+          (m.pending ? "" : '<span class="sq">#' + m.seq + '</span>') + '</span>') +
+        (replyTo ? '<div class="reply">' + replyTo.author + ": " + replyTo.body.slice(0,52) + '</div>' : "") +
+        '<span class="txt">' + m.body + '</span>' +
+        (m.att || []).map(function(a){
+          return '<a class="att" href="/api/v1/chat/conversations/' + active + '/attachments/' + a.file_id + '">' +
+            '<span class="ic">' + ext(a.file_name) + '</span>' +
+            '<span class="fm"><b>' + a.file_name + '</b><span>' + bytes(a.size) + ' · sha ' + a.sha + '</span></span></a>';
+        }).join("") +
+        (m.pending ? '<span class="st">Belum sampai server · akan dikirim ulang dengan kunci yang sama</span>' : "") +
+      '</span></div>';
+    prev = m;
+  });
+
+  var box = document.getElementById("msgs");
+  box.innerHTML = html;
+  box.scrollTop = box.scrollHeight;
+
+  document.getElementById("people").innerHTML = c.participants.map(function(p){
+    return '<div class="p"><span class="av" style="background:' + av(p) + '">' + ini(p) + '</span>' +
+      '<b>' + p + '</b><span class="chip">' + (p === ME ? "kamu" : "anggota") + '</span></div>';
+  }).join("");
+
+  var files = [];
+  (MSGS[active] || []).forEach(function(m){ (m.att || []).forEach(function(a){ files.push(a); }); });
+  document.getElementById("files").innerHTML = files.length
+    ? files.map(function(a){
+        return '<a class="att" href="/api/v1/chat/conversations/' + active + '/attachments/' + a.file_id + '">' +
+          '<span class="ic">' + ext(a.file_name) + '</span>' +
+          '<span class="fm"><b>' + a.file_name + '</b><span>' + bytes(a.size) + '</span></span></a>';
+      }).join("")
+    : '<p class="hint" style="margin:0">Belum ada berkas.</p>';
+}
+
+function paintStaged(){
+  document.getElementById("pendfiles").innerHTML = staged.map(function(f, i){
+    return '<span class="att" style="max-width:260px">' +
+      '<span class="ic">' + ext(f.name) + '</span>' +
+      '<span class="fm"><b>' + f.name + '</b><span>' + bytes(f.size) +
+        (f.progress < 100 ? ' · unggah ' + f.progress + '%' : ' · sha ' + f.sha) + '</span>' +
+        (f.progress < 100 ? '<span class="bar"><i style="width:' + f.progress + '%"></i></span>' : '') + '</span>' +
+      '<button type="button" class="icon-btn" data-x="' + i + '" aria-label="Buang">' +
+        '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="m4 4 6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      '</button></span>';
+  }).join("");
+  document.querySelectorAll("[data-x]").forEach(function(b){
+    b.addEventListener("click", function(){ staged.splice(Number(b.dataset.x), 1); paintStaged(); });
+  });
+  document.getElementById("idem").textContent = staged.length
+    ? staged.length + " lampiran siap"
+    : "";
+}
+
+/* Berkas diunggah LEBIH DULU dan menghasilkan file_id; pesan hanya merujuknya.
+   Itu sebabnya lampiran bisa selesai diunggah sebelum pesannya ditulis. */
+function stage(name, size){
+  var f = {name:name, size:size, progress:0, sha:"—"};
+  staged.push(f); paintStaged();
+  var t = setInterval(function(){
+    f.progress = Math.min(100, f.progress + 20);
+    if (f.progress >= 100) { clearInterval(t); f.sha = Math.random().toString(16).slice(2,10); }
+    paintStaged();
+  }, 220);
+}
+
+document.getElementById("pick").addEventListener("click", function(){
+  stage("koli-" + Math.floor(Math.random()*900+100) + ".jpg", 1_800_000 + Math.floor(Math.random()*900000));
+});
+
+var dz = document.getElementById("dropzone");
+["dragenter","dragover"].forEach(function(e){
+  dz.addEventListener(e, function(ev){ ev.preventDefault(); dz.dataset.over = "true"; });
+});
+["dragleave","drop"].forEach(function(e){
+  dz.addEventListener(e, function(ev){ ev.preventDefault(); dz.dataset.over = "false"; });
+});
+dz.addEventListener("drop", function(ev){
+  var fs = ev.dataTransfer && ev.dataTransfer.files;
+  if (fs && fs.length) for (var i = 0; i < fs.length; i++) stage(fs[i].name, fs[i].size);
+  else stage("berkas-dijatuhkan.pdf", 240000);
+});
+
+var ta = document.getElementById("ta");
+ta.addEventListener("input", function(){ ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });
+ta.addEventListener("keydown", function(e){
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+document.getElementById("send").addEventListener("click", send);
+
+function send(){
+  var body = ta.value.trim();
+  if (!body && !staged.length) return;
+  var ready = staged.filter(function(f){ return f.progress >= 100; });
+
+  /* Kunci idempotensi dibuat DI SINI, bukan saat request dikirim: kalau
+     sambungan putus dan pesan ini dikirim ulang, kuncinya harus sama persis
+     supaya server tidak menyimpannya dua kali. */
+  var msg = {
+    conv: active, pending:true, author:ME, at:"sekarang", body:body || "(lampiran)",
+    idem: "im-" + active + "-" + eventId + "-" + Math.random().toString(16).slice(2,8),
+    att: ready.map(function(f){
+      return {file_id:"f-" + f.sha, file_name:f.name, size:f.size, sha:f.sha};
+    }),
+  };
+  pending.push(msg);
+  ta.value = ""; ta.style.height = "auto";
+  staged = staged.filter(function(f){ return f.progress < 100; });
+  paintStaged(); paintThread();
+
+  if (conn === "live") setTimeout(function(){ ack(msg); }, 620);
+}
+
+function ack(msg){
+  pending = pending.filter(function(p){ return p !== msg; });
+  var c = CONVS.find(function(x){ return x.id === msg.conv; });
+  c.latest_seq += 1;
+  c.last_read_seq = c.latest_seq;
+  eventId += 1;
+  MSGS[msg.conv].push({seq:c.latest_seq, author:msg.author, at:"baru saja", body:msg.body, att:msg.att});
+  paintConns(); paintConvs(); paintThread();
+}
+
+/* Memutus sambungan tidak mengosongkan layar dan tidak menghapus pesan yang
+   belum sampai. Saat tersambung lagi, yang tertahan dikirim ulang dengan kunci
+   yang sama, dan aliran disambung dari `after=<id terakhir>`. */
+document.getElementById("drop").addEventListener("click", function(){
+  if (conn === "live") { conn = "offline"; paintConns(); return; }
+  conn = "reconnecting"; paintConns();
+  setTimeout(function(){
+    conn = "live"; paintConns();
+    pending.slice().forEach(function(m, i){ setTimeout(function(){ ack(m); }, 260 * (i + 1)); });
+  }, 1400);
+});
+
+document.getElementById("back").addEventListener("click", function(){
+  document.getElementById("chat").dataset.view = "list";
+});
+document.getElementById("q").addEventListener("input", paintConvs);
+document.getElementById("theme").addEventListener("click", function(){ document.documentElement.classList.toggle("dark"); });
+
+/* Pesan masuk dari orang lain: id peristiwa naik, dan percakapan yang tidak
+   sedang dibuka bertambah hitungan belum-dibacanya. */
+setInterval(function(){
+  if (conn !== "live") return;
+  eventId += 1;
+  var c = CONVS[2];
+  c.latest_seq += 1;
+  MSGS[c.id].push({seq:c.latest_seq, author:"rina.k", at:"baru saja", body:"Restock rak depan sudah masuk."});
+  if (c.id === active) c.last_read_seq = c.latest_seq;
+  paintConns(); paintConvs(); if (c.id === active) paintThread();
+}, 26000);
+
+if (window.matchMedia("(min-width:768px)").matches) document.getElementById("chat").dataset.view = "thread";
+paintConns(); paintConvs(); paintThread(); paintStaged();
+</script>
+</body>
+</html>

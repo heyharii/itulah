@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Operations · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* Sasaran sentuh layar ini lebih besar dari bawaan sistem: dipakai sambil
+   memegang barang, bukan sambil duduk. retail.css memberi 44px di bawah 768px;
+   di sini 56, dan tombolnya ikut token itu, bukan tinggi tetap. */
+:root{--tap:44px}
+@media(max-width:767px){:root{--tap:56px}}
+.btn{height:var(--tap)}
+.btn-sm{height:34px}
+
+/* ==========================================================================
+   OPERATIONS — satu berkas, dua bentuk
+   --------------------------------------------------------------------------
+   Pertanyaannya "mobile dan desktop mungkin?" sudah dijawab kodemu sendiri.
+   `mobile/src/features/role-workspace/nav-config.ts`:
+
+     "The mobile bottom nav is EXACTLY these five... Desktop reuses the SAME
+      five as its primary rail — no second taxonomy."
+
+   Jadi yang dibangun di sini bukan dua aplikasi, tapi satu taksonomi dengan
+   dua cangkang: bottom nav (< 768px, Scan menonjol di tengah) dan rail kiri
+   (>= 768px). Kelima tujuannya sama persis dan berurutan sama:
+   Work · Comm · Scan · Notif · Saya.
+
+   Isi Work-nya `queue` mode — arketipe yang dipakai semua peran DC di
+   `role-contract.ts` (HOME_MODES: monitor | multi_domain | queue |
+   session_task). Antrean dulu, bukan dasbor.
+
+   MODEL SESI mengikuti backend `itulah`, bukan model *wave* milik
+   `fresh/mobile` (itu backend lain):
+     POST /api/v1/dc/pick-sessions      · packing-sessions
+     GET  .../{session_id}  ·  POST .../{session_id}/close
+     SessionKind::Pick  -> pick_session / picker_id
+     SessionKind::Packing -> packing_session / packer_id
+
+   DUA ATURAN DARI KODE YANG DIBUAT KELIHATAN:
+
+   1 · `PickRequest.pick_session_id` OPSIONAL. Komentarnya: "a picker fetching
+       one thing off a rack without opening a session is ordinary, and refusing
+       it would make the paperwork the point instead of the goods." Maka layar
+       ini menyediakan "Ambil satuan" tanpa membuka sesi — bukan mengunci
+       semuanya di balik tombol Buka sesi.
+
+   2 · `PicklistLine.allotment_lines` ada supaya "a picker who comes back short
+       knows the shortfall lands on more than one store." Jadi ia ditulis
+       sebagai kalimat akibat ("kurang kena 3 toko"), bukan sebagai angka
+       telanjang di kolom.
+
+   Dan `Koli.position` ditandai "Derived, never stored" di sumbernya, jadi di
+   sini ia ditampilkan sebagai keadaan, tidak pernah sebagai medan yang diisi.
+   ========================================================================== */
+@media(max-width:767px){ }
+
+/* ══ cangkang ══════════════════════════════════════════════
+   Satu taksonomi, dua cangkang. Rail muncul >= 768px; bottom
+   nav muncul < 768px. Tidak ada tujuan yang cuma ada di salah
+   satunya — itu syaratnya supaya "no second taxonomy" benar. */
+/* Dibatasi selebar layar lain (--shell-max). Di monitor 2560 tanpa batas ini
+   satu baris koli jadi terlalu panjang untuk diikuti mata dari nomor ke aksi. */
+.shell{display:flex;align-items:stretch;min-height:100dvh;
+  max-width:var(--shell-max);margin-inline:auto;width:100%}
+
+.rail{
+  display:none;width:82px;flex-shrink:0;
+  background:var(--page);border-right:1px solid var(--line);
+  padding:14px 8px;flex-direction:column;gap:4px;
+  position:sticky;top:0;height:100dvh;
+}
+.rail .mark{width:30px;height:30px;margin:0 auto 14px;border-radius:var(--radius-chip);background:var(--ink);color:var(--page);display:grid;place-items:center;font-weight:600;font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.rail a{
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  padding:9px 4px;border-radius:var(--radius-control);
+  color:var(--ink-2);text-decoration:none;font-size:11px;font-weight:500;
+  position:relative;transition:background-color 150ms var(--ease-out-strong),color 150ms var(--ease-out-strong);
+}
+.rail a:hover{background:var(--hover);color:var(--ink)}
+.rail a[aria-current="page"]{background:var(--hover-2);color:var(--ink)}
+.rail .badge,.tabbar .badge{
+  position:absolute;top:4px;right:12px;min-width:16px;height:16px;padding:0 4px;
+  border-radius:999px;background:var(--accent);color:#fff;
+  font-family:"Geist Mono",ui-monospace,monospace;font-size:10px;font-weight:500;
+  display:grid;place-items:center;
+}
+.rail .me{margin-top:auto}
+
+.tabbar{
+  position:fixed;inset-inline:0;bottom:0;z-index:40;
+  display:flex;align-items:stretch;justify-content:space-around;
+  background:color-mix(in oklab, var(--page) 92%, transparent);
+  backdrop-filter:blur(12px);
+  border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.tabbar a{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:8px 0 7px;color:var(--ink-2);text-decoration:none;
+  font-size:10.5px;font-weight:500;position:relative;
+}
+.tabbar a[aria-current="page"]{color:var(--accent-ink)}
+/* Scan diangkat jadi aksi tengah — bukan tab biasa. Itu yang dikunci
+   `mobile-bottom-nav.tsx` sebagai `central`. */
+.tabbar a.central{justify-content:flex-end}
+.tabbar a.central .disc{
+  width:50px;height:50px;border-radius:999px;margin-top:-20px;
+  background:var(--ink);color:var(--page);display:grid;place-items:center;
+  box-shadow:var(--shadow-lift);
+}
+.tabbar a.central[aria-current="page"] .disc{background:var(--accent)}
+
+/* ══ kepala ════════════════════════════════════════════════ */
+.top .back{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:999px;background:var(--surface);box-shadow:var(--shadow-btn);color:var(--ink-2);flex-shrink:0}
+/* Judul tugas dan tombol kembali hanya ada di cangkang mobile. Keduanya
+   dikendalikan CSS supaya JS tidak perlu tahu berapa lebar layarnya —
+   pertanyaan itu yang tadi bikin pane kanan kosong saat halaman dimuat
+   sempit lalu dilebarkan. */
+.top .task-title{display:none}
+.top .back{display:none}
+
+.panes{flex:1;display:flex;align-items:flex-start;min-width:0}
+.queue{flex:1;min-width:0;padding:14px 16px 32px;display:flex;flex-direction:column;gap:12px}
+.task{display:none;flex:1;min-width:0;padding:14px 16px 32px;flex-direction:column;gap:12px}
+.lab{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+
+/* ══ sesi berjalan ═════════════════════════════════════════ */
+.session{padding:13px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.session .who{flex:1;min-width:0}
+.session .who b{display:block;font-family:"Geist Mono",ui-monospace,monospace;font-weight:500;font-size:13px}
+.session .who span{font-size:12px;color:var(--ink-2)}
+.session .stat{display:flex;gap:16px;flex-wrap:wrap}
+.session .stat > div{display:flex;flex-direction:column;gap:2px}
+.session .stat span{font-size:11px;color:var(--ink-3)}
+.session .stat b{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:17px;font-weight:500;line-height:1}
+
+/* ══ antrean ═══════════════════════════════════════════════ */
+.qitem{
+  display:flex;align-items:center;gap:12px;width:100%;
+  padding:12px 14px;border:0;background:none;text-align:start;
+  border-bottom:1px solid var(--line);color:inherit;font-family:inherit;
+  min-height:var(--tap);
+  transition:background-color 120ms var(--ease-out-strong);
+}
+.card .qitem:last-child{border-bottom:0}
+.qitem:hover{background:var(--hover)}
+.qitem[aria-selected="true"]{background:var(--accent-tint)}
+.qitem .ic{width:36px;height:36px;flex-shrink:0;border-radius:var(--radius-chip);background:var(--inset);color:var(--ink-2);display:grid;place-items:center}
+.qitem .txt{flex:1;min-width:0}
+.qitem .txt b{display:block;font-weight:500;font-size:13.5px}
+.qitem .txt span{display:block;font-size:12px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qitem .n{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:16px;font-weight:500;flex-shrink:0}
+.qitem .go{color:var(--ink-3);flex-shrink:0;display:grid;place-items:center}
+
+/* ══ picklist ══════════════════════════════════════════════ */
+.pl{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.card .pl:last-of-type{border-bottom:0}
+.pl .sku{flex:1;min-width:0}
+.pl .sku b{display:block;font-family:"Geist Mono",ui-monospace,monospace;font-weight:500;font-size:13.5px}
+/* Kalimat akibat, bukan angka telanjang: `allotment_lines` memang ada supaya
+   picker tahu kekurangannya kena berapa toko. */
+.pl .sku span{display:block;font-size:12px;color:var(--ink-2)}
+.pl .out{text-align:end;flex-shrink:0}
+.pl .out b{display:block;font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:17px;font-weight:500;line-height:1.1}
+.pl .out span{font-size:11px;color:var(--ink-3)}
+.pl .act{flex-shrink:0}
+
+.scanbar{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line);flex-wrap:wrap}
+.scanbar input{
+  flex:1;min-width:130px;height:var(--tap);padding:0 13px;border:0;
+  background:var(--field);border-radius:999px;box-shadow:0 0 0 1px var(--line);
+  font-family:"Geist Mono",ui-monospace,monospace;font-size:13.5px;color:var(--ink);
+}
+.scanbar input:focus{box-shadow:0 0 0 1px var(--accent)}
+
+.note{display:flex;align-items:flex-start;gap:9px;padding:11px 12px;border-radius:var(--radius-card);background:var(--inset);font-size:12.5px;color:var(--ink-2)}
+.note svg{flex-shrink:0;margin-top:1px;color:var(--ink-3)}
+.note b{color:var(--ink);font-weight:500}
+
+/* ══ koli ══════════════════════════════════════════════════ */
+.koli{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.card .koli:last-of-type{border-bottom:0}
+.koli .box{width:38px;height:38px;flex-shrink:0;border-radius:var(--radius-chip);background:var(--inset);color:var(--ink-2);display:grid;place-items:center}
+.koli .who{flex:1;min-width:0;overflow:hidden}
+.koli .who b{display:block;font-family:"Geist Mono",ui-monospace,monospace;font-weight:500;font-size:13.5px;
+  overflow:hidden;text-overflow:ellipsis}
+.koli .who span{display:block;font-size:12px;color:var(--ink-3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.koli .qty{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:15px;flex-shrink:0;padding-inline-start:4px}
+.koli .acts{display:flex;align-items:center;gap:8px;flex-shrink:0}
+
+/* ══ titik putus ═══════════════════════════════════════════ */
+@media(min-width:768px){
+  .rail{display:flex}
+  .tabbar{display:none}
+  .top .back{display:none}
+  .panes{gap:0}
+  .queue{max-width:392px;border-right:1px solid var(--line);padding:16px;
+         position:sticky;top:63px;max-height:calc(100dvh - 63px);overflow-y:auto}
+  .task{display:flex;padding:16px 20px 40px}
+  /* Di desktop keduanya terlihat bersamaan; di mobile yang satu menggantikan
+     yang lain. Taksonominya tetap sama — yang berubah cuma berapa banyak yang
+     muat sekaligus. */
+}
+@media(max-width:767px){
+  /* Nomor koli tidak boleh dipatah dua baris — ia dibaca dari stiker di
+     kotaknya, dan potongan di tengah bikin orang salah cocokkan. Yang turun
+     adalah kelompok aksinya. */
+  .koli{flex-wrap:wrap;row-gap:10px}
+  .koli .who b{white-space:nowrap}
+  .koli .acts{margin-left:auto}
+
+  /* Di HP paling sempit, pil "Tersegel" dilepas — bukan karena kurang penting,
+     tapi karena keterangannya sudah dua kali: subjudulnya menulis "siap kirim"
+     dan tombolnya sudah berubah jadi Label. Yang dibela ruangnya adalah nomor
+     koli, karena itu yang dicocokkan orang dengan stiker di kotak. */
+  @media(max-width:420px){ .koli .acts .pill{display:none} }
+  body[data-view="task"] .queue{display:none}
+  body[data-view="task"] .task{display:flex}
+  body[data-view="task"] .top .back{display:grid}
+  body[data-view="task"] .top .home-title{display:none}
+  body[data-view="task"] .top .task-title{display:block}
+}
+@media(prefers-reduced-motion:reduce){}
+</style>
+</head>
+<body data-view="queue">
+
+<div class="shell">
+
+  <!-- ══ rail: >= 768px ══════════════════════════════════ -->
+  <nav class="rail" aria-label="Navigasi utama">
+    <span class="mark" aria-hidden="true">R</span>
+    <a href="#" aria-current="page">
+      <svg width="21" height="21" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M3 11 11 4l8 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 9.5V18h11V9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Work
+    </a>
+    <a href="#">
+      <svg width="21" height="21" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M4 5.5h14v9H9l-5 3.5v-3.5H4v-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      Comm
+      <span class="badge">3</span>
+    </a>
+    <a href="#">
+      <svg width="21" height="21" viewBox="0 0 22 22" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/><rect x="12.5" y="3.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/><rect x="3.5" y="12.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/><path d="M12.5 12.5h3v3m3 0v3h-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Scan
+    </a>
+    <a href="#">
+      <svg width="21" height="21" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M6 9a5 5 0 0 1 10 0c0 4 1.5 5.5 1.5 5.5h-13S6 13 6 9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 17.5a1.8 1.8 0 0 0 3 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Notif
+      <span class="badge">7</span>
+    </a>
+    <a href="#" class="me">
+      <svg width="21" height="21" viewBox="0 0 22 22" fill="none" aria-hidden="true"><circle cx="11" cy="8" r="3.4" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 18c1.3-3.1 3.8-4.6 6.5-4.6s5.2 1.5 6.5 4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Saya
+    </a>
+  </nav>
+
+  <main class="main">
+
+    <div class="top">
+      <button type="button" class="back" id="back" aria-label="Kembali ke antrean">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m10 4-4 4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div style="min-width:0">
+        <h1 class="home-title">Work</h1>
+        <h1 class="task-title" id="tasktitle">Work</h1>
+        <div class="sub" id="subtitle">DC Bandung · shift pagi · 09:14</div>
+      </div>
+      <div class="right">
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="panes">
+
+      <!-- ══ antrean ═══════════════════════════════════════ -->
+      <section class="queue" aria-label="Antrean kerja">
+
+        <div class="card" id="sessioncard">
+          <div class="ch"><h2>Sesi berjalan</h2><span class="meta" id="sessmeta"></span></div>
+          <div id="sessbody"></div>
+        </div>
+
+        <div class="card">
+          <div class="ch"><h2>Perlu dikerjakan</h2><span class="meta">DC Bandung</span></div>
+          <button type="button" class="qitem" data-task="pick">
+            <span class="ic"><svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M3 6.5h14M5.5 6.5V4h9v2.5M4.5 6.5 5.5 17h9l1-10.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="txt"><b>Picklist</b><span>6 SKU · turunan allotment, bukan tugasan</span></span>
+            <span class="n">248</span>
+            <span class="go"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </button>
+          <button type="button" class="qitem" data-task="pack">
+            <span class="ic"><svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5v-7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m3 6.5 7 3.5 7-3.5M10 10v7" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></span>
+            <span class="txt"><b>Packing</b><span>3 koli belum disegel</span></span>
+            <span class="n">3</span>
+            <span class="go"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </button>
+          <button type="button" class="qitem" data-task="ship">
+            <span class="ic"><svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M2.5 13V6h9v7M11.5 8.5h3l2.5 2.5V13" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="6" cy="14.5" r="1.5" stroke="currentColor" stroke-width="1.4"/><circle cx="14" cy="14.5" r="1.5" stroke="currentColor" stroke-width="1.4"/></svg></span>
+            <span class="txt"><b>Kirim</b><span>1 shipment siap berangkat</span></span>
+            <span class="n">1</span>
+            <span class="go"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </button>
+          <button type="button" class="qitem" data-task="diff">
+            <span class="ic"><svg width="18" height="18" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M10 6.5v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13.4" r=".9" fill="currentColor"/></svg></span>
+            <span class="txt"><b>Selisih</b><span>2 pick kurang dari permintaan</span></span>
+            <span class="n">2</span>
+            <span class="go"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </button>
+        </div>
+
+        <div class="note">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>
+          <span><b>Sesi tidak wajib.</b> Ambil satuan dari rak boleh dilakukan tanpa membuka sesi — <code class="chip">pick_session_id</code> memang opsional di <code class="chip">PickRequest</code>.</span>
+        </div>
+      </section>
+
+      <!-- ══ tugas ═════════════════════════════════════════ -->
+      <section class="task" id="task" aria-label="Tugas"></section>
+    </div>
+  </main>
+</div>
+
+<!-- ══ bottom nav: < 768px ═══════════════════════════════ -->
+<nav class="tabbar" aria-label="Navigasi utama">
+  <a href="#" aria-current="page">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M3 11 11 4l8 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 9.5V18h11V9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Work
+  </a>
+  <a href="#">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M4 5.5h14v9H9l-5 3.5v-3.5H4v-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+    Comm
+    <span class="badge">3</span>
+  </a>
+  <a href="#" class="central">
+    <span class="disc" aria-hidden="true">
+      <svg width="23" height="23" viewBox="0 0 22 22" fill="none"><rect x="3.5" y="3.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.7"/><rect x="12.5" y="3.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="12.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.7"/><path d="M12.5 12.5h3v3m3 0v3h-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </span>
+    Scan
+  </a>
+  <a href="#">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M6 9a5 5 0 0 1 10 0c0 4 1.5 5.5 1.5 5.5h-13S6 13 6 9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 17.5a1.8 1.8 0 0 0 3 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    Notif
+    <span class="badge">7</span>
+  </a>
+  <a href="#">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><circle cx="11" cy="8" r="3.4" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 18c1.3-3.1 3.8-4.6 6.5-4.6s5.2 1.5 6.5 4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    Saya
+  </a>
+</nav>
+
+<script>
+/* Sesi mengikuti `Session { session_id, actor_id, started_at, closed_at,
+   status }` dan `SessionKind::{Pick,Packing}` di src/edge/outbound.rs. */
+var state = {
+  pickSession: {id:"PS-2609-0114", actor:"budi.s", started:"08:42", status:"open", picked:184, lines:6},
+  packSession: null,
+  packTarget: "store-03",
+  task: null,
+};
+
+/* PicklistLine { sku_code, outstanding, allotment_lines } — `allotment_lines`
+   ada supaya picker yang pulang kurang tahu kekurangannya kena berapa toko. */
+var PICKLIST = [
+  {sku:"10230114502", name:"Celana kulot rayon · Krem · M", outstanding:64, allotment_lines:3, picked:0},
+  {sku:"10230114503", name:"Celana kulot rayon · Krem · L", outstanding:48, allotment_lines:2, picked:0},
+  {sku:"10231220871", name:"Celana palazzo motif · Cokelat · M", outstanding:40, allotment_lines:1, picked:0},
+  {sku:"10231220872", name:"Celana palazzo motif · Cokelat · L", outstanding:36, allotment_lines:1, picked:0},
+  {sku:"10229907441", name:"Celana flanel kotak · Merah · L", outstanding:36, allotment_lines:4, picked:0},
+  {sku:"10229907442", name:"Celana flanel kotak · Merah · XL", outstanding:24, allotment_lines:2, picked:0},
+];
+
+/* Koli { koli_id, koli_number, destination_store_id, unit_count, sealed_at,
+   position }. `position` ditandai "Derived, never stored" di sumbernya. */
+var KOLI = [
+  {no:"KOL-2609-0431", store:"store-03", units:48, sealed:false, position:"packing"},
+  {no:"KOL-2609-0432", store:"store-07", units:36, sealed:false, position:"packing"},
+  {no:"KOL-2609-0433", store:"store-11", units:52, sealed:false, position:"packing"},
+  {no:"KOL-2609-0428", store:"store-01", units:60, sealed:true, position:"siap kirim"},
+  {no:"KOL-2609-0429", store:"store-02", units:44, sealed:true, position:"siap kirim"},
+];
+
+function num(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+
+/* Baris allotment terbuka di DC, urut FIFO seperti query aslinya:
+   ORDER BY work.created_at, work.allotment_id, line.allotment_line_id LIMIT 1.
+   Inilah yang dicari saat sebuah EPC masuk koli. */
+var ALLOTMENT = [
+  {no:"AL-2608-0091", line:"L-1", store:"store-03", sku:"10230114502", accepted:64, packed:40, cancelled:0, created:"26 Agu"},
+  {no:"AL-2608-0091", line:"L-2", store:"store-07", sku:"10230114502", accepted:24, packed:0,  cancelled:0, created:"26 Agu"},
+  {no:"AL-2609-0104", line:"L-1", store:"store-03", sku:"10230114502", accepted:30, packed:0,  cancelled:0, created:"1 Sep"},
+  {no:"AL-2609-0104", line:"L-2", store:"store-11", sku:"10231220871", accepted:40, packed:12, cancelled:0, created:"1 Sep"},
+];
+var fulfilled = [];   /* riwayat pemenuhan pada sesi ini */
+
+/* Aturan atribusi, disalin dari jalur pack_koli: cari baris allotment TERTUA
+   yang masih mau barang untuk (toko, SKU) itu. Kalau tidak ada, packing
+   ditolak — bukan disimpan diam-diam. */
+function attribute(store, sku){
+  return ALLOTMENT.find(function(a){
+    return a.store === store && a.sku === sku &&
+           (a.accepted - a.packed - a.cancelled) > 0;
+  }) || null;
+}
+
+/* ── sesi berjalan ─────────────────────────────────────── */
+function paintSession(){
+  var s = state.pickSession;
+  var meta = document.getElementById("sessmeta");
+  var body = document.getElementById("sessbody");
+
+  if (!s) {
+    meta.textContent = "";
+    body.innerHTML =
+      '<div class="empty"><b>Tidak ada sesi terbuka</b>Buka sesi kalau kamu mau satu ronde diambil sekaligus.</div>' +
+      '<div style="padding:0 14px 14px"><button type="button" class="btn btn-secondary btn-block btn-sm" id="opensess">Buka sesi picking</button></div>';
+    document.getElementById("opensess").addEventListener("click", function(){
+      state.pickSession = {id:"PS-2609-0" + Math.floor(100 + Math.random()*899), actor:"budi.s", started:"09:14", status:"open", picked:0, lines:PICKLIST.length};
+      paintSession();
+    });
+    return;
+  }
+
+  meta.innerHTML = '<span class="pill" data-tone="green">' + s.status + '</span>';
+  body.innerHTML =
+    '<div class="session">' +
+      '<span class="who"><b>' + s.id + '</b><span>picker ' + s.actor + " · mulai " + s.started + '</span></span>' +
+      '<span class="stat">' +
+        '<div><span>Terambil</span><b>' + num(s.picked) + '</b></div>' +
+        '<div><span>SKU</span><b>' + s.lines + '</b></div>' +
+      '</span>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;padding:0 14px 14px">' +
+      '<button type="button" class="btn btn-secondary btn-sm" style="flex:1" data-task="pick">Lanjutkan</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="closesess">Tutup sesi</button>' +
+    '</div>';
+
+  document.getElementById("closesess").addEventListener("click", function(){
+    if (!window.confirm("Tutup sesi " + s.id + "? Sisa " + PICKLIST.reduce(function(a,l){return a + (l.outstanding - l.picked);}, 0) + " unit tetap di picklist.")) return;
+    state.pickSession = null;
+    paintSession();
+  });
+  body.querySelector("[data-task]").addEventListener("click", function(){ openTask("pick"); });
+}
+
+/* ── tugas ─────────────────────────────────────────────── */
+function taskPick(){
+  var s = state.pickSession;
+  var remaining = PICKLIST.reduce(function(a,l){ return a + (l.outstanding - l.picked); }, 0);
+
+  return '' +
+    '<div class="card">' +
+      '<div class="ch"><h2>Picklist</h2><span class="meta">' + num(remaining) + ' unit sisa</span></div>' +
+      PICKLIST.map(function(l, i){
+        var left = l.outstanding - l.picked;
+        return '<div class="pl">' +
+          '<span class="sku"><b>' + l.sku + '</b>' +
+            '<span>' + l.name + '</span>' +
+            '<span class="nil" style="font-size:11.5px">' +
+              (l.allotment_lines > 1
+                ? "kurang di sini kena " + l.allotment_lines + " toko"
+                : "untuk 1 toko") +
+            '</span>' +
+          '</span>' +
+          '<span class="out"><b' + (left === 0 ? ' class="nil"' : '') + '>' + num(left) + '</b><span>sisa</span></span>' +
+          '<span class="act">' +
+            (left === 0
+              ? '<span class="pill" data-tone="green">Selesai</span>'
+              : '<button type="button" class="btn btn-secondary btn-sm" data-pick="' + i + '">Ambil</button>') +
+          '</span>' +
+        '</div>';
+      }).join("") +
+      '<div class="scanbar">' +
+        '<input id="epc" placeholder="Pindai EPC atau ketik SKU" aria-label="Pindai EPC atau ketik SKU">' +
+        '<button type="button" class="btn btn-primary" id="epcgo">Ambil</button>' +
+      '</div>' +
+    '</div>' +
+
+    /* Asal-usul picklist ditulis, karena ini yang paling sering disalahpahami:
+       tidak ada orang yang menyusunnya. */
+    '<div class="note">' +
+      '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+      '<span><b>Tidak ada yang menyusun daftar ini.</b> Ia dihitung ulang tiap kali dibuka: ' +
+      'sisa <code class="chip">accepted − picked − cancelled</code> dari allotment yang sudah turun dari Cloud, ' +
+      'dikelompokkan per SKU. Yang diputuskan orang adalah <b>allotment</b>-nya, di Cloud — bukan picklist-nya, di sini.</span>' +
+    '</div>' +
+
+    /* Aturan dari kode dibuat kelihatan, bukan disimpan di dokumen. */
+    '<div class="note">' +
+      '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+      '<span>' + (s
+        ? 'Pengambilan dicatat ke sesi <b>' + s.id + '</b>.'
+        : 'Belum ada sesi terbuka. Pengambilan tetap tercatat, hanya tanpa nomor ronde — <code class="chip">pick_session_id</code> dikirim kosong.') +
+      '</span>' +
+    '</div>';
+}
+
+function taskPack(){
+  var unsealed = KOLI.filter(function(k){ return !k.sealed; });
+  var units = KOLI.reduce(function(a,k){ return a + k.units; }, 0);
+
+  return '' +
+    '<div class="card">' +
+      '<div class="ch"><h2>Sesi packing</h2>' +
+        '<span class="meta">' + (state.packSession ? '<span class="pill" data-tone="green">open</span>' : "belum dibuka") + '</span>' +
+      '</div>' +
+      (state.packSession
+        ? '<div class="session">' +
+            '<span class="who"><b>' + state.packSession.id + '</b><span>packer ' + state.packSession.actor + " · mulai " + state.packSession.started + '</span></span>' +
+            '<span class="stat">' +
+              '<div><span>Koli</span><b>' + KOLI.length + '</b></div>' +
+              '<div><span>Unit</span><b>' + num(units) + '</b></div>' +
+              '<div><span>Belum disegel</span><b>' + unsealed.length + '</b></div>' +
+            '</span>' +
+          '</div>'
+        : '<div class="empty"><b>Belum ada sesi packing</b>Koli tetap bisa dibuat, tapi tanpa ronde yang menaunginya.</div>') +
+      '<div style="display:flex;gap:8px;padding:0 14px 14px">' +
+        (state.packSession
+          ? '<button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="closepack">Tutup sesi</button>'
+          : '<button type="button" class="btn btn-secondary btn-block btn-sm" id="openpack">Buka sesi packing</button>') +
+      '</div>' +
+    '</div>' +
+
+    '<div class="card">' +
+      '<div class="ch"><h2>Koli</h2><span class="meta">' + unsealed.length + ' belum disegel</span></div>' +
+      KOLI.map(function(k, i){
+        return '<div class="koli">' +
+          '<span class="box"><svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5v-7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m3 6.5 7 3.5 7-3.5M10 10v7" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></span>' +
+          '<span class="who"><b>' + k.no + '</b><span>' + k.store + " · " + k.position + '</span></span>' +
+          '<span class="qty">' + k.units + '</span>' +
+          '<span class="acts">' +
+            (k.sealed
+              ? '<span class="pill" data-tone="green">Tersegel</span>' +
+                '<button type="button" class="btn btn-secondary btn-sm" data-label="' + i + '">Label</button>'
+              : '<button type="button" class="btn btn-primary btn-sm" data-seal="' + i + '">Segel</button>') +
+          '</span>' +
+        '</div>';
+      }).join("") +
+    '</div>' +
+
+    /* Momen paling menentukan di seluruh alur outbound ada di sini, dan
+       sebelumnya tidak kelihatan: memasukkan EPC ke koli ITULAH yang memenuhi
+       allotment. Sampai barang masuk kotak, ia belum jadi milik toko mana pun.
+       Jadi pemindaian diberi tempatnya sendiri, dan hasil atribusinya ditulis. */
+    '<div class="card">' +
+      '<div class="ch"><h2>Masukkan barang ke koli</h2>' +
+        '<span class="meta">tujuan ' + (state.packTarget || "belum dipilih") + '</span></div>' +
+      '<div class="scanbar">' +
+        '<select id="packstore" class="btn btn-secondary btn-sm" style="padding:0 12px">' +
+          ["store-03","store-07","store-11"].map(function(t){
+            return '<option' + (state.packTarget === t ? " selected" : "") + '>' + t + '</option>';
+          }).join("") +
+        '</select>' +
+        '<input id="packepc" placeholder="Pindai EPC" aria-label="Pindai EPC">' +
+        '<button type="button" class="btn btn-primary" id="packgo">Masukkan</button>' +
+      '</div>' +
+      (fulfilled.length
+        ? fulfilled.slice(0, 6).map(function(f){
+            return '<div class="pl">' +
+              '<span class="sku"><b>' + f.epc + '</b>' +
+                '<span>' + f.sku + " → " + f.store + '</span>' +
+                '<span class="nil" style="font-size:11.5px">memenuhi ' + f.al + " " + f.line + " · dibuat " + f.created + '</span>' +
+              '</span>' +
+              '<span class="out"><b>' + f.left + '</b><span>sisa baris</span></span>' +
+            '</div>';
+          }).join("")
+        : '<div class="empty"><b>Belum ada yang dimasukkan</b>Tiap EPC yang masuk kotak akan menyebut allotment mana yang dipenuhinya.</div>') +
+    '</div>' +
+
+    '<div class="note">' +
+      '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+      '<span><b>Tujuan ditentukan di kotak, bukan di rak.</b> Picking cuma mengambil SKU dan jumlah; ' +
+      'baris allotment yang dipenuhi dicari <b>FIFO</b> saat EPC masuk koli — dan saat itulah ' +
+      '<code class="chip">picked_quantity</code> dan <code class="chip">packed_quantity</code> naik bersamaan.</span>' +
+    '</div>' +
+
+    '<div class="note">' +
+      '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+      '<span>Posisi koli <b>diturunkan</b>, bukan disimpan. Manifes membawa QR dan ZPL labelnya sekaligus, supaya stiker dan daftar isinya tidak bisa berbeda.</span>' +
+    '</div>';
+}
+
+function taskSoon(title, body){
+  return '<div class="card"><div class="ch"><h2>' + title + '</h2></div>' +
+    '<div class="empty"><b>' + body + '</b>Layar ini belum dibuat di prototipe.</div></div>';
+}
+
+var TITLES = {pick:["Picking","Turunan dari allotment terbuka"], pack:["Packing","Koli & segel"],
+              ship:["Kirim","Shipment siap berangkat"], diff:["Selisih","Pick kurang dari permintaan"]};
+
+function openTask(kind){
+  state.task = kind;
+  var el = document.getElementById("task");
+  el.innerHTML = kind === "pick" ? taskPick()
+    : kind === "pack" ? taskPack()
+    : kind === "ship" ? taskSoon("Kirim", "1 shipment siap berangkat")
+    : taskSoon("Selisih", "2 pick kurang dari permintaan");
+
+  document.getElementById("tasktitle").textContent = TITLES[kind][0];
+  document.getElementById("subtitle").textContent = TITLES[kind][1] + " · DC Bandung";
+  document.body.dataset.view = "task";
+
+  document.querySelectorAll(".qitem").forEach(function(b){
+    b.setAttribute("aria-selected", String(b.dataset.task === kind));
+  });
+
+  wireTask();
+}
+
+function wireTask(){
+  var el = document.getElementById("task");
+
+  el.querySelectorAll("[data-pick]").forEach(function(button){
+    button.addEventListener("click", function(){
+      var l = PICKLIST[Number(button.dataset.pick)];
+      var left = l.outstanding - l.picked;
+      var take = window.prompt("Ambil berapa untuk " + l.sku + "? (sisa " + left + ")", String(left));
+      if (take === null) return;
+      var n = Number(take);
+      if (!Number.isInteger(n) || n < 1 || n > left) { window.alert("Jumlah harus 1–" + left + "."); return; }
+      l.picked += n;
+      if (state.pickSession) state.pickSession.picked += n;
+      openTask("pick");
+      paintSession();
+    });
+  });
+
+  var epc = el.querySelector("#epc");
+  if (epc) {
+    el.querySelector("#epcgo").addEventListener("click", function(){
+      var v = epc.value.trim();
+      if (!v) { epc.focus(); return; }
+      var l = PICKLIST.find(function(x){ return x.sku === v && x.outstanding > x.picked; });
+      if (!l) { window.alert("SKU tidak ada di picklist, atau sudah selesai."); return; }
+      l.picked += 1;
+      if (state.pickSession) state.pickSession.picked += 1;
+      openTask("pick");
+      paintSession();
+      document.getElementById("epc").focus();
+    });
+    epc.addEventListener("keydown", function(e){ if (e.key === "Enter") el.querySelector("#epcgo").click(); });
+  }
+
+  el.querySelectorAll("[data-seal]").forEach(function(button){
+    button.addEventListener("click", function(){
+      var k = KOLI[Number(button.dataset.seal)];
+      if (!window.confirm("Segel " + k.no + "? Setelah disegel isinya tidak bisa diubah.")) return;
+      k.sealed = true;
+      k.position = "siap kirim";
+      openTask("pack");
+    });
+  });
+  el.querySelectorAll("[data-label]").forEach(function(button){
+    button.addEventListener("click", function(){
+      var k = KOLI[Number(button.dataset.label)];
+      window.alert("POST /api/v1/dc/koli/" + k.no + "/label\n\nManifes membawa qr_payload, qr_svg, dan label_zpl sekaligus.");
+    });
+  });
+
+  /* Pemindaian EPC ke koli. Kalau tidak ada baris allotment yang masih mau
+     barang itu untuk toko tujuannya, packing DITOLAK dengan kalimat yang sama
+     seperti servernya — bukan diterima lalu diperbaiki belakangan. */
+  var packstore = el.querySelector("#packstore");
+  if (packstore) {
+    packstore.addEventListener("change", function(){
+      state.packTarget = packstore.value;
+      openTask("pack");
+    });
+  }
+  var packepc = el.querySelector("#packepc");
+  if (packepc) {
+    var submit = function(){
+      var epc = packepc.value.trim().toUpperCase();
+      if (!epc) { packepc.focus(); return; }
+
+      /* SKU diturunkan dari EPC-nya sendiri di sistem nyata; di prototipe
+         diambil dari daftar picklist supaya contohnya bisa dijalankan. */
+      var sku = PICKLIST[Math.abs(epc.split("").reduce(function(a,c){ return a + c.charCodeAt(0); }, 0)) % PICKLIST.length].sku;
+      var line = attribute(state.packTarget, sku);
+
+      if (!line) {
+        window.alert(
+          "Ditolak.\n\nno open allotment for EPC " + epc + ", SKU " + sku +
+          ", destination " + state.packTarget +
+          "\n\nBarang tetap di lantai outbound. Tidak ada yang dicatat separuh."
+        );
+        packepc.value = "";
+        return;
+      }
+
+      line.packed += 1;
+      fulfilled.unshift({
+        epc: epc, sku: sku, store: state.packTarget,
+        al: line.no, line: line.line, created: line.created,
+        left: line.accepted - line.packed - line.cancelled,
+      });
+      packepc.value = "";
+      openTask("pack");
+      var next = document.getElementById("packepc");
+      if (next) next.focus();
+    };
+    el.querySelector("#packgo").addEventListener("click", submit);
+    packepc.addEventListener("keydown", function(e){ if (e.key === "Enter") submit(); });
+  }
+
+  var open = el.querySelector("#openpack");
+  if (open) open.addEventListener("click", function(){
+    state.packSession = {id:"KS-2609-0" + Math.floor(100 + Math.random()*899), actor:"sari.m", started:"09:14"};
+    openTask("pack");
+  });
+  var close = el.querySelector("#closepack");
+  if (close) close.addEventListener("click", function(){
+    var unsealed = KOLI.filter(function(k){ return !k.sealed; }).length;
+    if (unsealed && !window.confirm(unsealed + " koli belum disegel. Tutup sesi tetap?")) return;
+    state.packSession = null;
+    openTask("pack");
+  });
+}
+
+function backToQueue(){
+  document.body.dataset.view = "queue";
+  document.getElementById("subtitle").textContent = "DC Bandung · shift pagi · 09:14";
+}
+
+document.querySelectorAll(".qitem").forEach(function(button){
+  button.addEventListener("click", function(){ openTask(button.dataset.task); });
+});
+document.getElementById("back").addEventListener("click", backToQueue);
+
+document.getElementById("theme").addEventListener("click", function(){
+  document.documentElement.classList.toggle("dark");
+});
+
+paintSession();
+
+/* Tugas pertama selalu dirender, lebar layar berapa pun. Di desktop ia mengisi
+   pane kanan; di mobile CSS menyembunyikannya sampai ada yang dipilih. Dengan
+   begitu tidak ada keadaan yang bergantung pada lebar layar saat muat — dan
+   melebarkan jendela tidak pernah meninggalkan pane kosong. */
+openTask("pick");
+backToQueue();
+</script>
+</body>
+</html>

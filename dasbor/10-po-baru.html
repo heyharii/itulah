@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>PO baru · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   PO BARU
+   --------------------------------------------------------------------------
+   Form adalah tempat aturan sistem jadi kelihatan. Tiga aturan yang sudah ada
+   di kontrak dipakai apa adanya di sini, bukan disimpan untuk nanti:
+
+   1 · Supplier yang punya `blocking_issues` TIDAK BISA dibuatkan PO.
+       Gerbangnya dipasang di titik pemilihan, bukan di tombol simpan — orang
+       tidak boleh mengisi dua puluh baris dulu baru diberi tahu suppliernya
+       tidak sah. Alasannya disebut, dan ada jalan keluarnya.
+
+   2 · Baris punya dua asal: `sourcing` dan `direct`.
+       Yang dari sourcing membawa kode, harga, dan MOQ-nya sendiri; yang
+       langsung diketik. Keduanya ditandai supaya nanti bisa ditelusuri —
+       `source_kind` memang medan di wire, bukan hiasan layar.
+
+   3 · MOQ adalah milik kandidat sourcing, jadi ia diperiksa per baris.
+       Di bawah MOQ bukan kesalahan yang menghentikan — supplier sering
+       menerimanya dengan harga lain — jadi ia peringatan, bukan gerbang.
+
+   Kelas barang sengaja TIDAK diminta: untuk sekarang semua baris merchandise.
+   Begitu packaging dan supply masuk, `item_class` per baris kembali, berikut
+   turunannya (`sale_mode`, rute admission).
+
+   Kulitnya Beautiful UI — token dari ~/newton/app/globals.css.
+   ========================================================================== */
+
+/* ── sidebar ───────────────────────────────────────────── */
+.ws{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;margin-bottom:14px;border:0;background:none;border-radius:var(--radius-control);color:var(--ink);font-family:inherit;font-size:13.5px;text-align:start}
+.ws:hover{background:var(--hover)}
+.ws .mono-badge{width:26px;height:26px;flex-shrink:0;border-radius:var(--radius-chip);background:var(--ink);color:var(--page);display:grid;place-items:center;font-weight:600;font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.ws b{font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws svg{color:var(--ink-3);flex-shrink:0}
+.grp{padding:14px 8px 5px;font-size:11.5px;font-weight:500;color:var(--ink-3)}
+.count{margin-left:auto;font-size:11.5px;font-weight:500;color:var(--ink-3);font-family:"Geist Mono",ui-monospace,monospace}
+.node{font-size:11.5px;color:var(--ink-3);line-height:1.45;padding:0 8px;margin:0}
+
+/* ── kontrol ───────────────────────────────────────────── */
+
+/* ── kanvas ────────────────────────────────────────────── */
+.topbar{padding:13px 20px;border-bottom:1px solid var(--line);background:var(--page);display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:15}
+.crumb{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-3);min-width:0}
+.crumb a{color:var(--ink-3);text-decoration:none}
+.crumb a:hover{color:var(--ink-2)}
+.crumb b{color:var(--ink);font-weight:500}
+.topbar .right{margin-left:auto;display:flex;align-items:center;gap:9px}
+
+.layout{flex:1;display:flex;align-items:flex-start;gap:16px;padding:18px 20px 48px;min-width:0}
+.form{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px}
+.rail{width:312px;flex-shrink:0;position:sticky;top:76px;display:flex;flex-direction:column;gap:12px}
+
+/* ── field ─────────────────────────────────────────────── */
+.grid2{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:720px){.grid2{grid-template-columns:repeat(2,1fr)}}
+
+/* ── gerbang supplier ──────────────────────────────────── */
+.picked{display:flex;align-items:flex-start;gap:11px;padding:12px 14px;border-radius:var(--radius-card);background:var(--inset);margin-top:12px}
+.picked .av{width:32px;height:32px;flex-shrink:0;border-radius:var(--radius-chip);background:var(--surface);box-shadow:var(--shadow-btn);color:var(--ink-2);display:grid;place-items:center;font-size:12px;font-weight:600}
+.picked .who{flex:1;min-width:0}
+.picked .who b{display:block;font-weight:500}
+.picked .who span{font-size:12.5px;color:var(--ink-2)}
+.gate{display:flex;align-items:flex-start;gap:9px;padding:11px 12px;border-radius:var(--radius-card);font-size:12.5px;margin-top:12px}
+.gate[data-tone="red"]{background:var(--red-tint)}
+.gate[data-tone="red"] svg{color:var(--red)}
+.gate[data-tone="orange"]{background:var(--orange-tint)}
+.gate[data-tone="orange"] svg{color:var(--orange)}
+.gate svg{flex-shrink:0;margin-top:1px}
+.gate b{font-weight:500}
+.gate ul{margin:4px 0 0;padding-inline-start:16px}
+.gate a{color:inherit}
+
+/* ── tabel baris ───────────────────────────────────────── */
+th{text-align:start;padding:8px 12px;white-space:nowrap;font-size:11.5px;font-weight:500;color:var(--ink-3);border-bottom:1px solid var(--line)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+.lname{display:flex;flex-direction:column;gap:2px;min-width:190px}
+.lname b{font-weight:500}
+.lname .src{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-3)}
+.cellinp{
+  height:30px;width:88px;padding:0 9px;border:0;text-align:end;
+  background:var(--field);border-radius:var(--radius-chip);box-shadow:0 0 0 1px var(--line);
+  font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;
+  font-size:12.5px;color:var(--ink);
+  transition:box-shadow 130ms var(--ease-out-strong);
+}
+.cellinp:focus{outline:none;box-shadow:0 0 0 1px var(--accent)}
+.cellinp.w{width:112px}
+.ltotal{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:13px}
+.moq{display:block;margin-top:3px;font-size:11px;color:var(--orange)}
+
+.addrow{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line)}
+
+/* ── pemilih kandidat ──────────────────────────────────── */
+.picker{position:relative}
+.picker > summary{list-style:none}
+.picker > summary::-webkit-details-marker{display:none}
+.ppanel{
+  position:absolute;bottom:calc(100% + 8px);left:0;z-index:30;width:min(460px,86vw);
+  background:var(--page);border-radius:var(--radius-card);box-shadow:var(--shadow-overlay);
+  padding:8px;max-height:330px;overflow-y:auto;
+}
+.psearch{width:100%;margin-bottom:6px}
+.pitem{display:flex;align-items:center;gap:11px;padding:8px 9px;border-radius:var(--radius-chip);text-align:start;width:100%;border:0;background:none;font-family:inherit;color:var(--ink)}
+.pitem:hover{background:var(--hover)}
+.pitem .who{flex:1;min-width:0}
+.pitem .who b{display:block;font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pitem .who span{font-size:11.5px;color:var(--ink-3);font-family:"Geist Mono",ui-monospace,monospace}
+.pitem .cost{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:12.5px;flex-shrink:0}
+.pitem[disabled]{opacity:.45;pointer-events:none}
+
+/* ── rail ringkasan ────────────────────────────────────── */
+.sumrow{display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--line);font-size:13px}
+.sumrow:last-of-type{border-bottom:0}
+.sumrow > span:first-child{color:var(--ink-2);flex:1;min-width:0}
+.sumrow > span:last-child,.sumrow .val{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;text-align:end}
+.sumrow.total{background:var(--inset);border-top:1px solid var(--line)}
+.sumrow.total > span{font-weight:500;color:var(--ink)}
+.sumrow.total > span:last-child{font-size:17px}
+.railfoot{padding:12px 14px;display:flex;flex-direction:column;gap:9px}
+.idem{font-size:11.5px;color:var(--ink-3);line-height:1.45}
+.idem code{font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;background:var(--inset);border-radius:4px;padding:1px 5px;color:var(--ink-2)}
+
+@media(max-width:1120px){
+  .layout{flex-direction:column}
+  .rail{width:100%;position:static}
+}
+@media(max-width:980px){
+  .ws,.grp,.side-foot{display:none}
+  .layout{padding:14px}
+  .topbar{padding:12px 14px}
+}
+@media(prefers-reduced-motion:reduce){}
+</style>
+</head>
+<body>
+
+<div class="window">
+
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws">
+      <span class="m" aria-hidden="true">R</span>
+      <b>RetailOS · Edge</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <div class="grp">Pengadaan</div>
+    <a href="7-sourcing.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5"/><path d="m12 12 3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Sourcing</a>
+    <a href="#"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 4.5h11M3.5 9h11M3.5 13.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Shortlist <span class="count">4</span></a>
+    <a href="9-po.html" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5M6.25 12.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Purchase Order</a>
+    <a href="8-supplier.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 14.5V7l6.5-4 6.5 4v7.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5v-4h4v4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>Supplier <span class="count">3</span></a>
+
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="#"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="7.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="12.5" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>Pool</a>
+
+    <div class="side-foot">
+      <p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>PO baru · 1 Sep 2026</p>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <div class="topbar">
+      <nav class="crumb" aria-label="Remah roti">
+        <a href="9-po.html">Purchase Order</a>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="m4.5 3 3 3-3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <b>PO baru</b>
+      </nav>
+      <div class="right">
+        <a href="9-po.html" class="btn btn-secondary btn-sm" style="text-decoration:none">Batal</a>
+        <button type="button" class="btn btn-secondary btn-sm">Simpan draf</button>
+      </div>
+    </div>
+
+    <div class="layout">
+
+      <div class="form">
+
+        <!-- ── 1 · supplier ──────────────────────────── -->
+        <section class="card">
+          <div class="ch"><h2>Supplier</h2><span class="meta">Wajib</span></div>
+          <div class="cb">
+            <div class="f">
+              <label for="sup">Pilih supplier</label>
+              <select class="inp" id="sup">
+                <option value="">— Belum dipilih —</option>
+              </select>
+            </div>
+            <div id="supinfo"></div>
+          </div>
+        </section>
+
+        <!-- ── 2 · ketentuan ─────────────────────────── -->
+        <section class="card">
+          <div class="ch"><h2>Ketentuan</h2></div>
+          <div class="cb">
+            <div class="grid2">
+              <div class="f">
+                <label for="podate">Tanggal PO</label>
+                <input class="inp" id="podate" type="date" value="2026-09-01">
+              </div>
+              <div class="f">
+                <label for="eta">Perkiraan tiba <span class="opt-tag">· opsional</span></label>
+                <input class="inp" id="eta" type="date">
+              </div>
+              <div class="f">
+                <label for="terms">Termin pembayaran <span class="opt-tag">· opsional</span></label>
+                <input class="inp" id="terms" placeholder="Ikut supplier">
+                <span class="hint" id="termshint">Terisi otomatis dari supplier, masih bisa diubah.</span>
+              </div>
+              <div class="f">
+                <label for="inco">Incoterms <span class="opt-tag">· opsional</span></label>
+                <input class="inp" id="inco" placeholder="mis. FOB Bandung">
+              </div>
+              <div class="f" style="grid-column:1/-1">
+                <label for="notes">Catatan <span class="opt-tag">· opsional</span></label>
+                <textarea class="inp" id="notes" placeholder="Instruksi khusus, rujukan kesepakatan, dsb."></textarea>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── 3 · baris ─────────────────────────────── -->
+        <section class="card">
+          <div class="ch">
+            <h2>Baris</h2>
+            <span class="meta" id="linemeta">Belum ada baris</span>
+          </div>
+
+          <div class="tw">
+            <table>
+              <thead>
+                <tr>
+                  <th>Barang</th>
+                  <th class="n">Jumlah</th>
+                  <th>Satuan</th>
+                  <th class="n">Harga satuan</th>
+                  <th class="n">Total baris</th>
+                  <th aria-label="Hapus"></th>
+                </tr>
+              </thead>
+              <tbody id="lines"></tbody>
+            </table>
+          </div>
+          <div id="lineempty" class="empty">
+            <b>Belum ada baris</b>
+            Tambahkan dari kandidat sourcing, atau ketik baris langsung.
+          </div>
+
+          <div class="addrow">
+            <details class="picker" id="picker">
+              <summary class="btn btn-secondary btn-sm">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                Dari sourcing
+              </summary>
+              <div class="ppanel">
+                <input class="inp psearch" id="psearch" type="search" placeholder="Cari kandidat">
+                <div id="plist"></div>
+              </div>
+            </details>
+            <button type="button" class="btn btn-secondary btn-sm" id="adddirect">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              Baris langsung
+            </button>
+            <span class="hint" style="align-self:center">Semua baris merchandise.</span>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── rail ────────────────────────────────────── -->
+      <aside class="rail">
+        <section class="card">
+          <div class="ch"><h2>Ringkasan</h2><span class="meta mono" id="qtymeta">0 pcs</span></div>
+          <div class="sumrow"><span>Subtotal</span><span id="subtotal">—</span></div>
+          <div class="sumrow">
+            <span>Diskon</span>
+            <span style="display:flex;align-items:center;gap:6px">
+              <select class="inp" id="disckind" style="height:28px;width:74px;font-size:12.5px;padding:0 24px 0 8px">
+                <option value="none">—</option>
+                <option value="percentage">%</option>
+                <option value="fixed">Rp</option>
+              </select>
+              <input class="cellinp" id="discval" type="number" min="0" placeholder="0" disabled>
+            </span>
+          </div>
+          <div class="sumrow">
+            <span>Ongkos kirim</span>
+            <input class="cellinp w" id="shipping" type="number" min="0" placeholder="0">
+          </div>
+          <div class="sumrow total"><span>Total</span><span id="total">—</span></div>
+
+          <div class="railfoot">
+            <button type="button" class="btn btn-primary" id="create" disabled>Buat PO</button>
+            <p class="idem" id="whyblocked"></p>
+            <p class="idem">
+              Kunci idempotensi <code id="idem">—</code><br>
+              Kunci yang sama dipakai ulang saat mencoba lagi, jadi jaringan yang putus tidak bisa membuat dua PO.
+            </p>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<script>
+/* Supplier — `blocking` diambil dari CompletenessReport.blocking_issues.
+   Kalau ada isinya, supplier itu tidak bisa dibuatkan PO. */
+var SUPPLIERS = [
+  {id:"SUP-0042", name:"CV Mitra Tekstil", terms:"30 hari", inco:"FOB Bandung", blocking:[], warnings:[]},
+  {id:"SUP-0117", name:"PT Sinar Garmindo", terms:"45 hari", inco:"EXW Cikarang", blocking:[], warnings:["Hanya satu kontak aktif"]},
+  {id:"SUP-0088", name:"PT Anugerah Denim", terms:"30 hari", inco:"FOB Rancaekek", blocking:[], warnings:[]},
+  {id:"SUP-0203", name:"Bandung Knit Works", terms:"14 hari", inco:"FOB Bandung", blocking:["NPWP belum diisi"], warnings:[]},
+  {id:"SUP-0311", name:"UD Karya Aksesoris", terms:null, inco:null, blocking:["Termin pembayaran belum diisi","Tidak ada kontak aktif"], warnings:[]},
+];
+
+/* Kandidat sourcing — medannya PurchaseSelectionItem: code, name, color,
+   unit_cost, moq. `supplier` menyaring daftar, karena satu PO milik satu
+   supplier dan mencampurnya tidak akan pernah sah. */
+var CANDIDATES = [
+  {code:"SRC-2411-0182", name:"Celana kulot rayon lipat depan", color:"Krem", cost:48500, moq:60, supplier:"SUP-0042"},
+  {code:"SRC-2411-0210", name:"Celana palazzo motif lipat", color:"Cokelat", cost:57800, moq:60, supplier:"SUP-0042"},
+  {code:"SRC-2409-0664", name:"Celana panjang flanel kotak unisex", color:"Merah", cost:53000, moq:80, supplier:"SUP-0042"},
+  {code:"SRC-2405-0079", name:"Celana bahan formal pria, wool blend", color:"Abu", cost:118000, moq:60, supplier:"SUP-0042"},
+  {code:"SRC-2411-0177", name:"Celana cargo panjang pria, katun ripstop", color:"Hitam", cost:72000, moq:100, supplier:"SUP-0117"},
+  {code:"SRC-2408-0412", name:"Celana chino slim, katun twill 2/1", color:"Krem", cost:64000, moq:100, supplier:"SUP-0117"},
+  {code:"SRC-2406-0107", name:"Celana pendek katun rami, tali serut", color:"Olive", cost:34200, moq:100, supplier:"SUP-0117"},
+  {code:"SRC-2410-0951", name:"Celana jeans baggy non-stretch 12 oz", color:"Navy", cost:96500, moq:120, supplier:"SUP-0088"},
+  {code:"SRC-2411-0221", name:"Celana kulot denim washed, potongan A", color:"Biru", cost:88000, moq:150, supplier:"SUP-0088"},
+  {code:"SRC-2411-0203", name:"Sweatpants loose fleece brushed", color:"Abu", cost:41200, moq:50, supplier:"SUP-0203"},
+];
+
+var lines = [];
+var picked = null;
+
+function rp(n){ return "Rp " + String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+function num(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+function initials(name){ return name.split(/\s+/).slice(0,2).map(function(w){return w[0];}).join("").toUpperCase(); }
+
+/* Kunci idempotensi dibuat sekali per formulir dan tidak berputar sampai PO
+   benar-benar jadi — itu yang membuat "coba lagi" aman. */
+var idemKey = "po-create-" + (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+document.getElementById("idem").textContent = idemKey.slice(0, 22) + "…";
+
+/* ── supplier ──────────────────────────────────────────── */
+var supSel = document.getElementById("sup");
+SUPPLIERS.forEach(function(s){
+  var o = document.createElement("option");
+  o.value = s.id;
+  o.textContent = s.name + " · " + s.id + (s.blocking.length ? "  (tidak bisa di-PO)" : "");
+  supSel.appendChild(o);
+});
+
+function paintSupplier(){
+  var box = document.getElementById("supinfo");
+  if (!picked) { box.innerHTML = ""; return; }
+
+  var html = '<div class="picked">' +
+    '<span class="av">' + initials(picked.name) + '</span>' +
+    '<span class="who"><b>' + picked.name + '</b>' +
+      '<span>' + picked.id + " · termin " + (picked.terms || "belum diisi") + '</span></span>' +
+    (picked.blocking.length
+      ? '<span class="pill" data-tone="red">Tidak bisa di-PO</span>'
+      : (picked.warnings.length ? '<span class="pill" data-tone="orange">Ada peringatan</span>'
+                                : '<span class="pill" data-tone="green">Lengkap</span>')) +
+    '</div>';
+
+  /* Gerbang dipasang di sini, bukan di tombol simpan — supaya orang tidak
+     mengisi dua puluh baris dulu baru diberi tahu suppliernya tidak sah. */
+  if (picked.blocking.length) {
+    html += '<div class="gate" data-tone="red">' +
+      '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>' +
+      '<span><b>Supplier ini belum bisa dibuatkan PO.</b><ul>' +
+      picked.blocking.map(function(b){ return "<li>" + b + "</li>"; }).join("") +
+      '</ul><a href="8-supplier.html">Lengkapi datanya dulu →</a></span></div>';
+  } else if (picked.warnings.length) {
+    html += '<div class="gate" data-tone="orange">' +
+      '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>' +
+      '<span><b>PO tetap bisa dibuat.</b> ' + picked.warnings.join(" · ") + '</span></div>';
+  }
+
+  box.innerHTML = html;
+}
+
+supSel.addEventListener("change", function(){
+  var next = SUPPLIERS.find(function(s){ return s.id === supSel.value; }) || null;
+
+  /* Ganti supplier membuang baris sourcing milik supplier lama: satu PO milik
+     satu supplier, dan membiarkannya diam-diam akan menghasilkan PO campur
+     yang tidak akan pernah lolos server. */
+  if (picked && next && next.id !== picked.id) {
+    var foreign = lines.filter(function(l){ return l.kind === "sourcing"; });
+    if (foreign.length && !window.confirm(
+        foreign.length + " baris dari " + picked.name + " akan dihapus karena satu PO hanya untuk satu supplier. Lanjutkan?")) {
+      supSel.value = picked.id;
+      return;
+    }
+    lines = lines.filter(function(l){ return l.kind !== "sourcing"; });
+  }
+
+  picked = next;
+  var terms = document.getElementById("terms");
+  if (picked && picked.terms && !terms.value) terms.value = picked.terms;
+  var inco = document.getElementById("inco");
+  if (picked && picked.inco && !inco.value) inco.value = picked.inco;
+
+  paintSupplier();
+  paintCandidates();
+  paintLines();
+});
+
+/* ── kandidat ──────────────────────────────────────────── */
+function paintCandidates(){
+  var term = document.getElementById("psearch").value.trim().toLowerCase();
+  var list = CANDIDATES.filter(function(c){
+    if (picked && c.supplier !== picked.id) return false;
+    return !term || (c.name + " " + c.code + " " + c.color).toLowerCase().indexOf(term) !== -1;
+  });
+
+  document.getElementById("plist").innerHTML = list.length
+    ? list.map(function(c){
+        var already = lines.some(function(l){ return l.code === c.code; });
+        return '<button type="button" class="pitem" data-code="' + c.code + '"' + (already ? " disabled" : "") + '>' +
+          '<span class="who"><b>' + c.name + " · " + c.color + '</b>' +
+            '<span>' + c.code + " · MOQ " + c.moq + '</span></span>' +
+          '<span class="cost">' + rp(c.cost) + '</span>' +
+        '</button>';
+      }).join("")
+    : '<p class="empty" style="padding:18px 10px">' +
+      (picked ? "Tidak ada kandidat untuk supplier ini." : "Pilih supplier dulu.") + '</p>';
+
+  document.querySelectorAll(".pitem").forEach(function(button){
+    button.addEventListener("click", function(){
+      var c = CANDIDATES.find(function(x){ return x.code === button.dataset.code; });
+      lines.push({kind:"sourcing", code:c.code, name:c.name, color:c.color, uom:"pcs", qty:c.moq, cost:c.cost, moq:c.moq});
+      document.getElementById("picker").open = false;
+      paintLines();
+      paintCandidates();
+    });
+  });
+}
+document.getElementById("psearch").addEventListener("input", paintCandidates);
+
+document.getElementById("adddirect").addEventListener("click", function(){
+  lines.push({kind:"direct", code:null, name:"", color:null, uom:"pcs", qty:1, cost:0, moq:null});
+  paintLines();
+});
+
+/* ── baris ─────────────────────────────────────────────── */
+function paintLines(){
+  var body = document.getElementById("lines");
+  document.getElementById("lineempty").hidden = lines.length > 0;
+
+  body.innerHTML = lines.map(function(l, i){
+    var short = l.moq !== null && l.qty < l.moq;
+    return '<tr>' +
+      '<td><span class="lname">' +
+        (l.kind === "sourcing"
+          ? '<b>' + l.name + " · " + l.color + '</b><span class="src"><span class="chip" data-tone="accent">sourcing</span>' + l.code + '</span>'
+          : '<input class="inp" data-k="name" data-i="' + i + '" value="' + l.name.replace(/"/g, "&quot;") + '" placeholder="Nama barang" style="height:30px;font-size:13px">' +
+            '<span class="src"><span class="chip">direct</span>diketik manual</span>') +
+      '</span></td>' +
+      '<td class="n"><input class="cellinp" type="number" min="1" data-k="qty" data-i="' + i + '" value="' + l.qty + '">' +
+        (short ? '<span class="moq">di bawah MOQ ' + l.moq + '</span>' : "") + '</td>' +
+      '<td><input class="cellinp" data-k="uom" data-i="' + i + '" value="' + l.uom + '" style="width:64px;text-align:start"></td>' +
+      '<td class="n"><input class="cellinp w" type="number" min="0" data-k="cost" data-i="' + i + '" value="' + l.cost + '"></td>' +
+      '<td class="n ltotal">' + rp(l.qty * l.cost) + '</td>' +
+      '<td class="n"><button type="button" class="icon-btn" data-del="' + i + '" aria-label="Hapus baris">' +
+        '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3.5 4.5h9M6.5 4.5V3h3v1.5M5 4.5l.6 8h4.8l.6-8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '</button></td>' +
+    '</tr>';
+  }).join("");
+
+  body.querySelectorAll("input").forEach(function(input){
+    input.addEventListener("input", function(){
+      var l = lines[Number(input.dataset.i)];
+      var k = input.dataset.k;
+      l[k] = (k === "qty" || k === "cost") ? Number(input.value || 0) : input.value;
+      paintTotals();
+      if (k === "qty") {
+        var cell = input.parentElement;
+        var warn = cell.querySelector(".moq");
+        var short = l.moq !== null && l.qty < l.moq;
+        if (short && !warn) cell.insertAdjacentHTML("beforeend", '<span class="moq">di bawah MOQ ' + l.moq + '</span>');
+        if (!short && warn) warn.remove();
+      }
+      if (k === "qty" || k === "cost") {
+        input.closest("tr").querySelector(".ltotal").textContent = rp(l.qty * l.cost);
+      }
+    });
+  });
+
+  body.querySelectorAll("[data-del]").forEach(function(button){
+    button.addEventListener("click", function(){
+      lines.splice(Number(button.dataset.del), 1);
+      paintLines();
+      paintCandidates();
+    });
+  });
+
+  paintTotals();
+}
+
+/* ── total ─────────────────────────────────────────────── */
+document.getElementById("disckind").addEventListener("change", function(){
+  var val = document.getElementById("discval");
+  val.disabled = this.value === "none";
+  if (val.disabled) val.value = "";
+  paintTotals();
+});
+document.getElementById("discval").addEventListener("input", paintTotals);
+document.getElementById("shipping").addEventListener("input", paintTotals);
+
+function paintTotals(){
+  var subtotal = lines.reduce(function(a, l){ return a + l.qty * l.cost; }, 0);
+  var qty = lines.reduce(function(a, l){ return a + l.qty; }, 0);
+
+  var kind = document.getElementById("disckind").value;
+  var dv = Number(document.getElementById("discval").value || 0);
+  var discount = kind === "percentage" ? subtotal * dv / 100 : (kind === "fixed" ? dv : 0);
+  var shipping = Number(document.getElementById("shipping").value || 0);
+  var total = subtotal - discount + shipping;
+
+  /* Nol yang belum diisi ditulis `—`, bukan Rp 0 — form kosong dan form yang
+     totalnya kebetulan nol tidak boleh terbaca sama. */
+  document.getElementById("subtotal").textContent = lines.length ? rp(subtotal) : "—";
+  document.getElementById("total").textContent = lines.length ? rp(total) : "—";
+  document.getElementById("qtymeta").textContent = num(qty) + " pcs";
+  document.getElementById("linemeta").textContent = lines.length
+    ? lines.length + " baris · " + num(qty) + " pcs"
+    : "Belum ada baris";
+
+  var blockedBy = [];
+  if (!picked) blockedBy.push("supplier belum dipilih");
+  else if (picked.blocking.length) blockedBy.push("supplier belum bisa di-PO");
+  if (!lines.length) blockedBy.push("belum ada baris");
+  if (lines.some(function(l){ return !l.name.trim(); })) blockedBy.push("ada baris tanpa nama");
+  if (lines.some(function(l){ return l.qty < 1; })) blockedBy.push("ada jumlah kurang dari 1");
+
+  var create = document.getElementById("create");
+  create.disabled = blockedBy.length > 0;
+  document.getElementById("whyblocked").textContent = blockedBy.length
+    ? "Belum bisa dibuat: " + blockedBy.join(", ") + "."
+    : "";
+}
+
+document.getElementById("create").addEventListener("click", function(){
+  window.alert(
+    "POST /api/v1/purchase-orders\n" +
+    "idempotency-key: " + idemKey + "\n\n" +
+    JSON.stringify({
+      supplier_id: picked.id,
+      po_date: document.getElementById("podate").value,
+      expected_arrival: document.getElementById("eta").value || undefined,
+      payment_terms: document.getElementById("terms").value || undefined,
+      incoterms: document.getElementById("inco").value || undefined,
+      currency: "IDR",
+      notes: document.getElementById("notes").value || undefined,
+      shipping_amount: document.getElementById("shipping").value || undefined,
+      items: lines.map(function(l){
+        return {
+          source_kind: l.kind,
+          item_class: "merchandise",
+          sourcing_item_id: l.code || undefined,
+          name: l.name,
+          color: l.color || undefined,
+          uom: l.uom,
+          quantity: l.qty,
+          unit_cost: String(l.cost),
+        };
+      }),
+    }, null, 2)
+  );
+});
+
+paintCandidates();
+paintLines();
+</script>
+</body>
+</html>

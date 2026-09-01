@@ -1,0 +1,246 @@
+//! Reading the centre's price book into the shared evaluator.
+//!
+//! The mirror of `src/edge/pricing.rs`, against Postgres instead of SQLite.
+//! Both build the same [`PricingSnapshot`] and hand it to the same engine, and
+//! that is the entire point: until now the centre answered "what does this
+//! cost" with its own SQL, which knew about price rules and nothing about
+//! markdowns, promotions or coupons. A shirt on clearance rang up at the
+//! clearance price in a shop and at the list price here.
+//!
+//! Two tills in one system agree on every ordinary day and part company on the
+//! day a promotion runs — which is the day anybody is looking.
+
+use chrono::{DateTime, Utc};
+use pricing_engine::{
+    Campaign, CampaignStatus, Caps, Coupon, Currency, Markdown, Money, PriceEntry, PriceLevel,
+    PricingSnapshot, Rule,
+};
+use serde_json::Value;
+use sqlx::{Postgres, Row, Transaction};
+use std::collections::BTreeMap;
+use uuid::Uuid;
+
+use crate::cloud::application::AppError;
+
+/// The price book a shop is under, and the SKU codes to read it by.
+///
+/// The engine names products by `sku_code`; the centre's tables key on
+/// `sku_id`. The map comes back alongside the snapshot so a caller holding an
+/// id can ask about it without a second query — and so there is exactly one
+/// place where the two identifiers are married.
+pub struct SitePricing {
+    pub snapshot: PricingSnapshot,
+    pub sku_code_by_id: BTreeMap<Uuid, String>,
+    pub sku_id_by_code: BTreeMap<String, Uuid>,
+}
+
+/// Which level a stored row applies at.
+///
+/// The four levels live in three nullable columns and only one may be set —
+/// a CHECK constraint says so. Reading them narrowest first means a row that
+/// somehow carries two resolves the same way here as it does at a shop.
+fn level_of(
+    site_id: Option<String>,
+    site_ids: Option<Vec<String>>,
+    tier: Option<String>,
+) -> PriceLevel {
+    if let Some(site_id) = site_id {
+        return PriceLevel::Site { site_id };
+    }
+    if let Some(ids) = site_ids {
+        if !ids.is_empty() {
+            return PriceLevel::SiteGroup {
+                site_ids: ids.into_iter().collect(),
+            };
+        }
+    }
+    if let Some(tier) = tier {
+        return PriceLevel::Tier { tier };
+    }
+    PriceLevel::Company
+}
+
+fn campaign_status(raw: &str) -> CampaignStatus {
+    match raw {
+        "DRAFT" => CampaignStatus::Draft,
+        "SCHEDULED" => CampaignStatus::Scheduled,
+        "ACTIVE" => CampaignStatus::Active,
+        "PAUSED" => CampaignStatus::Paused,
+        "EXPIRED" => CampaignStatus::Expired,
+        // A status this build cannot read must not leave a promotion live.
+        _ => CampaignStatus::Cancelled,
+    }
+}
+
+/// Load everything that could price a basket at one shop, at one instant.
+///
+/// Scoped in SQL rather than filtered in the engine: a shop's evaluation has
+/// no business seeing another branch's prices, and the smaller snapshot is the
+/// one that is obviously correct.
+pub async fn load_site_pricing(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+    channel: &str,
+    at: DateTime<Utc>,
+) -> Result<SitePricing, AppError> {
+    let rows = sqlx::query(
+        "SELECT p.version, p.effective_from, p.effective_to,
+                pr.sku_id, s.sku_code, pr.site_id, pr.site_ids, pr.tier, pr.channel,
+                ar.sellable, pr.currency::text currency, pr.unit_price_minor, pr.tax_category
+           FROM commercial_price_rule pr
+           JOIN commercial_publication p ON p.id = pr.publication_id
+           JOIN sku s ON s.id = pr.sku_id
+           JOIN commercial_assortment_rule ar
+             ON ar.publication_id = pr.publication_id AND ar.sku_id = pr.sku_id
+            AND ar.channel = pr.channel AND ar.site_id IS NOT DISTINCT FROM pr.site_id
+          WHERE p.status = 'PUBLISHED'
+            AND pr.channel = $2
+            AND (pr.site_id IS NULL OR pr.site_id = $1)
+            AND (pr.site_ids IS NULL OR $1 = ANY(pr.site_ids))",
+    )
+    .bind(site_id)
+    .bind(channel)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut entries = Vec::with_capacity(rows.len());
+    let mut sku_code_by_id = BTreeMap::new();
+    let mut sku_id_by_code = BTreeMap::new();
+    let mut publication_version = 0_i64;
+    for row in rows {
+        let sku_id: Uuid = row.get("sku_id");
+        let sku_code: String = row.get("sku_code");
+        let version: i64 = row.get("version");
+        publication_version = publication_version.max(version);
+        sku_code_by_id.insert(sku_id, sku_code.clone());
+        sku_id_by_code.insert(sku_code.clone(), sku_id);
+        entries.push(PriceEntry {
+            sku_code,
+            applies_to: level_of(
+                row.get("site_id"),
+                row.get("site_ids"),
+                row.get("tier"),
+            ),
+            channel: row.get("channel"),
+            sellable: row.get("sellable"),
+            currency: Currency(row.get::<String, _>("currency").trim().to_string()),
+            unit_price: Money::new(row.get::<i64, _>("unit_price_minor")),
+            tax_category: row.get("tax_category"),
+            publication_version: version,
+            // A publication states validity once, for the whole price book.
+            effective_from: row.get("effective_from"),
+            effective_to: row.get("effective_to"),
+        });
+    }
+
+    let markdowns = sqlx::query(
+        "SELECT m.markdown_id, m.sku_code, m.article_code, m.site_id, m.site_ids, m.tier,
+                m.replacement_unit_price_minor, m.priority, m.effective_from, m.effective_to
+           FROM commercial_markdown m
+           JOIN commercial_publication p ON p.id = m.publication_id
+          WHERE p.status = 'PUBLISHED'
+            AND (m.site_id IS NULL OR m.site_id = $1)
+            AND (m.site_ids IS NULL OR $1 = ANY(m.site_ids))",
+    )
+    .bind(site_id)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| Markdown {
+        markdown_id: row.get("markdown_id"),
+        sku_code: row.get("sku_code"),
+        article_code: row.get("article_code"),
+        applies_to: level_of(row.get("site_id"), row.get("site_ids"), row.get("tier")),
+        replacement_unit_price: Money::new(row.get::<i64, _>("replacement_unit_price_minor")),
+        priority: i64::from(row.get::<i32, _>("priority")),
+        effective_from: row.get("effective_from"),
+        effective_to: row.get("effective_to"),
+    })
+    .collect();
+
+    // Promotions are stored as the engine's own documents. One this build
+    // cannot read is skipped rather than fatal, exactly as at a shop: an
+    // unreadable offer must cost a discount, never the ability to sell.
+    let mut rules = Vec::new();
+    for row in sqlx::query(
+        "SELECT r.definition FROM commercial_rule r
+           JOIN commercial_publication p ON p.id = r.publication_id
+          WHERE p.status = 'PUBLISHED' ORDER BY r.rule_id",
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    {
+        let document: Value = row.get("definition");
+        match serde_json::from_value::<Rule>(document) {
+            Ok(rule) => rules.push(rule),
+            Err(error) => tracing::warn!(
+                %error,
+                "skipping a promotion this build cannot read; prices are unaffected"
+            ),
+        }
+    }
+
+    let coupons = sqlx::query(
+        "SELECT c.code, c.rule_id, c.active, c.customer_id, c.valid_from, c.valid_to,
+                c.max_uses, c.used
+           FROM commercial_coupon c
+           JOIN commercial_publication p ON p.id = c.publication_id
+          WHERE p.status = 'PUBLISHED'",
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| Coupon {
+        code: row.get("code"),
+        rule_id: row.get("rule_id"),
+        active: row.get("active"),
+        customer_id: row.get("customer_id"),
+        valid_from: row.get("valid_from"),
+        valid_to: row.get("valid_to"),
+        max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
+        used: i64::from(row.get::<i32, _>("used")),
+    })
+    .collect();
+
+    let campaigns = sqlx::query(
+        "SELECT c.campaign_id, c.name, c.status, c.valid_from, c.valid_to,
+                c.budget_minor, c.spent_minor, c.max_uses, c.used, c.max_uses_per_customer
+           FROM commercial_campaign c
+           JOIN commercial_publication p ON p.id = c.publication_id
+          WHERE p.status = 'PUBLISHED' ORDER BY c.campaign_id",
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| Campaign {
+        campaign_id: row.get("campaign_id"),
+        name: row.get("name"),
+        status: campaign_status(&row.get::<String, _>("status")),
+        valid_from: row.get("valid_from"),
+        valid_to: row.get("valid_to"),
+        caps: Caps {
+            budget: row.get::<Option<i64>, _>("budget_minor").map(Money::new),
+            spent: Money::new(row.get::<i64, _>("spent_minor")),
+            max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
+            used: i64::from(row.get::<i32, _>("used")),
+            max_uses_per_customer: row
+                .get::<Option<i32>, _>("max_uses_per_customer")
+                .map(i64::from),
+        },
+    })
+    .collect();
+
+    let _ = at; // The window is applied by the engine, from the context.
+    Ok(SitePricing {
+        snapshot: PricingSnapshot {
+            publication_version,
+            entries,
+            markdowns,
+            rules,
+            coupons,
+            campaigns,
+        },
+        sku_code_by_id,
+        sku_id_by_code,
+    })
+}

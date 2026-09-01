@@ -4,7 +4,7 @@
 
 use axum::body::{to_bytes, Body};
 use http::Request;
-use inventory_edge::{
+use inventory_backend::cloud::{
     application::{
         AddSaleLineRequest, AddSalePaymentRequest, AppConfig, AppState, CommandRequest,
         CommercialOfferRuleInput, CommercialTaxRuleInput, CreateCommercialPublicationRequest,
@@ -12,7 +12,7 @@ use inventory_edge::{
         ReturnQuery,
     },
     domain::{CommercialChannel, PaymentMethod},
-    http as api_http, infrastructure,
+    http as api_http, postgres as infrastructure,
 };
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
@@ -48,6 +48,8 @@ fn test_config(jwt_secret: Option<&str>) -> AppConfig {
         sync_apply_enabled: false,
         jwt_secret: jwt_secret.map(str::to_owned),
         auth_token_ttl_minutes: 60,
+        auth_session_idle_minutes: 30,
+        auth_cookie_secure: false,
         bootstrap_admin_password: None,
         cors_allowed_origins: None,
     }
@@ -62,6 +64,8 @@ async fn publish_price_book(pool: &PgPool) {
         .iter()
         .enumerate()
         .map(|(index, row)| CommercialOfferRuleInput {
+            site_ids: None,
+            tier: None,
             sku_id: row.get("id"),
             site_id: None,
             channel: CommercialChannel::Store,
@@ -74,6 +78,10 @@ async fn publish_price_book(pool: &PgPool) {
     let publication = infrastructure::create_commercial_publication(
         pool,
         CreateCommercialPublicationRequest {
+            campaigns: Vec::new(),
+            markdowns: Vec::new(),
+            rules: Vec::new(),
+            coupons: Vec::new(),
             version: 2,
             name: "POS Test Price Book".into(),
             effective_from: chrono::Utc::now() - chrono::Duration::minutes(1),
@@ -90,9 +98,8 @@ async fn publish_price_book(pool: &PgPool) {
     )
     .await
     .unwrap_or_else(|e| panic!("create publication: {e}"));
-    let publication_id =
-        Uuid::parse_str(publication["id"].as_str().unwrap_or_default())
-            .unwrap_or_else(|e| panic!("publication UUID: {e}"));
+    let publication_id = Uuid::parse_str(publication["id"].as_str().unwrap_or_default())
+        .unwrap_or_else(|e| panic!("publication UUID: {e}"));
     infrastructure::publish_commercial_publication(
         pool,
         publication_id,
@@ -197,7 +204,7 @@ async fn completed_sale(pool: &PgPool, site: &str, epcs: &[String], key_prefix: 
     .unwrap_or_else(|e| panic!("complete: {e}"))
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn tender_rules_hold_at_the_http_boundary_of_payments(pool: PgPool) {
     publish_price_book(&pool).await;
     let epcs = floor_epcs(&pool, "store-07", 1).await;
@@ -293,7 +300,7 @@ async fn tender_rules_hold_at_the_http_boundary_of_payments(pool: PgPool) {
     assert_eq!(completed["change_minor"], 0);
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn returns_receipts_and_the_daily_report_agree(pool: PgPool) {
     publish_price_book(&pool).await;
     let epcs = floor_epcs(&pool, "store-07", 2).await;
@@ -345,7 +352,10 @@ async fn returns_receipts_and_the_daily_report_agree(pool: PgPool) {
         &pool,
         sale_id,
         CreateReturnRequest {
-            lines: vec![ReturnLineInput { sale_line_id: line_1_id, restock: true }],
+            lines: vec![ReturnLineInput {
+                sale_line_id: line_1_id,
+                restock: true
+            }],
             refunds: vec![RefundInput {
                 method: PaymentMethod::Cash,
                 amount_minor: line_1_total + 1,
@@ -361,7 +371,10 @@ async fn returns_receipts_and_the_daily_report_agree(pool: PgPool) {
 
     // Sellable return goes back to the floor, idempotently.
     let return_request = CreateReturnRequest {
-        lines: vec![ReturnLineInput { sale_line_id: line_1_id, restock: true }],
+        lines: vec![ReturnLineInput {
+            sale_line_id: line_1_id,
+            restock: true,
+        }],
         refunds: vec![RefundInput {
             method: PaymentMethod::Cash,
             amount_minor: line_1_total,
@@ -385,14 +398,20 @@ async fn returns_receipts_and_the_daily_report_agree(pool: PgPool) {
         1,
         "restocked item is sellable again"
     );
-    assert_eq!(place_balance(&pool, &line_1_epc, "external/customer").await, 0);
+    assert_eq!(
+        place_balance(&pool, &line_1_epc, "external/customer").await,
+        0
+    );
 
     // The same line cannot be returned twice.
     assert!(infrastructure::create_sale_return(
         &pool,
         sale_id,
         CreateReturnRequest {
-            lines: vec![ReturnLineInput { sale_line_id: line_1_id, restock: true }],
+            lines: vec![ReturnLineInput {
+                sale_line_id: line_1_id,
+                restock: true
+            }],
             refunds: vec![RefundInput {
                 method: PaymentMethod::Cash,
                 amount_minor: line_1_total,
@@ -411,7 +430,10 @@ async fn returns_receipts_and_the_daily_report_agree(pool: PgPool) {
         &pool,
         sale_id,
         CreateReturnRequest {
-            lines: vec![ReturnLineInput { sale_line_id: line_2_id, restock: false }],
+            lines: vec![ReturnLineInput {
+                sale_line_id: line_2_id,
+                restock: false,
+            }],
             refunds: vec![RefundInput {
                 method: PaymentMethod::Cash,
                 amount_minor: line_2_total,
@@ -488,8 +510,12 @@ async fn returns_receipts_and_the_daily_report_agree(pool: PgPool) {
     let cash_tendered = report["cash"]["cash_tendered_minor"]
         .as_i64()
         .unwrap_or_default();
-    let change = report["cash"]["change_given_minor"].as_i64().unwrap_or_default();
-    let refunded = report["cash"]["cash_refunded_minor"].as_i64().unwrap_or_default();
+    let change = report["cash"]["change_given_minor"]
+        .as_i64()
+        .unwrap_or_default();
+    let refunded = report["cash"]["cash_refunded_minor"]
+        .as_i64()
+        .unwrap_or_default();
     assert_eq!(
         report["cash"]["cash_expected_minor"],
         json!(cash_tendered - change - refunded)
@@ -497,40 +523,44 @@ async fn returns_receipts_and_the_daily_report_agree(pool: PgPool) {
     assert_eq!(change, 50_000);
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "./migrations/postgres")]
 async fn auth_gates_every_protected_route(pool: PgPool) {
     infrastructure::bootstrap_admin(&pool, Some("admin-password-1"), true)
         .await
         .unwrap_or_else(|e| panic!("bootstrap: {e}"));
-    let app = api_http::router(AppState::new(pool.clone(), test_config(Some("test-secret"))));
+    let app = api_http::router(AppState::new(
+        pool.clone(),
+        test_config(Some("test-secret")),
+    ));
 
-    let send = |app: axum::Router, method: &str, uri: &str, token: Option<String>, body: Option<Value>| {
-        let method = method.to_owned();
-        let uri = uri.to_owned();
-        async move {
-            let mut builder = Request::builder().method(method.as_str()).uri(uri);
-            if let Some(token) = token {
-                builder = builder.header("authorization", format!("Bearer {token}"));
+    let send =
+        |app: axum::Router, method: &str, uri: &str, token: Option<String>, body: Option<Value>| {
+            let method = method.to_owned();
+            let uri = uri.to_owned();
+            async move {
+                let mut builder = Request::builder().method(method.as_str()).uri(uri);
+                if let Some(token) = token {
+                    builder = builder.header("authorization", format!("Bearer {token}"));
+                }
+                let request = match body {
+                    Some(value) => builder
+                        .header("content-type", "application/json")
+                        .body(Body::from(value.to_string())),
+                    None => builder.body(Body::empty()),
+                }
+                .unwrap_or_else(|e| panic!("request: {e}"));
+                let response = app
+                    .oneshot(request)
+                    .await
+                    .unwrap_or_else(|e| panic!("response: {e}"));
+                let status = response.status().as_u16();
+                let bytes = to_bytes(response.into_body(), 1 << 20)
+                    .await
+                    .unwrap_or_else(|e| panic!("body: {e}"));
+                let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+                (status, value)
             }
-            let request = match body {
-                Some(value) => builder
-                    .header("content-type", "application/json")
-                    .body(Body::from(value.to_string())),
-                None => builder.body(Body::empty()),
-            }
-            .unwrap_or_else(|e| panic!("request: {e}"));
-            let response = app
-                .oneshot(request)
-                .await
-                .unwrap_or_else(|e| panic!("response: {e}"));
-            let status = response.status().as_u16();
-            let bytes = to_bytes(response.into_body(), 1 << 20)
-                .await
-                .unwrap_or_else(|e| panic!("body: {e}"));
-            let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-            (status, value)
-        }
-    };
+        };
 
     // Health stays public; protected reads do not.
     let (status, _) = send(app.clone(), "GET", "/api/v1/health", None, None).await;
@@ -584,7 +614,10 @@ async fn auth_gates_every_protected_route(pool: PgPool) {
     )
     .await;
     assert_eq!(status, 200);
-    let cashier_token = cashier_login["token"].as_str().unwrap_or_default().to_owned();
+    let cashier_token = cashier_login["token"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
 
     // Role ladder: a cashier cannot move stock or manage users.
     let (status, _) = send(

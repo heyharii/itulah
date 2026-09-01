@@ -1,13 +1,14 @@
 // Authentication shim for the Retail Edge frontend.
 //
 // Loaded before app.js, it wraps window.fetch so that:
-//  - every /api request carries the stored bearer token;
+//  - the browser relies on an HttpOnly server session cookie;
+//  - state-changing requests carry the double-submit CSRF token;
 //  - any JSON body containing actor_id is rewritten to the logged-in
 //    username (the backend refuses mismatches to keep the audit trail
 //    truthful);
 //  - a 401 response opens the login overlay instead of failing silently.
-// When the node runs without auth (no INVENTORY_JWT_SECRET), no 401 ever
-// arrives and this shim stays invisible.
+// When a development node explicitly uses INVENTORY_AUTH_MODE=disabled, no
+// 401 arrives and this shim stays invisible.
 (function () {
   'use strict';
 
@@ -28,7 +29,23 @@
   }
 
   var session = readSession();
+  // One-time migration from the former localStorage bearer design.  Never keep
+  // a credential readable by JavaScript; retain display data only.
+  if (session && session.token) {
+    session = session.user ? { user: session.user } : null;
+    writeSession(session);
+  }
   var overlayOpen = false;
+
+  function cookieValue(name) {
+    var prefix = name + '=';
+    var parts = document.cookie ? document.cookie.split(';') : [];
+    for (var i = 0; i < parts.length; i += 1) {
+      var part = parts[i].trim();
+      if (part.indexOf(prefix) === 0) return part.slice(prefix.length);
+    }
+    return '';
+  }
 
   var realFetch = window.fetch.bind(window);
   window.fetch = function (input, init) {
@@ -38,7 +55,11 @@
 
     init = init || {};
     var headers = new Headers(init.headers || (typeof input !== 'string' && input.headers) || {});
-    if (session && session.token) headers.set('Authorization', 'Bearer ' + session.token);
+    var method = String(init.method || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      var csrf = cookieValue('inventory_csrf');
+      if (csrf) headers.set('x-csrf-token', csrf);
+    }
 
     // Keep the audit trail truthful: actor_id always names the logged-in user.
     if (session && session.user && typeof init.body === 'string') {
@@ -108,7 +129,7 @@
           });
         })
         .then(function (body) {
-          writeSession({ token: body.token, user: body.user });
+          writeSession({ user: body.user });
           location.reload();
         })
         .catch(function (err) {
@@ -129,8 +150,12 @@
     logout.textContent = 'sign out';
     logout.addEventListener('click', function (event) {
       event.preventDefault();
-      writeSession(null);
-      location.reload();
+      window.fetch('/api/v1/auth/logout', { method: 'POST' })
+        .catch(function () { /* local clear still signs the UI out */ })
+        .then(function () {
+          writeSession(null);
+          location.reload();
+        });
     });
     chip.appendChild(logout);
     header.appendChild(chip);

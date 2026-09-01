@@ -1,0 +1,1073 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Ringkasan · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400&family=IBM+Plex+Mono:wght@400&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap" rel="stylesheet">
+
+<style>
+/* ==========================================================================
+   GARIS — sistem tampilan Retail Edge
+   --------------------------------------------------------------------------
+   Nama diambil dari TERA-CHARTER §0, yang menyebutnya sebagai cadangan karena
+   "aturannya menegakkan diri sendiri: begitu tangan bergerak ke box-shadow,
+   namanya sudah melarang."
+
+   DUA KALIMAT YANG MENGATUR SEGALANYA
+   G1 — Kalau angkanya tidak bisa diperiksa, layarnya belum selesai.
+        Menurunkan: angka tabular, penyebut Lost % ditampilkan, `—` bukan `0`,
+        cap kesegaran di tiap panel, node yang belum sinkron disebut namanya.
+   G2 — Satu tepi digambar sekali, oleh satu cara.
+        Menurunkan: nol bayangan pada permukaan diam, pembagi dalam selalu
+        lebih lemah dari batas luar, kontrol digaris ATAU diisi — tidak dua-duanya.
+
+   DAFTAR TERTUTUP. Menambah satu isi butuh keputusan, bukan commit.
+     Netral      8   paper ground fill line line-soft ink ink-2 ink-3
+     Primary     1   seal #1a6b57 — HANYA interaksi (fokus, terpilih, aksi utama)
+     Magnitudo   1 rona, 4 tingkat — HANYA besaran (bar, meter). Bukan status.
+     Semantik    4   ok warn bad idle — HANYA kolom status, sebagai teks + titik
+     Ukuran      7   (Tera punya 5; dua ditambah dengan sadar — lihat catatan)
+     Bobot       1   400. Hierarki datang dari ukuran, tinta, dan serif vs sans.
+     Radius      1   5px. Tidak ada tangga radius.
+     Bayangan    0   pada permukaan diam. Hanya lapisan melayang.
+     Muka huruf  2+1 Newsreader (serif) · Archivo (sans) · IBM Plex Mono (angka)
+
+   DUA UKURAN YANG DITAMBAHKAN, dan alasannya:
+     --gar-t-head 18px  — judul panel. Tera tidak punya tingkat ini karena
+                          panelnya tidak berjudul; di sini panel berjudul.
+     --gar-t-hero 36px  — HANYA untuk empat angka persamaan neraca. Tidak
+                          boleh dipakai di tempat lain.
+
+   MOTION — diambil 1:1 dari KATALOG-POLA-FIZZY §1 (M-01, M-02, M-06).
+   ========================================================================== */
+
+:root{
+  /* --- netral: 8 -------------------------------------------------------- */
+  --gar-paper:      #fbfaf7;   /* permukaan kerja: panel, tabel            */
+  --gar-ground:     #f0efe9;   /* chrome: rail, kanvas — lebih redup       */
+  --gar-fill:       #e8e6dd;   /* isian: kepala tabel, kolom turunan       */
+  --gar-line:       #d9d6ca;   /* batas luar                               */
+  --gar-line-soft:  #e7e4d9;   /* pembagi dalam — selalu lebih lemah (G2)  */
+  --gar-ink:        #2a2e2b;   /* grafit kehijauan, bukan hitam            */
+  --gar-ink-2:      #63615a;   /* label, keterangan                        */
+  --gar-ink-3:      #8d8a80;   /* HANYA operator persamaan (teks besar)    */
+                               /* 3,31:1 pada paper — ambang teks besar 3,0 */
+
+  /* --- primary: 1 — hanya interaksi ------------------------------------- */
+  --gar-seal:       #1a6b57;
+  --gar-seal-tint:  #e4efea;
+
+  /* --- magnitudo: 1 rona, 4 tingkat — hanya besaran --------------------- */
+  --gar-mag-1:      #4a5b7d;
+  --gar-mag-2:      #6f7d99;
+  --gar-mag-3:      #9aa4b8;
+  --gar-mag-4:      #c3c9d4;
+
+  /* --- semantik: 4 — hanya kolom status --------------------------------- */
+  --gar-ok:         #1a6b57;
+  --gar-warn:       #8a6516;
+  --gar-bad:        #9b3b2f;
+  --gar-idle:       #96938a;
+
+  /* --- ukuran: 7 -------------------------------------------------------- */
+  --gar-t-label:    11px;
+  --gar-t-body:     12.5px;
+  --gar-t-value:    13px;
+  --gar-t-head:     18px;
+  --gar-t-figure:   21px;
+  --gar-t-title:    26px;
+  --gar-t-hero:     36px;
+
+  /* --- bentuk ----------------------------------------------------------- */
+  --gar-radius:     5px;
+  --gar-hairline:   1px;
+
+  /* --- motion — KATALOG-POLA-FIZZY M-01, nilai persis ------------------- */
+  --gar-dur-instant: 100ms;
+  --gar-dur-fast:    150ms;
+  --gar-dur-normal:  200ms;
+  --gar-dur-slow:    300ms;
+  --gar-ease:        cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* --- lapis density (kontrak per perangkat) ---------------------------- */
+  --gar-row:        34px;
+  --gar-pad:        10px;
+  --gar-gap:        8px;
+}
+
+[data-density="longgar"]{ --gar-row: 46px; --gar-pad: 14px; --gar-gap: 12px; }
+
+*,*::before,*::after{ box-sizing:border-box; }
+
+html,body{ margin:0; padding:0; }
+
+body{
+  background: var(--gar-ground);
+  color: var(--gar-ink);
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-size: var(--gar-t-body);
+  font-weight: 400;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Satu bobot, di mana pun. Kalau sesuatu perlu ditegaskan, ia membesar,
+   menggelap, atau berganti muka huruf — tidak menebal. */
+strong,b,th{ font-weight:400; }
+
+:focus-visible{
+  outline: 2px solid var(--gar-seal);
+  outline-offset: -2px;
+  border-radius: 3px;
+}
+
+/* ---------- tipografi peran -------------------------------------------- */
+.gar-serif{ font-family: Newsreader, Georgia, "Times New Roman", serif; }
+
+.gar-num{
+  font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.gar-label{
+  font-size: var(--gar-t-label);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--gar-ink-2);
+}
+
+/* Ketiadaan tidak boleh menyamar jadi nol (G1). Satu tanda, satu arti. */
+.gar-nil{ color: var(--gar-ink-2); }
+
+/* ======================================================================== */
+/* KEPALA                                                                   */
+/* ======================================================================== */
+.gar-head{
+  display:flex; align-items:center; gap:14px;
+  height:56px; padding:0 14px;
+  background: var(--gar-ground);
+  border-block-end: var(--gar-hairline) solid var(--gar-line);
+  position:sticky; top:0; z-index:20;
+}
+
+.gar-mark{ display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.gar-mark svg{ display:block; color: var(--gar-seal); }
+.gar-wordmark{ font-size: var(--gar-t-label); letter-spacing:.13em; text-transform:uppercase; }
+
+/* Cap tera: chip bergaris, bukan berisi. Digaris ATAU diisi, tidak dua-duanya (G2). */
+.gar-stamp{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:3px 8px;
+  border: var(--gar-hairline) solid var(--gar-seal);
+  border-radius: var(--gar-radius);
+  color: var(--gar-seal);
+  font-family:"IBM Plex Mono", ui-monospace, monospace;
+  font-size: var(--gar-t-label);
+  letter-spacing:.03em;
+  white-space:nowrap;
+}
+.gar-stamp-dot{ width:5px; height:5px; border-radius:50%; background: currentColor; }
+
+.gar-search{
+  flex:1; max-width:340px; min-width:120px;
+  display:flex; align-items:center; gap:8px;
+  height:30px; padding:0 8px;
+  background: var(--gar-paper);
+  border: var(--gar-hairline) solid var(--gar-line);
+  border-radius: var(--gar-radius);
+  color: var(--gar-ink-2);
+  transition: border-color var(--gar-dur-instant) var(--gar-ease);
+}
+.gar-search:focus-within{ border-color: var(--gar-seal); }
+.gar-search input{
+  flex:1; min-width:0;
+  border:0; background:none; outline:none; padding:0;
+  font-family:inherit; font-size: var(--gar-t-body); color: var(--gar-ink);
+}
+.gar-search input::placeholder{ color: var(--gar-ink-2); }
+
+.gar-kbd{
+  font-family:"IBM Plex Mono", ui-monospace, monospace;
+  font-size: var(--gar-t-label);
+  color: var(--gar-ink-2);
+  border: var(--gar-hairline) solid var(--gar-line);
+  border-radius:3px; padding:1px 4px;
+}
+
+.gar-head-right{ margin-inline-start:auto; display:flex; align-items:center; gap:10px; }
+
+.gar-seg{
+  display:flex; border: var(--gar-hairline) solid var(--gar-line);
+  border-radius: var(--gar-radius); overflow:hidden; background: var(--gar-paper);
+}
+.gar-seg button{
+  border:0; background:none; cursor:pointer;
+  font-family:inherit; font-size: var(--gar-t-label);
+  letter-spacing:.05em; text-transform:uppercase;
+  color: var(--gar-ink-2); padding:5px 10px;
+  transition: background-color var(--gar-dur-instant) var(--gar-ease),
+              color var(--gar-dur-instant) var(--gar-ease);
+}
+.gar-seg button + button{ border-inline-start: var(--gar-hairline) solid var(--gar-line); }
+.gar-seg button[aria-pressed="true"]{ background: var(--gar-seal-tint); color: var(--gar-seal); }
+
+/* ======================================================================== */
+/* BADAN: rail + kanvas                                                     */
+/* ======================================================================== */
+.gar-body{ display:flex; align-items:flex-start; }
+
+.gar-rail{
+  position:sticky; top:56px;
+  width:56px; flex-shrink:0;
+  height: calc(100dvh - 56px);
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding-block:10px;
+  border-inline-end: var(--gar-hairline) solid var(--gar-line);
+}
+.gar-rail button{
+  width:36px; height:36px;
+  display:grid; place-items:center;
+  border:0; background:none; border-radius: var(--gar-radius);
+  color: var(--gar-ink-2); cursor:pointer;
+  transition: background-color var(--gar-dur-instant) var(--gar-ease),
+              color var(--gar-dur-instant) var(--gar-ease);
+}
+.gar-rail button:hover{ background: var(--gar-fill); color: var(--gar-ink); }
+.gar-rail button[aria-current="page"]{ background: var(--gar-seal-tint); color: var(--gar-seal); }
+.gar-rail svg{ display:block; }
+
+.gar-canvas{
+  flex:1; min-width:0;
+  padding: 18px 20px 56px;
+  display:flex; flex-direction:column; gap:16px;
+  max-width: 1440px;
+}
+
+.gar-page-head{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+.gar-page-head h1{ margin:0; font-size: var(--gar-t-title); line-height:1.15; }
+.gar-page-head p{ margin:0; color: var(--gar-ink-2); }
+
+/* ======================================================================== */
+/* PANEL — nol bayangan, batas luar tunggal (G2)                            */
+/* ======================================================================== */
+.gar-panel{
+  background: var(--gar-paper);
+  border: var(--gar-hairline) solid var(--gar-line);
+  border-radius: var(--gar-radius);
+}
+.gar-panel-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding: 10px var(--gar-pad);
+  border-block-end: var(--gar-hairline) solid var(--gar-line-soft);
+}
+.gar-panel-head h2{
+  margin:0;
+  font-family: Newsreader, Georgia, serif;
+  font-size: var(--gar-t-head);
+  line-height:1.2;
+}
+.gar-panel-head .gar-stamp{ margin-inline-start:auto; }
+
+.gar-cols{ display:grid; gap:16px; grid-template-columns: 1fr; }
+@media (min-width: 1000px){
+  .gar-cols-2{ grid-template-columns: 1.618fr 1fr; }
+}
+
+/* ======================================================================== */
+/* HERO — persamaan neraca. Tanda tangan halaman ini.                       */
+/* Bukan empat kartu KPI: satu aritmatika yang bisa diperiksa mata (G1).    */
+/* ======================================================================== */
+.gar-eq{
+  display:flex; align-items:flex-end; flex-wrap:wrap;
+  gap: 4px 20px;
+  padding: 20px var(--gar-pad) 18px;
+}
+.gar-eq-term{ display:flex; flex-direction:column; gap:5px; }
+.gar-eq-term .gar-label{ line-height:1; }
+.gar-eq-fig{
+  font-size: var(--gar-t-hero);
+  line-height:1;
+  letter-spacing:-.015em;
+}
+.gar-eq-op{
+  font-family: Newsreader, Georgia, serif;
+  font-size: var(--gar-t-figure);
+  color: var(--gar-ink-3);
+  line-height:1; padding-block-end:6px;
+}
+/* Setiap suku turun sendiri-sendiri, kiri ke kanan: persamaannya merakit
+   diri. Satu momen, di bawah 700ms, dan mati di bawah reduced-motion (M-06). */
+@media (prefers-reduced-motion: no-preference){
+  .gar-eq > *{ animation: gar-settle var(--gar-dur-slow) var(--gar-ease) both; }
+  .gar-eq > *:nth-child(1){ animation-delay: 0ms; }
+  .gar-eq > *:nth-child(2){ animation-delay: 60ms; }
+  .gar-eq > *:nth-child(3){ animation-delay: 110ms; }
+  .gar-eq > *:nth-child(4){ animation-delay: 170ms; }
+  .gar-eq > *:nth-child(5){ animation-delay: 220ms; }
+  .gar-eq > *:nth-child(6){ animation-delay: 280ms; }
+  .gar-eq > *:nth-child(7){ animation-delay: 330ms; }
+}
+@keyframes gar-settle{
+  from{ opacity:0; transform: translateY(5px); }
+  to{ opacity:1; transform:none; }
+}
+
+.gar-verdict{
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  padding: 11px var(--gar-pad);
+  border-block-start: var(--gar-hairline) solid var(--gar-line-soft);
+  background: var(--gar-fill);
+  border-end-start-radius: var(--gar-radius);
+  border-end-end-radius: var(--gar-radius);
+}
+.gar-verdict-word{
+  font-family: Newsreader, Georgia, serif;
+  font-style: italic;
+  font-size: var(--gar-t-figure);
+  line-height:1;
+  color: var(--gar-seal);
+}
+.gar-verdict p{ margin:0; color: var(--gar-ink-2); }
+
+/* ======================================================================== */
+/* ANTRIAN — "perlu keputusan". Satu-satunya panel yang menyuruh.           */
+/* ======================================================================== */
+.gar-queue{ display:flex; flex-direction:column; }
+.gar-queue-row{
+  display:grid;
+  grid-template-columns: 66px 1fr auto;
+  align-items:center; gap: var(--gar-gap);
+  min-height: var(--gar-row);
+  padding: 7px var(--gar-pad);
+  transition: background-color var(--gar-dur-instant) var(--gar-ease);
+}
+.gar-queue-row + .gar-queue-row{ border-block-start: var(--gar-hairline) solid var(--gar-line-soft); }
+.gar-queue-row:hover{ background: var(--gar-fill); }
+.gar-queue-count{
+  font-size: var(--gar-t-figure);
+  line-height:1;
+  text-align:end;
+}
+.gar-queue-what{ min-width:0; }
+.gar-queue-what div{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gar-queue-age{ font-size: var(--gar-t-label); color: var(--gar-ink-2); }
+
+.gar-act{
+  border: var(--gar-hairline) solid var(--gar-line);
+  background: var(--gar-paper);
+  border-radius: var(--gar-radius);
+  color: var(--gar-ink);
+  font-family:inherit; font-size: var(--gar-t-body);
+  padding: 5px 11px; cursor:pointer; white-space:nowrap;
+  transition: border-color var(--gar-dur-instant) var(--gar-ease),
+              color var(--gar-dur-instant) var(--gar-ease);
+}
+.gar-act:hover{ border-color: var(--gar-seal); color: var(--gar-seal); }
+
+/* Ditolak bukan kosong. Baris yang tidak boleh dibaca mengatakan syaratnya,
+   bukan menampilkan nol. */
+.gar-queue-row[data-state="denied"] .gar-queue-count{ color: var(--gar-ink-2); font-size: var(--gar-t-value); }
+.gar-locked{
+  display:inline-flex; align-items:center; gap:5px;
+  font-size: var(--gar-t-label); color: var(--gar-ink-2);
+  white-space:nowrap;
+}
+
+/* ======================================================================== */
+/* TABEL BUKU BESAR — kolom tahu jenisnya sendiri                           */
+/* ======================================================================== */
+.gar-tablewrap{ overflow-x:auto; }
+table.gar-tbl{ width:100%; border-collapse:collapse; }
+
+/* Kepala kolom TIDAK sticky. `.gar-tablewrap` memakai overflow-x:auto, dan
+   begitu satu sumbu bukan `visible`, sumbu lainnya ikut jadi kontainer gulir —
+   jadi `position:sticky` di sini berlabuh pada pembungkus, bukan pada halaman,
+   dan kepala kolom turun menutupi baris pertama. Satu tepi digambar sekali,
+   oleh satu cara (G2): yang menggulir adalah halaman. */
+.gar-tbl thead th{
+  background: var(--gar-fill);
+  text-align:start;
+  font-size: var(--gar-t-label);
+  letter-spacing:.06em; text-transform:uppercase;
+  color: var(--gar-ink-2);
+  padding: 7px var(--gar-pad);
+  white-space:nowrap;
+  border-block-end: var(--gar-hairline) solid var(--gar-line);
+}
+.gar-tbl tbody td{
+  height: var(--gar-row);
+  padding: 5px var(--gar-pad);
+  border-block-start: var(--gar-hairline) solid var(--gar-line-soft);
+  vertical-align: middle;
+  white-space:nowrap;
+}
+.gar-tbl tbody tr{ transition: background-color var(--gar-dur-instant) var(--gar-ease); }
+.gar-tbl tbody tr:hover{ background: var(--gar-fill); }
+
+/* Kolom jenis `qty`: rata kanan, mono, negatif merah — satu aturan, satu tempat. */
+.gar-tbl .k-qty{ text-align:end; font-size: var(--gar-t-value); }
+.gar-tbl .k-qty.is-neg{ color: var(--gar-bad); }
+
+/* Kolom turunan (dihitung, bukan dicatat) berlatar tipis. Pembaca boleh tahu
+   mana angka yang dicatat dan mana yang disimpulkan. */
+.gar-tbl .k-derived{ background: color-mix(in oklab, var(--gar-fill) 55%, transparent); }
+.gar-tbl tbody tr:hover .k-derived{ background: transparent; }
+
+/* Lost % membawa penyebutnya. Rasio tanpa penyebut adalah angka yang harus
+   dipercaya begitu saja — dan itu yang dilarang G1. */
+.gar-ratio{ display:flex; flex-direction:column; align-items:flex-end; gap:1px; line-height:1.15; }
+.gar-ratio .gar-den{ font-size: var(--gar-t-label); color: var(--gar-ink-2); }
+
+.gar-group-row td{
+  background: var(--gar-paper);
+  border-block-start: var(--gar-hairline) solid var(--gar-line);
+  padding-block: 8px;
+}
+.gar-group-row .gar-label{ letter-spacing:.09em; }
+
+.gar-sum-row td{ background: color-mix(in oklab, var(--gar-fill) 70%, transparent); }
+.gar-sum-row .gar-sigma{ font-family: Newsreader, Georgia, serif; color: var(--gar-ink-2); }
+
+.gar-chip{
+  display:inline-block;
+  padding: 1px 6px;
+  border: var(--gar-hairline) solid var(--gar-line);
+  border-radius: 3px;
+  font-family:"IBM Plex Mono", ui-monospace, monospace;
+  font-size: var(--gar-t-label);
+  color: var(--gar-ink-2);
+}
+.gar-chip[data-src="EDGE"]{ border-style: dashed; }
+
+/* Status: teks + titik. Warna adalah penilaian, bukan besaran — jadi ia hanya
+   muncul di kolom status, tidak pernah sebagai isian baris. */
+.gar-status{ display:inline-flex; align-items:center; gap:6px; }
+.gar-status::before{ content:""; width:6px; height:6px; border-radius:50%; background: currentColor; }
+.gar-status[data-tone="ok"]{ color: var(--gar-ok); }
+.gar-status[data-tone="warn"]{ color: var(--gar-warn); }
+.gar-status[data-tone="bad"]{ color: var(--gar-bad); }
+.gar-status[data-tone="idle"]{ color: var(--gar-idle); }
+
+tr[hidden]{ display:none; }
+
+/* ======================================================================== */
+/* BESARAN — satu rona, empat tingkat, tidak pernah untuk status            */
+/* ======================================================================== */
+.gar-bar{
+  display:flex; height:8px; border-radius:2px; overflow:hidden;
+  background: var(--gar-fill);
+  margin: 2px var(--gar-pad) 12px;
+}
+.gar-bar span{ display:block; }
+
+.gar-legend{ display:flex; flex-direction:column; }
+.gar-legend-row{
+  display:grid; grid-template-columns: 10px 1fr auto; align-items:center;
+  gap: var(--gar-gap);
+  padding: 5px var(--gar-pad);
+}
+.gar-legend-row + .gar-legend-row{ border-block-start: var(--gar-hairline) solid var(--gar-line-soft); }
+.gar-swatch{ width:10px; height:10px; border-radius:2px; }
+.gar-legend-row .gar-num{ font-size: var(--gar-t-value); text-align:end; }
+
+/* ======================================================================== */
+/* KEADAAN — berhasil / sebagian / gagal. Kosong dan gagal tidak boleh sama. */
+/* ======================================================================== */
+.gar-figures{
+  display:flex; flex-wrap:wrap; gap: 4px 28px;
+  padding: 12px var(--gar-pad);
+}
+.gar-figures > div{ display:flex; flex-direction:column; gap:4px; }
+.gar-fig{ font-size: var(--gar-t-figure); line-height:1; }
+
+.gar-band{
+  display:flex; align-items:flex-start; gap:9px;
+  padding: 9px var(--gar-pad);
+  border-block-start: var(--gar-hairline) solid var(--gar-line-soft);
+  background: color-mix(in oklab, var(--gar-warn) 7%, transparent);
+  color: var(--gar-ink);
+  border-end-start-radius: var(--gar-radius);
+  border-end-end-radius: var(--gar-radius);
+}
+.gar-band svg{ flex-shrink:0; color: var(--gar-warn); margin-block-start:1px; }
+.gar-band p{ margin:0; }
+.gar-band button{
+  margin-inline-start:auto; flex-shrink:0;
+  border:0; background:none; padding:0; cursor:pointer;
+  font-family:inherit; font-size: var(--gar-t-body);
+  color: var(--gar-seal); text-decoration: underline;
+  text-underline-offset: 3px; text-decoration-thickness: 1px;
+}
+
+/* ======================================================================== */
+/* SISIPAN CATATAN — hanya di prototipe, bukan bagian sistem                */
+/* ======================================================================== */
+/* Keterangan tabel: kalimat, bukan label. `.gar-label` memakai huruf kapital
+   dan letter-spacing karena ia menamai satu kolom; satu paragraf yang
+   diperlakukan begitu berhenti bisa dibaca. */
+.gar-caption{
+  margin: 0;
+  padding: 9px var(--gar-pad) 11px;
+  max-width: 78ch;
+  font-size: var(--gar-t-label);
+  line-height: 1.5;
+  color: var(--gar-ink-2);
+}
+
+.gar-note{
+  border: var(--gar-hairline) dashed var(--gar-line);
+  border-radius: var(--gar-radius);
+  padding: 11px 13px;
+  color: var(--gar-ink-2);
+  background: transparent;
+}
+.gar-note h3{
+  margin:0 0 5px;
+  font-family: Newsreader, Georgia, serif;
+  font-size: var(--gar-t-body);
+  letter-spacing:.06em; text-transform:uppercase;
+  color: var(--gar-ink-2);
+}
+.gar-note ul{ margin:0; padding-inline-start:16px; }
+.gar-note li + li{ margin-block-start:3px; }
+
+/* ======================================================================== */
+/* RESPONSIF                                                                */
+/* ======================================================================== */
+@media (max-width: 780px){
+  .gar-body{ display:block; }
+  .gar-rail{
+    position:static; width:auto; height:auto;
+    flex-direction:row; overflow-x:auto;
+    border-inline-end:0;
+    border-block-end: var(--gar-hairline) solid var(--gar-line);
+    padding: 6px 8px; gap:4px;
+  }
+  .gar-canvas{ padding: 14px 12px 40px; }
+  .gar-search{ display:none; }
+  /* Kerapatan adalah kontrak perangkat, bukan preferensi. Di layar sentuh
+     perangkatnya sudah memutuskan: tidak ada keyboard, jari bukan kursor.
+     Jadi pilihannya dihilangkan, bukan disediakan lalu diabaikan. */
+  .gar-seg{ display:none; }
+  body{ --gar-row: 46px; --gar-pad: 13px; --gar-gap: 10px; }
+  .gar-queue-row{ grid-template-columns: 44px 1fr; row-gap:4px; }
+  .gar-queue-what div{ white-space:normal; }
+  .gar-queue-row > .gar-act,
+  .gar-queue-row > .gar-locked{ grid-column: 2; justify-self:start; }
+  :root{ --gar-t-hero: 28px; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;
+  }
+}
+</style>
+</head>
+
+<body data-density="padat">
+
+<header class="gar-head">
+  <div class="gar-mark">
+    <!-- Cap tera: lingkaran timbangan dengan garis dasar. Satu-satunya
+         gambar di halaman ini yang bukan data. -->
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <circle cx="10" cy="10" r="7.25" stroke="currentColor" stroke-width="1.25"/>
+      <path d="M6 11.5h8M10 5.75v5.75" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
+    </svg>
+    <span class="gar-wordmark">Retail Edge</span>
+  </div>
+
+  <span class="gar-stamp" title="Peran node dan basis data yang sedang dibaca">
+    <span class="gar-stamp-dot"></span>CLOUD · inventory_edge_dev
+  </span>
+
+  <label class="gar-search">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <circle cx="6.25" cy="6.25" r="4.25" stroke="currentColor" stroke-width="1.25"/>
+      <path d="M9.5 9.5 12 12" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>
+    </svg>
+    <input id="q" type="search" placeholder="Cari pool, toko, SKU" aria-label="Cari pool, toko, atau SKU">
+    <span class="gar-kbd">⌘K</span>
+  </label>
+
+  <div class="gar-head-right">
+    <div class="gar-seg" role="group" aria-label="Kerapatan baris">
+      <button type="button" data-density-set="padat" aria-pressed="true">Padat</button>
+      <button type="button" data-density-set="longgar" aria-pressed="false">Longgar</button>
+    </div>
+  </div>
+</header>
+
+<div class="gar-body">
+
+  <nav class="gar-rail" aria-label="Navigasi domain">
+    <button type="button" aria-current="page" aria-label="Ringkasan" title="Ringkasan">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+    </button>
+    <button type="button" aria-label="Penjualan" title="Penjualan">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 3.5h2l2 8h7.5l1.5-6H5.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7.5" cy="14.25" r="1.15" stroke="currentColor" stroke-width="1.2"/><circle cx="13" cy="14.25" r="1.15" stroke="currentColor" stroke-width="1.2"/></svg>
+    </button>
+    <button type="button" aria-label="Commercial" title="Commercial">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 3h5.5L15 9.5 9.5 15 3 8.5V3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="6.25" cy="6.25" r="1.05" fill="currentColor"/></svg>
+    </button>
+    <button type="button" aria-label="Pools" title="Pools">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="2.5" y="7.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="2.5" y="12.5" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+    </button>
+    <button type="button" aria-label="Allotments" title="Allotments">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5v5m0 0-4 3v5m4-8 4 3v5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" aria-label="Movements" title="Movements">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 6.5h11m0 0L10.5 3.5m3 3-3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 11.5h-11m0 0 3-3m-3 3 3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" aria-label="Counts" title="Counts">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="3.5" y="2.5" width="11" height="13" rx="1.25" stroke="currentColor" stroke-width="1.3"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5M6.25 12.5h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+    </button>
+    <button type="button" aria-label="Missing" title="Missing">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.3" stroke-dasharray="2.6 2.2"/><path d="M9 5.75v4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/><circle cx="9" cy="12" r=".8" fill="currentColor"/></svg>
+    </button>
+    <button type="button" aria-label="Control" title="Control">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M4.5 3v12M9 3v12M13.5 3v12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="4.5" cy="6.5" r="1.6" fill="var(--gar-paper)" stroke="currentColor" stroke-width="1.3"/><circle cx="9" cy="11" r="1.6" fill="var(--gar-paper)" stroke="currentColor" stroke-width="1.3"/><circle cx="13.5" cy="7.5" r="1.6" fill="var(--gar-paper)" stroke="currentColor" stroke-width="1.3"/></svg>
+    </button>
+  </nav>
+
+  <main class="gar-canvas">
+
+    <div class="gar-page-head">
+      <h1 class="gar-serif">Ringkasan</h1>
+      <p>Apa kata buku besar sekarang, dan apa yang menunggu orang.</p>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- HERO — persamaan neraca                                            -->
+    <!-- ================================================================== -->
+    <section class="gar-panel" aria-labelledby="eq-h">
+      <div class="gar-panel-head">
+        <h2 id="eq-h">Neraca persediaan</h2>
+        <span class="gar-stamp">
+          <span class="gar-stamp-dot"></span>CLOUD_LEDGER · 12 dari 13 node · 15:42
+        </span>
+      </div>
+
+      <div class="gar-eq">
+        <div class="gar-eq-term">
+          <span class="gar-label">Stock</span>
+          <span class="gar-num gar-eq-fig" data-count="48312">48.312</span>
+        </div>
+        <span class="gar-eq-op" aria-hidden="true">=</span>
+        <div class="gar-eq-term">
+          <span class="gar-label">Allotted</span>
+          <span class="gar-num gar-eq-fig" data-count="3104">3.104</span>
+        </div>
+        <span class="gar-eq-op" aria-hidden="true">+</span>
+        <div class="gar-eq-term">
+          <span class="gar-label">On Hand</span>
+          <span class="gar-num gar-eq-fig" data-count="44902">44.902</span>
+        </div>
+        <span class="gar-eq-op" aria-hidden="true">+</span>
+        <div class="gar-eq-term">
+          <span class="gar-label">Missing</span>
+          <span class="gar-num gar-eq-fig" data-count="306">306</span>
+        </div>
+      </div>
+
+      <div class="gar-verdict">
+        <span class="gar-verdict-word gar-serif">seimbang</span>
+        <p>
+          Identitas berlaku untuk 12 node yang sudah melapor.
+          <strong>store-07</strong> belum sinkron sejak 14:02 — angkanya belum termasuk di sini.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- ANTRIAN + KESEHATAN LEDGER                                         -->
+    <!-- ================================================================== -->
+    <div class="gar-cols gar-cols-2">
+
+      <section class="gar-panel" aria-labelledby="q-h">
+        <div class="gar-panel-head">
+          <h2 id="q-h">Perlu keputusan</h2>
+          <span class="gar-stamp"><span class="gar-stamp-dot"></span>5 antrian</span>
+        </div>
+
+        <div class="gar-queue">
+          <div class="gar-queue-row">
+            <span class="gar-num gar-queue-count">3</span>
+            <div class="gar-queue-what">
+              <div>Official Count menunggu persetujuan</div>
+              <div class="gar-queue-age">Tertua 2 hari · dc.warehouse, store-02.floor, store-11.warehouse</div>
+            </div>
+            <button type="button" class="gar-act">Tinjau</button>
+          </div>
+
+          <div class="gar-queue-row">
+            <span class="gar-num gar-queue-count">12</span>
+            <div class="gar-queue-what">
+              <div>Missing lewat 72 jam tanpa penyelesaian</div>
+              <div class="gar-queue-age">Tertua 6 hari · 9 di toko, 3 di DC</div>
+            </div>
+            <button type="button" class="gar-act">Selesaikan</button>
+          </div>
+
+          <div class="gar-queue-row">
+            <span class="gar-num gar-queue-count">2</span>
+            <div class="gar-queue-what">
+              <div>Bacaan RFID tidak cocok dengan penempatan ledger</div>
+              <div class="gar-queue-age">4 jam lalu · store-03.floor</div>
+            </div>
+            <button type="button" class="gar-act">Periksa</button>
+          </div>
+
+          <div class="gar-queue-row">
+            <span class="gar-num gar-queue-count">1</span>
+            <div class="gar-queue-what">
+              <div>Allotment melebihi On Hand sumbernya</div>
+              <div class="gar-queue-age">store-04.warehouse · On Hand −12</div>
+            </div>
+            <button type="button" class="gar-act">Lihat</button>
+          </div>
+
+          <!-- Ditolak bukan kosong: barisnya tetap ada, dan mengatakan syaratnya. -->
+          <div class="gar-queue-row" data-state="denied">
+            <span class="gar-num gar-queue-count gar-nil">—</span>
+            <div class="gar-queue-what">
+              <div>Selisih proyeksi buku besar</div>
+              <div class="gar-queue-age">Angkanya tidak dibuka untuk peran kamu</div>
+            </div>
+            <span class="gar-locked">
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"><rect x="2.5" y="5.25" width="7" height="5.25" rx="1" stroke="currentColor" stroke-width="1.1"/><path d="M4.25 5.25V3.9a1.75 1.75 0 0 1 3.5 0v1.35" stroke="currentColor" stroke-width="1.1"/></svg>
+              Butuh peran supervisor
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section class="gar-panel" aria-labelledby="h-h">
+        <div class="gar-panel-head">
+          <h2 id="h-h">Kesehatan buku besar</h2>
+        </div>
+        <div class="gar-figures">
+          <div>
+            <span class="gar-label">Replay terakhir</span>
+            <span class="gar-fig gar-status" data-tone="ok">MATCH</span>
+          </div>
+          <div>
+            <span class="gar-label">Selisih proyeksi</span>
+            <span class="gar-fig gar-num">0</span>
+          </div>
+          <div>
+            <span class="gar-label">Fakta ledger</span>
+            <span class="gar-fig gar-num">184.221</span>
+          </div>
+        </div>
+        <div class="gar-legend">
+          <div class="gar-legend-row" style="grid-template-columns:1fr auto;">
+            <span class="gar-label">Replay dijalankan</span>
+            <span class="gar-num">15:30 · 12 menit lalu</span>
+          </div>
+          <div class="gar-legend-row" style="grid-template-columns:1fr auto;">
+            <span class="gar-label">Repost terakhir</span>
+            <span class="gar-num gar-nil" title="Belum pernah dijalankan">—</span>
+          </div>
+          <div class="gar-legend-row" style="grid-template-columns:1fr auto;">
+            <span class="gar-label">Fakta belum terkirim ke Cloud</span>
+            <span class="gar-num">1.204</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- TABEL POOL — data nyaring                                          -->
+    <!-- ================================================================== -->
+    <section class="gar-panel" aria-labelledby="p-h">
+      <div class="gar-panel-head">
+        <h2 id="p-h">Pool</h2>
+        <span class="gar-label" id="filter-note"></span>
+        <span class="gar-stamp">
+          <span class="gar-stamp-dot"></span>Observed 24j · Lost 30h
+        </span>
+      </div>
+
+      <div class="gar-tablewrap">
+        <table class="gar-tbl" aria-describedby="lost-def">
+          <thead>
+            <tr>
+              <th scope="col">Pool</th>
+              <th scope="col" style="text-align:end">Stock</th>
+              <th scope="col" style="text-align:end">Allotted</th>
+              <th scope="col" style="text-align:end">On Hand</th>
+              <th scope="col" style="text-align:end">Missing</th>
+              <th scope="col" style="text-align:end">Observed</th>
+              <th scope="col" style="text-align:end">Lost %</th>
+              <th scope="col">Sumber</th>
+            </tr>
+          </thead>
+          <tbody id="pool-body">
+            <tr class="gar-group-row"><td colspan="8"><span class="gar-label">Distribution Centre</span></td></tr>
+
+            <tr data-find="dc.warehouse gudang dc">
+              <td>dc.warehouse</td>
+              <td class="k-qty gar-num">21.480</td>
+              <td class="k-qty gar-num">3.104</td>
+              <td class="k-qty gar-num k-derived">18.376</td>
+              <td class="k-qty gar-num">92</td>
+              <td class="k-qty gar-num">18.301</td>
+              <td class="k-qty"><span class="gar-ratio"><span class="gar-num">0,41%</span><span class="gar-num gar-den">74 ÷ 18.052</span></span></td>
+              <td><span class="gar-chip" data-src="CLOUD">CLOUD_LEDGER</span></td>
+            </tr>
+
+            <tr data-find="dc.staging">
+              <td>dc.staging</td>
+              <td class="k-qty gar-num">1.240</td>
+              <td class="k-qty gar-num gar-nil" title="Tidak diketahui — pool ini tidak menerima Allotment">—</td>
+              <td class="k-qty gar-num k-derived">1.240</td>
+              <td class="k-qty gar-num">8</td>
+              <td class="k-qty gar-num">1.236</td>
+              <td class="k-qty"><span class="gar-ratio"><span class="gar-num">0,00%</span><span class="gar-num gar-den">0 ÷ 1.244</span></span></td>
+              <td><span class="gar-chip" data-src="CLOUD">CLOUD_LEDGER</span></td>
+            </tr>
+
+            <tr data-find="dc.reject.dc reject">
+              <td>dc.reject.dc</td>
+              <td class="k-qty gar-num">612</td>
+              <td class="k-qty gar-num gar-nil">—</td>
+              <td class="k-qty gar-num k-derived">612</td>
+              <td class="k-qty gar-num gar-nil">—</td>
+              <td class="k-qty gar-num">604</td>
+              <td class="k-qty"><span class="gar-ratio"><span class="gar-num gar-nil" title="Tidak ada paparan pada jendela ini — rasio tidak terdefinisi">—</span><span class="gar-num gar-den">0 ÷ 0</span></span></td>
+              <td><span class="gar-chip" data-src="CLOUD">CLOUD_LEDGER</span></td>
+            </tr>
+
+            <tr class="gar-sum-row" data-find="dc total">
+              <td><span class="gar-sigma">Σ</span> Distribution Centre</td>
+              <td class="k-qty gar-num">23.332</td>
+              <td class="k-qty gar-num">3.104</td>
+              <td class="k-qty gar-num k-derived">20.228</td>
+              <td class="k-qty gar-num">100</td>
+              <td class="k-qty gar-num">20.141</td>
+              <td class="k-qty"><span class="gar-ratio"><span class="gar-num">0,38%</span><span class="gar-num gar-den">74 ÷ 19.296</span></span></td>
+              <td></td>
+            </tr>
+
+            <tr class="gar-group-row"><td colspan="8"><span class="gar-label">Toko · 13 site</span></td></tr>
+
+            <tr data-find="store-01 toko 01">
+              <td>store-01 <span class="gar-chip">gudang + lantai</span></td>
+              <td class="k-qty gar-num">2.104</td>
+              <td class="k-qty gar-num gar-nil">—</td>
+              <td class="k-qty gar-num k-derived">2.104</td>
+              <td class="k-qty gar-num">14</td>
+              <td class="k-qty gar-num">2.088</td>
+              <td class="k-qty"><span class="gar-ratio"><span class="gar-num">0,52%</span><span class="gar-num gar-den">11 ÷ 2.115</span></span></td>
+              <td><span class="gar-chip" data-src="EDGE">EDGE_LOCAL</span></td>
+            </tr>
+
+            <tr data-find="store-03 toko 03">
+              <td>store-03 <span class="gar-chip">gudang + lantai</span></td>
+              <td class="k-qty gar-num">1.876</td>
+              <td class="k-qty gar-num gar-nil">—</td>
+              <td class="k-qty gar-num k-derived">1.876</td>
+              <td class="k-qty gar-num">31</td>
+              <td class="k-qty gar-num">1.840</td>
+              <td class="k-qty"><span class="gar-ratio"><span class="gar-num">1,44%</span><span class="gar-num gar-den">27 ÷ 1.874</span></span></td>
+              <td><span class="gar-chip" data-src="EDGE">EDGE_LOCAL</span></td>
+            </tr>
+
+            <tr data-find="store-04 toko 04 kekurangan">
+              <td>store-04 <span class="gar-chip">gudang + lantai</span></td>
+              <td class="k-qty gar-num">1.512</td>
+              <td class="k-qty gar-num">1.524</td>
+              <td class="k-qty gar-num k-derived is-neg">−12</td>
+              <td class="k-qty gar-num">9</td>
+              <td class="k-qty gar-num">1.503</td>
+              <td class="k-qty"><span class="gar-ratio"><span class="gar-num">0,60%</span><span class="gar-num gar-den">9 ÷ 1.501</span></span></td>
+              <td><span class="gar-chip" data-src="EDGE">EDGE_LOCAL</span></td>
+            </tr>
+
+            <tr data-find="store-07 toko 07 offline">
+              <td>store-07 <span class="gar-chip">gudang + lantai</span></td>
+              <td class="k-qty gar-num">1.944</td>
+              <td class="k-qty gar-num gar-nil">—</td>
+              <td class="k-qty gar-num k-derived">1.944</td>
+              <td class="k-qty gar-num">18</td>
+              <td class="k-qty gar-num gar-nil" title="Tidak diketahui — node belum sinkron sejak 14:02">—</td>
+              <td class="k-qty"><span class="gar-ratio"><span class="gar-num gar-nil">—</span><span class="gar-num gar-den">belum sinkron</span></span></td>
+              <td><span class="gar-status" data-tone="warn">14:02</span></td>
+            </tr>
+
+            <tr class="gar-sum-row" data-find="toko total">
+              <td><span class="gar-sigma">Σ</span> Toko · 12 dari 13 melapor</td>
+              <td class="k-qty gar-num">24.980</td>
+              <td class="k-qty gar-num">1.524</td>
+              <td class="k-qty gar-num k-derived">24.674</td>
+              <td class="k-qty gar-num">206</td>
+              <td class="k-qty gar-num">24.401</td>
+              <td class="k-qty"><span class="gar-ratio"><span class="gar-num">0,71%</span><span class="gar-num gar-den">176 ÷ 24.788</span></span></td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="gar-caption" id="lost-def">
+        Lost&nbsp;% = Lost yang berasal dari pool ini selama 30 hari, dibagi On Hand di awal jendela
+        ditambah On Hand yang masuk selama jendela. Penyebutnya ditulis di tiap baris supaya
+        rasionya bisa diperiksa, bukan dipercaya.
+      </p>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- BAWAH: pergerakan (berhasil) + penjualan (sebagian)                -->
+    <!-- ================================================================== -->
+    <div class="gar-cols gar-cols-2">
+
+      <section class="gar-panel" aria-labelledby="m-h">
+        <div class="gar-panel-head">
+          <h2 id="m-h">Sebab pergerakan · 24 jam</h2>
+          <span class="gar-stamp"><span class="gar-stamp-dot"></span>1.709 fakta</span>
+        </div>
+
+        <div class="gar-bar" role="img" aria-label="SALE 1.208, NORMAL_MOVE 412, SUPPLIER_RETURN 64, COUNT_SHORTAGE 22, PLACEMENT_CORRECTION 3">
+          <span style="width:70.7%;background:var(--gar-mag-1)"></span>
+          <span style="width:24.1%;background:var(--gar-mag-2)"></span>
+          <span style="width:3.7%;background:var(--gar-mag-3)"></span>
+          <span style="width:1.3%;background:var(--gar-mag-4)"></span>
+          <span style="width:0.2%;background:var(--gar-ink-3)"></span>
+        </div>
+
+        <div class="gar-legend">
+          <div class="gar-legend-row"><span class="gar-swatch" style="background:var(--gar-mag-1)"></span><span>SALE</span><span class="gar-num">1.208</span></div>
+          <div class="gar-legend-row"><span class="gar-swatch" style="background:var(--gar-mag-2)"></span><span>NORMAL_MOVE</span><span class="gar-num">412</span></div>
+          <div class="gar-legend-row"><span class="gar-swatch" style="background:var(--gar-mag-3)"></span><span>SUPPLIER_RETURN</span><span class="gar-num">64</span></div>
+          <div class="gar-legend-row"><span class="gar-swatch" style="background:var(--gar-mag-4)"></span><span>COUNT_SHORTAGE</span><span class="gar-num">22</span></div>
+          <div class="gar-legend-row"><span class="gar-swatch" style="background:var(--gar-ink-3)"></span><span>PLACEMENT_CORRECTION</span><span class="gar-num">3</span></div>
+        </div>
+      </section>
+
+      <section class="gar-panel" aria-labelledby="s-h">
+        <div class="gar-panel-head">
+          <h2 id="s-h">Penjualan hari ini</h2>
+          <span class="gar-stamp"><span class="gar-stamp-dot"></span>12 dari 13 toko</span>
+        </div>
+
+        <div class="gar-figures">
+          <div>
+            <span class="gar-label">Nilai</span>
+            <span class="gar-fig gar-num">Rp 184.290.500</span>
+          </div>
+          <div>
+            <span class="gar-label">Transaksi</span>
+            <span class="gar-fig gar-num">1.208</span>
+          </div>
+          <div>
+            <span class="gar-label">Rata-rata</span>
+            <span class="gar-fig gar-num">Rp 152.559</span>
+          </div>
+        </div>
+
+        <!-- Sebagian, bukan gagal, dan bukan nol. Panel menyebut node yang
+             hilang, sejak kapan, dan apa yang bisa dilakukan. -->
+        <div class="gar-band">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <circle cx="7" cy="7" r="5.75" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M7 4v3.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            <circle cx="7" cy="9.6" r=".8" fill="currentColor"/>
+          </svg>
+          <p><strong>store-07</strong> belum termasuk. Node belum sinkron sejak 14:02, jadi penjualannya belum sampai ke Cloud.</p>
+          <button type="button">Coba lagi</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- Catatan prototipe — bukan bagian dari sistem, dihapus saat dipakai. -->
+    <aside class="gar-note">
+      <h3>Catatan prototipe</h3>
+      <ul>
+        <li>Tiga keadaan sengaja ditampilkan sekaligus: <strong>berhasil</strong> (Pool), <strong>sebagian</strong> (Penjualan — satu node belum sinkron), dan <strong>ditolak</strong> (Selisih proyeksi — bukan kosong, tapi menyebut syaratnya). Kegagalan tidak boleh menyamar jadi angka nol.</li>
+        <li>Istilah buku besar dibiarkan dalam bentuk kontraknya — Stock, Allotted, On Hand, Missing, Observed, Lost % — karena itu nama yang dipakai API dan dokumen invarian. Selebihnya bahasa Indonesia.</li>
+        <li>Semua angka di sini contoh. Nama medan mengikuti respons asli: <code>stock</code>, <code>allotted</code>, <code>on_hand</code>, <code>missing</code>, <code>observed</code>, <code>lost_rate</code>, <code>lost_quantity</code>, <code>exposure</code>, <code>source_type</code>.</li>
+      </ul>
+    </aside>
+
+  </main>
+</div>
+
+<script>
+/* Kerapatan — satu atribut, satu sumber kebenaran. Lapis "contract/density"
+   yang disebut di RETAIL DS dan tidak pernah dikirim: di sini ia satu baris. */
+document.querySelectorAll("[data-density-set]").forEach(function (button) {
+  button.addEventListener("click", function () {
+    var value = button.dataset.densitySet;
+    document.body.dataset.density = value;
+    document.querySelectorAll("[data-density-set]").forEach(function (other) {
+      other.setAttribute("aria-pressed", String(other.dataset.densitySet === value));
+    });
+  });
+});
+
+/* ⌘K — pola yang dicuri dari Midday dan tidak pernah dipasang. Menyaring
+   kumpulan, jadi ia milik tengah, bukan panel kanan. */
+var q = document.getElementById("q");
+var note = document.getElementById("filter-note");
+
+window.addEventListener("keydown", function (event) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    q.focus();
+    q.select();
+  }
+  if (event.key === "Escape" && document.activeElement === q) {
+    q.value = "";
+    q.dispatchEvent(new Event("input"));
+    q.blur();
+  }
+});
+
+q.addEventListener("input", function () {
+  var term = q.value.trim().toLowerCase();
+  var rows = document.querySelectorAll("#pool-body tr[data-find]");
+  var shown = 0;
+  rows.forEach(function (row) {
+    var hit = !term || row.dataset.find.indexOf(term) !== -1;
+    row.hidden = !hit;
+    if (hit) shown++;
+  });
+  /* Baris grup ikut hilang saat penyaringan aktif: judul tanpa isi adalah
+     tepi yang digambar untuk sesuatu yang tidak ada. */
+  document.querySelectorAll("#pool-body tr.gar-group-row").forEach(function (row) {
+    row.hidden = Boolean(term);
+  });
+  note.textContent = term ? shown + " dari " + rows.length + " baris" : "";
+});
+
+/* Persamaan merakit diri saat halaman terbuka — satu momen, sekali.
+   Mati sepenuhnya di bawah reduced-motion (KATALOG-POLA-FIZZY M-06). */
+var still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (!still) {
+  document.querySelectorAll(".gar-eq-fig[data-count]").forEach(function (element, index) {
+    var target = Number(element.dataset.count);
+    var started = null;
+    var span = 520;
+    element.textContent = "0";
+    function step(now) {
+      if (started === null) started = now;
+      var t = Math.min(1, (now - started) / span);
+      var eased = 1 - Math.pow(1 - t, 3);
+      element.textContent = Math.round(target * eased).toLocaleString("id-ID");
+      if (t < 1) requestAnimationFrame(step);
+    }
+    setTimeout(function () { requestAnimationFrame(step); }, 80 + index * 55);
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Pergerakan · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   PERGERAKAN — buku besar yang hanya bisa ditambah
+   --------------------------------------------------------------------------
+   Empat invarian dari README menentukan seluruh layar ini, dan tiga di
+   antaranya berarti UI-nya harus MENOLAK melakukan hal yang biasa dilakukan
+   layar tabel:
+
+   4 · "Historical movement facts/groups are append-only and atomic by group."
+       Maka tidak ada tombol ubah, tidak ada tombol hapus. Sebuah kekeliruan
+       diperbaiki dengan menulis pergerakan BARU yang mengoreksi, bukan dengan
+       menyunting yang lama. Baris di sini tidak punya menu titik tiga.
+
+   2 · "A movement has distinct explicit source/destination and positive
+       quantity." Maka arah TIDAK PERNAH ditandai oleh tanda minus. Tidak ada
+       angka negatif di kolom jumlah; arah dibaca dari dua kolom tempat.
+
+   3 · "Each movement is a balanced pair." Maka satu baris selalu membawa dua
+       tempat. Yang ditampilkan bukan "keluar 12" tapi "12 dari sini ke sana".
+
+   Dan pergerakan manual dibatasi tiga sebab saja — NORMAL_MOVE, SALE,
+   SUPPLIER_RETURN. Sisanya (shortage/gain count, Found, Lost, Disposal,
+   koreksi, penyelesaian POS) punya jalurnya sendiri. Dialog di sini karena
+   itu cuma menawarkan tiga, bukan seluruh daftar sebab.
+
+   KOREKSI menuntut bukti, dan koreksi lintas-site menuntut lebih. Itu bukan
+   basa-basi: memindahkan barang antar site lewat "koreksi" adalah cara paling
+   mudah menyembunyikan kehilangan, jadi layarnya menyebutkan itu.
+   ========================================================================== */
+
+.toolbar{margin-bottom:12px}
+.mono-cell{font-family:var(--font-mono);font-size:12.5px}
+.place{
+  display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:var(--radius-chip);
+  background:var(--inset);color:var(--ink-2);font-family:var(--font-mono);font-size:11.5px;white-space:nowrap;
+}
+.place[data-side="from"]{background:var(--inset)}
+.place[data-side="to"]{background:var(--accent-tint);color:var(--accent-ink)}
+.arrow{color:var(--ink-3);flex-shrink:0}
+.pair{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+
+.cause{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:500;background:var(--inset);color:var(--ink-2)}
+.cause[data-c="SALE"]{background:var(--green-tint);color:var(--green)}
+.cause[data-c="PLACEMENT_CORRECTION"]{background:var(--orange-tint);color:var(--orange)}
+.cause[data-c="COUNT_SHORTAGE"],.cause[data-c="LOST"]{background:var(--red-tint);color:var(--red)}
+
+.dlg{position:fixed;inset:0;display:none;place-items:center;padding:20px;z-index:60;background:var(--scrim)}
+.dlg[data-open="true"]{display:grid}
+.dlg-box{width:min(560px,100%);background:var(--page);border-radius:var(--radius-window);box-shadow:var(--shadow-overlay);display:flex;flex-direction:column;overflow:hidden}
+.dlg-head{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.dlg-head h2{margin:0 0 3px;font-size:17px;font-weight:600;letter-spacing:-.015em}
+.dlg-head p{margin:0;font-size:13px;color:var(--ink-2)}
+.dlg-body{padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+.dlg-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+.row2{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:520px){.row2{grid-template-columns:repeat(2,1fr)}}
+
+.preview{padding:12px 14px;border-radius:var(--radius-card);background:var(--inset);font-family:var(--font-mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--ink-2)}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS · Edge</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="14-allotment.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M9 2.5v5m0 0-4 3v5m4-8 4 3v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Allotment</a>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 6.5h11m0 0-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 11.5h-11m0 0 3-3m-3 3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Pergerakan</a>
+    <a href="16-count.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Official Count <span class="n">3</span></a>
+    <a href="17-missing.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.8 2.4"/><path d="M9 5.75v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="12" r=".85" fill="currentColor"/></svg>Missing <span class="n" data-tone="red">12</span></a>
+    <div class="grp">Operasi</div>
+    <a href="11-operations.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5v-7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>Operations</a>
+    <div class="side-foot"><p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>Pergerakan · 09:14</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Pergerakan</h1>
+      <label class="search">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/><path d="m10.6 10.6 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input id="q" type="search" placeholder="Cari EPC, SKU, pool, atau aktor" aria-label="Cari pergerakan">
+      </label>
+      <div class="right">
+        <button type="button" class="btn btn-secondary btn-sm" id="correct">Koreksi penempatan</button>
+        <button type="button" class="btn btn-primary btn-sm" id="move">Pindahkan stok</button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="toolbar card">
+        <div class="trow">
+          <button type="button" class="fchip" aria-pressed="true" data-f="">Semua <span class="n" id="c-all"></span></button>
+          <button type="button" class="fchip" aria-pressed="false" data-f="SALE">Penjualan <span class="n" id="c-sale"></span></button>
+          <button type="button" class="fchip" aria-pressed="false" data-f="NORMAL_MOVE">Pindah biasa <span class="n" id="c-move"></span></button>
+          <button type="button" class="fchip" aria-pressed="false" data-f="PLACEMENT_CORRECTION">Koreksi <span class="n" id="c-corr"></span></button>
+          <button type="button" class="fchip" aria-pressed="false" data-f="COUNT_SHORTAGE">Selisih count <span class="n" id="c-short"></span></button>
+          <span class="pager">
+            <span class="nil" style="font-size:12.5px">Hanya bisa ditambah · tidak ada sunting, tidak ada hapus</span>
+          </span>
+        </div>
+      </div>
+
+      <section class="card">
+        <div class="ch"><h2>Riwayat</h2><span class="meta" id="meta"></span></div>
+        <div class="tw">
+          <table>
+            <thead>
+              <tr>
+                <th class="n">Waktu</th><th>Barang</th><th class="n">Jumlah</th>
+                <th>Dari → ke</th><th>Sebab</th><th>Rujukan</th><th>Aktor</th><th>ID</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <p class="cap">
+          Jumlah selalu positif. Arah dibaca dari pasangan tempatnya, bukan dari tanda — itulah
+          sebabnya tidak ada satu pun angka negatif di kolom ini. Satu grup pergerakan ditulis
+          atomik: kalau satu barisnya gagal, tidak ada satu pun yang tercatat.
+        </p>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- ══ dialog ════════════════════════════════════════════ -->
+<div class="dlg" id="dlg" data-open="false">
+  <div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="d-t">
+    <div class="dlg-head"><h2 id="d-t">Pindahkan stok</h2><p id="d-p">Transisi operasional yang sah</p></div>
+    <div class="dlg-body">
+      <div class="row2">
+        <div class="f"><label for="d-from">Dari</label><select class="inp" id="d-from"></select></div>
+        <div class="f"><label for="d-to">Ke</label><select class="inp" id="d-to"></select></div>
+        <div class="f"><label for="d-epc">EPC</label><input class="inp mono" id="d-epc" placeholder="Pindai EPC"></div>
+        <div class="f"><label for="d-qty">Jumlah</label><input class="inp inp-num" id="d-qty" type="number" min="1" value="1"></div>
+        <div class="f" style="grid-column:1/-1"><label for="d-reason">Alasan</label><input class="inp" id="d-reason" placeholder="Alasan operasional"></div>
+        <div class="f" style="grid-column:1/-1" id="d-evfield">
+          <label for="d-ev">Bukti <span class="opt-tag" id="d-evopt">· opsional untuk pindah</span></label>
+          <input class="inp" id="d-ev" placeholder="Nomor berita acara, foto, atau rujukan lain">
+        </div>
+      </div>
+
+      <div class="band" data-tone="red" id="d-cross" hidden>
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>
+        <span><b>Koreksi ini melintasi site.</b> Memindahkan barang antar site lewat koreksi adalah
+        cara paling mudah menyembunyikan kehilangan. Buktinya akan ikut tercatat dan bisa ditelusuri
+        atas nama kamu.</span>
+      </div>
+
+      <div class="preview" id="d-prev"></div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="d-cancel">Batal</button>
+      <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="d-ok" disabled>Konfirmasi</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var PLACES = ["dc.warehouse","dc.staging","dc.reject.dc","dc.outbound.picking",
+              "store-01.floor","store-01.warehouse","store-03.floor","store-07.floor",
+              "external/customer","external/supplier"];
+
+/* Pergerakan manual hanya menerima tiga sebab. Sisanya punya jalur sendiri —
+   dan itu sebabnya dialog ini tidak menampilkan pilihan sebab sama sekali:
+   yang dipilih orang adalah TINDAKANNYA (pindah atau koreksi), sebabnya
+   ditentukan sistem. */
+var MOVES = [
+  {at:"15:41", epc:"A0B1C2D3E4F50231", sku:"10230114502", qty:1, from:"store-03.floor", to:"external/customer", cause:"SALE", ref:"SL-2609-4471", actor:"sari.m", id:"mv-8f2a91c4"},
+  {at:"15:38", epc:"A0B1C2D3E4F50230", sku:"10228801220", qty:1, from:"store-03.floor", to:"external/customer", cause:"SALE", ref:"SL-2609-4470", actor:"sari.m", id:"mv-7d1e04ab"},
+  {at:"15:22", epc:"—", sku:"10231220871", qty:40, from:"dc.warehouse", to:"dc.outbound.picking", cause:"NORMAL_MOVE", ref:"PS-2609-0114", actor:"budi.s", id:"mv-3c88b0de"},
+  {at:"14:57", epc:"A0B1C2D3E4F50188", sku:"10229907441", qty:1, from:"dc.outbound.picking", to:"store-11.floor", cause:"NORMAL_MOVE", ref:"KOL-2609-0433", actor:"sari.m", id:"mv-91aa2f37"},
+  {at:"14:12", epc:"A0B1C2D3E4F50142", sku:"10230114503", qty:1, from:"store-01.warehouse", to:"store-01.floor", cause:"PLACEMENT_CORRECTION", ref:"BA-2609-018", actor:"dedi.f", id:"mv-5b71c9e0"},
+  {at:"13:40", epc:"—", sku:"10229907442", qty:22, from:"dc.warehouse", to:"dc.missing", cause:"COUNT_SHORTAGE", ref:"CNT-2609-0031", actor:"inventory-supervisor", id:"mv-2e40aa18"},
+  {at:"12:05", epc:"—", sku:"10229907442", qty:64, from:"dc.reject.dc", to:"external/supplier", cause:"SUPPLIER_RETURN", ref:"AL-2607-0052", actor:"budi.s", id:"mv-6a03fd52"},
+  {at:"11:18", epc:"A0B1C2D3E4F50077", sku:"10230114502", qty:1, from:"dc.missing", to:"dc.warehouse", cause:"FOUND", ref:"MS-2609-0044", actor:"dedi.f", id:"mv-4f9c1b7a"},
+  {at:"10:02", epc:"—", sku:"10228801220", qty:12, from:"dc.missing", to:"system/lost", cause:"LOST", ref:"MS-2608-0031", actor:"inventory-supervisor", id:"mv-8c22e5d1"},
+];
+
+var filter = "";
+
+function site(place){
+  if (place.startsWith("store-")) return place.split(".")[0];
+  if (place.startsWith("dc")) return "dc";
+  return "external";
+}
+function visible(){
+  var q = document.getElementById("q").value.trim().toLowerCase();
+  return MOVES.filter(function(m){
+    if (filter && m.cause !== filter) return false;
+    if (!q) return true;
+    return (m.epc + " " + m.sku + " " + m.from + " " + m.to + " " + m.actor + " " + m.ref).toLowerCase().indexOf(q) !== -1;
+  });
+}
+
+function render(){
+  var list = visible();
+  document.getElementById("meta").textContent = list.length + " fakta";
+  document.getElementById("c-all").textContent = MOVES.length;
+  ["SALE","NORMAL_MOVE","PLACEMENT_CORRECTION","COUNT_SHORTAGE"].forEach(function(c, i){
+    var id = ["c-sale","c-move","c-corr","c-short"][i];
+    document.getElementById(id).textContent = MOVES.filter(function(m){ return m.cause === c; }).length;
+  });
+
+  document.getElementById("rows").innerHTML = list.map(function(m){
+    return '<tr>' +
+      '<td class="n"><span class="nil">' + m.at + '</span></td>' +
+      '<td><div class="mono-cell">' + m.epc + '</div><div class="nil" style="font-size:11.5px">' + m.sku + '</div></td>' +
+      /* Selalu positif. Arah ada di kolom sebelahnya. */
+      '<td class="n">' + m.qty + '</td>' +
+      '<td><span class="pair">' +
+        '<span class="place" data-side="from">' + m.from + '</span>' +
+        '<svg class="arrow" width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2.5 7h9m0 0-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        '<span class="place" data-side="to">' + m.to + '</span>' +
+      '</span></td>' +
+      '<td><span class="cause" data-c="' + m.cause + '">' + m.cause + '</span></td>' +
+      '<td class="mono-cell nil">' + m.ref + '</td>' +
+      '<td class="nil" style="font-size:12.5px">' + m.actor + '</td>' +
+      '<td class="mono-cell nil">' + m.id.slice(0, 11) + '</td>' +
+    '</tr>';
+  }).join("");
+}
+
+document.querySelectorAll(".fchip").forEach(function(b){
+  b.addEventListener("click", function(){
+    filter = b.dataset.f;
+    document.querySelectorAll(".fchip").forEach(function(o){ o.setAttribute("aria-pressed", String(o === b)); });
+    render();
+  });
+});
+document.getElementById("q").addEventListener("input", render);
+
+/* ── dialog ────────────────────────────────────────────── */
+var dlg = document.getElementById("dlg"), mode = "move";
+var opts = PLACES.map(function(p){ return '<option>' + p + '</option>'; }).join("");
+document.getElementById("d-from").innerHTML = opts;
+document.getElementById("d-to").innerHTML = opts;
+document.getElementById("d-to").selectedIndex = 1;
+
+function openDlg(kind){
+  mode = kind;
+  document.getElementById("d-t").textContent = kind === "move" ? "Pindahkan stok" : "Koreksi penempatan";
+  document.getElementById("d-p").textContent = kind === "move"
+    ? "Transisi operasional biasa. Tercatat sebagai NORMAL_MOVE."
+    : "Menambah pergerakan yang mengoreksi. Yang lama tidak disunting — buku besar hanya bisa ditambah.";
+  document.getElementById("d-evopt").textContent = kind === "move" ? "· opsional untuk pindah" : "· wajib untuk koreksi";
+  dlg.dataset.open = "true";
+  preview();
+}
+function preview(){
+  var from = document.getElementById("d-from").value;
+  var to = document.getElementById("d-to").value;
+  var qty = Number(document.getElementById("d-qty").value || 0);
+  var epc = document.getElementById("d-epc").value.trim() || "<pindai EPC>";
+  var reason = document.getElementById("d-reason").value.trim();
+  var ev = document.getElementById("d-ev").value.trim();
+  var cross = mode === "correct" && site(from) !== site(to);
+
+  document.getElementById("d-cross").hidden = !cross;
+  document.getElementById("d-prev").textContent =
+    epc + " × " + qty + "\n" + from + "\n→ " + to +
+    "\nsebab: " + (mode === "move" ? "NORMAL_MOVE" : "PLACEMENT_CORRECTION") +
+    "\ngrup: 1 pergerakan, ditulis atomik";
+
+  var ok = from !== to && qty >= 1 && reason.length > 0 && (mode === "move" || ev.length > 0);
+  document.getElementById("d-ok").disabled = !ok;
+}
+["d-from","d-to","d-qty","d-epc","d-reason","d-ev"].forEach(function(id){
+  document.getElementById(id).addEventListener("input", preview);
+  document.getElementById(id).addEventListener("change", preview);
+});
+document.getElementById("move").addEventListener("click", function(){ openDlg("move"); });
+document.getElementById("correct").addEventListener("click", function(){ openDlg("correct"); });
+document.getElementById("d-cancel").addEventListener("click", function(){ dlg.dataset.open = "false"; });
+dlg.addEventListener("click", function(e){ if (e.target === dlg) dlg.dataset.open = "false"; });
+
+document.getElementById("d-ok").addEventListener("click", function(){
+  var from = document.getElementById("d-from").value, to = document.getElementById("d-to").value;
+  MOVES.unshift({
+    at:"baru saja",
+    epc: document.getElementById("d-epc").value.trim() || "—",
+    sku:"—", qty:Number(document.getElementById("d-qty").value),
+    from:from, to:to,
+    cause: mode === "move" ? "NORMAL_MOVE" : "PLACEMENT_CORRECTION",
+    ref: document.getElementById("d-ev").value.trim() || "—",
+    actor:"inventory-operator",
+    id:"mv-" + Math.random().toString(16).slice(2, 10),
+  });
+  dlg.dataset.open = "false";
+  render();
+});
+
+document.getElementById("theme").addEventListener("click", function(){ document.documentElement.classList.toggle("dark"); });
+document.addEventListener("keydown", function(e){ if (e.key === "Escape") dlg.dataset.open = "false"; });
+render();
+</script>
+</body>
+</html>

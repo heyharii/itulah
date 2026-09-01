@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Purchase Order · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   PURCHASE ORDER
+   --------------------------------------------------------------------------
+   PO adalah satu-satunya layar di rangkaian ini yang membawa DUA rekonsiliasi
+   sekaligus, dan keduanya jadi pusat layarnya:
+
+   1 · Kuantitas.  original_qty pecah jadi accepted + rejected + closed_short +
+       open. Empat angka itu digambar sebagai satu batang bersegmen di tiap
+       baris, karena pertanyaan "PO ini sudah sampai mana" dijawab oleh
+       PERBANDINGAN keempatnya, bukan oleh salah satunya.
+
+   2 · Uang.  Yang dipesan (`total`) dan yang benar-benar jadi (`fulfilled_net`)
+       adalah dua angka berbeda, dan API memberi keduanya. Menampilkan satu
+       saja membuat orang mengira PO yang barangnya ditolak separuh tetap
+       bernilai penuh.
+
+   `fulfilled_definitive` dipakai apa adanya: selama ia false, angka
+   pemenuhannya ditandai "belum final" — karena rekonsiliasi yang belum tutup
+   tidak boleh terbaca seperti yang sudah.
+
+   Panel detailnya lebar 720px, bukan 430px seperti Supplier. Itu bukan selera:
+   Supplier adalah inspektur di sebelah daftar; PO adalah tugas yang mengambil
+   alih layar karena membawa tabel barisnya sendiri. Dua peran, dua ukuran —
+   persis pemisahan yang sudah ditulis di kontrak Tera (`--te-inspector` 296
+   vs `--te-sheet` 704).
+
+   Kulitnya Beautiful UI — token dari ~/newton/app/globals.css.
+   ========================================================================== */
+
+/* ── sidebar ───────────────────────────────────────────── */
+.ws{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;margin-bottom:14px;border:0;background:none;border-radius:var(--radius-control);color:var(--ink);font-family:inherit;font-size:13.5px;text-align:start;transition:background-color 150ms var(--ease-out-strong)}
+.ws:hover{background:var(--hover)}
+.ws .mono-badge{width:26px;height:26px;flex-shrink:0;border-radius:var(--radius-chip);background:var(--ink);color:var(--page);display:grid;place-items:center;font-weight:600;font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.ws b{font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws svg{color:var(--ink-3);flex-shrink:0}
+.grp{padding:14px 8px 5px;font-size:11.5px;font-weight:500;color:var(--ink-3)}
+.count{margin-left:auto;font-size:11.5px;font-weight:500;color:var(--ink-3);font-family:"Geist Mono",ui-monospace,monospace}
+.count[data-tone="red"]{color:var(--red)}
+.node{font-size:11.5px;color:var(--ink-3);line-height:1.45;padding:0 8px;margin:0}
+
+/* ── kontrol ───────────────────────────────────────────── */
+
+/* ── kanvas ────────────────────────────────────────────── */
+.searchbar{padding:14px 20px;border-bottom:1px solid var(--line);background:var(--page);display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+.searchbox{flex:1;min-width:240px;max-width:520px;display:flex;align-items:center;gap:9px;height:38px;padding:0 12px;background:var(--surface);border-radius:999px;box-shadow:var(--shadow-btn);transition:box-shadow 150ms var(--ease-out-strong)}
+.searchbox:focus-within{box-shadow:0 0 0 1px var(--accent), var(--shadow-xs)}
+.searchbox svg{color:var(--ink-3);flex-shrink:0}
+.searchbox input{flex:1;min-width:0;border:0;outline:0;background:none;font-family:inherit;font-size:14px;color:var(--ink);letter-spacing:-.01em}
+.searchbox input::placeholder{color:var(--ink-3)}
+.sb-right{margin-left:auto;display:flex;align-items:center;gap:9px}
+.results{flex:1;min-width:0;padding:16px 20px 44px}
+
+/* ── strip ringkasan ───────────────────────────────────── */
+.summary{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:12px}
+.stat{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);padding:12px 14px;display:flex;flex-direction:column;gap:5px}
+.stat span{font-size:12.5px;color:var(--ink-2)}
+.stat b{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:23px;font-weight:500;letter-spacing:-.03em;line-height:1}
+.stat[data-tone="warn"] b{color:var(--orange)}
+.stat small{font-size:11.5px;color:var(--ink-3)}
+
+/* ── bar penyaring ─────────────────────────────────────── */
+.clearall{border:0;background:none;padding:0;font-family:inherit;font-size:12.5px;color:var(--ink-2)}
+.clearall:hover{color:var(--ink)}
+
+/* ── tabel ─────────────────────────────────────────────── */
+.tablecard{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
+th{text-align:start;padding:9px 14px;white-space:nowrap;font-size:12.5px;font-weight:500;color:var(--ink-3);border-bottom:1px solid var(--line);background:var(--surface)}
+td{padding:10px 14px;white-space:nowrap;border-bottom:1px solid var(--line);vertical-align:middle}
+.po-id{display:flex;flex-direction:column;gap:1px}
+.po-id b{font-family:"Geist Mono",ui-monospace,monospace;font-weight:500;font-size:13px}
+.po-id span{font-size:12px;color:var(--ink-3);max-width:190px;overflow:hidden;text-overflow:ellipsis}
+.rowbtn{border:0;background:none;padding:0;color:var(--ink-3);display:grid;place-items:center;width:26px;height:26px;border-radius:999px}
+tbody tr:hover .rowbtn{color:var(--ink)}
+
+/* Batang pemenuhan: empat segmen yang menjumlah ke original_qty. Ini jawaban
+   atas "sudah sampai mana" — dan jawabannya memang perbandingan, bukan angka. */
+.ff{display:flex;flex-direction:column;gap:4px;min-width:132px}
+.ffbar{display:flex;height:6px;border-radius:999px;overflow:hidden;background:var(--field)}
+.ffbar span{display:block}
+.fftxt{font-size:11.5px;color:var(--ink-2);font-family:"Geist Mono",ui-monospace,monospace}
+
+/* ── panel detail (lebar) ──────────────────────────────── */
+.panelcard{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
+
+.banner{display:flex;align-items:flex-start;gap:9px;margin:16px 18px 0;padding:11px 12px;border-radius:var(--radius-card);font-size:12.5px}
+.banner[data-tone="orange"]{background:var(--orange-tint)}
+.banner[data-tone="orange"] svg{color:var(--orange)}
+.banner svg{flex-shrink:0;margin-top:1px}
+.banner b{font-weight:500}
+.banner ul{margin:4px 0 0;padding-inline-start:16px}
+
+/* Rekonsiliasi kuantitas — batang besar + empat angka berlabel. */
+.recon{padding:14px}
+.reconbar{display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--field);margin-bottom:12px}
+.reconbar span{display:block}
+.reconkey{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px}
+.reconkey > div{display:flex;flex-direction:column;gap:3px}
+.reconkey i{display:inline-block;width:8px;height:8px;border-radius:var(--radius-bar);margin-inline-end:6px}
+.reconkey span{font-size:12px;color:var(--ink-2)}
+.reconkey b{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:18px;font-weight:500;letter-spacing:-.02em;line-height:1}
+
+.kv-row{display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--line);font-size:13px}
+.kv-row:last-child{border-bottom:0}
+.kv-row > span:first-child{color:var(--ink-2);flex:1;min-width:0}
+.kv-row > span:last-child{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;text-align:end;flex-shrink:0}
+.kv-row.total{background:var(--inset)}
+.kv-row.total > span{font-weight:500;color:var(--ink)}
+.kv-row.total > span:last-child{font-size:15px}
+
+.linetbl th{font-size:11.5px;padding:8px 12px}
+.linetbl td{padding:9px 12px;font-size:12.5px}
+.line-name{display:flex;flex-direction:column;gap:1px;max-width:230px}
+.line-name b{font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.line-name span{font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;color:var(--ink-3)}
+.qtycell{display:flex;flex-direction:column;gap:3px;align-items:flex-end;min-width:96px}
+.qtybar{display:flex;height:4px;width:88px;border-radius:999px;overflow:hidden;background:var(--field)}
+.qtybar span{display:block}
+
+.receipt{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:13px}
+.receipt:last-child{border-bottom:0}
+.receipt b{font-family:"Geist Mono",ui-monospace,monospace;font-weight:500}
+.receipt .when{margin-left:auto;font-size:12px;color:var(--ink-3)}
+
+@media(max-width:980px){
+  .ws,.grp,.side-foot{display:none}
+  .results{padding:14px}
+  .searchbar{padding:12px 14px}
+}
+@media(prefers-reduced-motion:reduce){}
+</style>
+</head>
+<body>
+
+<div class="window">
+
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws">
+      <span class="m" aria-hidden="true">R</span>
+      <b>RetailOS · Edge</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <div class="grp">Pengadaan</div>
+    <a href="7-sourcing.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5"/><path d="m12 12 3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Sourcing</a>
+    <a href="#"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 4.5h11M3.5 9h11M3.5 13.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Shortlist <span class="count">4</span></a>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5M6.25 12.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Purchase Order <span class="count" data-tone="red">4</span></a>
+    <a href="8-supplier.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 14.5V7l6.5-4 6.5 4v7.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5v-4h4v4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>Supplier <span class="count">3</span></a>
+
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="#"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="7.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="12.5" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>Pool</a>
+    <a href="#"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.8 2.4"/><path d="M9 5.75v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="12" r=".85" fill="currentColor"/></svg>Missing <span class="count">12</span></a>
+
+    <div class="side-foot">
+      <p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>Purchase order · 09:14</p>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <div class="searchbar">
+      <label class="searchbox">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/><path d="m10.6 10.6 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input id="q" type="search" aria-label="Cari PO" placeholder="Cari nomor PO atau supplier">
+      </label>
+      <div class="sb-right">
+        <button type="button" class="btn btn-secondary btn-sm">Ekspor</button>
+        <a href="10-po-baru.html" class="btn btn-primary btn-sm" style="text-decoration:none">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          PO baru
+        </a>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <section class="results">
+
+      <div class="summary">
+        <div class="stat"><span>PO aktif</span><b>38</b><small>7 dibatalkan tahun ini</small></div>
+        <div class="stat"><span>Belum lengkap</span><b>19</b><small>terbuka atau sebagian</small></div>
+        <div class="stat" data-tone="warn"><span>Perlu perhatian</span><b>4</b><small>selisih harga, kurang kirim, retur</small></div>
+        <div class="stat"><span>Nilai berjalan</span><b>Rp 1,84<small style="font-size:14px"> M</small></b><small>Rp 1.842.310.000 · 38 PO aktif</small></div>
+      </div>
+
+      <div class="toolbar">
+        <div class="trow">
+          <button type="button" class="fchip" aria-pressed="true">Aktif <span class="n">38</span></button>
+          <button type="button" class="fchip" aria-pressed="false">Dibatalkan <span class="n">7</span></button>
+          <span class="tsep" aria-hidden="true"></span>
+
+          <details class="fdrop">
+            <summary>Pemenuhan <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+            <div class="fpanel">
+              <label class="opt-tag"><input type="checkbox" data-f="Pemenuhan" data-l="Terbuka"> Terbuka <span class="n">9</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Pemenuhan" data-l="Sebagian" checked> Sebagian <span class="n">10</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Pemenuhan" data-l="Lengkap"> Lengkap <span class="n">16</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Pemenuhan" data-l="Ditutup kurang"> Ditutup kurang <span class="n">3</span></label>
+            </div>
+          </details>
+
+          <details class="fdrop">
+            <summary>Asal <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+            <div class="fpanel">
+              <label class="opt-tag"><input type="checkbox" data-f="Asal" data-l="Dari sourcing"> Dari sourcing <span class="n">27</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Asal" data-l="Langsung"> Langsung <span class="n">11</span></label>
+            </div>
+          </details>
+
+          <details class="fdrop">
+            <summary>Supplier <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+            <div class="fpanel">
+              <label class="opt-tag"><input type="checkbox" data-f="Supplier" data-l="CV Mitra Tekstil"> CV Mitra Tekstil <span class="n">12</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Supplier" data-l="PT Sinar Garmindo"> PT Sinar Garmindo <span class="n">9</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Supplier" data-l="PT Anugerah Denim"> PT Anugerah Denim <span class="n">7</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Supplier" data-l="Bandung Knit Works"> Bandung Knit Works <span class="n">6</span></label>
+            </div>
+          </details>
+
+          <details class="fdrop">
+            <summary>Perhatian <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+            <div class="fpanel">
+              <label class="opt-tag"><input type="checkbox" data-f="Perhatian" data-l="Ada perhatian"> Ada perhatian <span class="n">4</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Perhatian" data-l="Belum final"> Biaya belum final <span class="n">6</span></label>
+            </div>
+          </details>
+
+          <span class="pager">
+            <details class="fdrop" id="sortdrop">
+              <summary>Urutkan: <b id="sortnow" style="font-weight:500;color:var(--ink)">Tanggal PO</b> <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+              <div class="fpanel" style="left:auto;right:0;min-width:200px">
+                <label class="opt-tag"><input type="radio" name="sort" value="Tanggal PO" checked> Tanggal PO</label>
+                <label class="opt-tag"><input type="radio" name="sort" value="Nomor PO"> Nomor PO</label>
+                <label class="opt-tag"><input type="radio" name="sort" value="Nilai terbesar"> Nilai terbesar</label>
+                <label class="opt-tag"><input type="radio" name="sort" value="Paling tertinggal"> Paling tertinggal</label>
+              </div>
+            </details>
+            <span class="tsep" aria-hidden="true"></span>
+            <span class="mono"><b>1</b>/4</span>
+            <button type="button" disabled aria-label="Halaman sebelumnya"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m10 4-4 4 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button type="button" aria-label="Halaman berikutnya"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </span>
+        </div>
+        <div class="trow applied" id="applied" hidden>
+          <span class="tlab">Terpasang</span>
+          <span id="applied-chips" style="display:flex;gap:6px;flex-wrap:wrap"></span>
+          <button type="button" class="clearall" id="clearall">Hapus semua</button>
+        </div>
+      </div>
+
+      <div class="tablecard">
+        <div class="tw">
+          <table>
+            <thead>
+              <tr>
+                <th>PO</th>
+                <th>Asal</th>
+                <th class="n">Tanggal</th>
+                <th class="n">Item</th>
+                <th class="n">Nilai pesan</th>
+                <th class="n">Nilai jadi</th>
+                <th>Pemenuhan</th>
+                <th>Perhatian</th>
+                <th aria-label="Buka"></th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" data-open="false"></div>
+<aside class="sheet sheet-wide" id="sheet" data-open="false" aria-labelledby="sheet-po" aria-hidden="true">
+  <div class="sheet-head">
+    <div style="flex:1;min-width:0">
+      <h2 id="sheet-po">—</h2>
+      <div class="sub" id="sheet-sub"></div>
+    </div>
+    <button type="button" class="icon-btn" id="sheet-close" aria-label="Tutup">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m3.5 3.5 7 7m0-7-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="sheet-body"></div>
+  <div class="sheet-foot">
+    <button type="button" class="btn btn-secondary btn-sm" style="flex:1">Cetak PO</button>
+    <button type="button" class="btn btn-secondary btn-sm" style="flex:1">Lihat penerimaan</button>
+    <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="sheet-act">Tutup kurang</button>
+  </div>
+</aside>
+
+<script>
+/* Medan mengikuti PurchaseOrderListItem + PurchaseOrderDetail di
+   `lib/api/contract.ts`. Uang di wire berupa string; di sini angka penuh
+   supaya contoh mudah dibaca. */
+var PO = [
+  {
+    no:"PO-2608-0142", supplier:"CV Mitra Tekstil", supplier_code:"SUP-0042",
+    origin:"sourcing", status:"active", date:"28 Agu 2026", expected:"18 Sep 2026",
+    terms:"30 hari", incoterms:"FOB Bandung", currency:"IDR",
+    items:6, original:1200, accepted:820, rejected:60, closed_short:0, open:320,
+    subtotal:58_200_000, discount:{kind:"percentage",percent:3}, shipping:1_400_000, total:57_854_000,
+    fulfilled_net:41_318_000, definitive:false,
+    attention:[{kind:"price_variance", summary:"Harga faktur 2 baris lebih tinggi dari PO"}],
+    lines:[
+      {code:"SRC-2411-0182", name:"Celana kulot rayon lipat depan", color:"Krem", div:"Bawahan", cls:"merchandise", uom:"pcs", qty:400, acc:300, rej:20, sh:0, open:80, cost:48_500},
+      {code:"SRC-2411-0210", name:"Celana palazzo motif lipat", color:"Cokelat", div:"Bawahan", cls:"merchandise", uom:"pcs", qty:300, acc:220, rej:20, sh:0, open:60, cost:57_800},
+      {code:"SRC-2409-0664", name:"Celana panjang flanel kotak unisex", color:"Merah", div:"Bawahan", cls:"merchandise", uom:"pcs", qty:500, acc:300, rej:20, sh:0, open:180, cost:53_000},
+    ],
+    receipts:[
+      {no:"RCP-2609-0311", status:"diterima", when:"2 Sep 2026", qty:520},
+      {no:"RCP-2612-0408", status:"diterima", when:"12 Sep 2026", qty:300},
+    ],
+  },
+  {
+    no:"PO-2608-0139", supplier:"PT Sinar Garmindo", supplier_code:"SUP-0117",
+    origin:"sourcing", status:"active", date:"26 Agu 2026", expected:"24 Sep 2026",
+    terms:"45 hari", incoterms:"EXW Cikarang", currency:"IDR",
+    items:4, original:900, accepted:0, rejected:0, closed_short:0, open:900,
+    subtotal:64_800_000, discount:null, shipping:2_100_000, total:66_900_000,
+    fulfilled_net:null, definitive:false,
+    attention:[],
+    lines:[
+      {code:"SRC-2411-0177", name:"Celana cargo panjang pria, katun ripstop", color:"Hitam", div:"Bawahan", cls:"merchandise", uom:"pcs", qty:500, acc:0, rej:0, sh:0, open:500, cost:72_000},
+      {code:"SRC-2408-0412", name:"Celana chino slim, katun twill 2/1", color:"Krem", div:"Bawahan", cls:"merchandise", uom:"pcs", qty:400, acc:0, rej:0, sh:0, open:400, cost:64_000},
+    ],
+    receipts:[],
+  },
+  {
+    no:"PO-2607-0121", supplier:"PT Anugerah Denim", supplier_code:"SUP-0088",
+    origin:"sourcing", status:"active", date:"14 Jul 2026", expected:"20 Agu 2026",
+    terms:"30 hari", incoterms:"FOB Rancaekek", currency:"IDR",
+    items:2, original:600, accepted:540, rejected:20, closed_short:40, open:0,
+    subtotal:57_900_000, discount:{kind:"fixed",amount:1_500_000}, shipping:900_000, total:57_300_000,
+    fulfilled_net:51_390_000, definitive:true,
+    attention:[{kind:"closed_short", summary:"40 pcs ditutup kurang — supplier tidak sanggup melanjutkan"}],
+    lines:[
+      {code:"SRC-2410-0951", name:"Celana jeans baggy non-stretch 12 oz", color:"Navy", div:"Bawahan", cls:"merchandise", uom:"pcs", qty:600, acc:540, rej:20, sh:40, open:0, cost:96_500},
+    ],
+    receipts:[
+      {no:"RCP-2608-0244", status:"diterima", when:"18 Agu 2026", qty:540},
+    ],
+  },
+  {
+    no:"PO-2608-0150", supplier:"UD Karya Aksesoris", supplier_code:"SUP-0311",
+    origin:"direct", status:"active", date:"30 Agu 2026", expected:null,
+    terms:null, incoterms:null, currency:"IDR",
+    items:3, original:15000, accepted:15000, rejected:0, closed_short:0, open:0,
+    subtotal:9_750_000, discount:null, shipping:250_000, total:10_000_000,
+    fulfilled_net:10_000_000, definitive:true,
+    attention:[],
+    lines:[
+      {code:null, name:"Kancing logam 15 mm", color:null, div:"Aksesori", cls:"consumable", uom:"pcs", qty:10000, acc:10000, rej:0, sh:0, open:0, cost:650},
+      {code:null, name:"Resleting nilon 18 cm", color:null, div:"Aksesori", cls:"consumable", uom:"pcs", qty:3000, acc:3000, rej:0, sh:0, open:0, cost:900},
+      {code:null, name:"Label woven custom", color:null, div:"Aksesori", cls:"consumable", uom:"pcs", qty:2000, acc:2000, rej:0, sh:0, open:0, cost:275},
+    ],
+    receipts:[
+      {no:"RCP-2609-0299", status:"diterima", when:"1 Sep 2026", qty:15000},
+    ],
+  },
+  {
+    no:"PO-2607-0108", supplier:"Bandung Knit Works", supplier_code:"SUP-0203",
+    origin:"sourcing", status:"active", date:"2 Jul 2026", expected:"18 Jul 2026",
+    terms:"14 hari", incoterms:"FOB Bandung", currency:"IDR",
+    items:2, original:800, accepted:640, rejected:110, closed_short:50, open:0,
+    subtotal:33_120_000, discount:null, shipping:600_000, total:33_720_000,
+    fulfilled_net:26_960_000, definitive:false,
+    attention:[
+      {kind:"high_reject", summary:"Reject 13,8% — jauh di atas ambang 5% untuk supplier ini"},
+      {kind:"return_open", summary:"Retur ke supplier belum dibuatkan dokumen"},
+    ],
+    lines:[
+      {code:"SRC-2411-0203", name:"Sweatpants loose fleece brushed", color:"Abu", div:"Bawahan", cls:"merchandise", uom:"pcs", qty:500, acc:400, rej:70, sh:30, open:0, cost:41_200},
+      {code:"SRC-2407-0238", name:"Celana jogger rib ankle", color:"Hitam", div:"Bawahan", cls:"merchandise", uom:"pcs", qty:300, acc:240, rej:40, sh:20, open:0, cost:38_500},
+    ],
+    receipts:[
+      {no:"RCP-2607-0198", status:"diterima", when:"16 Jul 2026", qty:400},
+      {no:"RCP-2607-0212", status:"diterima", when:"22 Jul 2026", qty:240},
+    ],
+  },
+  {
+    no:"PO-2606-0087", supplier:"CV Sumber Kain Jaya", supplier_code:"SUP-0154",
+    origin:"direct", status:"active", date:"11 Jun 2026", expected:"5 Jul 2026",
+    terms:"30 hari", incoterms:"FOB Bandung", currency:"IDR",
+    items:1, original:2400, accepted:2400, rejected:0, closed_short:0, open:0,
+    subtotal:28_800_000, discount:null, shipping:0, total:28_800_000,
+    fulfilled_net:28_800_000, definitive:true,
+    attention:[],
+    lines:[
+      {code:null, name:"Kain rayon viscose 140 cm", color:"Krem", div:"Bahan", cls:"consumable", uom:"meter", qty:2400, acc:2400, rej:0, sh:0, open:0, cost:12_000},
+    ],
+    receipts:[
+      {no:"RCP-2606-0155", status:"diterima", when:"3 Jul 2026", qty:2400},
+    ],
+  },
+];
+
+function rp(n){ return "Rp " + String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+function num(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+
+/* Label pemenuhan diturunkan dari keempat kuantitasnya, bukan disimpan
+   terpisah — supaya label dan batangnya mustahil bertentangan. */
+function fulfil(p){
+  if (p.accepted === 0 && p.rejected === 0 && p.closed_short === 0) return {key:"open", tone:"neutral", label:"Terbuka"};
+  if (p.open > 0) return {key:"partial", tone:"orange", label:"Sebagian"};
+  if (p.closed_short > 0) return {key:"closed_short", tone:"neutral", label:"Ditutup kurang"};
+  return {key:"full", tone:"green", label:"Lengkap"};
+}
+
+function bar(p, height){
+  var t = p.original || 1;
+  var seg = function(v, c){ return v > 0 ? '<span style="width:' + (v / t * 100) + '%;background:' + c + '"></span>' : ""; };
+  return seg(p.accepted, "var(--green)") + seg(p.rejected, "var(--red)") +
+         seg(p.closed_short, "var(--ink-3)") + seg(p.open, "var(--line-strong)");
+}
+
+function row(p, i){
+  var f = fulfil(p);
+  return (
+    '<tr data-i="' + i + '" tabindex="0">' +
+      '<td><span class="po-id"><b>' + p.no + '</b><span>' + p.supplier + '</span></span></td>' +
+      '<td><span class="chip"' + (p.origin === "sourcing" ? ' data-tone="accent"' : '') + '>' + p.origin + '</span></td>' +
+      '<td class="n"><span class="nil">' + p.date + '</span></td>' +
+      '<td class="n">' + p.items + '</td>' +
+      '<td class="n">' + rp(p.total) + '</td>' +
+      '<td class="n">' + (p.fulfilled_net === null
+        ? '<span class="nil">—</span>'
+        : rp(p.fulfilled_net) + (p.definitive ? "" : ' <span class="pill" data-tone="orange" style="margin-left:6px">belum final</span>')) + '</td>' +
+      '<td><span class="ff">' +
+        '<span class="ffbar">' + bar(p) + '</span>' +
+        '<span class="fftxt">' + num(p.accepted) + " / " + num(p.original) + ' diterima</span>' +
+      '</span></td>' +
+      '<td>' + (p.attention.length
+        ? '<span class="pill" data-tone="orange">' + p.attention.length + ' perhatian</span>'
+        : '<span class="nil">—</span>') + '</td>' +
+      '<td><span class="rowbtn" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td>' +
+    '</tr>'
+  );
+}
+
+var rowsEl = document.getElementById("rows");
+function render(list){ rowsEl.innerHTML = list.map(function(p){ return row(p, PO.indexOf(p)); }).join(""); }
+render(PO);
+
+/* ── panel ─────────────────────────────────────────────── */
+var sheet = document.getElementById("sheet");
+var scrim = document.getElementById("scrim");
+
+function openSheet(i){
+  var p = PO[i];
+  var f = fulfil(p);
+
+  document.getElementById("sheet-po").textContent = p.no;
+  document.getElementById("sheet-sub").innerHTML =
+    '<span>' + p.supplier + '</span>' +
+    '<span class="chip">' + p.supplier_code + '</span>' +
+    '<span class="chip"' + (p.origin === "sourcing" ? ' data-tone="accent"' : '') + '>' + p.origin + '</span>' +
+    '<span class="pill" data-tone="' + f.tone + '">' + f.label + '</span>';
+
+  var html = "";
+
+  if (p.attention.length) {
+    html += '<div class="banner" data-tone="orange">' +
+      '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>' +
+      '<span><b>' + p.attention.length + ' hal perlu diperiksa</b><ul>' +
+      p.attention.map(function(a){ return "<li>" + a.summary + "</li>"; }).join("") +
+      '</ul></span></div>';
+  }
+
+  /* Rekonsiliasi kuantitas. Keempat angka ini menjumlah tepat ke original_qty;
+     kalau tidak, yang salah datanya, bukan tampilannya. */
+  html += '<div class="sec"><h3>Kuantitas · ' + num(p.original) + ' dipesan</h3>' +
+    '<div class="panelcard recon">' +
+      '<div class="reconbar">' + bar(p) + '</div>' +
+      '<div class="reconkey">' +
+        '<div><span><i style="background:var(--green)"></i>Diterima</span><b>' + num(p.accepted) + '</b></div>' +
+        '<div><span><i style="background:var(--red)"></i>Ditolak</span><b>' + num(p.rejected) + '</b></div>' +
+        '<div><span><i style="background:var(--ink-3)"></i>Ditutup kurang</span><b>' + num(p.closed_short) + '</b></div>' +
+        '<div><span><i style="background:var(--line-strong)"></i>Masih terbuka</span><b>' + num(p.open) + '</b></div>' +
+      '</div>' +
+    '</div></div>';
+
+  /* Rekonsiliasi uang. Yang dipesan dan yang jadi ditulis berdampingan karena
+     keduanya memang dua angka, dan yang kedua bisa belum final. */
+  var disc = p.discount
+    ? (p.discount.kind === "percentage"
+        ? "−" + p.discount.percent + "%"
+        : "−" + rp(p.discount.amount))
+    : null;
+
+  html += '<div class="sec"><h3>Uang</h3><div class="panelcard">' +
+    '<div class="kv-row"><span>Subtotal</span><span>' + rp(p.subtotal) + '</span></div>' +
+    '<div class="kv-row"><span>Diskon</span><span>' + (disc || '<span class="nil">—</span>') + '</span></div>' +
+    '<div class="kv-row"><span>Ongkos kirim</span><span>' + (p.shipping ? rp(p.shipping) : '<span class="nil">—</span>') + '</span></div>' +
+    '<div class="kv-row total"><span>Nilai dipesan</span><span>' + rp(p.total) + '</span></div>' +
+    '<div class="kv-row total"><span>Nilai yang jadi' +
+      (p.definitive ? "" : ' <span class="pill" data-tone="orange" style="margin-left:6px">belum final</span>') +
+    '</span><span>' + (p.fulfilled_net === null ? '<span class="nil">—</span>' : rp(p.fulfilled_net)) + '</span></div>' +
+    '</div></div>';
+
+  html += '<div class="sec"><h3>Baris · ' + p.lines.length + '</h3><div class="panelcard"><div class="tw"><table class="linetbl">' +
+    '<thead><tr><th>Barang</th><th>Kelas</th><th class="n">Pesan</th><th class="n">Satuan</th><th class="n">Pemenuhan</th></tr></thead><tbody>' +
+    p.lines.map(function(l){
+      var lp = {original:l.qty, accepted:l.acc, rejected:l.rej, closed_short:l.sh, open:l.open};
+      return '<tr>' +
+        '<td><span class="line-name"><b>' + l.name + (l.color ? " · " + l.color : "") + '</b>' +
+          '<span>' + (l.code || l.div) + " · " + l.uom + '</span></span></td>' +
+        '<td><span class="chip">' + l.cls + '</span></td>' +
+        '<td class="n">' + num(l.qty) + '</td>' +
+        '<td class="n">' + rp(l.cost) + '</td>' +
+        '<td class="n"><span class="qtycell">' +
+          '<span class="qtybar">' + bar(lp) + '</span>' +
+          '<span class="fftxt">' + num(l.acc) + " / " + num(l.qty) + '</span>' +
+        '</span></td>' +
+      '</tr>';
+    }).join("") + '</tbody></table></div></div></div>';
+
+  html += '<div class="sec"><h3>Penerimaan · ' + p.receipts.length + '</h3><div class="panelcard">' +
+    (p.receipts.length
+      ? p.receipts.map(function(r){
+          return '<div class="receipt"><b>' + r.no + '</b>' +
+            '<span class="pill" data-tone="green">' + r.status + '</span>' +
+            '<span class="mono">' + num(r.qty) + ' pcs</span>' +
+            '<span class="when">' + r.when + '</span></div>';
+        }).join("")
+      : '<div class="receipt"><span class="nil">Belum ada penerimaan. Seluruh kuantitas masih terbuka.</span></div>')
+    + '</div></div>';
+
+  html += '<div class="sec"><h3>Ketentuan</h3><div class="panelcard">' +
+    '<div class="kv-row"><span>Tanggal PO</span><span>' + p.date + '</span></div>' +
+    '<div class="kv-row"><span>Perkiraan tiba</span><span>' + (p.expected || '<span class="nil">belum diisi</span>') + '</span></div>' +
+    '<div class="kv-row"><span>Termin pembayaran</span><span>' + (p.terms || '<span class="nil">belum diisi</span>') + '</span></div>' +
+    '<div class="kv-row"><span>Incoterms</span><span>' + (p.incoterms || '<span class="nil">belum diisi</span>') + '</span></div>' +
+    '</div></div>';
+
+  document.getElementById("sheet-body").innerHTML = html;
+
+  /* Aksi utama mengikuti keadaan: yang masih terbuka bisa ditutup kurang;
+     yang sudah tuntas tidak punya aksi itu lagi. */
+  var act = document.getElementById("sheet-act");
+  var closable = p.open > 0;
+  act.textContent = closable ? "Tutup kurang" : "Sudah tuntas";
+  act.style.opacity = closable ? "" : ".45";
+  act.style.pointerEvents = closable ? "" : "none";
+
+  sheet.setAttribute("data-open", "true");
+  sheet.setAttribute("aria-hidden", "false");
+  scrim.setAttribute("data-open", "true");
+  document.querySelectorAll("#rows tr").forEach(function(tr){
+    tr.setAttribute("aria-selected", String(Number(tr.dataset.i) === i));
+  });
+}
+
+function closeSheet(){
+  sheet.setAttribute("data-open", "false");
+  sheet.setAttribute("aria-hidden", "true");
+  scrim.setAttribute("data-open", "false");
+  document.querySelectorAll("#rows tr").forEach(function(tr){ tr.removeAttribute("aria-selected"); });
+}
+
+rowsEl.addEventListener("click", function(e){
+  var tr = e.target.closest("tr[data-i]");
+  if (tr) openSheet(Number(tr.dataset.i));
+});
+rowsEl.addEventListener("keydown", function(e){
+  if (e.key !== "Enter" && e.key !== " ") return;
+  var tr = e.target.closest("tr[data-i]");
+  if (!tr) return;
+  e.preventDefault();
+  openSheet(Number(tr.dataset.i));
+});
+document.getElementById("sheet-close").addEventListener("click", closeSheet);
+scrim.addEventListener("click", closeSheet);
+
+/* ── penyaring ─────────────────────────────────────────── */
+document.querySelectorAll(".fchip[aria-pressed]").forEach(function(chip){
+  chip.addEventListener("click", function(){
+    chip.parentElement.querySelectorAll(":scope > .fchip[aria-pressed]").forEach(function(o){
+      o.setAttribute("aria-pressed", String(o === chip));
+    });
+  });
+});
+
+var drops = Array.prototype.slice.call(document.querySelectorAll(".fdrop"));
+drops.forEach(function(d){
+  d.addEventListener("toggle", function(){
+    if (!d.open) return;
+    drops.forEach(function(o){ if (o !== d) o.open = false; });
+  });
+});
+document.addEventListener("click", function(e){
+  if (e.target.closest(".fdrop")) return;
+  drops.forEach(function(d){ d.open = false; });
+});
+document.addEventListener("keydown", function(e){
+  if (e.key !== "Escape") return;
+  drops.forEach(function(d){ d.open = false; });
+  closeSheet();
+});
+
+var appliedRow = document.getElementById("applied");
+var appliedChips = document.getElementById("applied-chips");
+function syncApplied(){
+  var on = Array.prototype.slice.call(document.querySelectorAll('.fpanel input[type="checkbox"]:checked'));
+  appliedChips.innerHTML = on.map(function(input){
+    return '<span class="achip">' + input.dataset.f + ": " + input.dataset.l +
+      '<button type="button" aria-label="Hapus filter ' + input.dataset.l + '">' +
+      '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="m2.5 2.5 5 5m0-5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      '</button></span>';
+  }).join("");
+  appliedRow.hidden = on.length === 0;
+  drops.forEach(function(d){
+    var any = d.querySelector('input[type="checkbox"]:checked') !== null;
+    d.querySelector("summary").setAttribute("data-on", String(any));
+  });
+  appliedChips.querySelectorAll("button").forEach(function(button, index){
+    button.addEventListener("click", function(){ on[index].checked = false; syncApplied(); });
+  });
+}
+document.querySelectorAll('.fpanel input[type="checkbox"]').forEach(function(input){
+  input.addEventListener("change", syncApplied);
+});
+document.getElementById("clearall").addEventListener("click", function(){
+  document.querySelectorAll('.fpanel input[type="checkbox"]:checked').forEach(function(i){ i.checked = false; });
+  syncApplied();
+});
+syncApplied();
+
+document.querySelectorAll('input[name="sort"]').forEach(function(radio){
+  radio.addEventListener("change", function(){
+    document.getElementById("sortnow").textContent = radio.value;
+    document.getElementById("sortdrop").open = false;
+  });
+});
+
+document.getElementById("q").addEventListener("input", function(e){
+  var term = e.target.value.trim().toLowerCase();
+  render(PO.filter(function(p){
+    return !term || (p.no + " " + p.supplier + " " + p.supplier_code).toLowerCase().indexOf(term) !== -1;
+  }));
+});
+
+document.getElementById("theme").addEventListener("click", function(){
+  var root = document.documentElement;
+  root.classList.add("theme-switching");
+  root.classList.toggle("dark");
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){ root.classList.remove("theme-switching"); });
+  });
+});
+</script>
+</body>
+</html>

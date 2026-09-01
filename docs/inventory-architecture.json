@@ -78,7 +78,7 @@
       "tag": "COMMITMENT STREAM",
       "pos": [900, 170],
       "size": [210, 82],
-      "sources": [{ "path": "backend/migrations/0004_allotment.sql", "label": "Allotment schema" }]
+      "sources": [{ "path": "backend/migrations/postgres/0004_allotment.sql", "label": "Allotment schema" }]
     },
     {
       "id": "inventoryLedger",
@@ -88,7 +88,7 @@
       "tag": "PHYSICAL TRUTH",
       "pos": [900, 420],
       "size": [210, 82],
-      "sources": [{ "path": "backend/migrations/0001_inventory_schema.sql", "label": "Ledger schema" }]
+      "sources": [{ "path": "backend/migrations/postgres/0001_inventory_schema.sql", "label": "Ledger schema" }]
     }
   ],
   "boundaries": [

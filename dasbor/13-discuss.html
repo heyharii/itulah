@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Discuss · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   DISCUSS
+   --------------------------------------------------------------------------
+   Bentuknya mengikuti forum (Discourse / discuss.frappe.io): daftar topik,
+   balasan bertumpuk, jawaban diterima, tag, aktivitas terakhir. Tapi satu hal
+   mendasar berbeda, dan itu datang dari kontraknya sendiri:
+
+     DiscussionThread { subject_kind, subject_id, ... }
+
+   Thread di sini TIDAK menggantung pada kategori. Ia menggantung pada
+   REKAMAN — sebuah PO, seorang supplier, satu penerimaan, satu pengecualian.
+   `subject_kind` cuma punya sembilan nilai dan semuanya benda kerja, bukan
+   topik obrolan. Maka sumbu kiri diisi jenis subjek, bukan kategori karangan,
+   dan tiap baris menyebut rekaman apa yang sedang dibicarakan. Forum umum
+   tidak bisa melakukan itu; di sini justru itu kolom paling berguna.
+
+   EMPAT MEDAN YANG BIASANYA DISEMBUNYIKAN, DI SINI DIPAKAI APA ADANYA:
+
+   1 · `views` — komentarnya menyebut "Distinct people who opened the thread,
+       not page loads". Jadi labelnya ditulis "orang", bukan "dilihat".
+       Angka yang artinya orang tidak boleh dibaca sebagai tayangan.
+
+   2 · `bookmarked_by_me` — "Private to the caller — nobody sees anyone else's
+       bookmarks". Itu dinyatakan di layar, karena di kebanyakan forum orang
+       menganggap tanda buku itu terlihat publik.
+
+   3 · `attachments[].available` — lampiran bisa ADA tapi tidak tersedia
+       (berkasnya di Vault, dan Vault bisa tidak menjawab). Keadaan itu
+       digambar, bukan disamarkan jadi tautan yang menggantung.
+
+   4 · `following` dan `mentions_me` ikut di dalam thread — komentarnya bilang
+       "answered on the thread to save a round trip". Karena sudah ada, tab
+       umpan bisa menyaring seketika tanpa permintaan tambahan.
+
+   Kulitnya Beautiful UI — token dari ~/newton/app/globals.css.
+   ========================================================================== */
+
+/* Chip subjek: rekaman yang sedang dibicarakan. Ini yang menggantikan
+   "kategori" di forum umum, dan ia bisa diklik ke rekamannya. */
+.subj{
+  display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;
+  border-radius:var(--radius-chip);background:var(--inset);color:var(--ink-2);
+  font-size:12px;text-decoration:none;white-space:nowrap;max-width:100%;
+}
+.subj:hover{background:var(--hover-2);color:var(--ink)}
+.subj b{font-family:"Geist Mono",ui-monospace,monospace;font-weight:500;font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
+.subj svg{flex-shrink:0;opacity:.7}
+
+.tag{
+  display:inline-block;padding:1px 8px;border-radius:999px;
+  background:var(--surface);box-shadow:0 0 0 1px var(--line);
+  font-size:11.5px;color:var(--ink-2);
+}
+.tag:hover{color:var(--ink)}
+
+/* Avatar: inisial, rona diturunkan dari namanya sendiri supaya stabil. */
+
+/* ── sidebar ───────────────────────────────────────────── */
+.brand{display:flex;align-items:center;gap:9px;padding:6px 8px 16px}
+.brand .m{width:26px;height:26px;border-radius:var(--radius-chip);background:var(--ink);color:var(--page);display:grid;place-items:center;font-weight:600;font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.brand b{font-weight:600;letter-spacing:-.01em}
+.grp{padding:14px 8px 5px;font-size:11.5px;font-weight:500;color:var(--ink-3)}
+
+/* ── kanvas ────────────────────────────────────────────── */
+.top .back{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:999px;background:var(--surface);box-shadow:var(--shadow-btn);color:var(--ink-2);flex-shrink:0}
+/* `display` yang ditulis eksplisit menimpa atribut `hidden`, jadi ia harus
+   dikembalikan sendiri. */
+.top .back[hidden]{display:none}
+
+/* ── daftar topik ──────────────────────────────────────── */
+.listcard{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
+.lh{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--ink-3)}
+.lh .c-rep{width:64px;text-align:end;flex-shrink:0}
+.lh .c-view{width:64px;text-align:end;flex-shrink:0}
+.lh .c-act{width:88px;text-align:end;flex-shrink:0}
+.lh .c-main{flex:1;min-width:0}
+.listcard .trow:last-child{border-bottom:0}
+.trow:hover{background:var(--hover)}
+.trow .body{flex:1;min-width:0}
+.trow .title{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:5px}
+.trow .title b{font-weight:500;font-size:14.5px;letter-spacing:-.01em}
+.trow .meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.trow .prev{margin:5px 0 0;font-size:12.5px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow .faces{display:flex;margin-left:4px}
+.trow .faces .av{margin-left:-7px;box-shadow:0 0 0 2px var(--surface)}
+.trow .faces .av:first-child{margin-left:0}
+.stat{width:64px;flex-shrink:0;text-align:end;font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:13.5px;padding-top:2px}
+.stat.act{width:88px;font-size:12.5px;color:var(--ink-3)}
+.flagline{display:flex;align-items:center;gap:6px;flex-shrink:0;padding-top:3px;color:var(--ink-3)}
+.flagline svg{display:block}
+.flagline [data-on="true"]{color:var(--accent-ink)}
+
+/* ── thread ────────────────────────────────────────────── */
+.thead{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);padding:16px 18px;margin-bottom:12px}
+.thead h2{margin:0 0 8px;font-size:21px;font-weight:600;letter-spacing:-.02em;line-height:1.25}
+.thead .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+.post{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);margin-bottom:10px;overflow:hidden}
+.post[data-solution="true"]{box-shadow:0 0 0 1px var(--green), var(--shadow-sm)}
+.post-top{display:flex;align-items:center;gap:10px;padding:12px 16px 0}
+.post-top .who{flex:1;min-width:0}
+.post-top .who b{display:block;font-weight:500;font-size:13.5px}
+.post-top .who span{font-size:12px;color:var(--ink-3)}
+.post-top .seq{font-family:"Geist Mono",ui-monospace,monospace;font-size:11.5px;color:var(--ink-3)}
+.post-body{padding:10px 16px 12px;font-size:14px;line-height:1.62;color:var(--ink)}
+.post-body p{margin:0 0 10px}
+.post-body p:last-child{margin-bottom:0}
+.post-body code{font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px;background:var(--inset);border-radius:var(--radius-xs);padding:1px 5px}
+.mention{color:var(--accent-ink);font-weight:500}
+
+.solved-bar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--green-tint);color:var(--green);font-size:12.5px;font-weight:500}
+.solved-bar svg{flex-shrink:0}
+
+/* Lampiran bisa ADA tapi tidak tersedia — Vault bisa tidak menjawab. Keadaan
+   itu digambar, bukan disamarkan jadi tautan yang menggantung. */
+.att{display:flex;flex-direction:column;gap:6px;padding:0 16px 12px}
+.att a,.att span.dead{
+  display:flex;align-items:center;gap:9px;padding:7px 10px;
+  border-radius:var(--radius-chip);background:var(--inset);
+  text-decoration:none;color:var(--ink-2);font-size:12.5px;
+}
+.att a:hover{background:var(--hover-2);color:var(--ink)}
+.att span.dead{opacity:.72}
+.att .fname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att .fsize{font-family:"Geist Mono",ui-monospace,monospace;font-size:11.5px;color:var(--ink-3);flex-shrink:0}
+
+.post-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 16px;border-top:1px solid var(--line)}
+.react{
+  display:inline-flex;align-items:center;gap:6px;height:29px;padding:0 11px;border:0;
+  border-radius:999px;background:var(--inset);color:var(--ink-2);
+  font-family:inherit;font-size:12.5px;font-weight:500;
+  transition:background-color 140ms var(--ease),color 140ms var(--ease);
+}
+.react:hover{background:var(--hover-2);color:var(--ink)}
+.react[aria-pressed="true"]{background:var(--accent-tint);color:var(--accent-ink)}
+.react .mono{font-size:12px}
+.quiet{border:0;background:none;padding:0 4px;color:var(--ink-3);font-family:inherit;font-size:12.5px}
+.quiet:hover{color:var(--ink)}
+.quiet[aria-pressed="true"]{color:var(--accent-ink);font-weight:500}
+.post-foot .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+
+.reply{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);padding:14px 16px;display:flex;gap:12px}
+.reply textarea{
+  flex:1;min-width:0;min-height:76px;resize:vertical;border:0;padding:10px 12px;
+  background:var(--field);border-radius:var(--radius-control);box-shadow:0 0 0 1px var(--line);
+  font-family:inherit;font-size:14px;line-height:1.6;color:var(--ink);
+}
+.reply textarea:focus{box-shadow:0 0 0 1px var(--accent)}
+.reply-foot{display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:wrap}
+.reply-foot .note{font-size:11.5px;color:var(--ink-3)}
+.locked svg{color:var(--ink-3);flex-shrink:0}
+
+@media(max-width:900px){
+  /* Strip mendatar: pembungkus subjek dan tag ikut mendatar, kalau tidak
+     mereka tetap menumpuk vertikal dan menarik tinggi seluruh strip. */
+  .side{width:auto;height:auto;position:static;flex-direction:row;align-items:center;
+        overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:8px 10px;gap:6px}
+  /* Hanya dua pembungkus ini yang didatarkan. Menyasar `.side > div` ikut
+     mengenai .brand dan .grp — keduanya div juga — dan menghidupkan lagi
+     yang barusan disembunyikan. */
+  #subjects,#tags{display:flex;gap:6px;flex-shrink:0}
+  .brand,.grp{display:none}
+  .lh,.stat.act,.trow .prev{display:none}
+  .trow .stat{width:auto}
+}
+@media(prefers-reduced-motion:reduce){}
+</style>
+</head>
+<body>
+
+<div class="window">
+
+  <nav class="side" aria-label="Navigasi diskusi">
+    <div class="brand"><span class="m">R</span><b>Discuss</b></div>
+
+    <div class="grp">Umpan</div>
+    <button type="button" class="nav" data-feed="all" aria-current="true">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3.5 4.5h11M3.5 9h11M3.5 13.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Semua <span class="n" data-count="all"></span>
+    </button>
+    <button type="button" class="nav" data-feed="following">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M9 3.5 10.7 7l3.8.5-2.8 2.7.7 3.8L9 12.2 5.6 14l.7-3.8L3.5 7.5 7.3 7 9 3.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      Diikuti <span class="n" data-count="following"></span>
+    </button>
+    <button type="button" class="nav" data-feed="mentions">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="3" stroke="currentColor" stroke-width="1.4"/><path d="M12 6v4a2.2 2.2 0 0 0 3 0V9A6 6 0 1 0 11 14.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Menyebut saya <span class="n" data-count="mentions"></span>
+    </button>
+    <button type="button" class="nav" data-feed="bookmarks">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M4.5 3h9v12l-4.5-3-4.5 3V3Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      Ditandai <span class="n" data-count="bookmarks"></span>
+    </button>
+
+    <div class="grp">Subjek</div>
+    <div id="subjects"></div>
+
+    <div class="grp">Tag</div>
+    <div id="tags"></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <button type="button" class="back" id="back" aria-label="Kembali ke daftar" hidden>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m10 4-4 4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h1 id="title">Semua diskusi</h1>
+      <label class="search">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/><path d="m10.6 10.6 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input id="q" type="search" placeholder="Cari judul, rekaman, atau tag" aria-label="Cari diskusi">
+      </label>
+      <div class="right">
+        <button type="button" class="btn btn-primary btn-sm" id="new">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Diskusi baru
+        </button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<script>
+/* ══ data ══════════════════════════════════════════════════
+   Medannya DiscussionThread + DiscussionPost di lib/api/contract.ts. */
+
+var SUBJECT_LABEL = {
+  purchase_order:"Purchase Order", supplier:"Supplier", receipt:"Penerimaan",
+  purchase_exception:"Pengecualian", commercial_verification:"Verifikasi",
+  purchase_order_line:"Baris PO", packaging_item:"Packaging", supply_item:"Supply",
+};
+
+var ME = "sari.m";
+
+var THREADS = [
+  {
+    id:"th-1", subject_kind:"purchase_order", subject_id:"PO-2607-0108", subject_note:"Bandung Knit Works",
+    title:"Reject 13,8% di PO-2607-0108 — lanjut retur atau potong harga?",
+    status:"open", created_by:"budi.s", created_at:"2 hari lalu", last_activity_at:"14 menit lalu",
+    reply_count:7, views:12, tags:["reject","supplier-quality"],
+    following:true, mentions_me:true, bookmarked:false,
+    latest_post_preview:"Kalau dipotong harga, selisihnya harus masuk sebagai penyesuaian biaya penerimaan, bukan diskon PO.",
+    faces:["budi.s","sari.m","dedi.f"],
+  },
+  {
+    id:"th-2", subject_kind:"supplier", subject_id:"SUP-0311", subject_note:"UD Karya Aksesoris",
+    title:"Supplier belum bisa di-PO — termin dan kontak kosong sejak Mei",
+    status:"open", created_by:"sari.m", created_at:"5 hari lalu", last_activity_at:"3 jam lalu",
+    reply_count:4, views:9, tags:["kelengkapan","blocking"],
+    following:true, mentions_me:false, bookmarked:true,
+    latest_post_preview:"Sudah saya hubungi lewat WA, mereka janji kirim NPWP minggu ini.",
+    faces:["sari.m","rina.w"],
+  },
+  {
+    id:"th-3", subject_kind:"receipt", subject_id:"RCP-2609-0311", subject_note:"CV Mitra Tekstil",
+    title:"Selisih 4 pcs saat blind count — sudah ketemu di rak sebelah",
+    status:"resolved", created_by:"dedi.f", created_at:"1 minggu lalu", last_activity_at:"2 hari lalu",
+    reply_count:6, views:15, tags:["blind-count","selisih"],
+    following:false, mentions_me:false, bookmarked:false,
+    latest_post_preview:"Ditutup. Count ulang cocok, tidak ada shortage yang perlu disetujui.",
+    faces:["dedi.f","budi.s","sari.m","wawan.s"],
+  },
+  {
+    id:"th-4", subject_kind:"purchase_exception", subject_id:"PEX-2608-0044", subject_note:"harga faktur > PO",
+    title:"Harga faktur 2 baris lebih tinggi dari PO — siapa yang boleh menerima?",
+    status:"open", created_by:"rina.w", created_at:"3 hari lalu", last_activity_at:"kemarin",
+    reply_count:11, views:18, tags:["harga","otorisasi"],
+    following:false, mentions_me:true, bookmarked:true,
+    latest_post_preview:"Batas toleransi 2% itu per baris atau per PO? Di dokumen tidak disebut.",
+    faces:["rina.w","budi.s","hadi.p"],
+  },
+  {
+    id:"th-5", subject_kind:"purchase_order", subject_id:"PO-2608-0139", subject_note:"PT Sinar Garmindo",
+    title:"Lead time molor 2 minggu, perlu revisi perkiraan tiba?",
+    status:"locked", created_by:"hadi.p", created_at:"2 minggu lalu", last_activity_at:"1 minggu lalu",
+    reply_count:3, views:7, tags:["lead-time"],
+    following:false, mentions_me:false, bookmarked:false,
+    latest_post_preview:"Dikunci — dilanjutkan di PEX-2608-0051.",
+    faces:["hadi.p","sari.m"],
+  },
+  {
+    id:"th-6", subject_kind:"commercial_verification", subject_id:"VER-2609-0012", subject_note:"katalog Raya",
+    title:"Publikasi v12 belum turun ke store-07, harga masih v11 di kasir",
+    status:"open", created_by:"wawan.s", created_at:"6 jam lalu", last_activity_at:"41 menit lalu",
+    reply_count:2, views:5, tags:["publikasi","sync"],
+    following:true, mentions_me:false, bookmarked:false,
+    latest_post_preview:"store-07 memang belum sinkron sejak 14:02, ini bagian dari masalah yang sama.",
+    faces:["wawan.s","sari.m"],
+  },
+];
+
+var POSTS = {
+  "th-1":[
+    {seq:1, author:"budi.s", at:"2 hari lalu", body:"Penerimaan PO-2607-0108 dari Bandung Knit Works selesai dengan reject <b>110 dari 800 pcs</b> (13,8%). Ambang kita untuk supplier ini 5%.<br><br>Dua baris yang bermasalah: sweatpants fleece (70 reject) dan jogger rib (40 reject). Keluhannya sama — jahitan pinggang tidak rata dan ada yang lompat.<br><br>Pertanyaannya: kita retur, atau minta potong harga untuk yang sudah diterima?", reactions:3, reacted:false, bookmarked:false, solution:false, mentions:[], atts:[
+      {name:"foto-jahitan-batch-2.jpg", size:"1,8 MB", available:true},
+      {name:"laporan-qc-2607-0108.pdf", size:"412 KB", available:false},
+    ]},
+    {seq:2, author:"sari.m", at:"2 hari lalu", body:"Retur 110 pcs itu ongkos kirimnya sendiri sekitar Rp 900.000 dan supplier belum tentu mau tanggung. Kalau potong harga, berapa yang wajar?", reactions:1, reacted:false, bookmarked:false, solution:false, mentions:[], atts:[]},
+    {seq:3, author:"dedi.f", at:"14 menit lalu", body:"Kalau dipotong harga, selisihnya harus masuk sebagai <b>penyesuaian biaya penerimaan</b>, bukan diskon PO. Diskon PO mengubah nilai yang dipesan, padahal yang berubah kenyataannya cuma nilai yang jadi.<br><br><span class=\"mention\">@sari.m</span> kalau angkanya sudah disepakati, saya yang catatkan.", reactions:5, reacted:true, bookmarked:true, solution:true, mentions:["sari.m"], atts:[]},
+  ],
+  "th-4":[
+    {seq:1, author:"rina.w", at:"3 hari lalu", body:"Verifikasi PEX-2608-0044: dua baris fakturnya lebih tinggi dari PO. Baris 1 naik 4,3%, baris 3 naik 1,8%.<br><br>Yang 1,8% masih di bawah toleransi, yang 4,3% tidak. Tapi saya tidak yakin siapa yang berwenang menerimanya.", reactions:2, reacted:false, bookmarked:false, solution:false, mentions:[], atts:[]},
+    {seq:2, author:"budi.s", at:"kemarin", body:"Batas toleransi 2% itu <b>per baris atau per PO</b>? Di dokumen tidak disebut. Kalau per PO, rata-ratanya masih 3,1% dan tetap lewat.<br><br><span class=\"mention\">@sari.m</span> ini perlu keputusan, bukan tafsiran.", reactions:4, reacted:false, bookmarked:false, solution:false, mentions:["sari.m"], atts:[]},
+  ],
+};
+
+/* ══ bantu ═════════════════════════════════════════════════ */
+function initials(name){
+  return name.split(/[.\s]/).filter(Boolean).slice(0,2).map(function(w){ return w[0]; }).join("").toUpperCase();
+}
+/* Rona avatar diturunkan dari namanya sendiri supaya orang yang sama selalu
+   berwarna sama, tanpa perlu disimpan di mana pun. */
+function hue(name){
+  var sum = 0;
+  for (var i = 0; i < name.length; i++) sum = (sum * 31 + name.charCodeAt(i)) % 360;
+  return sum;
+}
+function avatar(name, small){
+  return '<span class="av' + (small ? " sm" : "") + '" title="' + name + '" ' +
+    'style="background:oklch(0.56 0.14 ' + hue(name) + ')">' + initials(name) + '</span>';
+}
+
+var STATUS = {
+  open:["neutral","Terbuka"],
+  resolved:["green","Terjawab"],
+  locked:["orange","Dikunci"],
+};
+
+var state = { feed:"all", subject:null, tag:null, q:"", thread:null };
+
+function visible(){
+  return THREADS.filter(function(t){
+    if (state.feed === "following" && !t.following) return false;
+    if (state.feed === "mentions" && !t.mentions_me) return false;
+    if (state.feed === "bookmarks" && !t.bookmarked) return false;
+    if (state.subject && t.subject_kind !== state.subject) return false;
+    if (state.tag && t.tags.indexOf(state.tag) === -1) return false;
+    if (state.q) {
+      var hay = (t.title + " " + t.subject_id + " " + t.subject_note + " " + t.tags.join(" ")).toLowerCase();
+      if (hay.indexOf(state.q.toLowerCase()) === -1) return false;
+    }
+    return true;
+  });
+}
+
+/* ══ sidebar ═══════════════════════════════════════════════ */
+function paintSidebar(){
+  document.querySelectorAll("[data-count]").forEach(function(el){
+    var f = el.dataset.count;
+    el.textContent = THREADS.filter(function(t){
+      return f === "all" || (f === "following" && t.following) ||
+             (f === "mentions" && t.mentions_me) || (f === "bookmarks" && t.bookmarked);
+    }).length;
+  });
+
+  var kinds = {};
+  THREADS.forEach(function(t){ kinds[t.subject_kind] = (kinds[t.subject_kind] || 0) + 1; });
+  document.getElementById("subjects").innerHTML = Object.keys(kinds).map(function(k){
+    return '<button type="button" class="nav" data-subject="' + k + '"' +
+      (state.subject === k ? ' aria-current="true"' : "") + '>' +
+      '<svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M6.25 6.5h5.5M6.25 9.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>' +
+      SUBJECT_LABEL[k] + ' <span class="n">' + kinds[k] + '</span></button>';
+  }).join("");
+
+  var tags = {};
+  THREADS.forEach(function(t){ t.tags.forEach(function(g){ tags[g] = (tags[g] || 0) + 1; }); });
+  document.getElementById("tags").innerHTML = Object.keys(tags).sort().map(function(g){
+    return '<button type="button" class="nav" data-tag="' + g + '"' +
+      (state.tag === g ? ' aria-current="true"' : "") + '>' +
+      '<svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3 3h5.5L15 9.5 9.5 15 3 8.5V3Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="6.25" cy="6.25" r="1" fill="currentColor"/></svg>' +
+      g + ' <span class="n">' + tags[g] + '</span></button>';
+  }).join("");
+
+  document.querySelectorAll("[data-subject]").forEach(function(b){
+    b.addEventListener("click", function(){
+      state.subject = state.subject === b.dataset.subject ? null : b.dataset.subject;
+      state.tag = null; render();
+    });
+  });
+  document.querySelectorAll("[data-tag]").forEach(function(b){
+    b.addEventListener("click", function(){
+      state.tag = state.tag === b.dataset.tag ? null : b.dataset.tag;
+      state.subject = null; render();
+    });
+  });
+}
+
+/* ══ daftar ════════════════════════════════════════════════ */
+function subjectChip(t){
+  return '<a class="subj" href="#" title="' + SUBJECT_LABEL[t.subject_kind] + '">' +
+    '<svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M3 2.5h8v9H3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 5.5h4M5 8h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>' +
+    SUBJECT_LABEL[t.subject_kind] + ' <b>' + t.subject_id + '</b></a>';
+}
+
+function paintList(){
+  var rows = visible();
+  var st = ["Semua diskusi","Diikuti","Menyebut saya","Ditandai"][["all","following","mentions","bookmarks"].indexOf(state.feed)];
+  document.getElementById("title").textContent =
+    state.subject ? SUBJECT_LABEL[state.subject] : state.tag ? "#" + state.tag : st;
+
+  document.getElementById("content").innerHTML =
+    '<div class="card listcard">' +
+      '<div class="lh">' +
+        '<span class="c-main">' + rows.length + ' diskusi</span>' +
+        '<span class="c-rep">Balasan</span>' +
+        /* "Orang", bukan "dilihat" — medannya menghitung orang berbeda yang
+           membuka thread, bukan berapa kali halaman dimuat. */
+        '<span class="c-view" title="Orang berbeda yang membuka thread ini, bukan jumlah tayangan">Orang</span>' +
+        '<span class="c-act">Aktivitas</span>' +
+      '</div>' +
+      (rows.length ? rows.map(function(t){
+        var s = STATUS[t.status];
+        return '<button type="button" class="trow" data-t="' + t.id + '">' +
+          '<span class="body">' +
+            '<span class="title">' +
+              '<b>' + t.title + '</b>' +
+              (t.status !== "open" ? '<span class="pill" data-tone="' + s[0] + '">' + s[1] + '</span>' : "") +
+            '</span>' +
+            '<span class="meta">' +
+              subjectChip(t) +
+              '<span class="nil" style="font-size:12px">' + t.subject_note + '</span>' +
+              t.tags.map(function(g){ return '<span class="tag">' + g + '</span>'; }).join("") +
+              '<span class="faces">' + t.faces.map(function(f){ return avatar(f, true); }).join("") + '</span>' +
+            '</span>' +
+            '<p class="prev">' + t.latest_post_preview + '</p>' +
+          '</span>' +
+          '<span class="flagline">' +
+            (t.mentions_me ? '<svg width="14" height="14" viewBox="0 0 18 18" fill="none" data-on="true"><circle cx="9" cy="9" r="3" stroke="currentColor" stroke-width="1.4"/><path d="M12 6v4a2.2 2.2 0 0 0 3 0V9A6 6 0 1 0 11 14.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' : "") +
+            (t.bookmarked ? '<svg width="14" height="14" viewBox="0 0 18 18" fill="none" data-on="true"><path d="M4.5 3h9v12l-4.5-3-4.5 3V3Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' : "") +
+          '</span>' +
+          '<span class="stat">' + t.reply_count + '</span>' +
+          '<span class="stat">' + t.views + '</span>' +
+          '<span class="stat act">' + t.last_activity_at + '</span>' +
+        '</button>';
+      }).join("") : '<div class="empty"><b>Tidak ada diskusi</b>Ubah penyaringnya, atau mulai diskusi baru pada sebuah rekaman.</div>') +
+    '</div>';
+
+  document.querySelectorAll("[data-t]").forEach(function(b){
+    b.addEventListener("click", function(){ state.thread = b.dataset.t; render(); });
+  });
+}
+
+/* ══ thread ════════════════════════════════════════════════ */
+function paintThread(){
+  var t = THREADS.find(function(x){ return x.id === state.thread; });
+  var posts = POSTS[t.id] || [{seq:1, author:t.created_by, at:t.created_at, body:t.latest_post_preview, reactions:0, reacted:false, bookmarked:false, solution:false, mentions:[], atts:[]}];
+  var s = STATUS[t.status];
+  document.getElementById("title").textContent = "Diskusi";
+
+  var html =
+    '<div class="thead">' +
+      '<h2>' + t.title + '</h2>' +
+      '<div class="meta">' +
+        '<span class="pill" data-tone="' + s[0] + '">' + s[1] + '</span>' +
+        subjectChip(t) +
+        '<span class="nil" style="font-size:12.5px">' + t.subject_note + '</span>' +
+        t.tags.map(function(g){ return '<span class="tag">' + g + '</span>'; }).join("") +
+        '<span class="nil" style="font-size:12.5px;margin-left:auto">' +
+          t.reply_count + ' balasan · ' + t.views + ' orang membuka</span>' +
+      '</div>' +
+      '<div class="meta" style="margin-top:10px">' +
+        '<button type="button" class="btn btn-secondary btn-sm" id="follow" aria-pressed="' + t.following + '">' +
+          (t.following ? "Berhenti mengikuti" : "Ikuti") + '</button>' +
+        '<button type="button" class="btn btn-secondary btn-sm" id="bm" aria-pressed="' + t.bookmarked + '">' +
+          (t.bookmarked ? "Hapus tanda" : "Tandai") + '</button>' +
+        '<span class="nil" style="font-size:11.5px">Tanda buku hanya terlihat oleh kamu.</span>' +
+      '</div>' +
+    '</div>';
+
+  html += posts.map(function(p, i){
+    return '<article class="post" data-solution="' + p.solution + '">' +
+      (p.solution ? '<div class="solved-bar">' +
+        '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m3.5 8.4 3 3 6-6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        'Diterima sebagai jawaban</div>' : "") +
+      '<div class="post-top">' +
+        avatar(p.author) +
+        '<span class="who"><b>' + p.author + '</b><span>' + p.at + '</span></span>' +
+        '<span class="seq">#' + p.seq + '</span>' +
+      '</div>' +
+      '<div class="post-body"><p>' + p.body + '</p></div>' +
+      (p.atts.length ? '<div class="att">' + p.atts.map(function(a){
+        /* Lampiran yang berkasnya tidak tersedia tidak dijadikan tautan —
+           tautan yang menggantung lebih buruk daripada keterangan jujur. */
+        return a.available
+          ? '<a href="#"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M9 2.5H4.5v11h7V5L9 2.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9 2.5V5h2.5" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>' +
+            '<span class="fname">' + a.name + '</span><span class="fsize">' + a.size + '</span></a>'
+          : '<span class="dead"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M8 5v3.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="10.6" r=".8" fill="currentColor"/></svg>' +
+            '<span class="fname">' + a.name + '</span>' +
+            '<span class="fsize">tidak tersedia</span></span>';
+      }).join("") + '</div>' : "") +
+      '<div class="post-foot">' +
+        '<button type="button" class="react" data-react="' + i + '" aria-pressed="' + p.reacted + '">' +
+          '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 13.5S2.5 10.2 2.5 6.6A2.9 2.9 0 0 1 8 5.2a2.9 2.9 0 0 1 5.5 1.4c0 3.6-5.5 6.9-5.5 6.9Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
+          '<span class="mono">' + p.reactions + '</span></button>' +
+        '<button type="button" class="quiet" data-pbm="' + i + '" aria-pressed="' + p.bookmarked + '">' +
+          (p.bookmarked ? "Ditandai" : "Tandai") + '</button>' +
+        '<button type="button" class="quiet">Balas</button>' +
+        '<span class="right">' +
+          (t.status === "open" && !p.solution && p.seq > 1
+            ? '<button type="button" class="quiet" data-sol="' + i + '">Tandai sebagai jawaban</button>' : "") +
+        '</span>' +
+      '</div>' +
+    '</article>';
+  }).join("");
+
+  /* Thread yang dikunci tidak menampilkan kotak balasan yang mati — ia
+     mengatakan kenapa, dan ke mana lanjutannya. */
+  html += t.status === "locked"
+    ? '<div class="locked">' +
+        '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3.5" y="7" width="9" height="6.2" rx="1.2" stroke="currentColor" stroke-width="1.4"/><path d="M5.7 7V5.4a2.3 2.3 0 0 1 4.6 0V7" stroke="currentColor" stroke-width="1.4"/></svg>' +
+        '<span>Diskusi ini dikunci, jadi tidak menerima balasan baru. Lanjutannya ada di rekaman yang disebut pada balasan terakhir.</span>' +
+      '</div>'
+    : '<div class="reply">' +
+        avatar(ME) +
+        '<div style="flex:1;min-width:0">' +
+          '<textarea id="replybox" placeholder="Tulis balasan. Ketik @ untuk menyebut orang."></textarea>' +
+          '<div class="reply-foot">' +
+            '<button type="button" class="btn btn-primary btn-sm" id="send">Kirim balasan</button>' +
+            '<button type="button" class="btn btn-secondary btn-sm">Lampirkan dari Vault</button>' +
+            '<span class="note">Lampiran diunggah ke Vault lebih dulu, lalu ditautkan — jadi berkasnya punya riwayat sendiri.</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+  document.getElementById("content").innerHTML = html;
+
+  document.querySelectorAll("[data-react]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var p = posts[Number(b.dataset.react)];
+      p.reacted = !p.reacted;
+      p.reactions += p.reacted ? 1 : -1;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-pbm]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var p = posts[Number(b.dataset.pbm)];
+      p.bookmarked = !p.bookmarked;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-sol]").forEach(function(b){
+    b.addEventListener("click", function(){
+      posts.forEach(function(p){ p.solution = false; });
+      posts[Number(b.dataset.sol)].solution = true;
+      t.status = "resolved";
+      render();
+    });
+  });
+  var follow = document.getElementById("follow");
+  if (follow) follow.addEventListener("click", function(){ t.following = !t.following; render(); });
+  var bm = document.getElementById("bm");
+  if (bm) bm.addEventListener("click", function(){ t.bookmarked = !t.bookmarked; render(); });
+
+  var send = document.getElementById("send");
+  if (send) send.addEventListener("click", function(){
+    var box = document.getElementById("replybox");
+    var body = box.value.trim();
+    if (!body) { box.focus(); return; }
+    posts.push({seq:posts[posts.length-1].seq + 1, author:ME, at:"baru saja",
+      body:body.replace(/@([\w.]+)/g, '<span class="mention">@$1</span>'),
+      reactions:0, reacted:false, bookmarked:false, solution:false, mentions:[], atts:[]});
+    POSTS[t.id] = posts;
+    t.reply_count += 1;
+    t.last_activity_at = "baru saja";
+    t.latest_post_preview = body.slice(0, 90);
+    render();
+  });
+}
+
+/* ══ render ════════════════════════════════════════════════ */
+function render(){
+  paintSidebar();
+  document.getElementById("back").hidden = !state.thread;
+  if (state.thread) paintThread(); else paintList();
+}
+
+document.querySelectorAll("[data-feed]").forEach(function(b){
+  b.addEventListener("click", function(){
+    state.feed = b.dataset.feed;
+    state.thread = null; state.subject = null; state.tag = null;
+    document.querySelectorAll("[data-feed]").forEach(function(o){
+      o.setAttribute("aria-current", String(o === b));
+    });
+    render();
+  });
+});
+document.getElementById("back").addEventListener("click", function(){ state.thread = null; render(); });
+document.getElementById("q").addEventListener("input", function(e){
+  state.q = e.target.value; state.thread = null; render();
+});
+document.getElementById("new").addEventListener("click", function(){
+  window.alert(
+    "Diskusi selalu dimulai DARI sebuah rekaman.\n\n" +
+    "Buka PO, supplier, penerimaan, atau pengecualiannya, lalu pilih Diskusikan. " +
+    "Itu yang mengisi subject_kind dan subject_id — dan yang membuat diskusi ini " +
+    "bisa ditemukan lagi dari rekamannya, bukan cuma dari daftar."
+  );
+});
+document.getElementById("theme").addEventListener("click", function(){
+  document.documentElement.classList.toggle("dark");
+});
+
+render();
+</script>
+</body>
+</html>

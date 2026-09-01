@@ -9,7 +9,7 @@ There are exactly **two edge types**:
 
 Sales is not a third edge. Keeping Sales beside Store inventory allows a completed checkout and its `Store Floor / On Hand → external/customer` inventory movement to commit in one PostgreSQL transaction. Central/HO publishes Commercial versions; Store Edge consumes their deterministic read model and snapshots the selected offer on each sale line.
 
-The same Rust binary can run as a `DC`, `STORE`, or central/demo `CLOUD` node through `INVENTORY_NODE_ROLE`. V1 persistence is PostgreSQL. Domain and application layers do not depend on HTTP, and placement semantics live in Rust so a future SQLite repository adapter can preserve the same edge behavior.
+Package ini menyediakan tiga binary terpisah: `cloud` untuk runtime PostgreSQL/Central, `dc` untuk DC Edge SQLite, dan `store` untuk Store Edge SQLite. Domain Cloud dan Edge berada dalam namespace terpisah agar aturan dan persistence masing-masing tidak tercampur. Edge mengunggah movement dan workflow facts sebagai authority; Cloud membangun current view read-only `EDGE_FACT_POSITION` tanpa merge ke ledger native. Snapshot Pool owner-scoped tetap dikirim, tetapi hanya menjadi checkpoint rekonsiliasi dan tidak pernah menjadi authority current state. Dokumentasi deployment dua Edge independen ada di [`backend/README.md`](backend/README.md); bagian PostgreSQL API/demo di bawah mendokumentasikan runtime Cloud yang sengaja dipreservasi.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ Commercial authoring                 HTML POS + RFID / inventory UI
                                   + disposable projection
 
 DC Edge: inventory operations only
-Future: repository port → local SQLite ledger → ordered edge/cloud sync
+Independent SQLite DC/Store runtimes are available through the `dc` and `store` binaries.
 ```
 
 ## Run locally
@@ -45,7 +45,7 @@ Requirements: Rust stable, PostgreSQL 16+ (or Docker), and Python 3 only for the
 cp .env.example .env
 docker compose up -d postgres
 cd backend
-cargo run --bin inventory-edge
+cargo run --bin cloud
 ```
 
 The server applies all migrations and deterministic demo data automatically. Open <http://127.0.0.1:8080>.
@@ -55,8 +55,7 @@ The server applies all migrations and deterministic demo data automatically. Ope
 ```bash
 createdb inventory_edge_dev
 cd backend
-DATABASE_URL=postgresql:///inventory_edge_dev cargo run --bin migrate
-DATABASE_URL=postgresql:///inventory_edge_dev cargo run --bin inventory-edge
+DATABASE_URL=postgresql:///inventory_edge_dev cargo run --bin cloud
 ```
 
 Do not run both server commands simultaneously. Axum serves `frontend/`; there is no Node/npm build step.
@@ -89,10 +88,10 @@ A completion retry with the same idempotency key returns the original result and
 
 ## Deterministic demo data
 
-`0002_demo_seed.sql` creates:
+Deterministic migrations `0002_demo_seed.sql` dan `0009_destination_scoped_outbound.sql` menghasilkan:
 
 - 1 DC and 13 Store sites;
-- 60 operational pools and 120 pool/state ledger places;
+- 112 operational pools and 224 pool/state ledger places (including 52 destination-scoped outbound leaves);
 - 6 articles, 18 SKUs, 3,600 EPC/UNIT subjects, and 24 QUANTITY subjects;
 - warehouse, picked, packed, shipment, in-transit, DC reject, store-origin DC reject, store warehouse/floor/reject balances;
 - current Missing, historical Lost, outbound/store movement chains;
@@ -151,26 +150,21 @@ The movement kernel remains the only inventory write path. Sales never updates `
 
 ```text
 backend/src/
-├── domain/
-│   ├── ids.rs          # UUID IDs and typed SiteId
-│   ├── place.rs        # typed pools, states, groups, saleability
-│   ├── movement.rs     # causes and transition invariants
-│   ├── observation.rs  # pure RFID burst consolidation
-│   ├── count.rs        # count lifecycle and expected/found classification
-│   ├── commercial.rs   # channels, currency, offers, deterministic tax math
-│   └── sales.rs        # sale/payment status and completion rules
-├── application/mod.rs  # DTOs, config, shared application errors
-├── infrastructure/postgres/
-│   ├── movements.rs    # subject locks, ledger authority, projections
-│   ├── observations.rs # batch idempotency and sighting merge
-│   ├── counts.rs       # snapshot, entries, atomic approval
-│   ├── queries.rs      # Pools, Time Machine, Missing, Lost risk
-│   ├── control.rs      # Replay, Repost, guarded test corruption
-│   ├── commercial.rs   # publication, coherence checks, offer resolver
-│   └── sales.rs        # cart/payment/finalization + atomic SALE movement
-├── http/mod.rs         # Axum routes only
-├── bin/migrate.rs      # one-shot migrations
-└── main.rs             # edge node process
+├── lib.rs                 # exports cloud and edge namespaces
+├── cloud/
+│   ├── domain/            # PostgreSQL Cloud domain
+│   ├── application/       # Cloud DTOs, config, and sync application
+│   ├── postgres/          # PostgreSQL adapters and central MIGRATOR
+│   └── http/              # Cloud Axum routes
+├── edge/
+│   ├── domain/            # independent Edge inventory domain
+│   ├── contracts.rs       # Edge ports, requests, and node authority
+│   ├── sqlite.rs          # local SQLite ledger/projection
+│   └── http.rs            # DC/Store role routers
+└── bin/
+    ├── cloud.rs
+    ├── dc.rs
+    └── store.rs
 ```
 
 ## API
@@ -195,7 +189,8 @@ backend/src/
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/v1/health` | Node identity and readiness |
-| GET | `/api/v1/inventory/pools` | Current or `?as_of=` pool balances |
+| GET | `/api/v1/inventory/pools` | Current or `?as_of=` native Cloud ledger balances |
+| GET | `/api/v1/inventory/fleet-pools` | Owner-separated Cloud ledger + read-only DC/Store fact positions; snapshots remain reconciliation checkpoints |
 | GET | `/api/v1/inventory/pools/{id}` | Pool items, Missing, evidence, movements, counts |
 | GET/POST | `/api/v1/inventory/movements` | Immutable history / typed manual movement |
 | POST | `/api/v1/inventory/movements/correct` | Evidence-required placement correction |
@@ -220,21 +215,30 @@ Manual movement accepts only `NORMAL_MOVE`, `SALE`, or `SUPPLIER_RETURN`. Count 
 
 ## RFID handheld demo
 
-Send the checked-in burst:
+Register the reader on authenticated Cloud (after registering the Edge origin):
 
 ```bash
-curl -i http://127.0.0.1:8080/api/v1/inventory/observations \
-  -H 'Content-Type: application/json' \
-  --data @examples/rfid-observation-burst.json
+CLOUD_TOKEN=$(curl -s http://127.0.0.1:8080/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"admin","password":"YOUR_ADMIN_PASSWORD"}' | jq -r .token)
+
+curl -s http://127.0.0.1:8080/api/v1/auth/rfid-devices \
+  -H "authorization: Bearer $CLOUD_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{
+    "device_id":"RFID-HH-07-SIM","origin_id":"store-07-edge",
+    "label":"Store 07 simulator","pools":["store-07.floor"],
+    "offline_ttl_seconds":604800
+  }'
 ```
 
-Or generate a current event time, 80 duplicate reads, and an identical retry:
+Save the one-time `device_key`, let the Store complete a sync cycle so the signed policy reaches it, then generate 80 duplicate reads plus an identical retry against the local Edge:
 
 ```bash
-python3 scripts/rfid_simulator.py --retry
+RFID_DEVICE_KEY=THE_ONE_TIME_KEY python3 scripts/rfid_simulator.py --retry
 ```
 
-A successful response distinguishes `raw_read_count` from `consolidated_sighting_count` and reports `inventory_effect.movement_count = 0` and `missing_created = 0`. Same key/same payload returns the stored response; same key/different payload returns HTTP 409. `observed_at` is retained separately from server `received_at`.
+A successful response distinguishes `raw_read_count` from `consolidated_sighting_count` and reports `inventory_effect.movement_count = 0` and `missing_created = 0`. Every request is HMAC-signed over its exact body, timestamp, and monotonic device sequence. Same key/same payload returns the stored response; modified replays or reused sequences are rejected. The Edge stores the observation and ordered Cloud upload atomically, so capture continues offline.
 
 ## UI structure
 
@@ -282,9 +286,9 @@ Default window: 30 days. It intentionally does **not** divide by current On Hand
 
 ## Test coverage
 
-The 17 pure unit/property tests cover typed places, saleability, Store/DC transitions, Missing/Lost/Found, RFID consolidation, count lifecycle/classification, balanced movement pairs, inclusive/exclusive integer tax math, and full-payment completion rules.
+The pure unit/property suites cover typed places, saleability, Store/DC transitions, Missing/Lost/Found, authentication, RFID consolidation and device proof, count lifecycle/classification, balanced movement pairs, inclusive/exclusive integer tax math, and full-payment completion rules.
 
-Two isolated PostgreSQL integration scenarios prove:
+Isolated PostgreSQL and SQLite integration suites prove:
 
 - all 60 expected pools and all 13 stores;
 - Store Warehouse→Floor conservation and concurrent EPC serialization;
@@ -303,10 +307,10 @@ Two isolated PostgreSQL integration scenarios prove:
 ## Known V1 limitations
 
 - The frontend is plain HTML/CSS/JavaScript by explicit foundation request, not React/TanStack.
-- PostgreSQL is implemented; SQLite edge persistence and edge/cloud synchronization remain future repository/sync adapters.
+- PostgreSQL Cloud and independent SQLite DC/Store persistence are implemented; the ordered sync protocol carries inventory facts, RFID evidence, and signed versioned auth/catalog/workflow commands.
 - Central/HO publication transport to offline Stores is not implemented yet; the demo uses one database/read model.
 - `INVENTORY_NODE_ROLE` identifies the process, but V1 does not yet bind a STORE process to one configured `site_id`; central/demo mode can operate any Store. Sales itself rejects DC sites and non-STORE channels.
-- No authentication, RBAC, TLS termination, fiscal device, receipt printer, or production device provisioning is included.
+- Opaque sessions, server-side RBAC, offline Edge identity leases, RFID device enrolment/revocation/rotation, CSRF, and login throttling are included. TLS termination, hardware-backed reader keys, enterprise SSO/passkeys, fiscal devices, and receipt printers remain deployment/integration concerns.
 - Payment records are local tender facts; there is no external payment authorization/capture/refund integration.
 - Completed-sale returns/exchanges are not implemented. OPEN-sale void is supported.
 - Commercial excludes promotions, campaigns, vouchers, customer segments, bundles, markdown optimization, and dynamic pricing; the versioned resolver is the extension boundary for them.

@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Penerimaan · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   PENERIMAAN — dua peran yang sengaja melihat hal berbeda
+   --------------------------------------------------------------------------
+   Layar ini adalah satu-satunya di seluruh rangkaian yang MENYEMBUNYIKAN data
+   dari penggunanya dengan sengaja, dan itu bukan keputusan desain — itu
+   kontraknya. `PurchaseWorkLine` di src/edge/contracts.rs:
+
+     "What the checker is shown: the article, by name. Deliberately NOT the
+      ordered quantity — that is the verifier's to know."
+
+   Medannya sendiri yang menegakkan: `expected_stock_units: Option<i64>`,
+   dan komentarnya menyebut "Present only on the verifier's view of the same
+   line." Jadi tampilan penghitung tidak punya kolom itu untuk diisi.
+
+   AKIBATNYA PADA UI, dan ini yang biasanya dilanggar prototipe:
+   layar penghitung tidak boleh menampilkan sisa, target, progres, atau apa
+   pun yang bisa dipakai menebak angka yang diharapkan. Bahkan "3 dari 5 baris
+   selesai" aman, tapi "kurang 40 lagi" tidak. Di sini penghitung hanya
+   melihat nama artikel dan kotak untuk mengetik apa yang dia hitung.
+
+   ATURAN DUA TANGAN. `SegregationPolicy` default Enforced:
+
+     "Someone who can do both can sign phantom stock onto the shelf, and no
+      later report would show anything wrong: the books and the shelf would
+      agree, and both would be a lie."
+
+   Dan ia policy, bukan aturan keras, karena site dengan satu petugas tidak
+   akan bisa menerima apa pun. Komentarnya menutup dengan kalimat yang saya
+   tampilkan apa adanya di layar: "Turning it off is a decision a site makes
+   out loud, not a default it drifts into."
+
+   VERIFIER TIDAK PUNYA KOTAK JUMLAH. Dari `PurchaseVerifyRequest`:
+
+     "The verifier approves the checker's number as it stands. There is no
+      field for a quantity of their own: someone who can both approve a
+      delivery and decide what it was has the whole control to themselves."
+
+   Maka tombol verifier cuma dua: setujui apa adanya, atau minta hitung ulang.
+   Tidak ada "koreksi jadi 118".
+
+   HARGA FAKTUR DIKETIK ORANG. "The system never sees that document, so this
+   number exists only because a person looked." Kolomnya karena itu diberi
+   keterangan itu, bukan diperlakukan seperti data yang datang sendiri.
+   ========================================================================== */
+
+.roleswitch{display:flex;gap:6px;padding:9px 12px;background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);margin-bottom:12px;align-items:center;flex-wrap:wrap}
+.roleswitch .lab{font-size:13px;color:var(--ink-2);margin-right:4px}
+.roleswitch .who{margin-left:auto;font-size:12.5px;color:var(--ink-3)}
+
+.flow{display:flex;align-items:center;gap:0;flex-wrap:wrap;padding:12px 14px}
+.step{display:flex;align-items:center;gap:9px;padding:0 14px 0 0}
+.step .dot{width:26px;height:26px;flex-shrink:0;border-radius:999px;background:var(--inset);color:var(--ink-3);display:grid;place-items:center;font-family:var(--font-mono);font-size:12px;font-weight:500}
+.step[data-on="true"] .dot{background:var(--ink);color:var(--page)}
+.step[data-done="true"] .dot{background:var(--green-tint);color:var(--green)}
+.step b{font-size:13px;font-weight:500}
+.step span{display:block;font-size:11.5px;color:var(--ink-3)}
+.step .link{width:26px;height:1px;background:var(--line);margin-right:14px}
+
+.rcpt{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.card .rcpt:last-of-type{border-bottom:0}
+.rcpt .id{flex:1;min-width:0}
+.rcpt .id b{display:block;font-family:var(--font-mono);font-size:13px;font-weight:500}
+.rcpt .id span{display:block;font-size:12px;color:var(--ink-3)}
+.rcpt .prog{flex-shrink:0;min-width:96px;text-align:end}
+.rcpt .prog b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:14px}
+.rcpt .prog span{display:block;font-size:11px;color:var(--ink-3)}
+
+.line{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.card .line:last-of-type{border-bottom:0}
+.line .art{flex:1;min-width:170px}
+.line .art b{display:block;font-weight:500;font-size:13.5px}
+.line .art span{display:block;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-3)}
+.line .in{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.line .in input{width:96px;height:34px;text-align:end}
+.line .val{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:15px;min-width:66px;text-align:end;flex-shrink:0}
+.line .val span{display:block;font-size:11px;color:var(--ink-3);font-family:var(--font-sans)}
+.var{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:500}
+.var[data-v="short"]{color:var(--red)}
+.var[data-v="over"]{color:var(--orange)}
+.var[data-v="exact"]{color:var(--green)}
+
+.hidden-note{display:flex;align-items:center;gap:7px;padding:3px 9px;border-radius:999px;background:var(--inset);color:var(--ink-3);font-size:11.5px;white-space:nowrap}
+
+.policy{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 14px;border-radius:var(--radius-card);background:var(--inset);font-size:12.5px;color:var(--ink-2);margin-top:12px}
+.policy b{color:var(--ink);font-weight:500}
+.policy .sw{margin-left:auto;display:flex;gap:6px}
+
+.dlg{position:fixed;inset:0;display:none;place-items:center;padding:20px;z-index:60;background:var(--scrim)}
+.dlg[data-open="true"]{display:grid}
+.dlg-box{width:min(520px,100%);background:var(--page);border-radius:var(--radius-window);box-shadow:var(--shadow-overlay);overflow:hidden}
+.dlg-head{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.dlg-head h2{margin:0 0 3px;font-size:17px;font-weight:600;letter-spacing:-.015em}
+.dlg-head p{margin:0;font-size:13px;color:var(--ink-2)}
+.dlg-body{padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+.dlg-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS · DC</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="grp">Operasi DC</div>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 13V6h9v7M11.5 8.5h3l2.5 2.5V13" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="6" cy="14.5" r="1.5" stroke="currentColor" stroke-width="1.4"/><circle cx="14" cy="14.5" r="1.5" stroke="currentColor" stroke-width="1.4"/></svg>Penerimaan <span class="n">3</span></a>
+    <a href="11-operations.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5v-7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>Pick &amp; Pack</a>
+    <a href="16-count.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Official Count</a>
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="15-movement.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 6.5h11m0 0-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Pergerakan</a>
+    <div class="side-foot"><p class="node"><span class="chip">dc-edge</span> dc-01<br>Penerimaan · 09:14</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Penerimaan</h1>
+      <span class="stamp" id="polstamp"></span>
+      <div class="right">
+        <button type="button" class="btn btn-secondary btn-sm" id="newrcpt">Buka kedatangan</button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <div class="roleswitch">
+        <span class="lab">Saya bertugas sebagai</span>
+        <button type="button" class="fchip" aria-pressed="true" data-role="checker">Penghitung</button>
+        <button type="button" class="fchip" aria-pressed="false" data-role="verifier">Pemeriksa</button>
+      </div>
+
+      <section class="card" style="margin-bottom:12px">
+        <div class="flow" id="flow"></div>
+      </section>
+
+      <div id="view"></div>
+
+      <div class="policy">
+        <b>Aturan dua tangan:</b>
+        <span id="poltext"></span>
+        <span class="sw">
+          <button type="button" class="fchip" aria-pressed="true" data-pol="Enforced">Ditegakkan</button>
+          <button type="button" class="fchip" aria-pressed="false" data-pol="Relaxed">Dilonggarkan</button>
+        </span>
+      </div>
+      <p class="cap" style="padding-left:0">
+        Mematikan aturan ini adalah keputusan yang diambil sebuah site <b>dengan suara keras</b>,
+        bukan bawaan yang dimasuki tanpa sadar. Itu sebabnya sakelarnya ada di layar, bukan di berkas konfigurasi
+        yang tidak pernah dibaca siapa pun.
+      </p>
+    </div>
+  </main>
+</div>
+
+<div class="dlg" id="dlg" data-open="false">
+  <div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="d-t">
+    <div class="dlg-head"><h2 id="d-t">—</h2><p id="d-p"></p></div>
+    <div class="dlg-body" id="d-body"></div>
+    <div class="dlg-foot">
+      <button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="d-no">Batal</button>
+      <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="d-yes">Lanjut</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Medan mengikuti src/edge/contracts.rs:
+   GoodsReceiptView · PurchaseWorkLine · PurchaseCountRequest ·
+   PurchaseCountAwaitingVerification · PurchaseVerifyRequest */
+
+var ME = {checker:"budi.s", verifier:"sari.m"};
+var role = "checker";
+var policy = "Enforced";
+
+var RECEIPT = {
+  no:"RCP-2609-0311", supplier:"CV Mitra Tekstil", supplier_id:"SUP-0042",
+  arrived:"09:02", opened_by:"budi.s", status:"COUNTING",
+  invoice_number:null, invoice_unit_price:null,
+};
+
+/* `expected` ADA di data, tapi tampilan penghitung tidak pernah membacanya —
+   sama seperti server yang memang tidak mengirimnya ke view itu. Dipisahkan
+   di sini supaya kesalahan menampilkannya jadi kesalahan yang terlihat. */
+var LINES = [
+  {id:"L-1", po:"PO-2608-0142", code:"ART-4471", name:"Celana kulot rayon · Krem · M", expected:400, counted:null, counted_by:null, state:"OPEN"},
+  {id:"L-2", po:"PO-2608-0142", code:"ART-4472", name:"Celana kulot rayon · Krem · L", expected:300, counted:300, counted_by:"budi.s", state:"AWAITING"},
+  {id:"L-3", po:"PO-2608-0142", code:"ART-5510", name:"Celana palazzo motif · Cokelat · M", expected:180, counted:164, counted_by:"budi.s", state:"AWAITING"},
+  {id:"L-4", po:"PO-2609-0150", code:"ART-6620", name:"Celana flanel kotak · Merah · L", expected:120, counted:120, counted_by:"sari.m", state:"AWAITING"},
+  {id:"L-5", po:"PO-2609-0150", code:"ART-6621", name:"Celana flanel kotak · Merah · XL", expected:80, counted:null, counted_by:null, state:"OPEN"},
+];
+
+function num(n){ return n === null ? "—" : String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+function variance(l){
+  if (l.counted === null) return null;
+  var d = l.counted - l.expected;
+  return {d:d, kind: d === 0 ? "exact" : d < 0 ? "short" : "over",
+          word: d === 0 ? "cocok" : d < 0 ? num(-d) + " kurang" : num(d) + " lebih"};
+}
+
+/* Pemeriksa tidak boleh sama dengan penghitung saat aturan ditegakkan. */
+function mayVerify(l){
+  if (policy === "Relaxed") return true;
+  return l.counted_by !== ME.verifier;
+}
+
+function paintFlow(){
+  var counted = LINES.filter(function(l){ return l.counted !== null; }).length;
+  var accepted = LINES.filter(function(l){ return l.state === "ACCEPTED"; }).length;
+  var steps = [
+    {n:"1", t:"Kedatangan", s:RECEIPT.no + " · " + RECEIPT.arrived, done:true, on:false},
+    {n:"2", t:"Hitung", s:counted + " dari " + LINES.length + " baris", done:counted === LINES.length, on:role === "checker"},
+    {n:"3", t:"Periksa", s:accepted + " diterima", done:accepted === LINES.length, on:role === "verifier"},
+    {n:"4", t:"Masuk rak", s:accepted ? accepted + " baris ditulis" : "belum ada", done:false, on:false},
+  ];
+  document.getElementById("flow").innerHTML = steps.map(function(s, i){
+    return (i ? '<span class="link"></span>' : "") +
+      '<span class="step" data-on="' + s.on + '" data-done="' + s.done + '">' +
+        '<span class="dot">' + (s.done ? "✓" : s.n) + '</span>' +
+        '<span><b>' + s.t + '</b><span>' + s.s + '</span></span>' +
+      '</span>';
+  }).join("");
+}
+
+function paintChecker(){
+  /* Tidak ada kolom "diharapkan", tidak ada sisa, tidak ada progres per baris.
+     Yang terlihat cuma nama artikel dan kotak untuk mengetik hitungan. */
+  document.getElementById("view").innerHTML =
+    '<section class="card">' +
+      '<div class="ch"><h2>Hitung barang datang</h2>' +
+        '<span class="hidden-note">' +
+          '<svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7s2-3.5 5-3.5S12 7 12 7s-2 3.5-5 3.5S2 7 2 7Z" stroke="currentColor" stroke-width="1.2"/><path d="m3 11 8-8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>' +
+          'Jumlah pesanan disembunyikan' +
+        '</span>' +
+        '<span class="meta">' + RECEIPT.supplier + ' · ' + RECEIPT.no + '</span></div>' +
+      LINES.map(function(l, i){
+        var done = l.counted !== null;
+        return '<div class="line">' +
+          '<span class="art"><b>' + l.name + '</b><span>' + l.code + ' · ' + l.po + '</span></span>' +
+          (done
+            ? '<span class="val">' + num(l.counted) + '<span>dihitung</span></span>'
+            : '<span class="in">' +
+                '<input class="inp inp-num" type="number" min="0" placeholder="0" data-c="' + i + '">' +
+                '<button type="button" class="btn btn-primary btn-sm" data-save="' + i + '">Catat</button>' +
+              '</span>') +
+        '</div>';
+      }).join("") +
+      '<p class="cap">Kamu tidak diberi tahu berapa yang dipesan. Itu disengaja: angka yang kamu tulis harus ' +
+      'datang dari tumpukan barang, bukan dari dokumen. Yang tahu angka pesanan adalah pemeriksa.</p>' +
+    '</section>';
+
+  document.querySelectorAll("[data-save]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var i = Number(b.dataset.save);
+      var v = document.querySelector('[data-c="' + i + '"]').value;
+      if (v === "") return;
+      LINES[i].counted = Number(v);
+      LINES[i].counted_by = ME.checker;
+      LINES[i].state = "AWAITING";
+      render();
+    });
+  });
+}
+
+function paintVerifier(){
+  var waiting = LINES.filter(function(l){ return l.state === "AWAITING"; });
+  document.getElementById("view").innerHTML =
+    '<section class="card">' +
+      '<div class="ch"><h2>Periksa hitungan</h2>' +
+        '<span class="meta">' + RECEIPT.supplier + ' · ' + RECEIPT.no + '</span></div>' +
+      (waiting.length
+        ? waiting.map(function(l){
+            var v = variance(l), boleh = mayVerify(l);
+            return '<div class="line">' +
+              '<span class="art"><b>' + l.name + '</b><span>' + l.code + ' · ' + l.po + '</span></span>' +
+              '<span class="val">' + num(l.expected) + '<span>dipesan</span></span>' +
+              '<span class="val">' + num(l.counted) + '<span>dihitung</span></span>' +
+              '<span class="val"><span class="var" data-v="' + v.kind + '">' + v.word + '</span><span>selisih</span></span>' +
+              (boleh
+                ? '<span class="in">' +
+                    '<button type="button" class="btn btn-secondary btn-sm" data-recount="' + l.id + '">Hitung ulang</button>' +
+                    '<button type="button" class="btn btn-primary btn-sm" data-accept="' + l.id + '">Terima</button>' +
+                  '</span>'
+                : '<span class="pill" data-tone="orange">Perlu orang lain</span>') +
+            '</div>';
+          }).join("")
+        : '<div class="empty"><b>Belum ada yang perlu diperiksa</b>Semua baris sudah selesai, atau belum ada yang dihitung.</div>') +
+      '<p class="cap">Tidak ada kotak jumlah di sini. Kamu menyetujui angka penghitung <b>apa adanya</b>, ' +
+      'atau memintanya menghitung ulang. Orang yang bisa sekaligus menyetujui dan menentukan angkanya ' +
+      'memegang seluruh kendali sendirian.</p>' +
+    '</section>';
+
+  document.querySelectorAll("[data-accept]").forEach(function(b){
+    b.addEventListener("click", function(){ accept(b.dataset.accept); });
+  });
+  document.querySelectorAll("[data-recount]").forEach(function(b){
+    b.addEventListener("click", function(){ recount(b.dataset.recount); });
+  });
+}
+
+var dlg = document.getElementById("dlg");
+function ask(title, sub, body, okLabel, onOk){
+  document.getElementById("d-t").textContent = title;
+  document.getElementById("d-p").textContent = sub;
+  document.getElementById("d-body").innerHTML = body;
+  var yes = document.getElementById("d-yes");
+  yes.textContent = okLabel;
+  yes.onclick = function(){ dlg.dataset.open = "false"; onOk(); };
+  dlg.dataset.open = "true";
+}
+document.getElementById("d-no").addEventListener("click", function(){ dlg.dataset.open = "false"; });
+dlg.addEventListener("click", function(e){ if (e.target === dlg) dlg.dataset.open = "false"; });
+
+function accept(id){
+  var l = LINES.find(function(x){ return x.id === id; });
+  var v = variance(l);
+  ask("Terima " + l.code, l.name,
+    '<div class="band" data-tone="neutral"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+    '<span><b>' + num(l.counted) + ' unit</b> masuk ke <span class="mono">dc.pending.unidentified</span> sebagai satu grup pergerakan. ' +
+    'Angka ini yang jadi utang ke supplier — bukan angka pesanan.</span></div>' +
+    (v.kind !== "exact"
+      ? '<div class="band" data-tone="orange"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>' +
+        '<span>Selisih <b>' + v.word + '</b> terhadap pesanan. Menerima berarti kamu menyatakan itulah yang benar-benar datang.</span></div>'
+      : "") +
+    '<div class="f"><label for="v-price">Harga satuan di faktur <span class="opt-tag">· dibaca dari kertas</span></label>' +
+      '<input class="inp inp-num" id="v-price" type="number" placeholder="0"></div>' +
+    '<p class="hint" style="margin:0">Sistem tidak pernah melihat dokumen itu. Angka ini ada hanya karena ada orang yang membacanya.</p>',
+    "Terima", function(){ l.state = "ACCEPTED"; render(); });
+}
+
+function recount(id){
+  var l = LINES.find(function(x){ return x.id === id; });
+  ask("Minta hitung ulang · " + l.code, l.name,
+    '<div class="f"><label for="v-note">Catatan untuk penghitung <span class="opt-tag">· wajib</span></label>' +
+      '<input class="inp" id="v-note" placeholder="Apa yang perlu dilihat lagi"></div>' +
+    '<p class="hint" style="margin:0">Catatan wajib supaya penghitung tahu harus memeriksa apa. Permintaan hitung ulang tanpa alasan cuma memindahkan pekerjaan.</p>',
+    "Minta hitung ulang", function(){
+      l.counted = null; l.counted_by = null; l.state = "OPEN"; render();
+    });
+}
+
+/* ── peran & policy ────────────────────────────────────── */
+document.querySelectorAll("[data-role]").forEach(function(b){
+  b.addEventListener("click", function(){
+    role = b.dataset.role;
+    document.querySelectorAll("[data-role]").forEach(function(o){ o.setAttribute("aria-pressed", String(o === b)); });
+    render();
+  });
+});
+document.querySelectorAll("[data-pol]").forEach(function(b){
+  b.addEventListener("click", function(){
+    policy = b.dataset.pol;
+    document.querySelectorAll("[data-pol]").forEach(function(o){ o.setAttribute("aria-pressed", String(o === b)); });
+    render();
+  });
+});
+
+document.getElementById("newrcpt").addEventListener("click", function(){
+  ask("Buka kedatangan", "Satu truk, satu dokumen",
+    '<p style="margin:0;font-size:13.5px;color:var(--ink-2)">Sebuah truk membawa beberapa artikel terhadap beberapa pesanan, ' +
+    'dan itu satu kedatangan dengan satu faktur. Jadi dokumennya dibuka lebih dulu, dan hitungan menggantung padanya.</p>' +
+    '<div class="f"><label for="n-sup">Supplier</label><select class="inp" id="n-sup"><option>CV Mitra Tekstil</option><option>PT Sinar Garmindo</option></select></div>',
+    "Buka", function(){});
+});
+
+function render(){
+  document.getElementById("poltext").textContent = policy === "Enforced"
+    ? "pemeriksa harus orang yang berbeda dari penghitung."
+    : "tidak ada pemisahan. Hanya untuk site dengan satu operator yang sudah menerima risikonya.";
+  document.getElementById("polstamp").innerHTML = policy === "Enforced"
+    ? '<i></i>Segregasi ditegakkan'
+    : '<i style="background:var(--orange)"></i>Segregasi dilonggarkan';
+
+  paintFlow();
+  if (role === "checker") paintChecker(); else paintVerifier();
+}
+
+document.getElementById("theme").addEventListener("click", function(){ document.documentElement.classList.toggle("dark"); });
+document.addEventListener("keydown", function(e){ if (e.key === "Escape") dlg.dataset.open = "false"; });
+render();
+</script>
+</body>
+</html>

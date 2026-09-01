@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Belah · Ringkasan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   05 · BELAH — dua pane, satu garis pemisah
+   Kiri diam dan tidak pernah menggulir: neraca dan perkara yang menunggu.
+   Kanan menggulir: datanya. Satu-satunya struktur di halaman ini adalah
+   satu garis vertikal — yang memisahkan hal yang selalu benar dari hal yang
+   sedang kamu telusuri.
+
+   Alasannya: dua pertanyaan di layar ini punya umur yang berbeda. "Apakah
+   neracanya seimbang" dijawab sekali dan tetap berlaku sepanjang sesi;
+   "berapa Lost store-03" dijawab berkali-kali sambil menggulir. Menaruh
+   keduanya di aliran gulir yang sama membuat jawaban pertama hilang persis
+   ketika dibutuhkan sebagai pembanding.
+   Warna muncul tepat sekali: pada satu hal yang butuh orang.
+   ========================================================================== */
+:root{
+  --ink:#0a0a0b;
+  --mid:#5f6167;
+  --faint:#9a9ca1;
+  --line:#ebebed;
+  --alert:#b3261e;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:#fff;color:var(--ink);
+  font-family:"Plus Jakarta Sans",-apple-system,"Segoe UI",Helvetica,sans-serif;
+  font-size:14px;line-height:1.55;
+  font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
+}
+.nil{color:var(--faint)}
+.mid{color:var(--mid)}
+.lab{font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:3px}
+
+.split{display:flex;align-items:flex-start;min-height:100dvh}
+
+/* ---------- pane kiri: diam ---------- */
+.left{
+  position:sticky;top:0;flex-shrink:0;
+  width:392px;height:100dvh;overflow-y:auto;
+  border-inline-end:1px solid var(--line);
+  padding:30px 30px 40px;
+  display:flex;flex-direction:column;
+}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:54px}
+.brand b{font-weight:500;letter-spacing:-.01em}
+.brand .meta{margin-inline-start:auto;color:var(--faint);font-size:12px;text-align:end;line-height:1.35}
+
+.hero .fig{font-size:60px;font-weight:400;letter-spacing:-.045em;line-height:1;margin:11px 0 0}
+.terms{display:flex;gap:26px;flex-wrap:wrap;margin-top:26px}
+.terms div{display:flex;flex-direction:column;gap:4px}
+.terms b{font-size:20px;font-weight:400;letter-spacing:-.02em;line-height:1}
+.verdict{margin:24px 0 0;color:var(--mid);font-size:13.5px}
+.verdict b{font-weight:500;color:var(--ink)}
+
+.left h2{
+  margin:44px 0 0;padding-bottom:12px;border-bottom:1px solid var(--line);
+  font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+  display:flex;align-items:baseline;gap:10px;
+}
+.left h2 span{margin-inline-start:auto;letter-spacing:0;text-transform:none;font-size:12px}
+
+.att a{
+  display:flex;align-items:baseline;gap:14px;
+  padding:13px 0;border-bottom:1px solid var(--line);
+  color:inherit;text-decoration:none;
+}
+.att .qty{font-size:20px;font-weight:400;letter-spacing:-.02em;line-height:1;min-width:30px;text-align:end;flex-shrink:0}
+.att .what{flex:1;min-width:0}
+.att .what b{display:block;font-weight:400;font-size:13.5px}
+.att .what span{font-size:12px;color:var(--faint)}
+.att a:hover .what b{text-decoration:underline;text-underline-offset:3px}
+/* Satu-satunya warna di halaman ini. */
+.att a[data-late] .qty{color:var(--alert)}
+.att a[data-locked] .qty{color:var(--faint)}
+.att a[data-locked]:hover .what b{text-decoration:none}
+
+.left-foot{margin-top:auto;padding-top:34px;display:flex;gap:30px;flex-wrap:wrap}
+.left-foot div{display:flex;flex-direction:column;gap:5px}
+.left-foot b{font-size:16px;font-weight:400;letter-spacing:-.01em;line-height:1.2}
+.left-foot small{font-size:11.5px;color:var(--faint)}
+
+/* ---------- pane kanan: menggulir ---------- */
+.right{flex:1;min-width:0;padding:30px 34px 90px}
+.right-top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.right-top h1{margin:0;font-size:16px;font-weight:500;letter-spacing:-.01em}
+.right-top .meta{margin-inline-start:auto;color:var(--faint);font-size:12.5px}
+
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{
+  text-align:start;padding:12px 0 10px;white-space:nowrap;
+  font-size:11px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  border-bottom:1px solid var(--line);
+}
+td{padding:13px 0;white-space:nowrap;border-bottom:1px solid var(--line)}
+th.n,td.n{text-align:end;padding-inline-start:28px}
+tbody tr:last-child td{border-bottom:0}
+.grp td{
+  padding:22px 0 7px;border-bottom:0;
+  font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+}
+.sum td{color:var(--mid)}
+.neg{color:var(--alert)}
+.den{display:block;font-size:11.5px;color:var(--faint);margin-top:1px}
+.src{font-size:12px;color:var(--faint)}
+
+.note{margin-top:36px;padding-top:18px;border-top:1px solid var(--line);color:var(--faint);font-size:12.5px;max-width:76ch}
+
+/* Di bawah lebar ini pane kiri tidak bisa lagi diam tanpa memakan layar,
+   jadi belahannya dilepas dan halaman kembali jadi satu aliran. */
+@media(max-width:960px){
+  .split{display:block}
+  .left{
+    position:static;width:auto;height:auto;overflow:visible;
+    border-inline-end:0;border-bottom:1px solid var(--line);
+    padding:24px 20px 30px;
+  }
+  .brand{margin-bottom:32px}
+  .hero .fig{font-size:46px}
+  .left-foot{margin-top:34px}
+  .right{padding:24px 20px 70px}
+}
+</style>
+</head>
+<body>
+
+<div class="split">
+
+  <aside class="left">
+    <div class="brand">
+      <b>Retail Edge</b>
+      <span class="meta">cloud · 15:42<br>12 dari 13 node</span>
+    </div>
+
+    <div class="hero">
+      <div class="lab">Stock</div>
+      <div class="fig">48.312</div>
+      <div class="terms">
+        <div><span class="lab">Allotted</span><b>3.104</b></div>
+        <div><span class="lab">On Hand</span><b>44.902</b></div>
+        <div><span class="lab">Missing</span><b>306</b></div>
+      </div>
+      <p class="verdict">
+        <b>Seimbang.</b> Ketiga suku menjumlah tepat ke Stock.
+        store-07 belum sinkron sejak 14:02 dan belum ikut dihitung.
+      </p>
+    </div>
+
+    <h2>Perlu perhatian <span>18 terbuka</span></h2>
+    <div class="att">
+      <a href="#" data-late>
+        <span class="qty">12</span>
+        <span class="what"><b>Missing lewat 72 jam</b><span>Tertua 6 hari</span></span>
+      </a>
+      <a href="#">
+        <span class="qty">3</span>
+        <span class="what"><b>Count menunggu persetujuan</b><span>dc.warehouse · store-02 · store-11</span></span>
+      </a>
+      <a href="#" data-late>
+        <span class="qty">1</span>
+        <span class="what"><b>Allotment melebihi On Hand</b><span>store-04.warehouse · −12</span></span>
+      </a>
+      <a href="#">
+        <span class="qty">2</span>
+        <span class="what"><b>RFID tidak cocok dengan ledger</b><span>store-03.floor · 4 jam lalu</span></span>
+      </a>
+      <a href="#" data-locked>
+        <span class="qty">—</span>
+        <span class="what"><b>Selisih proyeksi</b><span>Butuh peran supervisor</span></span>
+      </a>
+    </div>
+
+    <div class="left-foot">
+      <div>
+        <span class="lab">Penjualan</span>
+        <b>Rp 184.290.500</b>
+        <small>1.208 transaksi</small>
+      </div>
+      <div>
+        <span class="lab">Buku besar</span>
+        <b>Match</b>
+        <small>Replay 15:30 · 0 selisih</small>
+      </div>
+    </div>
+  </aside>
+
+  <main class="right">
+    <div class="right-top">
+      <h1>Pool</h1>
+      <span class="meta">Observed 24 jam · Lost 30 hari · 9 baris</span>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead>
+          <tr>
+            <th>Pool</th>
+            <th class="n">Stock</th>
+            <th class="n">Allotted</th>
+            <th class="n">On Hand</th>
+            <th class="n">Missing</th>
+            <th class="n">Observed</th>
+            <th class="n">Lost&nbsp;%</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="grp"><td colspan="7">Distribution Centre</td></tr>
+          <tr>
+            <td>dc.warehouse <span class="src">cloud</span></td>
+            <td class="n">21.480</td><td class="n">3.104</td><td class="n">18.376</td>
+            <td class="n">92</td><td class="n">18.301</td>
+            <td class="n">0,41%<span class="den">74 ÷ 18.052</span></td>
+          </tr>
+          <tr>
+            <td>dc.staging <span class="src">cloud</span></td>
+            <td class="n">1.240</td><td class="n nil">—</td><td class="n">1.240</td>
+            <td class="n">8</td><td class="n">1.236</td>
+            <td class="n">0,00%<span class="den">0 ÷ 1.244</span></td>
+          </tr>
+          <tr>
+            <td>dc.reject.dc <span class="src">cloud</span></td>
+            <td class="n">612</td><td class="n nil">—</td><td class="n">612</td>
+            <td class="n nil">—</td><td class="n">604</td>
+            <td class="n nil">—<span class="den">tanpa paparan</span></td>
+          </tr>
+          <tr class="sum">
+            <td>Jumlah</td>
+            <td class="n">23.332</td><td class="n">3.104</td><td class="n">20.228</td>
+            <td class="n">100</td><td class="n">20.141</td>
+            <td class="n">0,38%<span class="den">74 ÷ 19.296</span></td>
+          </tr>
+
+          <tr class="grp"><td colspan="7">Toko</td></tr>
+          <tr>
+            <td>store-01 <span class="src">edge</span></td>
+            <td class="n">2.104</td><td class="n nil">—</td><td class="n">2.104</td>
+            <td class="n">14</td><td class="n">2.088</td>
+            <td class="n">0,52%<span class="den">11 ÷ 2.115</span></td>
+          </tr>
+          <tr>
+            <td>store-03 <span class="src">edge</span></td>
+            <td class="n">1.876</td><td class="n nil">—</td><td class="n">1.876</td>
+            <td class="n">31</td><td class="n">1.840</td>
+            <td class="n">1,44%<span class="den">27 ÷ 1.874</span></td>
+          </tr>
+          <tr>
+            <td>store-04 <span class="src">edge</span></td>
+            <td class="n">1.512</td><td class="n">1.524</td><td class="n neg">−12</td>
+            <td class="n">9</td><td class="n">1.503</td>
+            <td class="n">0,60%<span class="den">9 ÷ 1.501</span></td>
+          </tr>
+          <tr>
+            <td>store-07 <span class="src">edge · putus 14:02</span></td>
+            <td class="n">1.944</td><td class="n nil">—</td><td class="n">1.944</td>
+            <td class="n">18</td><td class="n nil">—</td>
+            <td class="n nil">—<span class="den">belum sinkron</span></td>
+          </tr>
+          <tr class="sum">
+            <td>Jumlah · 12 dari 13 melapor</td>
+            <td class="n">24.980</td><td class="n">1.524</td><td class="n">24.674</td>
+            <td class="n">206</td><td class="n">24.401</td>
+            <td class="n">0,71%<span class="den">176 ÷ 24.788</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note">
+      Prototipe. Lost&nbsp;% membawa pembilang dan paparannya supaya bisa dihitung ulang.
+      Tanda — berarti tidak diketahui, dan tidak sama dengan nol.
+    </p>
+  </main>
+</div>
+</body>
+</html>

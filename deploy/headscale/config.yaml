@@ -1,0 +1,80 @@
+# Headscale control server for the itulah fleet.
+#
+# What this machine is: the address book of the fleet. It knows which boxes
+# exist and who may talk to whom. It never sees a sale, a price, or a stock
+# level — those travel inside encrypted tunnels directly between a store and
+# the cloud. Losing this machine stops NEW boxes joining; it does not stop the
+# 30 shops from trading or syncing, because established tunnels keep working.
+#
+# There is deliberately no reverse proxy in front. Headscale requests its own
+# certificate (tls_letsencrypt_* below), so Caddy or nginx would add a moving
+# part that earns nothing here.
+
+# MUST be https: the embedded DERP relay refuses to run without TLS, and DERP
+# is what rescues the stores whose ISP will not allow a direct connection.
+server_url: https://hs.itulah.co.id
+listen_addr: 0.0.0.0:443
+
+# Admin surfaces stay off the internet. Once the tailnet is up, administer
+# headscale over the tailnet itself — the control server is a node too.
+metrics_listen_addr: 127.0.0.1:9090
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+
+# TLS-ALPN-01 needs only port 443, so port 80 can stay shut. (HTTP-01 would
+# need 80 open as well.)
+tls_letsencrypt_hostname: hs.itulah.co.id
+tls_letsencrypt_challenge_type: TLS-ALPN-01
+tls_letsencrypt_cache_dir: /var/lib/headscale/cache
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+
+# The relay for stores that cannot reach the cloud directly — common behind
+# Indonesian CGNAT. It cannot read what it relays; packets stay sealed
+# end-to-end. Runs on this same host and certificate.
+derp:
+  server:
+    enabled: true
+    region_id: 999
+    region_code: "itulah"
+    region_name: "itulah fleet"
+    stun_listen_addr: "0.0.0.0:3478"
+    private_key_path: /var/lib/headscale/derp_server_private.key
+  # No public relays: the fleet stays on infrastructure you control.
+  urls: []
+  paths: []
+  auto_update_enabled: false
+
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    # This file IS the fleet. Back it up (see deploy/README.md): losing it
+    # means re-enrolling all 30 stores by hand.
+    write_ahead_log: true
+
+policy:
+  mode: file
+  path: /etc/headscale/acl.json
+
+dns:
+  magic_dns: true
+  base_domain: itulah.internal
+  nameservers:
+    global:
+      - 1.1.1.1
+      - 8.8.8.8
+
+log:
+  level: info
+  format: text
+
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"
+
+disable_check_updates: true

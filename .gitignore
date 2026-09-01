@@ -1,3 +1,16 @@
 /backend/target
 .env
 *.log
+.DS_Store
+**/.DS_Store
+**/node_modules/
+**/dist/
+semantic-review/
+**/semantic-review/
+
+# Edge runtime databases. A shop's SQLite file is state, not source: committing
+# one puts a snapshot of somebody's stock — and its write-ahead log — into every
+# clone, and the next person to run a server overwrites it in their diff.
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal

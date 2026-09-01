@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Supplier · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   SUPPLIER — tabel, bukan grid, dan alasannya
+   --------------------------------------------------------------------------
+   Sourcing memakai grid karena pekerjaannya menyisir banyak kandidat yang
+   dibedakan oleh RUPA. Supplier tidak begitu: yang membedakan satu pemasok
+   dari yang lain adalah termin, kelengkapan berkas, dan utang berjalan —
+   semuanya angka dan keadaan, bukan gambar. Grid akan memaksa angka-angka itu
+   masuk ke kartu, dan kartu tidak bisa dibandingkan menurun. Jadi tabel.
+
+   Medannya diangkat dari kontrak yang sudah ada:
+     SupplierSummary      → strip empat angka di atas (medannya persis)
+     SupplierListItem     → kolom tabel
+     CompletenessReport   → blocking_issues vs warnings
+     SupplierDebtSummary  → utang berjalan per mata uang
+     SupplierDetail       → isi panel, termasuk `sensitive_masked`
+
+   Satu keputusan yang lahir dari kontraknya, bukan dari selera:
+   `blocking_issues` dan `warnings` adalah dua daftar TERPISAH di API, jadi
+   keduanya tidak boleh dilebur jadi satu skor "kelengkapan 6/8". Yang
+   memblokir PO ditampilkan sebagai keadaan merah dengan kata "Tidak bisa
+   di-PO"; yang cuma peringatan tetap kuning dan tidak menghalangi apa pun.
+   Melebur keduanya akan membuat orang mengabaikan yang benar-benar menutup
+   jalan.
+
+   Kulitnya Beautiful UI — token dari ~/newton/app/globals.css.
+   ========================================================================== */
+
+/* ── sidebar ───────────────────────────────────────────── */
+.ws{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;margin-bottom:14px;border:0;background:none;border-radius:var(--radius-control);color:var(--ink);font-family:inherit;font-size:13.5px;text-align:start;transition:background-color 150ms var(--ease-out-strong)}
+.ws:hover{background:var(--hover)}
+.ws .mono-badge{width:26px;height:26px;flex-shrink:0;border-radius:var(--radius-chip);background:var(--ink);color:var(--page);display:grid;place-items:center;font-weight:600;font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.ws b{font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws svg{color:var(--ink-3);flex-shrink:0}
+.grp{padding:14px 8px 5px;font-size:11.5px;font-weight:500;color:var(--ink-3)}
+.count{margin-left:auto;font-size:11.5px;font-weight:500;color:var(--ink-3);font-family:"Geist Mono",ui-monospace,monospace}
+.count[data-tone="red"]{color:var(--red)}
+.node{font-size:11.5px;color:var(--ink-3);line-height:1.45;padding:0 8px;margin:0}
+
+/* ── kontrol ───────────────────────────────────────────── */
+
+/* ── kanvas ────────────────────────────────────────────── */
+.searchbar{padding:14px 20px;border-bottom:1px solid var(--line);background:var(--page);display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+.searchbox{flex:1;min-width:240px;max-width:560px;display:flex;align-items:center;gap:9px;height:38px;padding:0 6px 0 12px;background:var(--surface);border-radius:999px;box-shadow:var(--shadow-btn);transition:box-shadow 150ms var(--ease-out-strong)}
+.searchbox:focus-within{box-shadow:0 0 0 1px var(--accent), var(--shadow-xs)}
+.searchbox svg{color:var(--ink-3);flex-shrink:0}
+.searchbox input{flex:1;min-width:0;border:0;outline:0;background:none;font-family:inherit;font-size:14px;color:var(--ink);letter-spacing:-.01em}
+.searchbox input::placeholder{color:var(--ink-3)}
+.sb-right{margin-left:auto;display:flex;align-items:center;gap:9px}
+
+.body{display:flex;align-items:flex-start;min-height:0}
+
+/* ── bar penyaring ─────────────────────────────────────────
+   Faset yang menetap di kiri itu untuk PENYISIRAN — Sourcing, ratusan
+   kandidat, filternya disentuh terus. Supplier tidak begitu: filternya
+   kategorikal, jarang diubah, dan tabelnya butuh seluruh lebar karena
+   kolomnya yang dibandingkan. Jadi penyaringnya naik jadi bar. */
+
+/* Popover pakai <details> supaya buka-tutup dan keyboardnya jalan tanpa JS;
+   JS hanya menutup yang lain saat satu dibuka. */
+/* Pilihan tunggal bulat, pilihan jamak kotak — dua aturan berbeda tidak boleh
+   memakai bentuk yang sama. */
+
+/* Baris filter terpasang. Muncul hanya kalau ada yang dipasang — bar kosong
+   yang selalu ada cuma memakan tinggi dan mengajari orang mengabaikannya. */
+.applied{align-items:center}
+.clearall{border:0;background:none;padding:0;font-family:inherit;font-size:12.5px;color:var(--ink-2)}
+.clearall:hover{color:var(--ink)}
+
+/* ── hasil ─────────────────────────────────────────────── */
+.results{flex:1;min-width:0;padding:16px 20px 44px}
+
+/* Strip ringkasan: medannya persis SupplierSummary, jadi tidak ada angka di
+   sini yang dihitung ulang di layar. */
+.summary{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));margin-bottom:14px}
+.stat{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);padding:12px 14px;display:flex;flex-direction:column;gap:5px}
+.stat span{font-size:12.5px;color:var(--ink-2)}
+.stat b{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:23px;font-weight:500;letter-spacing:-.03em;line-height:1}
+.stat[data-tone="warn"] b{color:var(--orange)}
+.stat[data-tone="bad"] b{color:var(--red)}
+.stat small{font-size:11.5px;color:var(--ink-3)}
+
+.sortbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;margin-bottom:12px;background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card)}
+.sortbar .lab{font-size:13px;color:var(--ink-2);margin-right:2px}
+.sortchip{height:30px;padding:0 13px;border:0;border-radius:999px;background:var(--inset);color:var(--ink-2);font-family:inherit;font-size:13px;font-weight:500;transition:background-color 150ms var(--ease-out-strong),color 150ms var(--ease-out-strong)}
+.sortchip:hover{background:var(--hover-2)}
+.sortchip[aria-pressed="true"]{background:var(--ink);color:var(--page);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.pager button{width:28px;height:28px;padding:0;border:0;border-radius:999px;background:var(--surface);box-shadow:var(--shadow-btn);color:var(--ink-2);display:grid;place-items:center}
+.pager button:hover{background:var(--inset);color:var(--ink)}
+.pager button:disabled{opacity:.4;pointer-events:none}
+
+/* ── tabel ─────────────────────────────────────────────── */
+.tablecard{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
+th{text-align:start;padding:9px 14px;white-space:nowrap;font-size:12.5px;font-weight:500;color:var(--ink-3);border-bottom:1px solid var(--line);background:var(--surface)}
+td{padding:10px 14px;white-space:nowrap;border-bottom:1px solid var(--line);vertical-align:middle}
+.sup-name{display:flex;flex-direction:column;gap:1px;min-width:0}
+.sup-name b{font-weight:500}
+.sup-name span{font-family:"Geist Mono",ui-monospace,monospace;font-size:11.5px;color:var(--ink-3)}
+.contacts{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2)}
+.contacts svg{color:var(--ink-3)}
+.rowbtn{border:0;background:none;padding:0;color:var(--ink-3);display:grid;place-items:center;width:26px;height:26px;border-radius:999px}
+tbody tr:hover .rowbtn{color:var(--ink)}
+
+/* ── panel detail ──────────────────────────────────────── */
+/* Tutup lebih cepat daripada buka — gerakan keluar tidak membawa informasi
+   baru, jadi menahannya selama durasi masuk terasa seperti tersendat. */
+.kv{display:flex;flex-direction:column;background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
+.kv-row{display:flex;align-items:center;gap:12px;padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px}
+.kv-row:last-child{border-bottom:0}
+.kv-row > span:first-child{color:var(--ink-2);flex:1;min-width:0}
+.kv-row > span:last-child{text-align:end;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.masked{display:inline-flex;align-items:center;gap:7px}
+.masked button{border:0;background:none;padding:0;font-family:inherit;font-size:12.5px;color:var(--accent-ink)}
+
+.contact{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.contact:last-child{border-bottom:0}
+.contact .av{width:28px;height:28px;flex-shrink:0;border-radius:999px;background:var(--inset);color:var(--ink-2);display:grid;place-items:center;font-size:12px;font-weight:500}
+.contact .who{flex:1;min-width:0}
+.contact .who b{display:block;font-weight:500;font-size:13px}
+.contact .who span{display:block;font-size:12px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis}
+
+/* Pemeriksaan kelengkapan: dua daftar terpisah, karena API-nya memang dua
+   daftar. Yang memblokir tidak boleh terlihat sama dengan yang cuma catatan. */
+.check{display:flex;align-items:center;gap:9px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px}
+.check:last-child{border-bottom:0}
+.check svg{flex-shrink:0}
+.check[data-state="ok"] svg{color:var(--green)}
+.check[data-state="block"] svg{color:var(--red)}
+.check[data-state="warn"] svg{color:var(--orange)}
+.check[data-state="block"]{color:var(--ink)}
+/* Kalimatnya yang menyusut, bukan nama medannya: label memberi tahu APA yang
+   kurang, nama medan cuma memberi tahu di mana ia disimpan. Yang pertama
+   tidak boleh terpotong duluan. */
+.check > span:nth-of-type(1){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.check .f{flex-shrink:0;margin-left:auto;padding-left:10px;font-family:"Geist Mono",ui-monospace,monospace;font-size:11.5px;color:var(--ink-3)}
+
+/* Jumlah dan mata uang di baris pertama, keterangan turun sendiri. Dibiarkan
+   satu baris, angka rupiah sembilan digit memaksa keterangannya membungkus di
+   tengah kalimat — dan "ada yang lewat jatuh tempo" adalah kalimat yang tidak
+   boleh pecah. */
+.debt{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:11px 12px;border-bottom:1px solid var(--line)}
+.debt > span:not(.cur){flex-basis:100%}
+.debt:last-child{border-bottom:0}
+.debt b{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:17px;font-weight:500;letter-spacing:-.02em}
+.debt span{font-size:12.5px;color:var(--ink-2)}
+.debt .cur{font-family:"Geist Mono",ui-monospace,monospace;font-size:11.5px;color:var(--ink-3)}
+
+.banner-block{
+  display:flex;align-items:flex-start;gap:9px;margin:14px 16px 0;padding:11px 12px;
+  background:var(--red-tint);color:var(--ink);border-radius:var(--radius-card);font-size:12.5px;
+}
+.banner-block svg{flex-shrink:0;color:var(--red);margin-top:1px}
+.banner-block b{font-weight:500}
+
+@media(max-width:1240px){ .filters{width:210px} }
+@media(max-width:980px){
+  .ws,.grp,.side-foot{display:none}
+  .body{display:block}
+  .filters{width:auto;border-right:0;border-bottom:1px solid var(--line);padding:14px}
+  .results{padding:14px}
+  .searchbar{padding:12px 14px}
+}
+@media(prefers-reduced-motion:reduce){}
+</style>
+</head>
+<body>
+
+<div class="window">
+
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws">
+      <span class="m" aria-hidden="true">R</span>
+      <b>RetailOS · Edge</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <div class="grp">Pengadaan</div>
+    <a href="7-sourcing.html">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5"/><path d="m12 12 3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Sourcing
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3.5 4.5h11M3.5 9h11M3.5 13.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Shortlist <span class="count">4</span>
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5M6.25 12.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Purchase Order <span class="count">7</span>
+    </a>
+    <a href="#" aria-current="page">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 14.5V7l6.5-4 6.5 4v7.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5v-4h4v4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      Supplier <span class="count" data-tone="red">3</span>
+    </a>
+
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Ringkasan
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="7.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="12.5" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>
+      Pool
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.8 2.4"/><path d="M9 5.75v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="12" r=".85" fill="currentColor"/></svg>
+      Missing <span class="count">12</span>
+    </a>
+
+    <div class="side-foot">
+      <p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>Master supplier · 09:14</p>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <div class="searchbar">
+      <label class="searchbox">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/><path d="m10.6 10.6 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input id="q" type="search" aria-label="Cari supplier" placeholder="Cari nama, kode, atau NPWP">
+      </label>
+      <div class="sb-right">
+        <button type="button" class="btn btn-secondary btn-sm">Ekspor</button>
+        <button type="button" class="btn btn-primary btn-sm">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Supplier baru
+        </button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="body">
+
+      <section class="results" aria-label="Daftar supplier">
+
+        <!-- Medannya persis SupplierSummary — tidak ada yang dihitung ulang. -->
+        <div class="summary">
+          <div class="stat"><span>Total supplier</span><b>214</b><small>28 nonaktif</small></div>
+          <div class="stat"><span>Aktif</span><b>186</b><small>86,9% dari total</small></div>
+          <div class="stat" data-tone="warn"><span>Tanpa kontak aktif</span><b>12</b><small>tidak bisa dikirimi PO</small></div>
+          <div class="stat" data-tone="warn"><span>Tanpa kontak utama</span><b>7</b><small>eskalasi tidak punya tujuan</small></div>
+        </div>
+
+        <div class="toolbar">
+          <div class="trow">
+            <button type="button" class="fchip" aria-pressed="true" data-status="all">Semua <span class="n">214</span></button>
+            <button type="button" class="fchip" aria-pressed="false" data-status="active">Aktif <span class="n">186</span></button>
+            <button type="button" class="fchip" aria-pressed="false" data-status="inactive">Nonaktif <span class="n">28</span></button>
+            <span class="tsep" aria-hidden="true"></span>
+            <details class="fdrop">
+              <summary>Kelengkapan <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+              <div class="fpanel">
+              <label class="opt-tag"><input type="checkbox" data-f="Kelengkapan" data-l="Lengkap"> Lengkap <span class="n">171</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Kelengkapan" data-l="Ada yang memblokir" checked> Ada yang memblokir <span class="n">3</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Kelengkapan" data-l="Ada peringatan"> Ada peringatan <span class="n">19</span></label>
+              </div>
+            </details>
+            <details class="fdrop">
+              <summary>Kontak <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+              <div class="fpanel">
+              <label class="opt-tag"><input type="checkbox" data-f="Kontak" data-l="Tanpa kontak aktif"> Tanpa kontak aktif <span class="n">12</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Kontak" data-l="Tanpa kontak utama"> Tanpa kontak utama <span class="n">7</span></label>
+              </div>
+            </details>
+            <details class="fdrop">
+              <summary>Termin <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+              <div class="fpanel">
+              <label class="opt-tag"><input type="checkbox" data-f="Termin" data-l="Tunai / 0 hari"> Tunai / 0 hari <span class="n">24</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Termin" data-l="14 hari"> 14 hari <span class="n">38</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Termin" data-l="30 hari"> 30 hari <span class="n">96</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Termin" data-l="45 hari ke atas"> 45 hari ke atas <span class="n">41</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Termin" data-l="Belum diisi"> Belum diisi <span class="n">15</span></label>
+              </div>
+            </details>
+            <details class="fdrop">
+              <summary>Utang <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+              <div class="fpanel">
+              <label class="opt-tag"><input type="checkbox" data-f="Utang" data-l="Ada utang"> Ada utang <span class="n">72</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Utang" data-l="Lewat jatuh tempo"> Lewat jatuh tempo <span class="n">9</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Utang" data-l="Nihil"> Nihil <span class="n">142</span></label>
+              </div>
+            </details>
+            <details class="fdrop">
+              <summary>Diperbarui <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+              <div class="fpanel">
+              <label class="opt-tag"><input type="checkbox" data-f="Diperbarui" data-l="7 hari terakhir"> 7 hari terakhir <span class="n">18</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Diperbarui" data-l="30 hari terakhir"> 30 hari terakhir <span class="n">54</span></label>
+              <label class="opt-tag"><input type="checkbox" data-f="Diperbarui" data-l="Lebih dari 1 tahun"> Lebih dari 1 tahun <span class="n">31</span></label>
+              </div>
+            </details>
+            <span class="pager">
+              <details class="fdrop" id="sortdrop">
+                <summary>Urutkan: <b id="sortnow" style="font-weight:500;color:var(--ink)">Nama</b> <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3.5 4.5 2.5 2.5 2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+                <div class="fpanel" style="left:auto;right:0;min-width:190px">
+                  <label class="opt-tag"><input type="radio" name="sort" value="Nama" checked> Nama</label>
+                  <label class="opt-tag"><input type="radio" name="sort" value="Kode"> Kode</label>
+                  <label class="opt-tag"><input type="radio" name="sort" value="Diperbarui"> Terakhir diperbarui</label>
+                  <label class="opt-tag"><input type="radio" name="sort" value="Utang terbesar"> Utang terbesar</label>
+                </div>
+              </details>
+              <span class="tsep" aria-hidden="true"></span>
+              <span class="mono"><b>1</b>/18</span>
+              <button type="button" disabled aria-label="Halaman sebelumnya"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m10 4-4 4 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button type="button" aria-label="Halaman berikutnya"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </span>
+          </div>
+          <div class="trow applied" id="applied" hidden>
+            <span class="tlab">Terpasang</span>
+            <span id="applied-chips" style="display:flex;gap:6px;flex-wrap:wrap"></span>
+            <button type="button" class="clearall" id="clearall">Hapus semua</button>
+          </div>
+        </div>
+
+        <div class="tablecard">
+          <div class="tw">
+            <table>
+              <thead>
+                <tr>
+                  <th>Supplier</th>
+                  <th>Status</th>
+                  <th class="n">Termin</th>
+                  <th>Kontak</th>
+                  <th class="n">Utang berjalan</th>
+                  <th>Kelengkapan</th>
+                  <th class="n">Diperbarui</th>
+                  <th aria-label="Buka"></th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- ── panel detail ────────────────────────────────────── -->
+<div class="scrim" id="scrim" data-open="false"></div>
+<aside class="sheet" id="sheet" data-open="false" aria-labelledby="sheet-name" aria-hidden="true">
+  <div class="sheet-head">
+    <div style="flex:1;min-width:0">
+      <h2 id="sheet-name">—</h2>
+      <div class="sub" id="sheet-sub"></div>
+    </div>
+    <button type="button" class="icon-btn" id="sheet-close" aria-label="Tutup">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m3.5 3.5 7 7m0-7-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="sheet-body"></div>
+  <div class="sheet-foot">
+    <button type="button" class="btn btn-secondary btn-sm" style="flex:1">Ubah</button>
+    <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="sheet-po">Buat PO</button>
+  </div>
+</aside>
+
+<script>
+/* Data supplier. Medannya mengikuti SupplierListItem + SupplierDetail +
+   CompletenessReport + SupplierDebtSummary di `lib/api/contract.ts`.
+   `outstanding` di sini rupiah penuh; di wire ia `outstanding_minor`. */
+var SUPPLIERS = [
+  {
+    code:"SUP-0042", name:"CV Mitra Tekstil", status:"active", terms:30,
+    contacts:[
+      {name:"Rina Wulandari", role:"Sales", phone:"0812-8841-2210", email:"rina@mitratekstil.co.id", primary:true, status:"active"},
+      {name:"Hadi Prasetyo", role:"Produksi", phone:"0813-2298-7741", email:"hadi@mitratekstil.co.id", primary:false, status:"active"},
+    ],
+    outstanding:48_250_000, debt_count:6, overdue:false,
+    tax_id:"01.882.447.1-441.000", address:"Jl. Cibaduyut Raya No. 212, Bandung, Jawa Barat 40236",
+    notes:"Kain rayon dan katun. Sample 5 hari kerja.",
+    updated:"3 hari lalu", version:14,
+    checks:{has_name:true,has_code:true,has_address:true,has_tax_id:true,has_payment_terms:true,active_contact_count:2,has_primary_contact:true,active_contacts_with_channel:2},
+    blocking:[], warnings:[]
+  },
+  {
+    code:"SUP-0117", name:"PT Sinar Garmindo", status:"active", terms:45,
+    contacts:[
+      {name:"Andi Kurniawan", role:"Account Manager", phone:"0811-9932-4408", email:"andi@sinargarmindo.com", primary:true, status:"active"},
+    ],
+    outstanding:126_400_000, debt_count:11, overdue:true,
+    tax_id:"02.114.903.7-052.000", address:"Kawasan Industri Jababeka II Blok M-14, Cikarang, Bekasi 17530",
+    notes:"MOQ tinggi, harga turun di atas 500 pcs.",
+    updated:"kemarin", version:31,
+    checks:{has_name:true,has_code:true,has_address:true,has_tax_id:true,has_payment_terms:true,active_contact_count:1,has_primary_contact:true,active_contacts_with_channel:1},
+    blocking:[], warnings:[{field:"contacts",code:"single_active_contact"}]
+  },
+  {
+    code:"SUP-0203", name:"Bandung Knit Works", status:"active", terms:14,
+    contacts:[
+      {name:"Sari Melati", role:"Owner", phone:"0857-2201-9930", email:"—", primary:true, status:"active"},
+    ],
+    outstanding:0, debt_count:0, overdue:false,
+    tax_id:"—", address:"Jl. Moch. Toha No. 88, Bandung, Jawa Barat 40252",
+    notes:"Rajut. Cepat, kapasitas terbatas.",
+    updated:"6 hari lalu", version:8,
+    checks:{has_name:true,has_code:true,has_address:true,has_tax_id:false,has_payment_terms:true,active_contact_count:1,has_primary_contact:true,active_contacts_with_channel:1},
+    blocking:[{field:"tax_id",code:"missing_tax_id"}], warnings:[]
+  },
+  {
+    code:"SUP-0088", name:"PT Anugerah Denim", status:"active", terms:30,
+    contacts:[
+      {name:"Bayu Santoso", role:"Sales", phone:"0812-3348-1102", email:"bayu@anugerahdenim.id", primary:true, status:"active"},
+      {name:"Lestari Ningsih", role:"Finance", phone:"0821-9987-3341", email:"ar@anugerahdenim.id", primary:false, status:"active"},
+      {name:"Dedi Firmansyah", role:"QC", phone:"—", email:"—", primary:false, status:"inactive"},
+    ],
+    outstanding:73_900_000, debt_count:4, overdue:false,
+    tax_id:"03.556.128.9-431.000", address:"Jl. Raya Rancaekek KM 24, Sumedang, Jawa Barat 45364",
+    notes:"Denim 10–14 oz. Lead time panjang saat musim.",
+    updated:"2 minggu lalu", version:22,
+    checks:{has_name:true,has_code:true,has_address:true,has_tax_id:true,has_payment_terms:true,active_contact_count:2,has_primary_contact:true,active_contacts_with_channel:2},
+    blocking:[], warnings:[]
+  },
+  {
+    code:"SUP-0311", name:"UD Karya Aksesoris", status:"active", terms:null,
+    contacts:[],
+    outstanding:0, debt_count:0, overdue:false,
+    tax_id:"04.201.774.3-118.000", address:"Jl. Pasar Baru Blok C No. 7, Jakarta Pusat 10710",
+    notes:"Kancing, resleting, label.",
+    updated:"4 bulan lalu", version:3,
+    checks:{has_name:true,has_code:true,has_address:true,has_tax_id:true,has_payment_terms:false,active_contact_count:0,has_primary_contact:false,active_contacts_with_channel:0},
+    blocking:[{field:"payment_terms_days",code:"missing_payment_terms"},{field:"contacts",code:"no_active_contact"}], warnings:[]
+  },
+  {
+    code:"SUP-0154", name:"CV Sumber Kain Jaya", status:"active", terms:30,
+    contacts:[
+      {name:"Wawan Setiawan", role:"Sales", phone:"0838-1120-7745", email:"wawan@sumberkain.co.id", primary:false, status:"active"},
+    ],
+    outstanding:12_800_000, debt_count:2, overdue:false,
+    tax_id:"05.338.019.2-407.000", address:"Jl. Tamim No. 45, Bandung, Jawa Barat 40181",
+    notes:"—",
+    updated:"9 hari lalu", version:11,
+    checks:{has_name:true,has_code:true,has_address:true,has_tax_id:true,has_payment_terms:true,active_contact_count:1,has_primary_contact:false,active_contacts_with_channel:1},
+    blocking:[], warnings:[{field:"contacts",code:"no_primary_contact"}]
+  },
+  {
+    code:"SUP-0009", name:"PT Garmen Nusantara", status:"inactive", terms:60,
+    contacts:[
+      {name:"Tri Handayani", role:"Sales", phone:"0812-7741-0092", email:"tri@garmennusantara.com", primary:true, status:"inactive"},
+    ],
+    outstanding:0, debt_count:0, overdue:false,
+    tax_id:"06.442.881.5-092.000", address:"Jl. Industri Raya No. 3, Tangerang, Banten 15134",
+    notes:"Dinonaktifkan 2026-03-14 — kualitas tidak konsisten.",
+    updated:"6 bulan lalu", version:19,
+    checks:{has_name:true,has_code:true,has_address:true,has_tax_id:true,has_payment_terms:true,active_contact_count:0,has_primary_contact:false,active_contacts_with_channel:0},
+    blocking:[{field:"contacts",code:"no_active_contact"}], warnings:[]
+  },
+  {
+    code:"SUP-0276", name:"Toko Benang Sejahtera", status:"active", terms:0,
+    contacts:[
+      {name:"Ahmad Fauzi", role:"Pemilik", phone:"0895-3301-8876", email:"—", primary:true, status:"active"},
+    ],
+    outstanding:3_450_000, debt_count:1, overdue:false,
+    tax_id:"—", address:"Pasar Cipadu Blok D No. 22, Tangerang, Banten 15155",
+    notes:"Pembelian kecil, bayar tunai.",
+    updated:"3 minggu lalu", version:5,
+    checks:{has_name:true,has_code:true,has_address:true,has_tax_id:false,has_payment_terms:true,active_contact_count:1,has_primary_contact:true,active_contacts_with_channel:1},
+    blocking:[], warnings:[{field:"tax_id",code:"missing_tax_id_small_vendor"}]
+  },
+];
+
+var LABEL = {
+  missing_tax_id:"NPWP belum diisi",
+  missing_tax_id_small_vendor:"NPWP belum diisi",
+  missing_payment_terms:"Termin pembayaran belum diisi",
+  no_active_contact:"Tidak ada kontak aktif",
+  no_primary_contact:"Belum ada kontak utama",
+  single_active_contact:"Hanya satu kontak aktif",
+};
+
+function rupiah(n){ return "Rp " + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+function initials(name){
+  return name.split(/\s+/).slice(0,2).map(function(w){return w[0];}).join("").toUpperCase();
+}
+
+/* Kelengkapan punya TIGA keadaan, bukan dua, karena API-nya memisahkan
+   blocking_issues dari warnings. Melebur keduanya jadi satu skor akan membuat
+   "tidak bisa di-PO" terlihat sama seriusnya dengan "cuma satu kontak". */
+function completeness(s){
+  if (s.blocking.length) return {tone:"red", text:"Tidak bisa di-PO"};
+  if (s.warnings.length) return {tone:"orange", text:"Ada peringatan"};
+  return {tone:"green", text:"Lengkap"};
+}
+
+function row(s, i){
+  var c = completeness(s);
+  var active = s.contacts.filter(function(k){return k.status === "active";}).length;
+  var primary = s.contacts.some(function(k){return k.primary && k.status === "active";});
+  return (
+    '<tr data-i="' + i + '" tabindex="0">' +
+      '<td><span class="sup-name"><b>' + s.name + '</b><span>' + s.code + '</span></span></td>' +
+      '<td><span class="pill" data-tone="' + (s.status === "active" ? "green" : "neutral") + '">' +
+        (s.status === "active" ? "Aktif" : "Nonaktif") + '</span></td>' +
+      '<td class="n">' + (s.terms === null
+        ? '<span class="nil">—</span>'
+        : (s.terms === 0 ? "Tunai" : s.terms + " hari")) + '</td>' +
+      '<td><span class="contacts">' +
+        '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5.6" r="2.6" stroke="currentColor" stroke-width="1.4"/><path d="M3 13.4c.9-2.3 2.8-3.4 5-3.4s4.1 1.1 5 3.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
+        (active === 0 ? '<span class="nil">tidak ada</span>' : active + (primary ? "" : " · tanpa utama")) +
+      '</span></td>' +
+      '<td class="n">' + (s.outstanding === 0
+        ? '<span class="nil">—</span>'
+        : rupiah(s.outstanding) + (s.overdue ? ' <span class="pill" data-tone="red" style="margin-left:6px">Lewat tempo</span>' : '')) + '</td>' +
+      '<td><span class="pill" data-tone="' + c.tone + '">' + c.text + '</span></td>' +
+      '<td class="n"><span class="nil">' + s.updated + '</span></td>' +
+      '<td><span class="rowbtn" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td>' +
+    '</tr>'
+  );
+}
+
+var rowsEl = document.getElementById("rows");
+function render(list){
+  rowsEl.innerHTML = list.map(function(s){ return row(s, SUPPLIERS.indexOf(s)); }).join("");
+}
+render(SUPPLIERS);
+
+/* ── panel detail ──────────────────────────────────────── */
+var sheet = document.getElementById("sheet");
+var scrim = document.getElementById("scrim");
+var revealed = false;
+
+function checkRow(ok, label, field, state){
+  var icon = ok
+    ? '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="m3.5 8.4 3 3 6-6.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    : '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>';
+  return '<div class="check" data-state="' + (ok ? "ok" : state) + '">' + icon +
+    '<span>' + label + '</span><span class="f">' + field + '</span></div>';
+}
+
+function openSheet(index){
+  var s = SUPPLIERS[index];
+  var c = completeness(s);
+  revealed = false;
+
+  document.getElementById("sheet-name").textContent = s.name;
+  document.getElementById("sheet-sub").innerHTML =
+    '<span class="chip">' + s.code + '</span>' +
+    '<span class="pill" data-tone="' + (s.status === "active" ? "green" : "neutral") + '">' +
+      (s.status === "active" ? "Aktif" : "Nonaktif") + '</span>' +
+    '<span class="pill" data-tone="' + c.tone + '">' + c.text + '</span>' +
+    '<span class="nil">v' + s.version + '</span>';
+
+  var html = "";
+
+  /* Yang memblokir naik ke paling atas panel: kalau sebuah supplier tidak bisa
+     dibuatkan PO, itu hal pertama yang perlu dibaca, bukan sesuatu yang
+     ditemukan setelah menggulir. */
+  if (s.blocking.length) {
+    html += '<div class="banner-block">' +
+      '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>' +
+      '<span><b>Belum bisa dibuatkan PO.</b> ' +
+      s.blocking.map(function(b){ return LABEL[b.code] || b.code; }).join(" · ") +
+      '</span></div>';
+  }
+
+  html += '<div class="sec"><h3>Identitas</h3><div class="kv">' +
+    '<div class="kv-row"><span>NPWP</span><span class="masked mono" id="npwp"></span></div>' +
+    '<div class="kv-row"><span>Alamat</span><span style="max-width:230px;white-space:normal;text-align:end">' + s.address + '</span></div>' +
+    '<div class="kv-row"><span>Termin pembayaran</span><span>' +
+      (s.terms === null ? '<span class="nil">belum diisi</span>' : (s.terms === 0 ? "Tunai" : s.terms + " hari")) +
+    '</span></div>' +
+    '<div class="kv-row"><span>Catatan</span><span style="max-width:230px;white-space:normal;text-align:end">' + s.notes + '</span></div>' +
+    '</div></div>';
+
+  html += '<div class="sec"><h3>Kontak · ' + s.contacts.length + '</h3><div class="kv">' +
+    (s.contacts.length
+      ? s.contacts.map(function(k){
+          return '<div class="contact">' +
+            '<span class="av">' + initials(k.name) + '</span>' +
+            '<span class="who"><b>' + k.name + '</b>' +
+              '<span>' + k.role + ' · ' + k.phone + '</span>' +
+              '<span>' + k.email + '</span>' +
+            '</span>' +
+            (k.primary ? '<span class="pill" data-tone="accent" style="background:var(--accent-tint);color:var(--accent-ink)">Utama</span>'
+                       : (k.status === "inactive" ? '<span class="pill" data-tone="neutral">Nonaktif</span>' : '')) +
+          '</div>';
+        }).join("")
+      : '<div class="contact"><span class="who"><b class="nil">Belum ada kontak</b><span>PO tidak punya tujuan kirim.</span></span></div>')
+    + '</div></div>';
+
+  var ch = s.checks;
+  html += '<div class="sec"><h3>Kelengkapan berkas</h3><div class="kv">' +
+    checkRow(ch.has_tax_id, "NPWP terisi", "tax_id", "block") +
+    checkRow(ch.has_address, "Alamat terisi", "address", "block") +
+    checkRow(ch.has_payment_terms, "Termin pembayaran terisi", "payment_terms_days", "block") +
+    checkRow(ch.active_contact_count > 0, "Punya kontak aktif", "active_contact_count", "block") +
+    checkRow(ch.has_primary_contact, "Punya kontak utama", "has_primary_contact", "warn") +
+    checkRow(ch.active_contacts_with_channel > 0, "Kontak punya saluran", "active_contacts_with_channel", "warn") +
+    '</div></div>';
+
+  html += '<div class="sec"><h3>Utang berjalan</h3><div class="kv">' +
+    (s.outstanding === 0
+      ? '<div class="debt"><b class="nil">—</b><span>Tidak ada utang berjalan</span></div>'
+      : '<div class="debt"><b>' + rupiah(s.outstanding) + '</b>' +
+        '<span>' + s.debt_count + ' dokumen' + (s.overdue ? ' · <span style="color:var(--red)">ada yang lewat jatuh tempo</span>' : '') + '</span>' +
+        '<span class="cur" style="margin-left:auto">IDR</span></div>')
+    + '</div></div>';
+
+  document.getElementById("sheet-body").innerHTML = html;
+
+  /* NPWP datang tersamar dari server (`sensitive_masked`). Membukanya adalah
+     permintaan terpisah dan tercatat — jadi tombolnya menyebut itu, bukan
+     berpura-pura nilainya sudah ada di layar. */
+  var npwp = document.getElementById("npwp");
+  function paintNpwp(){
+    if (s.tax_id === "\u2014") {
+      npwp.innerHTML = '<span class="nil">belum diisi</span>';
+      return;
+    }
+    if (revealed) {
+      npwp.textContent = s.tax_id;
+      return;
+    }
+    npwp.innerHTML = s.tax_id.slice(0, 2) +
+      '.\u2022\u2022\u2022.\u2022\u2022\u2022.\u2022-\u2022\u2022\u2022.\u2022\u2022\u2022 ' +
+      '<button type="button" id="reveal">Tampilkan</button>';
+    document.getElementById("reveal").addEventListener("click", function(){
+      revealed = true;
+      paintNpwp();
+    });
+  }
+  paintNpwp();
+
+  document.getElementById("sheet-po").disabled = s.blocking.length > 0;
+  document.getElementById("sheet-po").style.opacity = s.blocking.length ? ".45" : "";
+  document.getElementById("sheet-po").style.pointerEvents = s.blocking.length ? "none" : "";
+
+  sheet.setAttribute("data-open", "true");
+  sheet.setAttribute("aria-hidden", "false");
+  scrim.setAttribute("data-open", "true");
+  document.querySelectorAll("#rows tr").forEach(function(tr){
+    tr.setAttribute("aria-selected", String(Number(tr.dataset.i) === index));
+  });
+}
+
+function closeSheet(){
+  sheet.setAttribute("data-open", "false");
+  sheet.setAttribute("aria-hidden", "true");
+  scrim.setAttribute("data-open", "false");
+  document.querySelectorAll("#rows tr").forEach(function(tr){ tr.removeAttribute("aria-selected"); });
+}
+
+rowsEl.addEventListener("click", function(event){
+  var tr = event.target.closest("tr[data-i]");
+  if (tr) openSheet(Number(tr.dataset.i));
+});
+rowsEl.addEventListener("keydown", function(event){
+  if (event.key !== "Enter" && event.key !== " ") return;
+  var tr = event.target.closest("tr[data-i]");
+  if (!tr) return;
+  event.preventDefault();
+  openSheet(Number(tr.dataset.i));
+});
+document.getElementById("sheet-close").addEventListener("click", closeSheet);
+scrim.addEventListener("click", closeSheet);
+document.addEventListener("keydown", function(event){
+  if (event.key === "Escape") closeSheet();
+});
+
+document.getElementById("q").addEventListener("input", function(event){
+  var term = event.target.value.trim().toLowerCase();
+  render(SUPPLIERS.filter(function(s){
+    return !term || (s.name + " " + s.code + " " + s.tax_id).toLowerCase().indexOf(term) !== -1;
+  }));
+});
+
+/* Chip berkelompok: yang sebaris saling meniadakan. Dikelompokkan lewat
+   induknya, jadi menambah kelompok baru tidak menuntut JS baru. */
+document.querySelectorAll(".fchip[aria-pressed]").forEach(function(chip){
+  chip.addEventListener("click", function(){
+    var group = chip.parentElement.querySelectorAll(":scope > .fchip[aria-pressed]");
+    group.forEach(function(other){
+      other.setAttribute("aria-pressed", String(other === chip));
+    });
+  });
+});
+
+/* Satu popover terbuka pada satu waktu, dan klik di luar menutupnya. Escape
+   ditangani <details> sendiri hanya kalau fokusnya di dalam, jadi tetap
+   dipasang di dokumen. */
+var drops = Array.prototype.slice.call(document.querySelectorAll(".fdrop"));
+drops.forEach(function(d){
+  d.addEventListener("toggle", function(){
+    if (!d.open) return;
+    drops.forEach(function(other){ if (other !== d) other.open = false; });
+  });
+});
+document.addEventListener("click", function(event){
+  if (event.target.closest(".fdrop")) return;
+  drops.forEach(function(d){ d.open = false; });
+});
+document.addEventListener("keydown", function(event){
+  if (event.key === "Escape") drops.forEach(function(d){ d.open = false; });
+});
+
+/* Filter terpasang ditulis ulang sebagai chip yang bisa dicabut. Barisnya
+   disembunyikan saat kosong — bar kosong yang selalu ada cuma memakan tinggi
+   dan mengajari orang mengabaikannya. */
+var appliedRow = document.getElementById("applied");
+var appliedChips = document.getElementById("applied-chips");
+
+function syncApplied(){
+  var on = Array.prototype.slice.call(document.querySelectorAll('.fpanel input[type="checkbox"]:checked'));
+  appliedChips.innerHTML = on.map(function(input){
+    return '<span class="achip">' + input.dataset.f + ": " + input.dataset.l +
+      '<button type="button" aria-label="Hapus filter ' + input.dataset.l + '">' +
+      '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="m2.5 2.5 5 5m0-5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      '</button></span>';
+  }).join("");
+
+  appliedRow.hidden = on.length === 0;
+
+  /* Ringkasan pemilih ikut menyala supaya orang tahu kelompok mana yang punya
+     pilihan aktif tanpa membukanya satu-satu. */
+  drops.forEach(function(d){
+    var any = d.querySelector('input[type="checkbox"]:checked') !== null;
+    d.querySelector("summary").setAttribute("data-on", String(any));
+  });
+
+  appliedChips.querySelectorAll("button").forEach(function(button, index){
+    button.addEventListener("click", function(){
+      on[index].checked = false;
+      syncApplied();
+    });
+  });
+}
+
+document.querySelectorAll('.fpanel input[type="checkbox"]').forEach(function(input){
+  input.addEventListener("change", syncApplied);
+});
+document.getElementById("clearall").addEventListener("click", function(){
+  document.querySelectorAll('.fpanel input[type="checkbox"]:checked').forEach(function(input){ input.checked = false; });
+  syncApplied();
+});
+syncApplied();
+
+document.getElementById("theme").addEventListener("click", function(){
+  var root = document.documentElement;
+  root.classList.add("theme-switching");
+  root.classList.toggle("dark");
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){ root.classList.remove("theme-switching"); });
+  });
+});
+</script>
+</body>
+</html>

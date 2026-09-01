@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Official Count · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   OFFICIAL COUNT — empat keadaan, dan hanya satu yang menulis
+   --------------------------------------------------------------------------
+   Invarian 11: "Official Count creates shortage/gain only on explicit
+   approval." Itu satu kalimat, tapi ia menentukan seluruh bentuk layar ini.
+
+   Daur hidupnya empat langkah, dan tiap langkah punya akibat yang berbeda:
+
+     DRAFT     dibuat. Belum mengunci apa pun.
+     ACTIVE    diaktifkan — dan aktivasi MEMBEKUKAN lingkup serta jumlah yang
+               diharapkan. Setelah ini, stok boleh bergerak di dunia nyata,
+               tapi angka pembandingnya tidak ikut bergerak. Itu memang inti
+               sebuah count: membandingkan terhadap satu titik waktu.
+     REVIEW    disubmit. Selisihnya sudah kelihatan, tapi BELUM ada satu pun
+               fakta persediaan yang ditulis.
+     CLOSED    disetujui — dan di detik itulah shortage/gain ditulis sebagai
+               pergerakan, atomik.
+
+   Maka tombol "Setujui" di sini tidak pernah sekadar menutup kartu. Ia satu-
+   satunya tombol di layar ini yang mengubah persediaan, dan konfirmasinya
+   menyebutkan angka yang akan ditulis — bukan bertanya "yakin?".
+
+   Papan empat kolom mempertahankan bentuk yang sudah dipakai orang di UI
+   sekarang. Yang ditambahkan: selisih dihitung dan diberi tanda arah, karena
+   "expected 120 found 118" menuntut orang mengurangi sendiri, dan orang yang
+   sedang menghitung gudang tidak seharusnya mengurangi di kepala.
+   ========================================================================== */
+
+.board{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:900px){.board{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1400px){.board{grid-template-columns:repeat(4,1fr)}}
+
+.col{display:flex;flex-direction:column;min-width:0}
+.colhead{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.colhead h2{margin:0;font-size:13.5px;font-weight:600}
+.colhead .n{margin-left:auto;font-family:var(--font-mono);font-size:12px;color:var(--ink-3)}
+
+.cnt{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:9px}
+.col .cnt:last-child{border-bottom:0}
+.cnt-top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.cnt-top b{font-family:var(--font-mono);font-size:13px;font-weight:500}
+.cnt .pool{font-size:12.5px;color:var(--ink-2)}
+.cnt .why{font-size:12px;color:var(--ink-3)}
+
+/* Selisih dihitung, diberi arah, dan diberi kata — bukan dua angka mentah
+   yang harus dikurangi sendiri oleh orang yang sedang di gudang. */
+.diff{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:9px 11px;border-radius:var(--radius-card);background:var(--inset)}
+.diff .pair{display:flex;flex-direction:column;gap:1px}
+.diff .pair span{font-size:11px;color:var(--ink-3)}
+.diff .pair b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:15px;font-weight:500}
+.diff .out{margin-left:auto;text-align:end}
+.diff .out span{font-size:11px;color:var(--ink-3);display:block}
+.diff .out b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:17px;font-weight:600}
+.diff .out b[data-d="short"]{color:var(--red)}
+.diff .out b[data-d="gain"]{color:var(--green)}
+.diff .out b[data-d="match"]{color:var(--green)}
+
+.acts{display:flex;gap:7px;flex-wrap:wrap}
+.acts .btn{flex:1;min-width:90px}
+
+.dlg{position:fixed;inset:0;display:none;place-items:center;padding:20px;z-index:60;background:var(--scrim)}
+.dlg[data-open="true"]{display:grid}
+.dlg-box{width:min(540px,100%);background:var(--page);border-radius:var(--radius-window);box-shadow:var(--shadow-overlay);overflow:hidden}
+.dlg-head{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.dlg-head h2{margin:0 0 3px;font-size:17px;font-weight:600;letter-spacing:-.015em}
+.dlg-head p{margin:0;font-size:13px;color:var(--ink-2)}
+.dlg-body{padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+.dlg-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+.row2{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:520px){.row2{grid-template-columns:repeat(2,1fr)}}
+.willwrite{padding:12px 14px;border-radius:var(--radius-card);background:var(--red-tint);font-size:12.5px}
+.willwrite b{font-weight:500}
+.willwrite.gain{background:var(--green-tint)}
+.willwrite.none{background:var(--inset);color:var(--ink-2)}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS · Edge</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="14-allotment.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M9 2.5v5m0 0-4 3v5m4-8 4 3v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Allotment</a>
+    <a href="15-movement.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 6.5h11m0 0-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 11.5h-11m0 0 3-3m-3 3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Pergerakan</a>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Official Count <span class="n">3</span></a>
+    <a href="17-missing.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.8 2.4"/><path d="M9 5.75v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="12" r=".85" fill="currentColor"/></svg>Missing <span class="n" data-tone="red">12</span></a>
+    <div class="side-foot"><p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>Official count · 09:14</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Official Count</h1>
+      <span class="stamp"><i></i>Rekonsiliasi fisik yang eksplisit — bukan bacaan RFID</span>
+      <div class="right">
+        <button type="button" class="btn btn-primary btn-sm" id="new">Count baru</button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="band" data-tone="neutral" style="margin-bottom:12px">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>
+        <span><b>Hanya persetujuan yang menulis.</b> Membuat, mengaktifkan, mencatat temuan, dan
+        mengirim ke tinjauan tidak mengubah persediaan sedikit pun. Fakta shortage atau gain baru
+        ditulis saat count disetujui — dan saat itu ditulis atomik.</span>
+      </div>
+
+      <div class="board" id="board"></div>
+    </div>
+  </main>
+</div>
+
+<div class="dlg" id="dlg" data-open="false">
+  <div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="d-t">
+    <div class="dlg-head"><h2 id="d-t">—</h2><p id="d-p"></p></div>
+    <div class="dlg-body" id="d-body"></div>
+    <div class="dlg-foot">
+      <button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="d-no">Batal</button>
+      <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="d-yes">Lanjut</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* GET/POST /api/v1/inventory/counts · /{id}/activate · /entries · /submit · /approve */
+var COUNTS = [
+  {id:"CNT-2609-0031", pool:"dc.warehouse", kind:"CYCLE", status:"REVIEW",
+   why:"Siklus mingguan rak A1–A8", expected:1240, found:1218, actor:"inventory-counter", at:"2 hari lalu"},
+  {id:"CNT-2609-0028", pool:"store-02.floor", kind:"TARGETED", status:"REVIEW",
+   why:"Selisih ditemukan kasir saat closing", expected:96, found:99, actor:"wawan.s", at:"3 hari lalu"},
+  {id:"CNT-2608-0119", pool:"store-11.warehouse", kind:"FULL", status:"REVIEW",
+   why:"Stok opname bulanan", expected:2104, found:2104, actor:"rina.w", at:"5 hari lalu"},
+  {id:"CNT-2609-0034", pool:"store-03.floor", kind:"CYCLE", status:"ACTIVE",
+   why:"Siklus mingguan gantungan depan", expected:640, found:412, actor:"dedi.f", at:"hari ini 08:20"},
+  {id:"CNT-2609-0035", pool:"dc.staging", kind:"TARGETED", status:"ACTIVE",
+   why:"Cek silang setelah bongkar muat", expected:180, found:0, actor:"budi.s", at:"hari ini 09:05"},
+  {id:"CNT-2609-0036", pool:"store-07.warehouse", kind:"CYCLE", status:"DRAFT",
+   why:"Siklus mingguan", expected:null, found:null, actor:"sari.m", at:"baru saja"},
+  {id:"CNT-2608-0102", pool:"dc.reject.dc", kind:"FULL", status:"CLOSED",
+   why:"Opname reject kuartalan", expected:640, found:612, actor:"budi.s", at:"18 Agu 2026"},
+  {id:"CNT-2608-0098", pool:"store-01.floor", kind:"CYCLE", status:"CLOSED",
+   why:"Siklus mingguan", expected:2088, found:2088, actor:"hadi.p", at:"14 Agu 2026"},
+];
+
+var KIND = {FULL:"Penuh", CYCLE:"Siklus", TARGETED:"Terarah"};
+var STATUS = {DRAFT:["neutral","Draf"], ACTIVE:["orange","Berjalan"], REVIEW:["accent","Tinjauan"], CLOSED:["green","Ditutup"]};
+
+function num(n){ return n === null ? "—" : String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+
+/* Selisih diberi arah DAN kata. Angka bertanda saja menuntut orang ingat
+   mana yang positif; kata "kurang"/"lebih" tidak menuntut apa-apa. */
+function variance(c){
+  if (c.expected === null || c.found === null) return null;
+  var d = c.found - c.expected;
+  if (d === 0) return {d:0, dir:"match", word:"cocok"};
+  if (d < 0) return {d:d, dir:"short", word:num(-d) + " kurang"};
+  return {d:d, dir:"gain", word:num(d) + " lebih"};
+}
+
+function card(c){
+  var s = STATUS[c.status], v = variance(c);
+  var acts = "";
+  if (c.status === "DRAFT") acts = '<button type="button" class="btn btn-secondary btn-sm" data-act="activate" data-id="' + c.id + '">Aktifkan</button>';
+  if (c.status === "ACTIVE") acts =
+    '<button type="button" class="btn btn-secondary btn-sm" data-act="entry" data-id="' + c.id + '">Catat EPC</button>' +
+    '<button type="button" class="btn btn-secondary btn-sm" data-act="submit" data-id="' + c.id + '">Kirim tinjauan</button>';
+  if (c.status === "REVIEW") acts =
+    '<button type="button" class="btn btn-primary btn-sm" data-act="approve" data-id="' + c.id + '">Setujui &amp; tutup</button>';
+
+  return '<div class="cnt">' +
+    '<div class="cnt-top"><b>' + c.id + '</b>' +
+      '<span class="pill" data-tone="' + s[0] + '">' + s[1] + '</span>' +
+      '<span class="chip">' + KIND[c.kind] + '</span></div>' +
+    '<div class="pool">' + c.pool + '</div>' +
+    '<div class="why">' + c.why + ' · ' + c.actor + ' · ' + c.at + '</div>' +
+    (v
+      ? '<div class="diff">' +
+          '<span class="pair"><span>Diharapkan</span><b>' + num(c.expected) + '</b></span>' +
+          '<span class="pair"><span>Ditemukan</span><b>' + num(c.found) + '</b></span>' +
+          '<span class="out"><span>Selisih</span><b data-d="' + v.dir + '">' + v.word + '</b></span>' +
+        '</div>'
+      : '<div class="diff"><span class="pair"><span>Diharapkan</span><b class="nil">—</b></span>' +
+        '<span class="out"><span>Belum dibekukan</span><b class="nil">—</b></span></div>') +
+    (acts ? '<div class="acts">' + acts + '</div>' : "") +
+  '</div>';
+}
+
+function column(title, status, note){
+  var list = COUNTS.filter(function(c){ return c.status === status; });
+  return '<section class="card col">' +
+    '<div class="colhead"><h2>' + title + '</h2><span class="n">' + list.length + '</span></div>' +
+    (list.length ? list.map(card).join("") : '<div class="empty"><b>Kosong</b>' + note + '</div>') +
+  '</section>';
+}
+
+function render(){
+  document.getElementById("board").innerHTML =
+    column("Draf", "DRAFT", "Count baru muncul di sini sebelum diaktifkan.") +
+    column("Berjalan", "ACTIVE", "Lingkup dan angka harapan sudah dibekukan saat aktivasi.") +
+    column("Tinjauan", "REVIEW", "Selisih sudah terlihat, belum ada yang ditulis.") +
+    column("Riwayat", "CLOSED", "Count yang sudah disetujui dan ditutup.");
+
+  document.querySelectorAll("[data-act]").forEach(function(b){
+    b.addEventListener("click", function(){ act(b.dataset.act, b.dataset.id); });
+  });
+}
+
+/* ── dialog ────────────────────────────────────────────── */
+var dlg = document.getElementById("dlg");
+function ask(title, sub, body, okLabel, onOk){
+  document.getElementById("d-t").textContent = title;
+  document.getElementById("d-p").textContent = sub;
+  document.getElementById("d-body").innerHTML = body;
+  var yes = document.getElementById("d-yes");
+  yes.textContent = okLabel;
+  yes.onclick = function(){ dlg.dataset.open = "false"; onOk(); };
+  dlg.dataset.open = "true";
+}
+document.getElementById("d-no").addEventListener("click", function(){ dlg.dataset.open = "false"; });
+dlg.addEventListener("click", function(e){ if (e.target === dlg) dlg.dataset.open = "false"; });
+
+function act(kind, id){
+  var c = COUNTS.find(function(x){ return x.id === id; });
+
+  if (kind === "activate") {
+    ask("Aktifkan " + c.id, c.pool,
+      '<p style="margin:0;font-size:13.5px;color:var(--ink-2)">Aktivasi <b>membekukan</b> lingkup dan jumlah yang diharapkan pada detik ini. ' +
+      'Setelah dibekukan, stok boleh terus bergerak di lapangan — tapi angka pembandingnya tidak ikut bergerak. Itu memang gunanya.</p>' +
+      '<div class="band" data-tone="neutral"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+      '<span>Tidak ada persediaan yang berubah.</span></div>',
+      "Bekukan & aktifkan", function(){
+        c.status = "ACTIVE"; c.expected = 640; c.found = 0; render();
+      });
+    return;
+  }
+
+  if (kind === "entry") {
+    ask("Catat temuan · " + c.id, c.pool,
+      '<div class="f"><label for="e-epc">EPC</label><input class="inp mono" id="e-epc" placeholder="Pindai EPC"></div>' +
+      '<div class="f"><label for="e-qty">Jumlah ditemukan</label><input class="inp inp-num" id="e-qty" type="number" min="0" value="1"></div>' +
+      '<div class="band" data-tone="neutral"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>' +
+      '<span>Temuan adalah bukti, bukan pergerakan. Belum ada persediaan yang berubah.</span></div>',
+      "Catat", function(){
+        var q = Number((document.getElementById("e-qty") || {}).value || 1);
+        c.found += q; render();
+      });
+    return;
+  }
+
+  if (kind === "submit") {
+    var v = variance(c);
+    ask("Kirim ke tinjauan · " + c.id, c.pool,
+      '<p style="margin:0;font-size:13.5px;color:var(--ink-2)">Selisih akan terlihat oleh supervisor. ' +
+      'Pengiriman <b>tidak</b> menulis fakta apa pun — itu terjadi saat count disetujui.</p>' +
+      (v ? '<div class="diff"><span class="pair"><span>Diharapkan</span><b>' + num(c.expected) + '</b></span>' +
+           '<span class="pair"><span>Ditemukan</span><b>' + num(c.found) + '</b></span>' +
+           '<span class="out"><span>Selisih</span><b data-d="' + v.dir + '">' + v.word + '</b></span></div>' : ""),
+      "Kirim", function(){ c.status = "REVIEW"; render(); });
+    return;
+  }
+
+  if (kind === "approve") {
+    var v2 = variance(c);
+    /* Konfirmasi menyebut angka yang akan ditulis. Pertanyaan "yakin?" tidak
+       memberi orang apa pun untuk diperiksa. */
+    var box = v2.dir === "match"
+      ? '<div class="willwrite none"><b>Tidak ada fakta yang ditulis.</b> Hitungan cocok dengan angka yang dibekukan, jadi tidak ada shortage maupun gain.</div>'
+      : v2.dir === "short"
+        ? '<div class="willwrite"><b>Akan ditulis: shortage ' + num(-v2.d) + ' unit.</b> Barang berpindah dari <span class="mono">' + c.pool + '</span> ke <span class="mono">' + c.pool.split(".")[0] + '.missing</span> sebagai satu grup pergerakan atomik.</div>'
+        : '<div class="willwrite gain"><b>Akan ditulis: gain ' + num(v2.d) + ' unit.</b> Gain hanya sah untuk subjek yang sudah dikenal — barang yang tidak terdaftar tidak bisa dimasukkan lewat count.</div>';
+
+    ask("Setujui & tutup · " + c.id, c.pool,
+      '<div class="diff"><span class="pair"><span>Diharapkan</span><b>' + num(c.expected) + '</b></span>' +
+      '<span class="pair"><span>Ditemukan</span><b>' + num(c.found) + '</b></span>' +
+      '<span class="out"><span>Selisih</span><b data-d="' + v2.dir + '">' + v2.word + '</b></span></div>' + box +
+      '<p style="margin:0;font-size:12.5px;color:var(--ink-3)">Ini satu-satunya tombol di layar ini yang mengubah persediaan.</p>',
+      "Setujui & tulis", function(){ c.status = "CLOSED"; render(); });
+    return;
+  }
+}
+
+document.getElementById("new").addEventListener("click", function(){
+  ask("Count baru", "Membuat draf. Belum mengunci apa pun.",
+    '<div class="row2">' +
+      '<div class="f" style="grid-column:1/-1"><label for="n-pool">Pool operasional</label>' +
+        '<select class="inp" id="n-pool"><option>dc.warehouse</option><option>dc.staging</option><option>store-03.floor</option><option>store-07.warehouse</option></select></div>' +
+      '<div class="f"><label for="n-kind">Jenis</label><select class="inp" id="n-kind"><option value="FULL">Penuh</option><option value="CYCLE" selected>Siklus</option><option value="TARGETED">Terarah</option></select></div>' +
+      '<div class="f"><label for="n-actor">Pelaku</label><input class="inp" id="n-actor" value="inventory-supervisor"></div>' +
+      '<div class="f" style="grid-column:1/-1"><label for="n-why">Alasan</label><input class="inp" id="n-why" value="Siklus mingguan"></div>' +
+    '</div>',
+    "Buat draf", function(){
+      COUNTS.unshift({
+        id:"CNT-2609-0" + Math.floor(10 + Math.random()*89),
+        pool:document.getElementById("n-pool") ? document.getElementById("n-pool").value : "dc.warehouse",
+        kind:"CYCLE", status:"DRAFT", why:"Siklus mingguan",
+        expected:null, found:null, actor:"inventory-supervisor", at:"baru saja"});
+      render();
+    });
+});
+
+document.getElementById("theme").addEventListener("click", function(){ document.documentElement.classList.toggle("dark"); });
+document.addEventListener("keydown", function(e){ if (e.key === "Escape") dlg.dataset.open = "false"; });
+render();
+</script>
+</body>
+</html>

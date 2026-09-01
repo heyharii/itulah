@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Missing · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   MISSING — barang yang tidak ketemu, masih milik pool asalnya
+   --------------------------------------------------------------------------
+   Dua invarian menentukan bentuk layar ini, dan keduanya melawan cara orang
+   biasanya membayangkan "barang hilang":
+
+   7 · "Missing is a state of one exact operational pool and is never
+       saleable." Missing BUKAN keranjang global. Sebuah barang yang tidak
+       ketemu di store-03.floor tetap milik store-03.floor — ia cuma berganti
+       keadaan. Maka layar ini dikelompokkan menurut POOL ASAL, bukan jadi
+       satu daftar panjang: pertanyaan yang sebenarnya adalah "pool mana yang
+       kehilangan jejak", bukan "berapa total yang hilang".
+
+   12 · "Confirmed Lost starts at an operational pool's Missing state."
+       Artinya tidak ada jalan pintas dari rak langsung ke Lost. Sesuatu harus
+       lebih dulu dinyatakan Missing oleh sebuah count, baru bisa dinyatakan
+       hilang. Layar ini karena itu tidak punya tombol "tandai hilang" di luar
+       daftar Missing.
+
+   Dan invarian 10: bacaan RFID TIDAK PERNAH membuat Missing. Bukti RFID cuma
+   bukti. Jadi kolom "bacaan terakhir" di sini adalah petunjuk untuk mencari,
+   bukan alasan untuk menutup perkara — dan itu ditulis.
+
+   Tiga penyelesaian, tiga akibat berbeda, dan semuanya menulis pergerakan:
+     Ditemukan di sini  → kembali ke pool asal
+     Ditemukan di lain  → ke pool tujuan, dan itu mengaku salah tempat
+     Hilang             → ke system/lost. Final.
+     Dimusnahkan        → ke external/disposal. Final.
+   ========================================================================== */
+
+.sum{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));margin-bottom:12px}
+.stat{padding:12px 14px;display:flex;flex-direction:column;gap:5px}
+.stat span{font-size:12.5px;color:var(--ink-2)}
+.stat b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:23px;font-weight:500;letter-spacing:-.03em;line-height:1}
+.stat[data-tone="red"] b{color:var(--red)}
+.stat[data-tone="orange"] b{color:var(--orange)}
+.stat small{font-size:11.5px;color:var(--ink-3)}
+
+.poolgrp{margin-bottom:12px}
+.ph2{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 16px;border-bottom:1px solid var(--line)}
+.ph2 b{font-family:var(--font-mono);font-size:13.5px;font-weight:500}
+.ph2 .meta{margin-left:auto;font-size:12.5px;color:var(--ink-3)}
+
+.item{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.card .item:last-of-type{border-bottom:0}
+.item .id{min-width:0;flex:1}
+.item .id b{display:block;font-family:var(--font-mono);font-size:13px;font-weight:500}
+.item .id span{display:block;font-size:12px;color:var(--ink-3)}
+.item .age{text-align:end;flex-shrink:0;min-width:88px}
+.item .age b{display:block;font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:14px}
+.item .age b[data-old="true"]{color:var(--red)}
+.item .age span{font-size:11px;color:var(--ink-3)}
+.item .hint{flex-shrink:0;min-width:150px;font-size:12px;color:var(--ink-3)}
+.item .acts{display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0}
+
+.dlg{position:fixed;inset:0;display:none;place-items:center;padding:20px;z-index:60;background:var(--scrim)}
+.dlg[data-open="true"]{display:grid}
+.dlg-box{width:min(520px,100%);background:var(--page);border-radius:var(--radius-window);box-shadow:var(--shadow-overlay);overflow:hidden}
+.dlg-head{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.dlg-head h2{margin:0 0 3px;font-size:17px;font-weight:600;letter-spacing:-.015em}
+.dlg-head p{margin:0;font-size:13px;color:var(--ink-2)}
+.dlg-body{padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+.dlg-foot{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+.willmove{padding:11px 13px;border-radius:var(--radius-card);background:var(--inset);font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--ink-2);white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS · Edge</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="14-allotment.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M9 2.5v5m0 0-4 3v5m4-8 4 3v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Allotment</a>
+    <a href="15-movement.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 6.5h11m0 0-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 11.5h-11m0 0 3-3m-3 3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Pergerakan</a>
+    <a href="16-count.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Official Count <span class="n">3</span></a>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.8 2.4"/><path d="M9 5.75v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="12" r=".85" fill="currentColor"/></svg>Missing <span class="n" data-tone="red">12</span></a>
+    <div class="side-foot"><p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>Missing · 09:14</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Missing</h1>
+      <span class="stamp"><i></i>Tetap melekat pada pool asalnya</span>
+      <div class="right">
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="sum" id="sum"></div>
+
+      <div class="band" data-tone="neutral" style="margin-bottom:12px">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5.2" r=".85" fill="currentColor"/></svg>
+        <span><b>Bacaan RFID tidak pernah membuat Missing.</b> Yang membuatnya cuma Official Count.
+        Kolom bacaan terakhir di bawah adalah petunjuk untuk mencari — bukan alasan untuk menutup perkara.</span>
+      </div>
+
+      <div id="pools"></div>
+    </div>
+  </main>
+</div>
+
+<div class="dlg" id="dlg" data-open="false">
+  <div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="d-t">
+    <div class="dlg-head"><h2 id="d-t">—</h2><p id="d-p"></p></div>
+    <div class="dlg-body" id="d-body"></div>
+    <div class="dlg-foot">
+      <button type="button" class="btn btn-secondary btn-sm" style="flex:1" id="d-no">Batal</button>
+      <button type="button" class="btn btn-primary btn-sm" style="flex:1" id="d-yes">Lanjut</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* GET /api/v1/inventory/missing · POST /{id}/found · /lost · /dispose */
+var MISSING = [
+  {id:"MS-2609-0044", epc:"A0B1C2D3E4F50077", sku:"10230114502", pool:"dc.warehouse", qty:1,
+   since:"6 hari lalu", hours:146, seen:"3 hari lalu di dc.staging", count:"CNT-2608-0119"},
+  {id:"MS-2609-0045", epc:"A0B1C2D3E4F50081", sku:"10230114503", pool:"dc.warehouse", qty:1,
+   since:"6 hari lalu", hours:146, seen:"belum pernah terbaca", count:"CNT-2608-0119"},
+  {id:"MS-2609-0051", epc:"A0B1C2D3E4F50120", sku:"10231220871", pool:"dc.warehouse", qty:1,
+   since:"2 hari lalu", hours:51, seen:"kemarin di dc.outbound.picking", count:"CNT-2609-0031"},
+  {id:"MS-2609-0038", epc:"A0B1C2D3E4F50201", sku:"10229907441", pool:"store-03.floor", qty:1,
+   since:"9 hari lalu", hours:214, seen:"8 hari lalu di store-03.warehouse", count:"CNT-2608-0102"},
+  {id:"MS-2609-0039", epc:"A0B1C2D3E4F50202", sku:"10229907441", pool:"store-03.floor", qty:1,
+   since:"9 hari lalu", hours:214, seen:"belum pernah terbaca", count:"CNT-2608-0102"},
+  {id:"MS-2609-0060", epc:"A0B1C2D3E4F50310", sku:"10228801220", pool:"store-03.floor", qty:1,
+   since:"14 jam lalu", hours:14, seen:"12 jam lalu di store-03.floor", count:"CNT-2609-0034"},
+  {id:"MS-2609-0055", epc:"A0B1C2D3E4F50288", sku:"10230114502", pool:"store-07.warehouse", qty:1,
+   since:"4 hari lalu", hours:98, seen:"belum pernah terbaca", count:"CNT-2609-0028"},
+  {id:"MS-2609-0056", epc:"A0B1C2D3E4F50289", sku:"10230114502", pool:"store-07.warehouse", qty:1,
+   since:"4 hari lalu", hours:98, seen:"3 hari lalu di store-07.floor", count:"CNT-2609-0028"},
+];
+
+var POOL_TARGETS = ["dc.warehouse","dc.staging","dc.reject.dc","store-01.floor","store-03.floor",
+                    "store-03.warehouse","store-07.floor","store-07.warehouse"];
+
+function num(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+
+function render(){
+  var total = MISSING.length;
+  var lewat = MISSING.filter(function(m){ return m.hours > 72; }).length;
+  var tanpaJejak = MISSING.filter(function(m){ return m.seen === "belum pernah terbaca"; }).length;
+  var tertua = MISSING.reduce(function(a, m){ return Math.max(a, m.hours); }, 0);
+
+  document.getElementById("sum").innerHTML =
+    '<div class="card stat"><span>Missing berjalan</span><b>' + num(total) + '</b><small>di ' +
+      new Set(MISSING.map(function(m){ return m.pool; })).size + ' pool</small></div>' +
+    '<div class="card stat" data-tone="red"><span>Lewat 72 jam</span><b>' + num(lewat) + '</b><small>belum diselesaikan</small></div>' +
+    '<div class="card stat" data-tone="orange"><span>Tanpa jejak RFID</span><b>' + num(tanpaJejak) + '</b><small>tidak ada petunjuk mencari</small></div>' +
+    '<div class="card stat"><span>Tertua</span><b>' + Math.floor(tertua/24) + '<small style="font-size:13px"> hari</small></b><small>' + tertua + ' jam</small></div>';
+
+  /* Dikelompokkan per pool asal — karena Missing memang keadaan sebuah pool,
+     bukan keranjang global. */
+  var byPool = {};
+  MISSING.forEach(function(m){ (byPool[m.pool] = byPool[m.pool] || []).push(m); });
+
+  document.getElementById("pools").innerHTML = Object.keys(byPool).sort().map(function(p){
+    var list = byPool[p];
+    var late = list.filter(function(m){ return m.hours > 72; }).length;
+    return '<section class="card poolgrp">' +
+      '<div class="ph2"><b>' + p + '</b>' +
+        '<span class="chip">' + list.length + ' unit</span>' +
+        (late ? '<span class="pill" data-tone="red">' + late + ' lewat 72 jam</span>' : '') +
+        '<span class="meta">Missing di pool ini tetap milik pool ini</span></div>' +
+      list.map(function(m){
+        var old = m.hours > 72;
+        return '<div class="item">' +
+          '<span class="id"><b>' + m.epc + '</b><span>' + m.sku + ' · dari ' + m.count + '</span></span>' +
+          '<span class="age"><b data-old="' + old + '">' + (m.hours >= 24 ? Math.floor(m.hours/24) + " hari" : m.hours + " jam") + '</b>' +
+            '<span>sejak ' + m.since + '</span></span>' +
+          '<span class="hint">' + (m.seen === "belum pernah terbaca"
+            ? '<span class="nil">belum pernah terbaca</span>'
+            : 'terakhir ' + m.seen) + '</span>' +
+          '<span class="acts">' +
+            '<button type="button" class="btn btn-secondary btn-sm" data-a="here" data-id="' + m.id + '">Ketemu di sini</button>' +
+            '<button type="button" class="btn btn-secondary btn-sm" data-a="else" data-id="' + m.id + '">Ketemu di lain</button>' +
+            '<button type="button" class="btn btn-secondary btn-sm" data-a="lost" data-id="' + m.id + '">Hilang</button>' +
+            '<button type="button" class="btn btn-secondary btn-sm" data-a="disp" data-id="' + m.id + '">Musnahkan</button>' +
+          '</span>' +
+        '</div>';
+      }).join("") +
+    '</section>';
+  }).join("") || '<div class="card"><div class="empty"><b>Tidak ada Missing</b>Semua pool cocok dengan catatannya.</div></div>';
+
+  document.querySelectorAll("[data-a]").forEach(function(b){
+    b.addEventListener("click", function(){ resolve(b.dataset.a, b.dataset.id); });
+  });
+}
+
+var dlg = document.getElementById("dlg");
+function ask(title, sub, body, okLabel, onOk){
+  document.getElementById("d-t").textContent = title;
+  document.getElementById("d-p").textContent = sub;
+  document.getElementById("d-body").innerHTML = body;
+  var yes = document.getElementById("d-yes");
+  yes.textContent = okLabel;
+  yes.onclick = function(){ dlg.dataset.open = "false"; onOk(); };
+  dlg.dataset.open = "true";
+}
+document.getElementById("d-no").addEventListener("click", function(){ dlg.dataset.open = "false"; });
+dlg.addEventListener("click", function(e){ if (e.target === dlg) dlg.dataset.open = "false"; });
+
+function drop(id){ MISSING = MISSING.filter(function(m){ return m.id !== id; }); render(); }
+
+function resolve(kind, id){
+  var m = MISSING.find(function(x){ return x.id === id; });
+  var reasonField = '<div class="f"><label for="r-why">Alasan</label>' +
+    '<input class="inp" id="r-why" value="Investigasi fisik selesai"></div>';
+
+  if (kind === "here") {
+    ask("Ketemu di pool asal", m.epc,
+      reasonField +
+      '<div class="willmove">' + m.epc + ' × ' + m.qty + '\n' + m.pool + '.missing\n→ ' + m.pool + '\nsebab: FOUND</div>' +
+      '<p style="margin:0;font-size:12.5px;color:var(--ink-2)">Barangnya kembali ke keadaan normal di pool yang sama. Satu pergerakan ditulis.</p>',
+      "Kembalikan", function(){ drop(id); });
+    return;
+  }
+
+  if (kind === "else") {
+    ask("Ketemu di pool lain", m.epc,
+      '<div class="f"><label for="r-dest">Pool tempat ditemukan</label><select class="inp" id="r-dest">' +
+        POOL_TARGETS.filter(function(p){ return p !== m.pool; }).map(function(p){ return '<option>' + p + '</option>'; }).join("") +
+      '</select></div>' + reasonField +
+      '<div class="band" data-tone="orange"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>' +
+      '<span>Ini mengaku barangnya <b>salah tempat</b>, bukan sekadar ketemu. Pool asal kehilangan satu unit dan pool tujuan bertambah satu — keduanya tercatat.</span></div>',
+      "Catat di pool itu", function(){ drop(id); });
+    return;
+  }
+
+  if (kind === "lost") {
+    ask("Nyatakan hilang", m.epc,
+      reasonField +
+      '<div class="willmove">' + m.epc + ' × ' + m.qty + '\n' + m.pool + '.missing\n→ system/lost\nsebab: LOST</div>' +
+      '<div class="band" data-tone="red"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>' +
+      '<span><b>Final.</b> Ini yang masuk hitungan Lost&nbsp;% pool ini selama 30 hari ke depan. Barang yang ternyata ketemu setelah ini butuh count baru, bukan pembatalan.</span></div>',
+      "Nyatakan hilang", function(){ drop(id); });
+    return;
+  }
+
+  ask("Musnahkan", m.epc,
+    reasonField +
+    '<div class="willmove">' + m.epc + ' × ' + m.qty + '\n' + m.pool + '.missing\n→ external/disposal\nsebab: DISPOSAL</div>' +
+    '<div class="band" data-tone="red"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/></svg>' +
+    '<span><b>Final, dan berbeda dari hilang.</b> Musnah berarti barangnya ada dan sengaja dikeluarkan; hilang berarti tidak ketemu. Keduanya tidak boleh ditukar demi merapikan angka.</span></div>',
+    "Musnahkan", function(){ drop(id); });
+}
+
+document.getElementById("theme").addEventListener("click", function(){ document.documentElement.classList.toggle("dark"); });
+document.addEventListener("keydown", function(e){ if (e.key === "Escape") dlg.dataset.open = "false"; });
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="id" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Peta user flow dan arsitektur backend Purchase Order hingga tagging berdasarkan code review dan integration test aktual." />
+  <title>PO → Tagging · Backend Reality Map</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --surface: #0d1a2b;
+      --surface-2: #12243a;
+      --surface-3: #172d47;
+      --ink: #edf5ff;
+      --muted: #9bb0c9;
+      --line: #2b4665;
+      --cyan: #55d8ff;
+      --blue: #6f8dff;
+      --violet: #aa86ff;
+      --green: #5de0a1;
+      --amber: #ffc968;
+      --red: #ff7885;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .28);
+      --radius: 18px;
+    }
+    html[data-theme="light"] {
+      color-scheme: light;
+      --bg: #eef4fb;
+      --surface: #ffffff;
+      --surface-2: #f5f8fc;
+      --surface-3: #eaf1f9;
+      --ink: #102238;
+      --muted: #52677e;
+      --line: #bfd0e2;
+      --cyan: #007da5;
+      --blue: #345dd6;
+      --violet: #7049c8;
+      --green: #087d51;
+      --amber: #9a5b00;
+      --red: #b42335;
+      --shadow: 0 18px 50px rgba(38, 67, 98, .12);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--blue) 16%, transparent), transparent 28rem),
+        radial-gradient(circle at 90% 8%, color-mix(in srgb, var(--violet) 13%, transparent), transparent 24rem),
+        var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+    button, input { font: inherit; }
+    a { color: var(--cyan); }
+    code, .mono {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: .9em;
+    }
+    code {
+      color: color-mix(in srgb, var(--cyan) 88%, var(--ink));
+      background: color-mix(in srgb, var(--cyan) 10%, transparent);
+      border: 1px solid color-mix(in srgb, var(--cyan) 18%, transparent);
+      border-radius: 6px;
+      padding: .12rem .34rem;
+      overflow-wrap: anywhere;
+    }
+    .shell { width: min(1480px, calc(100% - 32px)); margin: 0 auto; }
+    .hero { padding: 34px 0 20px; }
+    .hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: var(--cyan); font-size: .76rem; font-weight: 800;
+      letter-spacing: .13em; text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 24px; height: 2px; background: currentColor; }
+    h1 { margin: 8px 0 8px; font-size: clamp(2rem, 4vw, 4.25rem); line-height: 1.02; letter-spacing: -.055em; }
+    .lede { max-width: 850px; margin: 0; color: var(--muted); font-size: clamp(.98rem, 1.5vw, 1.15rem); }
+    .actions { display: flex; gap: 8px; flex: 0 0 auto; }
+    .icon-button {
+      appearance: none; border: 1px solid var(--line); background: var(--surface);
+      color: var(--ink); border-radius: 12px; padding: 9px 12px; cursor: pointer;
+      box-shadow: var(--shadow);
+    }
+    .icon-button:hover { border-color: var(--cyan); }
+    .status-strip {
+      display: grid; grid-template-columns: 1.1fr repeat(3, 1fr); gap: 10px;
+      margin-top: 24px;
+    }
+    .metric {
+      min-height: 86px; padding: 15px 17px; border: 1px solid var(--line);
+      border-radius: 15px; background: color-mix(in srgb, var(--surface) 92%, transparent);
+      box-shadow: var(--shadow);
+    }
+    .metric strong { display: block; font-size: 1.22rem; line-height: 1.25; }
+    .metric span { display: block; margin-top: 5px; color: var(--muted); font-size: .83rem; }
+    .metric.verdict { border-color: color-mix(in srgb, var(--green) 48%, var(--line)); }
+    .metric.verdict strong { color: var(--green); }
+    .nav-wrap {
+      position: sticky; top: 0; z-index: 20; padding: 8px 0 12px;
+      background: linear-gradient(var(--bg) 58%, transparent);
+      backdrop-filter: blur(14px);
+    }
+    .tabs {
+      display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin;
+      border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 94%, transparent);
+      border-radius: 14px; padding: 6px; box-shadow: var(--shadow);
+    }
+    .tab {
+      border: 0; border-radius: 9px; background: transparent; color: var(--muted);
+      padding: 9px 14px; white-space: nowrap; cursor: pointer; font-weight: 750; font-size: .88rem;
+    }
+    .tab:hover { color: var(--ink); background: var(--surface-2); }
+    .tab[aria-selected="true"] { color: #06101c; background: var(--cyan); }
+    html[data-theme="light"] .tab[aria-selected="true"] { color: #fff; background: #006b8d; }
+    main { padding-bottom: 42px; }
+    .panel { display: none; animation: enter .18s ease-out; }
+    .panel.active { display: block; }
+    @keyframes enter { from { opacity: .35; transform: translateY(5px); } }
+    .section-head { display: flex; justify-content: space-between; gap: 20px; align-items: end; margin: 12px 0 14px; }
+    .section-head h2 { margin: 0; font-size: clamp(1.45rem, 2.5vw, 2.25rem); letter-spacing: -.035em; }
+    .section-head p { margin: 0; max-width: 720px; color: var(--muted); font-size: .9rem; }
+    .card {
+      border: 1px solid var(--line); border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 96%, transparent); box-shadow: var(--shadow);
+    }
+    .callout { padding: 18px 20px; }
+    .callout strong { color: var(--green); }
+    .callout.warning { border-color: color-mix(in srgb, var(--amber) 50%, var(--line)); }
+    .callout.warning strong { color: var(--amber); }
+    .callout p { margin: 5px 0 0; color: var(--muted); }
+    .overview-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; margin-top: 14px; }
+    .summary-card { padding: 20px; }
+    .summary-card h3 { margin: 0 0 12px; font-size: 1.05rem; }
+    .summary-card ul { margin: 0; padding-left: 20px; color: var(--muted); }
+    .summary-card li + li { margin-top: 8px; }
+    .quantity-rail { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; overflow: hidden; border-radius: 13px; border: 1px solid var(--line); }
+    .quantity-step { min-height: 115px; padding: 16px; background: var(--surface-2); position: relative; }
+    .quantity-step:not(:last-child)::after {
+      content: "→"; position: absolute; right: -10px; top: 42%; z-index: 2;
+      color: var(--cyan); font-size: 1.1rem; font-weight: 900;
+    }
+    .quantity-step b { display: block; font-size: 1.45rem; }
+    .quantity-step span { color: var(--muted); font-size: .82rem; }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 12px; color: var(--muted); font-size: .8rem; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
+    .diagram-card { overflow: hidden; padding: 10px; }
+    .diagram-card svg { width: 100%; height: auto; display: block; }
+    .diagram-card .lane { fill: var(--surface-2); stroke: var(--line); }
+    .diagram-card .lane-title { fill: var(--muted); font-weight: 800; font-size: 14px; letter-spacing: .08em; }
+    .diagram-card .phase { fill: var(--surface-3); stroke: var(--line); }
+    .diagram-card .phase-title { fill: var(--ink); font-weight: 850; font-size: 14px; }
+    .diagram-card .node { fill: var(--surface); stroke: var(--line); stroke-width: 1.4; }
+    .diagram-card .node.cloud { stroke: var(--blue); }
+    .diagram-card .node.sync { stroke: var(--violet); }
+    .diagram-card .node.dc { stroke: var(--cyan); }
+    .diagram-card .node.success { stroke: var(--green); stroke-width: 2; }
+    .diagram-card .node-title { fill: var(--ink); font-size: 14px; font-weight: 800; }
+    .diagram-card .node-copy { fill: var(--muted); font-size: 11px; }
+    .diagram-card .node-code { fill: var(--cyan); font-family: "SFMono-Regular", monospace; font-size: 10px; }
+    .diagram-card .arrow { stroke: var(--cyan); stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+    .diagram-card .branch { stroke: var(--amber); stroke-width: 1.8; stroke-dasharray: 5 4; fill: none; marker-end: url(#arrowAmber); }
+    .diagram-card .fact { stroke: var(--violet); }
+    .diagram-card .edge-label { fill: var(--muted); font-size: 10px; font-weight: 700; }
+    .diagram-card .branch-label { fill: var(--amber); font-size: 10px; font-weight: 800; }
+    .step-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    details.step { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+    details.step[open] { border-color: color-mix(in srgb, var(--cyan) 42%, var(--line)); }
+    details.step summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+    details.step summary::-webkit-details-marker { display: none; }
+    .step-no { display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 9px; background: var(--surface-3); color: var(--cyan); font-weight: 900; }
+    .step-title { flex: 1; }
+    .step-title b { display: block; }
+    .step-title small { display: block; color: var(--muted); }
+    .chev { color: var(--muted); transition: transform .15s; }
+    details[open] .chev { transform: rotate(90deg); }
+    .step-body { padding: 0 16px 16px; border-top: 1px solid var(--line); }
+    .io-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 13px; }
+    .io { padding: 11px 12px; border-radius: 10px; background: var(--surface-2); min-width: 0; }
+    .io h4 { margin: 0 0 5px; color: var(--cyan); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+    .io p, .io ul { margin: 0; color: var(--muted); font-size: .82rem; }
+    .io ul { padding-left: 17px; }
+    .io.failure h4 { color: var(--red); }
+    .architecture-grid { display: grid; grid-template-columns: 1.25fr .75fr; gap: 14px; }
+    .component-stack { display: grid; gap: 10px; }
+    .component { padding: 15px 16px; }
+    .component h3 { margin: 0 0 4px; font-size: .95rem; }
+    .component p { margin: 0; color: var(--muted); font-size: .82rem; }
+    .data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .84rem; overflow: hidden; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+    .data-table th { text-align: left; color: var(--muted); background: var(--surface-2); font-size: .72rem; letter-spacing: .07em; text-transform: uppercase; }
+    .data-table th, .data-table td { padding: 11px 13px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .data-table tr:last-child td { border-bottom: 0; }
+    .data-table td:first-child { font-weight: 780; color: var(--ink); white-space: nowrap; }
+    .contract-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .contract { padding: 18px; }
+    .contract h3 { margin: 0; font-size: 1rem; }
+    .contract .endpoint { margin: 4px 0 13px; color: var(--cyan); overflow-wrap: anywhere; }
+    .field-list { display: grid; gap: 7px; margin: 0; }
+    .field { display: grid; grid-template-columns: minmax(130px, .65fr) 1.35fr; gap: 10px; border-top: 1px solid var(--line); padding-top: 7px; font-size: .8rem; }
+    .field dt { font-family: "SFMono-Regular", monospace; color: var(--ink); overflow-wrap: anywhere; }
+    .field dd { margin: 0; color: var(--muted); }
+    .contract-output { margin-top: 13px; padding: 11px; border-radius: 10px; background: var(--surface-2); color: var(--muted); font-size: .82rem; }
+    .contract-output b { color: var(--green); }
+    .state-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+    .state-card { padding: 15px; }
+    .state-card h3 { margin: 0 0 8px; font-size: .9rem; }
+    .state-path { color: var(--cyan); font-weight: 800; font-size: .84rem; }
+    .state-card p { color: var(--muted); font-size: .78rem; margin: 8px 0 0; }
+    .test-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .test-count { padding: 18px; text-align: center; }
+    .test-count strong { display: block; color: var(--green); font-size: 2rem; line-height: 1; }
+    .test-count span { color: var(--muted); font-size: .78rem; }
+    .terminal { margin-top: 14px; padding: 17px; background: #030914; color: #cbe7ff; border: 1px solid #223b56; border-radius: 14px; overflow-x: auto; }
+    .terminal .ok { color: #62e4a8; }
+    .test-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+    .test-suite { padding: 17px; }
+    .test-suite h3 { margin: 0 0 6px; font-size: .95rem; }
+    .test-suite p { margin: 0; color: var(--muted); font-size: .8rem; }
+    .test-suite .result { color: var(--green); font-weight: 850; }
+    .limits { margin-top: 14px; padding: 18px; }
+    .limits h3 { margin: 0 0 8px; }
+    .limits ul { margin: 0; padding-left: 19px; color: var(--muted); }
+    .risk-grid { display: grid; gap: 9px; }
+    .risk { display: grid; grid-template-columns: 120px 1fr 140px; gap: 14px; align-items: start; padding: 15px 17px; }
+    .severity { display: inline-flex; width: fit-content; padding: 4px 8px; border-radius: 999px; font-size: .7rem; font-weight: 900; text-transform: uppercase; letter-spacing: .07em; }
+    .severity.high { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+    .severity.medium { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+    .severity.info { color: var(--cyan); background: color-mix(in srgb, var(--cyan) 12%, transparent); }
+    .risk h3 { margin: 0 0 3px; font-size: .93rem; }
+    .risk p { margin: 0; color: var(--muted); font-size: .8rem; }
+    .risk .evidence { color: var(--muted); font-size: .73rem; overflow-wrap: anywhere; }
+    .source-map { margin-top: 14px; }
+    .footer { color: var(--muted); font-size: .76rem; text-align: center; padding: 0 0 28px; }
+    .tag { display: inline-block; padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px; font-size: .68rem; color: var(--muted); }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    @media (max-width: 980px) {
+      .status-strip, .test-summary { grid-template-columns: repeat(2, 1fr); }
+      .overview-grid, .architecture-grid { grid-template-columns: 1fr; }
+      .contract-grid, .step-list { grid-template-columns: 1fr; }
+      .state-grid { grid-template-columns: repeat(2, 1fr); }
+      .test-list { grid-template-columns: 1fr; }
+      .risk { grid-template-columns: 100px 1fr; }
+      .risk .evidence { grid-column: 2; }
+    }
+    @media (max-width: 680px) {
+      .shell { width: min(100% - 20px, 1480px); }
+      .hero { padding-top: 20px; }
+      .hero-top { display: block; }
+      .actions { margin-top: 14px; }
+      .status-strip, .quantity-rail, .state-grid { grid-template-columns: 1fr; }
+      .quantity-step:not(:last-child)::after { content: "↓"; right: 50%; top: auto; bottom: -13px; }
+      .io-grid { grid-template-columns: 1fr; }
+      .field { grid-template-columns: 1fr; gap: 2px; }
+      .risk { grid-template-columns: 1fr; }
+      .risk .evidence { grid-column: 1; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 5px; }
+      .diagram-card { overflow-x: auto; }
+      .diagram-card svg { min-width: 980px; }
+    }
+    @media print {
+      :root { --bg: #fff; --surface: #fff; --surface-2: #f5f7fa; --surface-3: #edf2f7; --ink: #102238; --muted: #50657b; --line: #c5d2df; }
+      body { background: #fff; }
+      .nav-wrap, .actions { display: none !important; }
+      .panel { display: block !important; break-before: page; animation: none; }
+      .panel:first-of-type { break-before: auto; }
+      .card, .metric { box-shadow: none; break-inside: avoid; }
+      details.step > * { display: block; }
+      details.step:not([open]) .step-body { display: block; }
+      .chev { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero shell">
+    <div class="hero-top">
+      <div>
+        <span class="eyebrow">Backend · reality map · 31 Agustus 2026</span>
+        <h1>Purchase Order → Tagging</h1>
+        <p class="lede">Peta implementasi aktual: siapa mengisi apa, endpoint yang dipanggil, data dan status yang lahir, perpindahan stok Cloud↔DC, bukti pengujian, serta gap yang perlu diketahui sebelum dianggap production-complete.</p>
+      </div>
+      <div class="actions" role="group" aria-label="Aksi dokumen">
+        <button class="icon-button" id="themeToggle" type="button" title="Ganti tema">☼ Tema</button>
+        <button class="icon-button" type="button" onclick="window.print()" title="Cetak dokumen">⇩ Cetak</button>
+      </div>
+    </div>
+    <div class="status-strip" role="group" aria-label="Ringkasan hasil review">
+      <div class="metric verdict"><strong>✓ Possible &amp; berhasil</strong><span>Happy path PO hingga stok tagged terbukti lewat HTTP integration test.</span></div>
+      <div class="metric"><strong>22 / 22 lulus</strong><span>3 API flow + 11 PO + 8 tagging; 0 gagal.</span></div>
+      <div class="metric"><strong>120 → 118 unit</strong><span>Contoh test: order 120, diterima/tagged 118, outstanding 2.</span></div>
+      <div class="metric"><strong>Bukan lifecycle approval</strong><span>PO langsung <code>ISSUED</code>; tidak ada draft/submit/approve endpoint.</span></div>
+    </div>
+  </header>
+
+  <div class="nav-wrap">
+    <nav class="tabs shell" role="tablist" aria-label="Bagian dokumen">
+      <button class="tab" role="tab" aria-selected="true" data-panel="overview">Ringkasan</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="flow">User flow lengkap</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="architecture">Arsitektur</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="contracts">Yang diisi → hasil</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="testing">Bukti test</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="gaps">Gap &amp; risiko</button>
+    </nav>
+  </div>
+
+  <main class="shell">
+    <section class="panel active" id="overview" role="tabpanel">
+      <div class="section-head">
+        <div><h2>Kesimpulan eksekutif</h2></div>
+        <p>Alur operasionalnya utuh untuk kuantitas yang diterima: PO di Cloud dikirim ke DC, barang dihitung dan diverifikasi, diidentifikasi menjadi SKU, diberi EPC, lalu masuk warehouse sebagai unit terlacak.</p>
+      </div>
+      <div class="callout card">
+        <strong>Verdict: berhasil, dengan batasan.</strong>
+        <p>Test E2E membuat PO 120 unit, menerima 118, dan men-tag seluruh 118 menjadi EPC unik. Jadi “PO hingga tagging” berhasil untuk barang yang accepted—tetapi PO contoh belum fully received/closed karena masih outstanding 2 unit.</p>
+      </div>
+      <div class="overview-grid">
+        <article class="summary-card card">
+          <h3>Alur bisnis aktual</h3>
+          <ul>
+            <li>Supervisor membuat PO; sistem langsung menyimpan header <code>ISSUED</code> dan mengirim command ke DC tujuan.</li>
+            <li>Receiver membuka GRN; checker melakukan blind count; verifier kedua memilih <code>Accept</code> atau <code>Recount</code>.</li>
+            <li><code>Accept</code> menciptakan stock <code>pending.unidentified</code> dan receipt fact yang dibaca Head Office.</li>
+            <li>Merchandiser membuat article setup dengan colour/size/quantity; total variant wajib sama persis dengan kuantitas accepted.</li>
+            <li><code>Issue setup</code> membuat article/SKU, alokasi serial EPC, tagging job, dan command ke DC.</li>
+            <li>Operator mencetak/memasang label lalu confirm; stock berubah menjadi unit per-EPC di warehouse dan Cloud menerima status <code>TAGGED</code>.</li>
+          </ul>
+        </article>
+        <article class="summary-card card">
+          <h3>Yang tidak terjadi</h3>
+          <ul>
+            <li>Tidak ada endpoint update, submit, atau approve PO.</li>
+            <li>Tidak ada endpoint close goods receipt; GRN tetap <code>OPEN</code>.</li>
+            <li>Full receipt tidak otomatis menutup PO; hanya <code>close-short</code> yang bisa menutup line/header sesuai kondisi.</li>
+            <li>Cloud tidak punya endpoint langsung create/complete tagging job: create adalah efek <code>issue setup</code>, complete dilakukan DC.</li>
+            <li>E2E test mematikan auth dan memanggil worker sync secara langsung, bukan tiga proses/socket sungguhan.</li>
+          </ul>
+        </article>
+      </div>
+      <div class="section-head" style="margin-top:18px"><div><h2>Jejak kuantitas pada test E2E</h2></div><p>Angka ini berasal dari test aktual, bukan ilustrasi asumsi.</p></div>
+      <div class="quantity-rail">
+        <div class="quantity-step"><b>120</b><span>unit dipesan dalam PO; PO berstatus <code>ISSUED</code>.</span></div>
+        <div class="quantity-step"><b>118</b><span>unit dihitung dan diterima setelah second-person verification.</span></div>
+        <div class="quantity-step"><b>118</b><span>unit berpindah <code>unidentified → untagged</code> setelah setup issued.</span></div>
+        <div class="quantity-step"><b>118 EPC</b><span>unik, panjang 24 karakter; masuk warehouse. Outstanding PO = 2.</span></div>
+      </div>
+    </section>
+
+    <section class="panel" id="flow" role="tabpanel">
+      <div class="section-head">
+        <div><h2>User flow lintas Cloud dan DC</h2></div>
+        <p>Garis solid = happy path; ungu = sync command/fact; garis putus-putus = cabang keputusan. Klik detail tahap di bawah diagram untuk melihat input, proses, output, dan kegagalan.</p>
+      </div>
+      <div class="legend"><span><i style="background:var(--blue)"></i>Head Office / Cloud</span><span><i style="background:var(--violet)"></i>Sync</span><span><i style="background:var(--cyan)"></i>DC / Edge</span><span><i style="background:var(--green)"></i>Hasil akhir</span><span><i style="background:var(--amber)"></i>Cabang</span></div>
+      <div class="diagram-card card" aria-label="Diagram alur PO hingga tagging">
+        <svg viewBox="0 0 1420 660" role="img" aria-labelledby="flowTitle flowDesc">
+          <title id="flowTitle">Alur purchase order hingga tagging</title>
+          <desc id="flowDesc">Tiga swimlane Head Office, Sync, dan Distribution Center menunjukkan urutan create PO, receiving, verification, article setup, tagging dan completion.</desc>
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--cyan)"/></marker>
+            <marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--amber)"/></marker>
+          </defs>
+          <rect class="lane" x="84" y="58" width="1318" height="150" rx="14"/><text class="lane-title" x="16" y="135" transform="rotate(-90 16 135)">HEAD OFFICE</text>
+          <rect class="lane" x="84" y="224" width="1318" height="106" rx="14"/><text class="lane-title" x="38" y="294" transform="rotate(-90 38 294)">SYNC</text>
+          <rect class="lane" x="84" y="346" width="1318" height="254" rx="14"/><text class="lane-title" x="16" y="510" transform="rotate(-90 16 510)">DISTRIBUTION CENTER</text>
+          <rect class="phase" x="98" y="16" width="394" height="32" rx="9"/><text class="phase-title" x="295" y="37" text-anchor="middle">1 · ORDER &amp; RECEIVE</text>
+          <rect class="phase" x="512" y="16" width="394" height="32" rx="9"/><text class="phase-title" x="709" y="37" text-anchor="middle">2 · IDENTIFY</text>
+          <rect class="phase" x="926" y="16" width="462" height="32" rx="9"/><text class="phase-title" x="1157" y="37" text-anchor="middle">3 · TAG &amp; PUBLISH</text>
+
+          <rect class="node cloud" x="110" y="90" width="176" height="86" rx="12"/><text class="node-title" x="126" y="116">1. Buat PO</text><text class="node-copy" x="126" y="137">PO + lines + tags</text><text class="node-code" x="126" y="158">status: ISSUED</text>
+          <rect class="node sync" x="320" y="246" width="166" height="62" rx="12"/><text class="node-title" x="336" y="271">2. Command</text><text class="node-code" x="336" y="291">purchase.order.activate</text>
+          <rect class="node dc" x="112" y="380" width="176" height="82" rx="12"/><text class="node-title" x="128" y="405">3. Buka GRN</text><text class="node-copy" x="128" y="427">supplier + actor + key</text><text class="node-code" x="128" y="447">GRN status: OPEN</text>
+          <rect class="node dc" x="318" y="380" width="176" height="82" rx="12"/><text class="node-title" x="334" y="405">4. Blind count</text><text class="node-copy" x="334" y="427">PO line + quantity</text><text class="node-code" x="334" y="447">AWAITING_VERIFICATION</text>
+          <rect class="node dc" x="318" y="492" width="176" height="82" rx="12"/><text class="node-title" x="334" y="517">5. Verifikasi</text><text class="node-copy" x="334" y="539">Accept / Recount</text><text class="node-code" x="334" y="559">ACCEPTED → stock</text>
+          <rect class="node sync" x="526" y="246" width="176" height="62" rx="12"/><text class="node-title" x="542" y="271">6. Receipt fact</text><text class="node-code" x="542" y="291">goods_receipt.line</text>
+          <rect class="node cloud" x="526" y="90" width="176" height="86" rx="12"/><text class="node-title" x="542" y="116">7. Article setup</text><text class="node-copy" x="542" y="137">colour + size + qty</text><text class="node-code" x="542" y="158">status: OPEN</text>
+          <rect class="node cloud" x="732" y="90" width="176" height="86" rx="12"/><text class="node-title" x="748" y="116">8. Issue setup</text><text class="node-copy" x="748" y="137">SKU + EPC + job</text><text class="node-code" x="748" y="158">OPEN → ISSUED</text>
+          <rect class="node sync" x="738" y="246" width="176" height="62" rx="12"/><text class="node-title" x="754" y="271">9. Tag command</text><text class="node-code" x="754" y="291">tagging.job.activate</text>
+          <rect class="node dc" x="732" y="380" width="176" height="82" rx="12"/><text class="node-title" x="748" y="405">10. Print &amp; pasang</text><text class="node-copy" x="748" y="427">EPC per SKU</text><text class="node-code" x="748" y="447">unidentified → untagged</text>
+          <rect class="node dc" x="946" y="380" width="176" height="82" rx="12"/><text class="node-title" x="962" y="405">11. Confirm</text><text class="node-copy" x="962" y="427">job + actor + key</text><text class="node-code" x="962" y="447">118 unit → warehouse</text>
+          <rect class="node sync" x="954" y="246" width="176" height="62" rx="12"/><text class="node-title" x="970" y="271">12. Completion</text><text class="node-code" x="970" y="291">tagging.completed + facts</text>
+          <rect class="node success" x="1160" y="90" width="208" height="86" rx="12"/><text class="node-title" x="1176" y="116">Cloud: TAGGED</text><text class="node-copy" x="1176" y="137">job + setup selesai</text><text class="node-code" x="1176" y="158">PO: 118 / 120 received</text>
+
+          <path class="arrow fact" d="M286 133 H304 V277 H320"/><text class="edge-label" x="298" y="216">signed</text>
+          <path class="arrow fact" d="M403 308 V356 H200 V380"/>
+          <path class="arrow" d="M288 421 H318"/>
+          <path class="arrow" d="M406 462 V492"/>
+          <path class="arrow fact" d="M494 533 H510 V277 H526"/><text class="edge-label" x="500" y="371">outbox</text>
+          <path class="arrow fact" d="M614 246 V176"/>
+          <path class="arrow" d="M702 133 H732"/>
+          <path class="arrow fact" d="M820 176 V246"/>
+          <path class="arrow fact" d="M826 308 V380"/>
+          <path class="arrow" d="M908 421 H946"/>
+          <path class="arrow fact" d="M1034 380 V308"/>
+          <path class="arrow fact" d="M1130 277 H1144 V133 H1160"/>
+          <path class="branch" d="M318 533 H258 V421 H288"/><text class="branch-label" x="198" y="526">RECOUNT + note</text>
+          <path class="branch" d="M1264 176 V198 H1190"/><text class="branch-label" x="1186" y="217">outstanding 2: tunggu / close-short</text>
+        </svg>
+      </div>
+
+      <div class="step-list">
+        <details class="step"><summary><span class="step-no">1</span><span class="step-title"><b>Supervisor membuat PO di Cloud</b><small>Order langsung aktif, bukan draft.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Diisi user</h4><p>Nomor PO, supplier, DC tujuan, currency, notes, creator, lines; tiap line berisi supplier article, nama, division, tags, qty, unit price, promised date.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Insert <code>purchase_order</code>, line, tags; status <code>ISSUED</code>; response memberi <code>purchase_order_id</code> dan command ID.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>DC tak punya credential owner, line kosong/duplikat, qty ≤ 0, tag/division asing, nomor PO duplikat, harga/amount invalid.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">2</span><span class="step-title"><b>Command PO disinkronkan ke DC</b><small>Cloud → Edge melalui command lane.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Input sistem</h4><p>Signed payload <code>purchase.order.activate</code> berisi PO dan line untuk site tujuan.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Edge memvalidasi role/site/payload lalu menyimpan local PO. Resend command diperlakukan sebagai no-op.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>Node bukan DC, destination site tidak cocok, payload/domain invalid.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">3</span><span class="step-title"><b>Receiver membuka Goods Receipt</b><small>Dokumen kedatangan lokal dan offline-capable.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Diisi user</h4><p><code>supplier_id</code>, optional <code>arrived_at</code>, <code>actor_id</code>, <code>idempotency_key</code>. Invoice dapat direkam lewat endpoint terpisah.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>DC meminta nomor lokal <code>GRN-{site}-{sequence}</code>; status selalu mulai <code>OPEN</code>.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>Supplier/actor/key tidak valid. Tidak ada endpoint aktif untuk menutup GRN.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">4</span><span class="step-title"><b>Checker melakukan blind count</b><small>Expected quantity disembunyikan dari checker.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Diisi checker</h4><p><code>receipt_id</code>, <code>po_line_id</code>, <code>counted_quantity</code>, actor dan idempotency key.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Membuat <code>receiving_count</code> berstatus <code>AWAITING_VERIFICATION</code>. Belum ada movement, stock, atau receipt fact.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>Qty ≤ 0, PO line/receipt tidak dikenal, receipt bukan <code>OPEN</code>, atau key dipakai untuk payload berbeda.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">5</span><span class="step-title"><b>Verifier kedua memutuskan</b><small>Accept menciptakan stock; Recount tidak.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Diisi verifier</h4><p><code>count_id</code>, actor verifier, <code>decision</code> Accept/Recount, optional note, optional invoiced price, idempotency key.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Recount → <code>RECOUNT_REQUESTED</code>. Accept → <code>ACCEPTED</code>, receipt line, movement group, stock <code>pending.unidentified</code>.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>Verifier sama dengan checker, recount tanpa note, count telah diputus, price negatif. Selisih harga dicatat tetapi tidak menahan barang.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">6</span><span class="step-title"><b>Accepted receipt naik ke Cloud</b><small>Edge fact → PostgreSQL read model.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Input sistem</h4><p><code>goods_receipt.line</code> fact: GRN, line, PO line, quantity, counter, verifier, movement group.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Cloud upsert header/line; PO detail menghitung received, outstanding, payable dari <code>goods_receipt_line</code>.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>Fact malformed atau checker=verifier melanggar check database. Pada test: received 118, outstanding 2.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">7</span><span class="step-title"><b>Merchandiser membuat Article Setup</b><small>Mengubah barang anonymous menjadi rancangan article/SKU.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Diisi user</h4><p>Receipt line, optional internal article code, name, division, tags, image, currency, colours, variants: colour + size + qty + base price.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Session <code>OPEN</code>. Preset supplier code/tags dari PO tersedia untuk traceability; supplier code bukan internal article code.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>Total variant ≠ accepted qty, &gt;5.000 unit, &gt;10 colourways, receipt sudah disetup, vocabulary/article/size invalid, duplicate variant.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">8</span><span class="step-title"><b>Merchandiser meng-issue setup</b><small>Titik tagging job dan EPC benar-benar dibuat.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Diisi user</h4><p>Path <code>setup_id</code> dan body <code>issued_by</code>.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Dalam satu transaksi: create/reuse article, tags, colours, SKU; lock serial counter; allocate EPC; create job/lines/command; setup <code>OPEN → ISSUED</code>.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>Session bukan OPEN, destination DC tak lagi terdaftar, atau constraint article/SKU/EPC gagal.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">9</span><span class="step-title"><b>Tag command diterapkan di DC</b><small>Exact receipt pile wajib masih tersedia.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Input sistem</h4><p><code>tagging.job.activate</code>: receipt line, article, SKU lines, prices, QR/barcode dan daftar finished EPC.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Stock exact receipt berpindah melalui Identification menjadi per-SKU quantity di <code>pending.untagged</code>; print queue tersimpan.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>Site salah, pile hilang, balance tak sama, EPC duplicate/tidak cocok SKU, total job tidak sama dengan delivery.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">10</span><span class="step-title"><b>Operator mencetak dan memasang tag</b><small>Queue memuat label siap cetak.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Dibaca operator</h4><p>SKU, quantity, QR, barcode, dan finished EPC strings dari <code>GET /dc/tagging-jobs</code>.</p></div><div class="io"><h4>Aksi fisik</h4><p>Cetak label, pasang label yang sesuai ke unit, cek jumlah fisik sebelum confirm.</p></div><div class="io failure"><h4>Risiko operasional</h4><p>Aplikasi sudah memint EPC di Cloud; salah-tempel label adalah kontrol proses fisik, bukan validasi software di endpoint confirm.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">11</span><span class="step-title"><b>Operator mengonfirmasi tagging</b><small>Quantity subjects menjadi unit subjects per EPC.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Diisi user</h4><p><code>job_id</code>, <code>actor_id</code>, <code>idempotency_key</code>.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Setiap EPC menjadi <code>UNIT</code> subject dan masuk warehouse; local job <code>TAGGED</code>; movement facts + completion fact masuk outbox.</p></div><div class="io failure"><h4>Bisa gagal jika</h4><p>Job unknown/bukan OPEN/no lines/EPC count mismatch. Retry key sama aman; key baru untuk job yang sudah selesai ditolak.</p></div></div></div></details>
+        <details class="step"><summary><span class="step-no">12</span><span class="step-title"><b>Cloud mempublikasikan hasil akhir</b><small>Tagging selesai; settlement PO tetap jalur terpisah.</small></span><span class="chev">›</span></summary><div class="step-body"><div class="io-grid"><div class="io"><h4>Input sistem</h4><p><code>tagging.completed</code> dan inventory movement facts dari Edge.</p></div><div class="io"><h4>Proses &amp; hasil</h4><p>Cloud job/setup <code>ISSUED → TAGGED</code>; EPC muncul sebagai inventory position; duplicate completion ditoleransi.</p></div><div class="io failure"><h4>Sisa proses</h4><p>PO contoh tetap ISSUED, 118/120. Sisa 2 dapat diterima kemudian atau line di-close-short; close-short tidak masuk happy-path E2E yang sama.</p></div></div></div></details>
+      </div>
+    </section>
+
+    <section class="panel" id="architecture" role="tabpanel">
+      <div class="section-head"><div><h2>Arsitektur software aktual</h2></div><p>Control plane ada di PostgreSQL Cloud; operasi receiving/tagging berjalan offline-capable di SQLite Edge; command mengalir turun dan fact mengalir naik.</p></div>
+      <div class="architecture-grid">
+        <div class="diagram-card card">
+          <svg viewBox="0 0 980 620" role="img" aria-labelledby="archTitle archDesc">
+            <title id="archTitle">Arsitektur Cloud, Sync dan Distribution Center</title>
+            <desc id="archDesc">Komponen HTTP, domain, PostgreSQL, command lane, SQLite Edge, inventory movements dan fact lane.</desc>
+            <defs><marker id="archArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--cyan)"/></marker><marker id="archFact" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--violet)"/></marker></defs>
+            <rect class="lane" x="22" y="28" width="936" height="230" rx="16"/><text class="lane-title" x="44" y="55">CLOUD / HEAD OFFICE</text>
+            <rect class="node cloud" x="54" y="82" width="196" height="100" rx="12"/><text class="node-title" x="72" y="111">Axum HTTP API</text><text class="node-copy" x="72" y="134">PO · Setup · Issue</text><text class="node-code" x="72" y="156">src/cloud/http</text>
+            <rect class="node cloud" x="296" y="82" width="214" height="100" rx="12"/><text class="node-title" x="314" y="111">Postgres services</text><text class="node-copy" x="314" y="134">validasi + transaksi SQLx</text><text class="node-code" x="314" y="156">sync.rs · tagging.rs</text>
+            <rect class="node" x="556" y="82" width="360" height="100" rx="12"/><text class="node-title" x="574" y="111">PostgreSQL</text><text class="node-copy" x="574" y="134">PO · GRN · setup · article/SKU · EPC/job</text><text class="node-code" x="574" y="156">sync_command · inventory projection</text>
+            <path class="arrow" d="M250 132 H296" marker-end="url(#archArrow)"/><path class="arrow" d="M510 132 H556" marker-end="url(#archArrow)"/>
+
+            <rect class="lane" x="22" y="280" width="936" height="104" rx="16"/><text class="lane-title" x="44" y="309">SYNC BOUNDARY</text>
+            <path d="M650 258 V316 H250 V407" stroke="var(--cyan)" stroke-width="2.3" fill="none" marker-end="url(#archArrow)"/><text class="edge-label" x="370" y="307">signed commands: purchase.order.activate · tagging.job.activate</text>
+            <path d="M716 407 V357 H790 V258" stroke="var(--violet)" stroke-width="2.3" fill="none" marker-end="url(#archFact)"/><text class="edge-label" x="603" y="376">facts: goods_receipt.line · movements · tagging.completed</text>
+
+            <rect class="lane" x="22" y="406" width="936" height="190" rx="16"/><text class="lane-title" x="44" y="435">DC / EDGE</text>
+            <rect class="node dc" x="54" y="460" width="196" height="100" rx="12"/><text class="node-title" x="72" y="489">Axum DC API</text><text class="node-copy" x="72" y="512">GRN · count · verify</text><text class="node-copy" x="72" y="532">print queue · confirm</text><text class="node-code" x="72" y="550">src/edge/http.rs</text>
+            <rect class="node dc" x="296" y="460" width="214" height="100" rx="12"/><text class="node-title" x="314" y="489">SqliteEdge</text><text class="node-copy" x="314" y="512">idempotency + policies</text><text class="node-copy" x="314" y="532">inventory movements</text><text class="node-code" x="314" y="550">src/edge/sqlite.rs</text>
+            <rect class="node" x="556" y="460" width="360" height="100" rx="12"/><text class="node-title" x="574" y="489">SQLite + Outbox</text><text class="node-copy" x="574" y="512">local PO/GRN/count/job/EPC</text><text class="node-copy" x="574" y="532">subjects: unidentified · untagged · UNIT</text><text class="node-code" x="574" y="550">offline-capable · retry-safe</text>
+            <path class="arrow" d="M250 510 H296" marker-end="url(#archArrow)"/><path class="arrow" d="M510 510 H556" marker-end="url(#archArrow)"/>
+          </svg>
+        </div>
+        <div class="component-stack">
+          <article class="component card"><h3>Cloud API / control plane</h3><p>Endpoint PO dan article setup. Auth opsional; mutation non-sales minimal <code>SUPERVISOR</code> ketika aktif.</p></article>
+          <article class="component card"><h3>Command lane ↓</h3><p><code>purchase.order.activate</code> membawa order; <code>tagging.job.activate</code> membawa exact SKU, quantity, label, dan EPC ke satu DC.</p></article>
+          <article class="component card"><h3>DC API / execution plane</h3><p>Receiving segregation, blind count, verification, print/attach, confirmation, movement dan idempotency berlangsung lokal.</p></article>
+          <article class="component card"><h3>Fact lane ↑</h3><p><code>goods_receipt.line</code>, inventory movements dan <code>tagging.completed</code> mematerialisasikan hasil Edge kembali di Cloud.</p></article>
+          <article class="component card"><h3>Inventory identity progression</h3><p><code>QUANTITY@pending.unidentified → QUANTITY@pending.untagged → UNIT(EPC)@warehouse</code>.</p></article>
+        </div>
+      </div>
+      <div class="section-head" style="margin-top:18px"><div><h2>Tabel utama per tahap</h2></div></div>
+      <div class="table-wrap">
+        <table class="data-table"><thead><tr><th>Tahap</th><th>PostgreSQL Cloud</th><th>SQLite Edge</th><th>Korelasi</th></tr></thead><tbody>
+          <tr><td>Order</td><td><code>purchase_order</code>, <code>purchase_order_line</code>, <code>purchase_order_line_tag</code></td><td>local PO + lines setelah command</td><td><code>purchase_order_id</code>, <code>po_line_id</code>, destination site</td></tr>
+          <tr><td>Receiving</td><td><code>goods_receipt</code>, <code>goods_receipt_line</code> setelah fact</td><td><code>goods_receipt</code>, <code>receiving_count</code>, movement/projection</td><td><code>receipt_line_id</code>, <code>po_line_id</code>, <code>movement_group_id</code></td></tr>
+          <tr><td>Article setup</td><td><code>article_setup_session</code>, colours, variants, tags</td><td>— sebelum issue command</td><td>exact <code>receipt_line_id</code></td></tr>
+          <tr><td>Tagging</td><td><code>article</code>, <code>article_tag</code>, <code>article_colour</code>, <code>sku</code>, <code>epc_serial_counter</code>, <code>tagging_job(_line)</code></td><td><code>tagging_job</code>, lines, EPC, inventory subjects</td><td>job ID, SKU, EPC, receipt line</td></tr>
+          <tr><td>Final inventory</td><td><code>edge_inventory_fact_position</code> dan job/setup <code>TAGGED</code></td><td>per-EPC <code>UNIT</code> subject di warehouse + outbox fact</td><td>EPC identity dan movement facts</td></tr>
+        </tbody></table>
+      </div>
+    </section>
+
+    <section class="panel" id="contracts" role="tabpanel">
+      <div class="section-head"><div><h2>Apa yang diisi → apa hasilnya</h2></div><p>Field diringkas dari kontrak request aktif. ID path, actor, dan idempotency key tetap bagian penting walaupun UI nantinya dapat mengisinya otomatis.</p></div>
+      <div class="contract-grid">
+        <article class="contract card"><h3>1. Create Purchase Order</h3><div class="endpoint mono">POST /api/v1/purchase-orders</div><dl class="field-list">
+          <div class="field"><dt>po_number</dt><dd>Nomor unik PO.</dd></div><div class="field"><dt>supplier_id / name</dt><dd>Supplier wajib; nama opsional.</dd></div><div class="field"><dt>destination_site_id</dt><dd>DC yang memiliki satu active inventory credential.</dd></div><div class="field"><dt>origin_kind</dt><dd><code>SOURCING</code> atau <code>DIRECT</code>.</dd></div><div class="field"><dt>currency / notes / created_by</dt><dd>Currency dan pelaku; notes opsional.</dd></div><div class="field"><dt>lines[]</dt><dd>Supplier article code/name, image, division, tags, ordered quantity, unit price minor, promised date.</dd></div></dl><div class="contract-output"><b>Hasil 201:</b> PO ID, PO number, destination, activation command ID, <code>sent_to_origin</code>. Status database langsung <code>ISSUED</code>.</div></article>
+        <article class="contract card"><h3>2. Open Goods Receipt</h3><div class="endpoint mono">POST /api/v1/dc/goods-receipts</div><dl class="field-list">
+          <div class="field"><dt>supplier_id</dt><dd>Supplier yang barangnya tiba.</dd></div><div class="field"><dt>arrived_at?</dt><dd>Waktu kedatangan opsional.</dd></div><div class="field"><dt>actor_id</dt><dd>Receiver; ditimpa session username bila auth aktif.</dd></div><div class="field"><dt>idempotency_key</dt><dd>Membuat retry request aman.</dd></div></dl><div class="contract-output"><b>Hasil 201:</b> receipt ID, nomor GRN lokal, supplier, arrived time, status <code>OPEN</code>, opened by, invoice optional, counted/accepted line counts.</div></article>
+        <article class="contract card"><h3>3. Blind Purchase Count</h3><div class="endpoint mono">POST /api/v1/dc/purchase-counts</div><dl class="field-list">
+          <div class="field"><dt>receipt_id</dt><dd>GRN <code>OPEN</code>.</dd></div><div class="field"><dt>po_line_id</dt><dd>Line order yang diterima DC ini.</dd></div><div class="field"><dt>counted_quantity</dt><dd>Jumlah fisik; harus positif.</dd></div><div class="field"><dt>actor_id / idempotency_key</dt><dd>Checker dan retry key.</dd></div></dl><div class="contract-output"><b>Hasil 201:</b> count ID, PO line, counted quantity/by/at; status internal <code>AWAITING_VERIFICATION</code>, tanpa stock movement.</div></article>
+        <article class="contract card"><h3>4. Verify Count</h3><div class="endpoint mono">POST /api/v1/dc/purchase-verifications</div><dl class="field-list">
+          <div class="field"><dt>count_id</dt><dd>Count yang belum diputus.</dd></div><div class="field"><dt>verifier_actor_id</dt><dd>Default harus berbeda dari checker.</dd></div><div class="field"><dt>decision</dt><dd><code>Accept</code> atau <code>Recount</code>.</dd></div><div class="field"><dt>note?</dt><dd>Wajib untuk Recount.</dd></div><div class="field"><dt>invoiced_price_minor?</dt><dd>Bila beda, membuka price-amendment query tanpa menahan barang.</dd></div><div class="field"><dt>idempotency_key</dt><dd>Retry-safe.</dd></div></dl><div class="contract-output"><b>Hasil 201 Accept:</b> accepted qty, optional amendment ID, movement group; receipt line + unidentified stock + fact. <b>Recount:</b> no stock.</div></article>
+        <article class="contract card"><h3>5. Create Article Setup</h3><div class="endpoint mono">POST /api/v1/article-setups</div><dl class="field-list">
+          <div class="field"><dt>receipt_line_id</dt><dd>Accepted line yang belum pernah disetup.</dd></div><div class="field"><dt>article_code?</dt><dd>Internal 8 digit; kosong berarti mint code baru.</dd></div><div class="field"><dt>article_name / division_code</dt><dd>Identitas internal dan controlled vocabulary.</dd></div><div class="field"><dt>tags[] / image_url?</dt><dd>Tag vocabulary dan image.</dd></div><div class="field"><dt>currency / created_by</dt><dd>Currency tepat 3 karakter dan creator.</dd></div><div class="field"><dt>colours[]</dt><dd><code>colour_digit</code>, label, optional hex; maksimal 10 colourways.</dd></div><div class="field"><dt>variants[]</dt><dd>Colour digit, size code, quantity, base price minor. Total qty harus tepat sama dengan accepted qty.</dd></div></dl><div class="contract-output"><b>Hasil 201:</b> setup detail berstatus <code>OPEN</code>. Belum ada EPC/job sampai setup di-issue.</div></article>
+        <article class="contract card"><h3>6. Issue Article Setup</h3><div class="endpoint mono">POST /api/v1/article-setups/{id}/issue</div><dl class="field-list">
+          <div class="field"><dt>id (path)</dt><dd>Session yang masih <code>OPEN</code>.</dd></div><div class="field"><dt>issued_by</dt><dd>Pelaku issue.</dd></div></dl><div class="contract-output"><b>Hasil 200:</b> setup <code>ISSUED</code>, article/SKU/EPC tersimpan, <code>tagging_job_id</code>, <code>tagging_command_id</code>. Tidak ada endpoint create job terpisah.</div></article>
+        <article class="contract card"><h3>7. Read Tagging Print Queue</h3><div class="endpoint mono">GET /api/v1/dc/tagging-jobs</div><dl class="field-list"><div class="field"><dt>input</dt><dd>Tidak ada body; akses DC operate.</dd></div><div class="field"><dt>per line</dt><dd>SKU, quantity, QR, barcode, finished EPC strings.</dd></div></dl><div class="contract-output"><b>Hasil:</b> daftar job siap cetak/pasang. Command apply sebelumnya sudah memindahkan accepted quantity ke <code>pending.untagged</code>.</div></article>
+        <article class="contract card"><h3>8. Confirm Tagging</h3><div class="endpoint mono">POST /api/v1/dc/tagging-confirmations</div><dl class="field-list">
+          <div class="field"><dt>job_id</dt><dd>Job lokal berstatus <code>OPEN</code>.</dd></div><div class="field"><dt>actor_id</dt><dd>Operator tagging.</dd></div><div class="field"><dt>idempotency_key</dt><dd>Retry dengan key sama mengembalikan hasil lama.</dd></div></dl><div class="contract-output"><b>Hasil 201:</b> job ID, movement group, tagged units, confirmed by/at. Stock menjadi unit per EPC di warehouse; facts dikirim ke Cloud.</div></article>
+      </div>
+      <div class="section-head" style="margin-top:18px"><div><h2>Status lifecycle</h2></div></div>
+      <div class="state-grid">
+        <article class="state-card card"><h3>Purchase Order</h3><div class="state-path">ISSUED → CLOSED*</div><p>*Bukan karena full receipt otomatis. Header ditutup hanya saat close-short membuat tak ada line OPEN. <code>CANCELLED</code> diizinkan schema tetapi flow endpoint tidak ditemukan.</p></article>
+        <article class="state-card card"><h3>Goods Receipt</h3><div class="state-path">OPEN</div><p>Schema mengizinkan CLOSED, tetapi implementasi aktif untuk transisinya tidak ditemukan.</p></article>
+        <article class="state-card card"><h3>Receiving Count</h3><div class="state-path">AWAITING → ACCEPTED</div><p>Cabang alternatif: <code>AWAITING_VERIFICATION → RECOUNT_REQUESTED</code>, lalu checker menghitung ulang melalui count baru.</p></article>
+        <article class="state-card card"><h3>Setup &amp; Tagging Job</h3><div class="state-path">OPEN → ISSUED → TAGGED</div><p>OPEN di Cloud setup; issue membuat job/command; confirmation DC dan completion fact menutup job/setup.</p></article>
+      </div>
+    </section>
+
+    <section class="panel" id="testing" role="tabpanel">
+      <div class="section-head"><div><h2>Bukti test yang benar-benar dijalankan</h2></div><p>PostgreSQL lokal melalui <code>DATABASE_URL=postgresql:///postgres</code>; SQLx membuat database test terisolasi dan migrations berjalan otomatis.</p></div>
+      <div class="test-summary">
+        <article class="test-count card"><strong>3/3</strong><span>API flow integration</span></article>
+        <article class="test-count card"><strong>11/11</strong><span>Purchase order integration</span></article>
+        <article class="test-count card"><strong>8/8</strong><span>Tagging integration</span></article>
+        <article class="test-count card"><strong>0</strong><span>failed / ignored</span></article>
+      </div>
+      <pre class="terminal"><span class="ok">$</span> DATABASE_URL=postgresql:///postgres cargo test --locked \
+  --test api_flow_integration \
+  --test purchase_order_integration \
+  --test tagging_integration
+
+<span class="ok">api_flow_integration</span>       3 passed; 0 failed
+<span class="ok">purchase_order_integration</span> 11 passed; 0 failed
+<span class="ok">tagging_integration</span>         8 passed; 0 failed
+<span class="ok">TOTAL</span>                      22 passed; 0 failed</pre>
+      <div class="test-list">
+        <article class="test-suite card"><h3>Full HTTP happy path</h3><p><code>a_purchase_order_becomes_tagged_stock_entirely_over_http</code></p><p class="result">✓ 1.74s pada targeted run</p><p>Mencakup create PO, checker work, GRN, count, verifier, receipt sync, setup, issue, print queue, confirm, final Cloud status.</p></article>
+        <article class="test-suite card"><h3>API failure &amp; idempotency</h3><p>Menolak variant total 110 untuk receipt 118; retry confirmation key sama aman; konfirmasi kedua dengan key baru conflict.</p><p class="result">✓ tercakup dalam 3 API tests</p></article>
+        <article class="test-suite card"><h3>Domain &amp; storage controls</h3><p>Blind count, second-person rule, recount, price query, close-short, destination ownership, serial uniqueness, colour limit, identity uniqueness.</p><p class="result">✓ 19 integration tests</p></article>
+      </div>
+      <article class="limits card">
+        <h3>Apa yang belum dibuktikan oleh test ini</h3>
+        <ul>
+          <li>Auth-enabled flow: bearer/session cookie, CSRF dan role gates dimatikan pada E2E utama.</li>
+          <li>Tiga service/socket dan periodic workers sungguhan; test memakai Axum router tetapi memanggil worker sync/apply langsung agar deterministik.</li>
+          <li>Invoice upload, price amendment, recount dan close-short tidak berada dalam satu skenario E2E yang sama; semuanya diuji terpisah.</li>
+          <li>PO 120 tidak fully received: test hanya menerima/tagging 118. Final PO tetap outstanding 2 dan secara perilaku masih <code>ISSUED</code>.</li>
+          <li>Atomic rollback bila command issuance gagal setelah PO ter-commit belum memiliki test khusus.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="panel" id="gaps" role="tabpanel">
+      <div class="section-head"><div><h2>Gap, risiko, dan rekomendasi</h2></div><p>Temuan dipisahkan dari happy path agar diagram tidak memberi kesan lebih matang daripada implementasi aktual.</p></div>
+      <div class="risk-grid">
+        <article class="risk card"><div><span class="severity high">High</span></div><div><h3>Create PO dan issue command tidak benar-benar atomik</h3><p>Kode commit transaksi PO/lines lebih dulu, lalu memanggil <code>issue_command</code> dan meng-update activation ID. Kegagalan pada tahap kedua dapat meninggalkan PO <code>ISSUED</code> tanpa command. Rekomendasi: satu transaksi/outbox atomik atau recovery scanner + test failure injection.</p></div><div class="evidence mono">src/cloud/postgres/sync.rs:5530–5569</div></article>
+        <article class="risk card"><div><span class="severity medium">Medium</span></div><div><h3>Goods receipt tidak pernah ditutup</h3><p>Schema mengenal <code>OPEN|CLOSED</code>, tetapi tidak ditemukan endpoint/transisi aktif ke CLOSED. Rekomendasi: definisikan close criteria dan endpoint, atau hapus status semu agar UI tidak menunggu lifecycle yang tidak ada.</p></div><div class="evidence mono">src/edge/sqlite.rs:3727–3805 + route scan</div></article>
+        <article class="risk card"><div><span class="severity medium">Medium</span></div><div><h3>Work list DC berpotensi menampilkan line penuh/closed</h3><p>Query work-list tidak memfilter line status/outstanding. Rekomendasi: filter remaining quantity &gt; 0 dan bukan CLOSED; tambahkan regression test setelah close-short/full receipt.</p></div><div class="evidence mono">src/edge/sqlite.rs:3461–3502</div></article>
+        <article class="risk card"><div><span class="severity medium">Medium</span></div><div><h3>PO status berbeda dari ekspektasi umum</h3><p>Tidak ada draft/submit/approve; create langsung <code>ISSUED</code>. Full receipt biasa juga tidak otomatis menutup PO. Rekomendasi: dokumentasikan eksplisit di UI atau implement lifecycle bisnis yang dimaksud.</p></div><div class="evidence mono">migrations 0027 + Cloud routes</div></article>
+        <article class="risk card"><div><span class="severity medium">Medium</span></div><div><h3>Actor Cloud masih caller-supplied untuk beberapa mutation</h3><p>Middleware mencocokkan hanya field bernama <code>actor_id</code>; <code>created_by</code>, <code>issued_by</code>, dan <code>closed_by</code> tidak dicocokkan ke principal. Rekomendasi: inject actor dari auth context dan abaikan field client.</p></div><div class="evidence mono">src/cloud/http/auth.rs:56–145</div></article>
+        <article class="risk card"><div><span class="severity medium">Medium</span></div><div><h3>Mode receiving segregation relaxed dapat konflik saat sync</h3><p>Edge dapat mengizinkan checker=verifier ketika policy direlaksasi, tetapi PostgreSQL tetap punya check keduanya berbeda. Rekomendasi: samakan invariant lintas Edge/Cloud atau larang relaxed di production.</p></div><div class="evidence mono">Edge auth/policy + goods_receipt_line CHECK</div></article>
+        <article class="risk card"><div><span class="severity info">Test gap</span></div><div><h3>E2E tidak menguji auth dan network deployment</h3><p>Happy path kuat untuk kontrak HTTP/domain/storage, tetapi bukan deployment acceptance test. Rekomendasi: tambah smoke test auth-enabled multi-process dengan worker timer dan real HTTP ports.</p></div><div class="evidence mono">tests/api_flow_integration.rs:1–22</div></article>
+        <article class="risk card"><div><span class="severity info">Naming</span></div><div><h3>Nama test dapat menyiratkan fully received</h3><p>Order 120, accepted 118; assertion akhir hanya received 118. Rekomendasi: rename/comment agar jelas “all accepted stock tagged”, atau tambah close-short/second receipt lalu assert <code>fully_received</code>.</p></div><div class="evidence mono">tests/api_flow_integration.rs:352–559</div></article>
+      </div>
+      <div class="section-head" style="margin-top:18px"><div><h2>Source map</h2></div><p>Lokasi paling relevan untuk melanjutkan review atau implementasi.</p></div>
+      <div class="table-wrap source-map"><table class="data-table"><thead><tr><th>Area</th><th>File utama</th><th>Yang dibuktikan</th></tr></thead><tbody>
+        <tr><td>HTTP E2E</td><td class="mono">tests/api_flow_integration.rs:352–681</td><td>Full user-level route flow, quantity mismatch, double confirmation/idempotency.</td></tr>
+        <tr><td>PO Cloud</td><td class="mono">src/cloud/postgres/sync.rs:5381–6167</td><td>Create/detail/list/close-short, receipt materialization, status dan atomicity gap.</td></tr>
+        <tr><td>Setup &amp; tagging Cloud</td><td class="mono">src/cloud/postgres/tagging.rs:37–783</td><td>Request fields, validation, article/SKU/EPC/job issuance, unidentified queue.</td></tr>
+        <tr><td>DC operations</td><td class="mono">src/edge/sqlite.rs:3461–4526</td><td>GRN, blind count, verification, unidentified movement, print queue, confirm.</td></tr>
+        <tr><td>Command apply</td><td class="mono">src/edge/sync.rs:1566–1936</td><td>Apply exact PO/tagging command, site/balance/EPC checks.</td></tr>
+        <tr><td>Fact enqueue/apply</td><td class="mono">src/edge/sync.rs:2804–2945 · src/cloud/postgres/sync.rs:5623–5718</td><td>Accepted receipt dan completion/inventory facts bergerak Edge→Cloud.</td></tr>
+        <tr><td>Schema</td><td class="mono">migrations/postgres/0018, 0022, 0023, 0027, 0028</td><td>Current PO, setup, tagging, tags/pieces dan goods receipt model.</td></tr>
+      </tbody></table></div>
+    </section>
+  </main>
+
+  <footer class="footer shell">Dibuat dari review implementasi backend dan eksekusi integration test aktual pada workspace lokal. Tidak memakai asumsi desain yang tidak ditemukan di kode.</footer>
+
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const tabs = [...document.querySelectorAll('.tab')];
+      const panels = [...document.querySelectorAll('.panel')];
+      const themeButton = document.getElementById('themeToggle');
+
+      function showPanel(id, updateHash = true) {
+        tabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.panel === id)));
+        panels.forEach(panel => panel.classList.toggle('active', panel.id === id));
+        if (updateHash) history.replaceState(null, '', `#${id}`);
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      }
+
+      tabs.forEach(tab => tab.addEventListener('click', () => showPanel(tab.dataset.panel)));
+      tabs.forEach((tab, index) => tab.addEventListener('keydown', event => {
+        if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+        const next = (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+        tabs[next].focus();
+        showPanel(tabs[next].dataset.panel);
+      }));
+
+      themeButton.addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        themeButton.textContent = next === 'dark' ? '☼ Tema' : '☾ Tema';
+      });
+
+      const requested = location.hash.slice(1);
+      if (panels.some(panel => panel.id === requested)) showPanel(requested, false);
+    })();
+  </script>
+</body>
+</html>

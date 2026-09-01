@@ -1,0 +1,23 @@
+[package]
+name = "pricing-engine"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Deterministic retail pricing: base-price cascade, markdown, promotion, and an explainable trace. One evaluator for cloud and till."
+
+# Pure kernel. No database driver, no HTTP client, no async runtime, no clock,
+# no randomness. Everything the answer depends on arrives as an argument, so
+# the same inputs give the same answer in the centre and on the shop floor —
+# which is the only way the two can be proven to agree.
+[dependencies]
+chrono = { version = "=0.4.41", features = ["serde"] }
+hex = "=0.4.3"
+serde = { version = "=1.0.219", features = ["derive"] }
+sha2 = "=0.10.9"
+thiserror = "=2.0.12"
+
+[dev-dependencies]
+proptest = "=1.6.0"
+
+[lints]
+workspace = true

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Lima dasbor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:#f7f8fa;color:#14161a;
+  font-family:Inter,-apple-system,"Segoe UI",Helvetica,sans-serif;
+  font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;
+}
+:focus-visible{outline:2px solid #2563eb;outline-offset:2px;border-radius:6px}
+.wrap{max-width:900px;margin:0 auto;padding:44px 24px 80px}
+h1{margin:0 0 8px;font-size:26px;font-weight:600;letter-spacing:-.02em}
+.lead{margin:0 0 30px;color:#5c6270;max-width:70ch}
+.list{display:flex;flex-direction:column;gap:11px}
+.row{
+  display:flex;align-items:stretch;gap:0;
+  background:#fff;border:1px solid #e6e8ec;border-radius:11px;overflow:hidden;
+  text-decoration:none;color:inherit;transition:border-color 130ms ease;
+}
+.row:hover{border-color:#2563eb}
+.sw{display:flex;width:104px;flex-shrink:0}
+.sw i{display:block;flex:1}
+.bd{padding:15px 18px;min-width:0}
+.hd{display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;margin-bottom:3px}
+.hd b{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.hd .no{font-size:12px;color:#9096a1;font-variant-numeric:tabular-nums}
+.hd .hex{margin-inline-start:auto;font-size:11.5px;color:#9096a1;font-family:ui-monospace,Menlo,monospace}
+.bd p{margin:0;color:#5c6270;max-width:72ch}
+.same{
+  margin-top:26px;border:1px dashed #dcdfe4;border-radius:11px;padding:16px 18px;color:#5c6270;
+}
+.same h2{margin:0 0 8px;font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9096a1}
+.same ul{margin:0;padding-inline-start:18px}
+.same li+li{margin-top:5px}
+.same b{font-weight:500;color:#14161a}
+@media(max-width:620px){.sw{width:12px}.row{flex-direction:row}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Lima dasbor</h1>
+  <p class="lead">
+    Anatominya sama di kelimanya — sidebar, deret KPI, tabel Pool, daftar perhatian.
+    Yang berbeda warna primernya dan satu perlakuan khas per opsi.
+    Datanya identik supaya bisa dibandingkan langsung.
+  </p>
+
+  <div class="list">
+
+    <a class="row" href="1-biru.html">
+      <span class="sw" aria-hidden="true"><i style="background:#f7f8fa"></i><i style="background:#fff"></i><i style="background:#2563eb"></i><i style="background:#93b4f8"></i></span>
+      <span class="bd">
+        <span class="hd"><span class="no">01</span><b>Biru tinta</b><span class="hex">#2563EB</span></span>
+        <p>Paling netral dan paling aman. Warna cuma di nav aktif, tautan aksi, dan satu bar rincian Stock.</p>
+      </span>
+    </a>
+
+    <a class="row" href="2-hijau.html">
+      <span class="sw" aria-hidden="true"><i style="background:#f7f9f8"></i><i style="background:#fff"></i><i style="background:#047857"></i><i style="background:#5fb794"></i></span>
+      <span class="bd">
+        <span class="hd"><span class="no">02</span><b>Hijau hutan</b><span class="hex">#047857</span></span>
+        <p>Tiap KPI membawa bar mungil di bawah angkanya, jadi besarannya terbaca sebelum angkanya dibaca.</p>
+      </span>
+    </a>
+
+    <a class="row" href="3-indigo.html">
+      <span class="sw" aria-hidden="true"><i style="background:#f8f8fc"></i><i style="background:#fff"></i><i style="background:#4f46e5"></i><i style="background:#a5a0f0"></i></span>
+      <span class="bd">
+        <span class="hd"><span class="no">03</span><b>Indigo, satu kartu disorot</b><span class="hex">#4F46E5</span></span>
+        <p>Hanya kartu terpenting yang berlatar warna; tiga sisanya putih. Mata jadi tahu harus mulai dari mana.</p>
+      </span>
+    </a>
+
+    <a class="row" href="4-terakota.html">
+      <span class="sw" aria-hidden="true"><i style="background:#fdfaf6"></i><i style="background:#fff"></i><i style="background:#c2410c"></i><i style="background:#e8a97e"></i></span>
+      <span class="bd">
+        <span class="hd"><span class="no">04</span><b>Terakota hangat</b><span class="hex">#C2410C</span></span>
+        <p>Kanvasnya gading, bukan abu. Terasa hangat dan tidak korporat, tanpa berhenti bersih.</p>
+      </span>
+    </a>
+
+    <a class="row" href="5-teal.html">
+      <span class="sw" aria-hidden="true"><i style="background:#11302e"></i><i style="background:#f6f8f8"></i><i style="background:#fff"></i><i style="background:#0f766e"></i></span>
+      <span class="bd">
+        <span class="hd"><span class="no">05</span><b>Sidebar gelap, kerja tetap putih</b><span class="hex">#0F766E</span></span>
+        <p>Chrome digelapkan supaya area kerja terbaca sebagai lembar terang di sebelahnya. Kontras paling kuat.</p>
+      </span>
+    </a>
+    <a class="row" href="6-newton.html">
+      <span class="sw" aria-hidden="true"><i style="background:#f7f7f7"></i><i style="background:#fff"></i><i style="background:#3b82f6"></i><i style="background:#22c55e"></i></span>
+      <span class="bd">
+        <span class="hd"><span class="no">06</span><b>Newton · Beautiful UI</b><span class="hex">oklch accent</span></span>
+        <p>Ditiru harfiah dari <code>~/newton</code>: latar bergaris diagonal, jendela melayang, tombol pil, chip mono, pil status bertitik. Punya mode gelap.</p>
+      </span>
+    </a>
+  </div>
+
+  <section class="same">
+    <h2>Sama di kelimanya</h2>
+    <ul>
+      <li><b>Warna dipakai untuk tiga hal saja</b> — nav aktif, besaran, dan satu peringatan. Di luar itu halaman tetap putih.</li>
+      <li><b>Tanda — berarti tidak diketahui</b>, dan tidak sama dengan nol.</li>
+      <li><b>Lost&nbsp;% membawa penyebutnya</b> di tiap baris, supaya rasionya bisa dihitung ulang.</li>
+      <li><b>store-07 yang belum sinkron disebut namanya</b>, dan barisnya tidak dijumlahkan diam-diam.</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

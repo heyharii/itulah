@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Newton · Ringkasan Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* Ringkasan — hanya aturan yang khas layar ini.
+   Token, primitif, cangkang, tabel, dan keadaan ada di retail.css. */
+
+.hd{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.hd h1{margin:0 0 2px;font-size:20px;font-weight:600;letter-spacing:-.02em}
+.hd p{margin:0;color:var(--ink-2);font-size:13.5px}
+.hd-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+
+/* ── kartu KPI ─────────────────────────────────────────── */
+.kpis{display:grid;gap:12px;grid-template-columns:1fr;margin-bottom:12px}
+@media(min-width:700px){.kpis{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1360px){.kpis{grid-template-columns:repeat(4,1fr)}}
+.kpi{padding:14px 15px;display:flex;flex-direction:column;gap:8px}
+.kpi .lab{font-size:13px;color:var(--ink-2)}
+.kpi .fig{font-size:26px;font-weight:600;letter-spacing:-.03em;line-height:1}
+.kpi .fig small{font-size:14px;font-weight:500;color:var(--ink-2);letter-spacing:0}
+.kpi .foot{
+  margin-top:auto;padding-top:9px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--ink-2);
+  display:flex;align-items:center;gap:4px 10px;flex-wrap:wrap;
+}
+/* Tiap suku satu unit. Kalau baris kaki dibiarkan jadi satu aliran teks,
+   pemenggalannya jatuh di tengah frasa dan angka terpisah dari namanya. */
+.kpi .foot > span{white-space:nowrap}
+.delta{display:inline-flex;align-items:center;gap:3px;font-weight:500}
+.delta[data-dir="up"]{color:var(--green)}
+.delta[data-dir="down"]{color:var(--red)}
+
+/* Bar rincian: tiga suku yang menjumlah ke Stock, digambar sebagai satu
+   batang supaya perbandingannya terbaca sebelum angkanya dibaca. */
+.spark{display:flex;height:6px;border-radius:999px;overflow:hidden;background:var(--field)}
+.spark span{display:block}
+
+/* ── chip penyaring status ─────────────────────────────── */
+.filters{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--line)}
+
+/* ── perlu perhatian ───────────────────────────────────── */
+.att a{
+  display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:14px;
+  padding:11px 14px;border-bottom:1px solid var(--line);
+  color:inherit;text-decoration:none;
+  transition:background-color 120ms var(--ease);
+}
+.att a:last-child{border-bottom:0}
+.att a:hover{background:var(--hover)}
+.att .qty{
+  font-family:var(--font-mono);font-variant-numeric:tabular-nums;
+  font-size:19px;font-weight:500;text-align:end;line-height:1;
+}
+.att a[data-tone="red"] .qty{color:var(--red)}
+.att a[data-tone="muted"] .qty{color:var(--ink-3);font-weight:400}
+.att .what b{display:block;font-weight:500;font-size:13.5px}
+.att .what span{font-size:12.5px;color:var(--ink-3)}
+.att .go{font-size:12.5px;color:var(--ink-3)}
+.att a:hover .go{color:var(--accent-ink)}
+
+/* ── kesehatan buku besar ──────────────────────────────── */
+.cols{display:grid;gap:12px;grid-template-columns:1fr;margin-top:12px}
+@media(min-width:1100px){.cols{grid-template-columns:1.3fr 1fr}}
+.kv{display:flex;flex-direction:column}
+.kv-row{display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--line);font-size:13.5px}
+.kv-row:last-child{border-bottom:0}
+.kv-row span:first-child{color:var(--ink-2);flex:1;min-width:0}
+.kv-row span:last-child{font-family:var(--font-mono);font-variant-numeric:tabular-nums;flex-shrink:0}
+</style>
+</head>
+<body>
+
+<div class="window">
+
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws">
+      <span class="m" aria-hidden="true">R</span>
+      <b>RetailOS · Edge</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <div class="grp">Operasi</div>
+    <a href="#" aria-current="page">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Ringkasan
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="7.5" width="13" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="12.5" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>
+      Pool
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 6.5h11m0 0-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 11.5h-11m0 0 3-3m-3 3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Movement
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5v5m0 0-4 3v5m4-8 4 3v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Allotment
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="3.5" y="2.5" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6.25 6.5h5.5M6.25 9.5h5.5M6.25 12.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Official Count
+      <span class="n">3</span>
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.8 2.4"/><path d="M9 5.75v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="12" r=".85" fill="currentColor"/></svg>
+      Missing
+      <span class="n" data-tone="red">12</span>
+    </a>
+
+    <div class="grp">Komersial</div>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 3.5h2l2 8h7.5l1.5-6H5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7.5" cy="14.25" r="1.2" stroke="currentColor" stroke-width="1.4"/><circle cx="13" cy="14.25" r="1.2" stroke="currentColor" stroke-width="1.4"/></svg>
+      Penjualan
+    </a>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 3h5.5L15 9.5 9.5 15 3 8.5V3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="6.25" cy="6.25" r="1.1" fill="currentColor"/></svg>
+      Katalog &amp; harga
+    </a>
+
+    <div class="grp">Sistem</div>
+    <a href="#">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M4.5 3v12M9 3v12M13.5 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="4.5" cy="6.5" r="1.7" fill="var(--page)" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="11" r="1.7" fill="var(--page)" stroke="currentColor" stroke-width="1.5"/><circle cx="13.5" cy="7.5" r="1.7" fill="var(--page)" stroke="currentColor" stroke-width="1.5"/></svg>
+      Kontrol ledger
+    </a>
+
+    <div class="side-foot">
+      <p class="node">
+        <span class="chip">cloud</span> inventory_edge_dev<br>
+        12 dari 13 node · 15:42
+      </p>
+      <button type="button" class="btn btn-secondary btn-sm" style="width:100%">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Movement baru
+      </button>
+    </div>
+  </nav>
+
+  <main class="main">
+    <div class="content">
+
+      <div class="hd">
+        <div>
+          <h1>Ringkasan</h1>
+          <p>Apa kata buku besar sekarang, dan apa yang perlu dikerjakan.</p>
+        </div>
+        <div class="hd-actions">
+          <span class="pill" data-tone="orange">store-07 belum sinkron</span>
+          <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="btn btn-primary btn-sm">Ekspor</button>
+        </div>
+      </div>
+
+      <!-- ── KPI ─────────────────────────────────────────── -->
+      <section class="kpis" aria-label="Angka pokok">
+
+        <article class="card kpi">
+          <span class="lab">Stock estate</span>
+          <b class="fig mono">48.312</b>
+          <span class="spark" role="img" aria-label="Allotted 3.104, On Hand 44.902, Missing 306">
+            <span style="width:6.4%;background:var(--accent)"></span>
+            <span style="width:92.9%;background:var(--green)"></span>
+            <span style="width:.7%;background:var(--orange)"></span>
+          </span>
+          <span class="foot"><span>Allotted <b class="mono">3.104</b></span><span>On Hand <b class="mono">44.902</b></span><span>Missing <b class="mono">306</b></span></span>
+        </article>
+
+        <article class="card kpi">
+          <span class="lab">On Hand</span>
+          <b class="fig mono">44.902</b>
+          <span class="foot">
+            <span class="delta" data-dir="up">
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 9.5v-7M3 5.5 6 2.5l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              1,2%
+            </span>
+            dari kemarin · 92,9% dari Stock
+          </span>
+        </article>
+
+        <article class="card kpi">
+          <span class="lab">Missing</span>
+          <b class="fig mono">306</b>
+          <span class="foot"><span class="pill" data-tone="red">12 lewat 72 jam</span><span>tertua 6 hari</span></span>
+        </article>
+
+        <article class="card kpi">
+          <span class="lab">Penjualan hari ini</span>
+          <b class="fig mono">Rp 184,29<small> jt</small></b>
+          <span class="foot"><span class="mono">Rp 184.290.500</span><span><span class="mono">1.208</span> transaksi</span></span>
+        </article>
+      </section>
+
+      <!-- ── tabel pool ──────────────────────────────────── -->
+      <section class="card" aria-labelledby="pool-h">
+        <div class="ch">
+          <h2 id="pool-h">Pool</h2>
+          <span class="meta">Observed 24 jam · Lost 30 hari</span>
+        </div>
+
+        <div class="filters" role="group" aria-label="Saring pool">
+          <button type="button" class="fchip" aria-pressed="true">Semua <span class="n">9</span></button>
+          <button type="button" class="fchip" aria-pressed="false"><i style="background:var(--green)"></i>Normal <span class="n">5</span></button>
+          <button type="button" class="fchip" aria-pressed="false"><i style="background:var(--orange)"></i>Perlu dilihat <span class="n">2</span></button>
+          <button type="button" class="fchip" aria-pressed="false"><i style="background:var(--red)"></i>Bermasalah <span class="n">1</span></button>
+          <button type="button" class="fchip" aria-pressed="false"><i style="background:var(--ink-3)"></i>Diam <span class="n">1</span></button>
+        </div>
+
+        <div class="tw">
+          <table aria-describedby="lostdef">
+            <thead>
+              <tr>
+                <th>Pool</th>
+                <th>Sumber</th>
+                <th class="n">Stock</th>
+                <th class="n">Allotted</th>
+                <th class="n">On Hand</th>
+                <th class="n">Missing</th>
+                <th class="n">Observed</th>
+                <th class="n">Lost&nbsp;%</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="grp-row"><td colspan="9">Distribution Centre</td></tr>
+
+              <tr>
+                <td>dc.warehouse</td>
+                <td><span class="chip" data-tone="accent">cloud_ledger</span></td>
+                <td class="n">21.480</td><td class="n">3.104</td><td class="n">18.376</td>
+                <td class="n">92</td><td class="n">18.301</td>
+                <td class="n">0,41%<span class="den">74 ÷ 18.052</span></td>
+                <td><span class="pill" data-tone="green">Normal</span></td>
+              </tr>
+              <tr>
+                <td>dc.staging</td>
+                <td><span class="chip" data-tone="accent">cloud_ledger</span></td>
+                <td class="n">1.240</td><td class="n nil">—</td><td class="n">1.240</td>
+                <td class="n">8</td><td class="n">1.236</td>
+                <td class="n">0,00%<span class="den">0 ÷ 1.244</span></td>
+                <td><span class="pill" data-tone="green">Normal</span></td>
+              </tr>
+              <tr>
+                <td>dc.reject.dc</td>
+                <td><span class="chip" data-tone="accent">cloud_ledger</span></td>
+                <td class="n">612</td><td class="n nil">—</td><td class="n">612</td>
+                <td class="n nil">—</td><td class="n">604</td>
+                <td class="n nil">—<span class="den">tanpa paparan</span></td>
+                <td><span class="pill" data-tone="neutral">Diam</span></td>
+              </tr>
+              <tr class="sum-row">
+                <td>Jumlah DC</td><td></td>
+                <td class="n">23.332</td><td class="n">3.104</td><td class="n">20.228</td>
+                <td class="n">100</td><td class="n">20.141</td>
+                <td class="n">0,38%<span class="den">74 ÷ 19.296</span></td>
+                <td></td>
+              </tr>
+
+              <tr class="grp-row"><td colspan="9">Toko · 13 site</td></tr>
+
+              <tr>
+                <td>store-01</td>
+                <td><span class="chip">edge_local</span></td>
+                <td class="n">2.104</td><td class="n nil">—</td><td class="n">2.104</td>
+                <td class="n">14</td><td class="n">2.088</td>
+                <td class="n">0,52%<span class="den">11 ÷ 2.115</span></td>
+                <td><span class="pill" data-tone="green">Normal</span></td>
+              </tr>
+              <tr>
+                <td>store-03</td>
+                <td><span class="chip">edge_local</span></td>
+                <td class="n">1.876</td><td class="n nil">—</td><td class="n">1.876</td>
+                <td class="n">31</td><td class="n">1.840</td>
+                <td class="n">1,44%<span class="den">27 ÷ 1.874</span></td>
+                <td><span class="pill" data-tone="orange">Lost tinggi</span></td>
+              </tr>
+              <tr>
+                <td>store-04</td>
+                <td><span class="chip">edge_local</span></td>
+                <td class="n">1.512</td><td class="n">1.524</td><td class="n neg">−12</td>
+                <td class="n">9</td><td class="n">1.503</td>
+                <td class="n">0,60%<span class="den">9 ÷ 1.501</span></td>
+                <td><span class="pill" data-tone="red">Allotment lebih</span></td>
+              </tr>
+              <tr>
+                <td>store-07</td>
+                <td><span class="chip" data-tone="orange">edge_local</span></td>
+                <td class="n">1.944</td><td class="n nil">—</td><td class="n">1.944</td>
+                <td class="n">18</td><td class="n nil">—</td>
+                <td class="n nil">—<span class="den">belum sinkron</span></td>
+                <td><span class="pill" data-tone="orange">Putus 14:02</span></td>
+              </tr>
+              <tr class="sum-row">
+                <td>Jumlah Toko</td>
+                <td><span class="chip">12 dari 13</span></td>
+                <td class="n">24.980</td><td class="n">1.524</td><td class="n">24.674</td>
+                <td class="n">206</td><td class="n">24.401</td>
+                <td class="n">0,71%<span class="den">176 ÷ 24.788</span></td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="cap" id="lostdef">
+          Lost&nbsp;% = Lost yang berasal dari pool ini selama 30 hari, dibagi On Hand di awal jendela
+          ditambah On Hand yang masuk selama jendela. Penyebutnya ditulis di tiap baris supaya rasionya
+          bisa diperiksa. Tanda <span class="nil">—</span> berarti tidak diketahui, dan tidak sama dengan nol.
+        </p>
+      </section>
+
+      <!-- ── perhatian + kesehatan ───────────────────────── -->
+      <div class="cols">
+
+        <section class="card" aria-labelledby="att-h">
+          <div class="ch">
+            <h2 id="att-h">Perlu perhatian</h2>
+            <span class="meta">18 terbuka · tertua 6 hari</span>
+          </div>
+          <div class="att">
+            <a href="#" data-tone="red">
+              <span class="qty">12</span>
+              <span class="what"><b>Missing lewat 72 jam</b><span>9 di toko, 3 di DC</span></span>
+              <span class="go">Selesaikan</span>
+            </a>
+            <a href="#">
+              <span class="qty">3</span>
+              <span class="what"><b>Official Count perlu persetujuan</b><span>dc.warehouse · store-02.floor · store-11.warehouse</span></span>
+              <span class="go">Tinjau</span>
+            </a>
+            <a href="#" data-tone="red">
+              <span class="qty">1</span>
+              <span class="what"><b>Allotment melebihi On Hand sumbernya</b><span>store-04.warehouse · On Hand −12</span></span>
+              <span class="go">Lihat</span>
+            </a>
+            <a href="#">
+              <span class="qty">2</span>
+              <span class="what"><b>Bacaan RFID tidak cocok dengan ledger</b><span>store-03.floor · 4 jam lalu</span></span>
+              <span class="go">Periksa</span>
+            </a>
+            <a href="#" data-tone="muted">
+              <span class="qty">—</span>
+              <span class="what"><b>Selisih proyeksi buku besar</b><span>Angkanya tidak dibuka untuk peran kamu</span></span>
+              <span class="go">Butuh supervisor</span>
+            </a>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="h-h">
+          <div class="ch">
+            <h2 id="h-h">Kesehatan buku besar</h2>
+          </div>
+          <div class="kv">
+            <div class="kv-row"><span>Replay terakhir</span><span><span class="pill" data-tone="green">MATCH</span></span></div>
+            <div class="kv-row"><span>Dijalankan</span><span>15:30 · 12 menit lalu</span></div>
+            <div class="kv-row"><span>Selisih proyeksi</span><span>0</span></div>
+            <div class="kv-row"><span>Fakta ledger</span><span>184.221</span></div>
+            <div class="kv-row"><span>Repost terakhir</span><span class="nil">— belum pernah</span></div>
+            <div class="kv-row"><span>Fakta tertahan di edge</span><span>1.204</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* Pergantian tema menukar semua token sekaligus — transisi dibekukan supaya
+   pembalikannya jadi satu repaint bersih, bukan ratusan fade yang tidak sinkron. */
+var toggle = document.getElementById("theme");
+toggle.addEventListener("click", function () {
+  var root = document.documentElement;
+  root.classList.add("theme-switching");
+  root.classList.toggle("dark");
+  window.requestAnimationFrame(function () {
+    window.requestAnimationFrame(function () {
+      root.classList.remove("theme-switching");
+    });
+  });
+});
+
+document.querySelectorAll(".fchip").forEach(function (chip) {
+  chip.addEventListener("click", function () {
+    document.querySelectorAll(".fchip").forEach(function (other) {
+      other.setAttribute("aria-pressed", String(other === chip));
+    });
+  });
+});
+</script>
+</body>
+</html>

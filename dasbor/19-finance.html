@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Keuangan · Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="retail.css">
+<style>
+/* ==========================================================================
+   KEUANGAN — persis sebesar yang backend kita punya, tidak lebih
+   --------------------------------------------------------------------------
+   Backend kita hari ini tidak punya buku besar, tidak punya bagan akun, tidak
+   punya hutang supplier. Yang ada satu endpoint uang yang matang:
+
+     GET /api/v1/reports/sales/daily?site_id&date&utc_offset_minutes
+
+   dan src/cloud/postgres/reports.rs menyebut dirinya sendiri dengan tepat:
+   "the numbers a store needs to close a day". Layar ini adalah endpoint itu,
+   bukan angan-angan tentang finance yang belum ada.
+
+   DUA PERSAMAAN. Respons menutup dengan medan `identity`:
+
+     gross = net + tax
+     cash_expected = cash_tendered - change - cash_refunds
+
+   Karena servernya menerbitkan persamaannya sendiri, layar ini menampilkannya
+   sebagai persamaan yang dihitung di depan mata — bukan empat kartu angka yang
+   kebetulan berdekatan. Kalau suatu hari sisi kiri tidak sama dengan sisi
+   kanan, itu terlihat di sini sebagai kalimat yang salah, bukan sebagai selisih
+   yang harus dicari orang.
+
+   BATAS HARI ADALAH PILIHAN, BUKAN TAKDIR. `utc_offset_minutes` default 420
+   (WIB) dan di-clamp ±14 jam. Toko yang tutup lewat tengah malam menutup hari
+   yang berbeda dari toko yang tutup jam 9. Maka offset itu kontrol di layar,
+   dan jendela UTC yang dipakai ditulis apa adanya — supaya angka yang berbeda
+   antar dua orang bisa dijelaskan oleh jendelanya, bukan oleh dugaan.
+
+   VOID BUKAN RETUR. Keduanya mengurangi penjualan, tapi void membatalkan
+   transaksi yang belum jadi dan retur mengembalikan uang atas transaksi yang
+   sudah jadi. Server menghitungnya dari dua tabel berbeda dengan dua stempel
+   waktu berbeda (`voided_at` vs `created_at`), jadi keduanya tidak pernah
+   dijumlahkan di layar ini.
+
+   Uang disimpan sebagai minor unit (rupiah bulat) dan ditampilkan apa adanya.
+   ========================================================================== */
+
+.eq{padding:14px 16px}
+.eq h3{margin:0 0 10px;font-size:12px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.eqrow{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.term{display:flex;flex-direction:column;gap:3px;min-width:0}
+.term b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:20px;font-weight:500;letter-spacing:-.03em;line-height:1}
+.term span{font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.op{font-family:var(--font-mono);font-size:17px;color:var(--ink-3);padding-bottom:16px}
+.eq[data-ok="false"] .op{color:var(--red)}
+.eqnote{margin:10px 0 0;font-size:12px;color:var(--ink-3)}
+.eqnote[data-ok="false"]{color:var(--red)}
+
+.sum{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));margin-bottom:12px}
+.stat{padding:12px 14px;display:flex;flex-direction:column;gap:5px}
+.stat span{font-size:12.5px;color:var(--ink-2)}
+.stat b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:500;letter-spacing:-.03em;line-height:1}
+.stat small{font-size:11.5px;color:var(--ink-3)}
+
+.two{display:grid;gap:12px;grid-template-columns:1fr;margin-bottom:12px}
+@media(min-width:1100px){.two{grid-template-columns:1fr 1fr}}
+
+.bar{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.card .bar:last-of-type{border-bottom:0}
+.bar .nm{width:96px;flex-shrink:0;font-size:13px;font-weight:500}
+.bar .track{flex:1;height:6px;border-radius:var(--radius-bar);background:var(--inset);overflow:hidden}
+.bar .fill{height:100%;background:var(--ink-2)}
+.bar[data-k="CASH"] .fill{background:var(--green)}
+.bar[data-k="CARD"] .fill{background:var(--accent)}
+.bar[data-k="QRIS"] .fill{background:var(--orange)}
+.bar .amt{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:13.5px;min-width:118px;text-align:end}
+.bar .amt span{display:block;font-size:11px;color:var(--ink-3);font-family:var(--font-sans)}
+
+.ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 12px;background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);margin-bottom:12px}
+.ctl label{font-size:12.5px;color:var(--ink-3)}
+.ctl .inp{height:32px;width:auto}
+.ctl .win{margin-left:auto;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <nav class="side" aria-label="Navigasi utama">
+    <button type="button" class="ws"><span class="m">R</span><b>RetailOS · Cloud</b>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m4 5.5 3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="grp">Uang</div>
+    <a href="#" aria-current="page"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="2.5" y="4.5" width="13" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="2" stroke="currentColor" stroke-width="1.4"/></svg>Laporan harian</a>
+    <a href="12-pos.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 3.5h2l1.6 8.2a1.4 1.4 0 0 0 1.4 1.1h6.1a1.4 1.4 0 0 0 1.4-1.1L16 6.5H5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Kasir</a>
+    <div class="grp">Persediaan</div>
+    <a href="6-newton.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 12.5 6.5 8l3 2.5L15.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 15.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Ringkasan</a>
+    <a href="14-allotment.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M9 2.5v5m0 0-4 3v5m4-8 4 3v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Allotment</a>
+    <a href="20-hr.html"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="2.75" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 15c.6-2.6 2.8-4 5.5-4s4.9 1.4 5.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Orang &amp; akses</a>
+    <div class="side-foot"><p class="node"><span class="chip">cloud</span> inventory_edge_dev<br>Keuangan · 09:14</p></div>
+  </nav>
+
+  <main class="main">
+    <div class="top">
+      <h1>Laporan harian</h1>
+      <span class="stamp"><i></i>Tidak menulis apa pun</span>
+      <div class="right">
+        <button type="button" class="btn btn-secondary btn-sm" id="print">Cetak</button>
+        <button type="button" class="icon-btn" id="theme" aria-label="Ganti tema">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 9.2A5.4 5.4 0 0 1 6.8 3a5.5 5.5 0 1 0 6.2 6.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="ctl">
+        <label for="c-site">Site</label>
+        <select class="inp" id="c-site"><option>store-03</option><option>store-07</option><option>dc-01</option></select>
+        <label for="c-date">Tanggal</label>
+        <input class="inp" id="c-date" type="date" value="2026-08-31">
+        <label for="c-off">Batas hari</label>
+        <select class="inp" id="c-off">
+          <option value="420" selected>WIB · UTC+7</option>
+          <option value="480">WITA · UTC+8</option>
+          <option value="540">WIT · UTC+9</option>
+        </select>
+        <span class="win" id="win"></span>
+      </div>
+
+      <div class="sum" id="sum"></div>
+
+      <div class="two">
+        <section class="card eq" id="eq1">
+          <h3>gross = net + tax</h3>
+          <div class="eqrow" id="eq1row"></div>
+          <p class="eqnote" id="eq1note"></p>
+        </section>
+        <section class="card eq" id="eq2">
+          <h3>cash_expected = cash_tendered − change − cash_refunds</h3>
+          <div class="eqrow" id="eq2row"></div>
+          <p class="eqnote" id="eq2note"></p>
+        </section>
+      </div>
+
+      <div class="two">
+        <section class="card">
+          <div class="ch"><h2>Tender masuk</h2><span class="meta" id="tmeta"></span></div>
+          <div id="tenders"></div>
+        </section>
+        <section class="card">
+          <div class="ch"><h2>Refund keluar</h2><span class="meta" id="rmeta"></span></div>
+          <div id="refunds"></div>
+          <p class="cap">Refund dikelompokkan menurut cara uang keluar, bukan cara uang dulu masuk.
+          Barang yang dibayar kartu bisa dikembalikan tunai, dan laci merasakan itu.</p>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="ch"><h2>Void hari ini</h2><span class="meta">Dihitung dari <span class="mono">voided_at</span></span></div>
+        <div class="bar"><span class="nm">Void</span>
+          <span class="track"><span class="fill" style="width:0"></span></span>
+          <span class="amt" id="voidn">—<span>transaksi dibatalkan</span></span></div>
+        <p class="cap">Void tidak pernah dijumlahkan dengan retur. Void membatalkan transaksi yang belum jadi;
+        retur mengembalikan uang atas transaksi yang sudah jadi. Server pun menghitungnya dari dua tabel berbeda
+        dengan dua stempel waktu berbeda.</p>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+/* GET /api/v1/reports/sales/daily — bentuk persis dari
+   src/cloud/postgres/reports.rs */
+var REPORT = {
+  site_id:"store-03", date:"2026-08-31", utc_offset_minutes:420,
+  window:{from:"2026-08-30T17:00:00Z", to:"2026-08-31T17:00:00Z"},
+  sales:{count:184, units_sold:341, net_minor:41_260_000, tax_minor:4_538_600,
+         gross_minor:45_798_600, paid_minor:46_120_000, change_minor:321_400, voided_count:3},
+  tenders:[
+    {method:"CASH", amount_minor:18_940_000, count:96},
+    {method:"CARD", amount_minor:19_180_000, count:61},
+    {method:"QRIS", amount_minor:8_000_000, count:27},
+  ],
+  returns:{count:6, refund_total_minor:1_284_000,
+    by_method:[{method:"CASH", amount_minor:684_000},{method:"CARD", amount_minor:600_000}]},
+  cash:{cash_tendered_minor:18_940_000, change_given_minor:321_400,
+        cash_refunded_minor:684_000, cash_expected_minor:17_934_600},
+};
+
+function rp(m){ return "Rp " + String(m).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+function n(x){ return String(x).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+function methodOf(list, m){
+  var r = list.find(function(x){ return x.method === m; });
+  return r ? r.amount_minor : 0;
+}
+
+function term(v, label){
+  return '<span class="term"><b>' + rp(v) + '</b><span>' + label + '</span></span>';
+}
+
+function render(){
+  var s = REPORT.sales, c = REPORT.cash;
+
+  document.getElementById("win").textContent =
+    "jendela " + REPORT.window.from.replace("T"," ").replace("Z"," UTC") +
+    " → " + REPORT.window.to.replace("T"," ").replace("Z"," UTC");
+
+  document.getElementById("sum").innerHTML =
+    '<div class="card stat"><span>Transaksi</span><b>' + n(s.count) + '</b><small>' + n(s.units_sold) + ' unit terjual</small></div>' +
+    '<div class="card stat"><span>Penjualan kotor</span><b style="font-size:19px">' + rp(s.gross_minor) + '</b><small>termasuk pajak ' + rp(s.tax_minor) + '</small></div>' +
+    '<div class="card stat"><span>Retur</span><b style="font-size:19px">' + rp(REPORT.returns.refund_total_minor) + '</b><small>' + REPORT.returns.count + ' retur</small></div>' +
+    '<div class="card stat"><span>Kas seharusnya di laci</span><b style="font-size:19px">' + rp(c.cash_expected_minor) + '</b><small>dari perdagangan hari ini</small></div>';
+
+  /* Persamaan 1 — dihitung ulang di layar, bukan disalin. */
+  var ok1 = s.gross_minor === s.net_minor + s.tax_minor;
+  document.getElementById("eq1").dataset.ok = ok1;
+  document.getElementById("eq1row").innerHTML =
+    term(s.gross_minor, "gross") + '<span class="op">=</span>' +
+    term(s.net_minor, "net") + '<span class="op">+</span>' +
+    term(s.tax_minor, "tax");
+  var e1 = document.getElementById("eq1note");
+  e1.dataset.ok = ok1;
+  e1.textContent = ok1
+    ? "Cocok. Pajak sudah termasuk di dalam angka kotor, tidak ditambahkan lagi di mana pun."
+    : "Tidak cocok. Selisih " + rp(Math.abs(s.gross_minor - s.net_minor - s.tax_minor)) + ".";
+
+  /* Persamaan 2 — laci. */
+  var hit = c.cash_tendered_minor - c.change_given_minor - c.cash_refunded_minor;
+  var ok2 = hit === c.cash_expected_minor;
+  document.getElementById("eq2").dataset.ok = ok2;
+  document.getElementById("eq2row").innerHTML =
+    term(c.cash_expected_minor, "cash_expected") + '<span class="op">=</span>' +
+    term(c.cash_tendered_minor, "tunai masuk") + '<span class="op">−</span>' +
+    term(c.change_given_minor, "kembalian") + '<span class="op">−</span>' +
+    term(c.cash_refunded_minor, "refund tunai");
+  var e2 = document.getElementById("eq2note");
+  e2.dataset.ok = ok2;
+  e2.textContent = ok2
+    ? "Cocok. Angka ini yang dibandingkan dengan hitungan fisik laci saat tutup."
+    : "Tidak cocok. Selisih " + rp(Math.abs(hit - c.cash_expected_minor)) + ".";
+
+  /* Tender & refund, dua daftar terpisah karena memang dua tabel. */
+  var tmax = Math.max.apply(null, REPORT.tenders.map(function(t){ return t.amount_minor; }));
+  document.getElementById("tmeta").textContent = REPORT.tenders.reduce(function(a,t){ return a + t.count; }, 0) + " pembayaran";
+  document.getElementById("tenders").innerHTML = REPORT.tenders.map(function(t){
+    return '<div class="bar" data-k="' + t.method + '"><span class="nm">' + t.method + '</span>' +
+      '<span class="track"><span class="fill" style="width:' + Math.round(t.amount_minor / tmax * 100) + '%"></span></span>' +
+      '<span class="amt">' + rp(t.amount_minor) + '<span>' + t.count + ' pembayaran</span></span></div>';
+  }).join("");
+
+  var rmax = Math.max.apply(null, REPORT.returns.by_method.map(function(t){ return t.amount_minor; }));
+  document.getElementById("rmeta").textContent = REPORT.returns.count + " retur";
+  document.getElementById("refunds").innerHTML = REPORT.returns.by_method.map(function(t){
+    return '<div class="bar" data-k="' + t.method + '"><span class="nm">' + t.method + '</span>' +
+      '<span class="track"><span class="fill" style="width:' + Math.round(t.amount_minor / rmax * 100) + '%"></span></span>' +
+      '<span class="amt">' + rp(t.amount_minor) + '<span>refund</span></span></div>';
+  }).join("");
+
+  document.getElementById("voidn").innerHTML = n(s.voided_count) + '<span>transaksi dibatalkan</span>';
+}
+
+document.getElementById("c-off").addEventListener("change", function(e){
+  /* Mengubah batas hari mengubah jendela UTC — dan karena itu bisa mengubah
+     angkanya. Jendelanya ditulis supaya perbedaan itu bisa dijelaskan. */
+  var off = Number(e.target.value), d = document.getElementById("c-date").value;
+  var from = new Date(d + "T00:00:00Z"); from.setUTCMinutes(from.getUTCMinutes() - off);
+  var to = new Date(from.getTime() + 864e5);
+  REPORT.utc_offset_minutes = off;
+  REPORT.window = {from:from.toISOString().slice(0,19) + "Z", to:to.toISOString().slice(0,19) + "Z"};
+  render();
+});
+document.getElementById("print").addEventListener("click", function(){ window.print(); });
+document.getElementById("theme").addEventListener("click", function(){ document.documentElement.classList.toggle("dark"); });
+render();
+</script>
+</body>
+</html>

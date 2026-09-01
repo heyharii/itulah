@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Kios · Ringkasan Retail Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   SELERA 3 · KIOS — untuk tablet gudang, tangan penuh, tanpa keyboard
+   --------------------------------------------------------------------------
+   Ini satu-satunya dari kelima selera yang aturannya diturunkan dari FISIK,
+   bukan dari selera. Empat batasan, dan semuanya mengubah bentuk:
+
+   F1 · Jarak baca 60–80 cm, bukan 45 cm.
+        Semua ukuran huruf naik satu tingkat penuh. Angka pokok 64px. Tidak
+        ada teks di bawah 15px di layar ini — kalau sesuatu terlalu kecil
+        untuk 15px, artinya ia tidak perlu ada di sini.
+
+   F2 · Jari, bukan kursor.
+        Tidak ada sasaran sentuh di bawah 56px, dan tidak ada hover yang
+        membawa informasi. Baris tabel diganti kartu karena sel selebar 40px
+        tidak bisa disentuh dengan benar.
+
+   F3 · Kadang kena matahari langsung.
+        Chrome dibuat akromatik dengan kontras maksimum — hitam di atas putih.
+        Warna dipakai HANYA status, dan hanya pada tingkat yang masih terbaca
+        saat layar terkena silau. Tidak ada abu muda di atas abu muda.
+
+   F4 · Sembilan kolom tidak muat, dan memang tidak dibutuhkan.
+        Tabel Pool jadi kartu yang hanya membawa tiga angka yang benar-benar
+        ditindaklanjuti orang di lantai: On Hand, Missing, Lost %. Sisanya
+        ada di layar Pool, bukan di ringkasan.
+
+   Yang tetap dari selera lain: `—` bukan nol, penyebut Lost % ikut dibawa,
+   dan node yang belum sinkron disebut namanya.
+   ========================================================================== */
+
+:root{
+  --i-ink:#0b0d0e;
+  --i-ink-2:#454b50;
+  --i-ink-3:#6f767c;
+  --i-paper:#ffffff;
+  --i-ground:#e9ecee;
+  --i-fill:#f1f3f5;
+  --i-line:#c9ced2;      /* garis lebih tegas dari selera lain: silau memakan hairline */
+  --i-line-soft:#dfe3e6;
+
+  --i-ok:#0a6b46;   --i-ok-bg:#d8f0e4;
+  --i-warn:#8a4f04; --i-warn-bg:#fbe8cf;
+  --i-bad:#a81f14;  --i-bad-bg:#fadedb;
+  --i-idle:#5c6368; --i-idle-bg:#e4e7e9;
+
+  --i-r:12px;
+  --i-touch:56px;
+  --i-dur:120ms; --i-ease:cubic-bezier(.16,1,.3,1);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--i-ground); color:var(--i-ink);
+  font-family:Manrope,-apple-system,"Segoe UI",sans-serif;
+  font-size:16px; font-weight:400; line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;font-weight:500}
+.nil{color:var(--i-ink-3);font-weight:400}
+:focus-visible{outline:3px solid var(--i-ink);outline-offset:2px;border-radius:6px}
+
+/* ---------------- kepala ---------------- */
+.top{
+  position:sticky;top:0;z-index:20;
+  background:var(--i-paper);border-bottom:2px solid var(--i-ink);
+  display:flex;align-items:center;gap:14px;padding:0 18px;height:68px;
+}
+.top-mark{display:flex;align-items:center;gap:11px;flex-shrink:0}
+.top-mark svg{display:block}
+.top-mark b{font-weight:800;font-size:17px;letter-spacing:-.01em}
+
+/* Pemilih site adalah kontrol paling sering dipakai di lantai, jadi ia besar
+   dan berada di jalur ibu jari — bukan di sudut kanan atas seperti di desktop. */
+.site-pick{
+  display:inline-flex;align-items:center;gap:10px;height:44px;padding:0 14px;
+  border:2px solid var(--i-ink);border-radius:var(--i-r);background:var(--i-paper);
+  font-family:inherit;font-size:16px;font-weight:800;color:var(--i-ink);cursor:pointer;
+}
+.top-right{margin-inline-start:auto;display:flex;align-items:center;gap:12px}
+.freshness{
+  display:inline-flex;align-items:center;gap:9px;
+  font-size:15px;font-weight:600;color:var(--i-ink-2);white-space:nowrap;
+}
+.freshness i{width:9px;height:9px;border-radius:50%;background:var(--i-ok);flex-shrink:0}
+
+/* ---------------- tab besar ---------------- */
+.tabs{
+  display:flex;gap:0;background:var(--i-paper);
+  border-bottom:1px solid var(--i-line);overflow-x:auto;
+  position:sticky;top:68px;z-index:19;
+}
+.tabs button{
+  flex:1;min-width:132px;height:var(--i-touch);
+  border:0;background:none;cursor:pointer;
+  font-family:inherit;font-size:16px;font-weight:600;color:var(--i-ink-2);
+  border-bottom:3px solid transparent;
+  transition:color var(--i-dur) var(--i-ease),border-color var(--i-dur) var(--i-ease);
+}
+.tabs button[aria-selected="true"]{color:var(--i-ink);font-weight:800;border-bottom-color:var(--i-ink)}
+.tabs .tab-n{
+  display:inline-block;margin-inline-start:8px;min-width:26px;height:24px;line-height:24px;
+  border-radius:99px;background:var(--i-bad);color:#fff;font-size:13px;font-weight:800;padding:0 7px;
+}
+
+/* ---------------- kanvas ---------------- */
+.wrap{padding:18px;max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+
+.sec-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.sec-head h2{
+  margin:0;font-size:13px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--i-ink-2);
+}
+.sec-head span{font-size:15px;color:var(--i-ink-3)}
+
+.slab{background:var(--i-paper);border:1px solid var(--i-line);border-radius:var(--i-r)}
+
+/* ---------------- neraca: angka pokok 64px (F1) ---------------- */
+.neraca{padding:22px 22px 0}
+.neraca-label{font-size:13px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--i-ink-2)}
+.neraca-fig{font-size:64px;font-weight:700;line-height:1;letter-spacing:-.03em;margin:10px 0 18px;font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums}
+
+.terms{display:grid;gap:1px;background:var(--i-line-soft);border-top:1px solid var(--i-line-soft);grid-template-columns:1fr}
+@media(min-width:640px){.terms{grid-template-columns:repeat(3,1fr)}}
+.term{background:var(--i-paper);padding:16px 22px;display:flex;flex-direction:column;gap:6px}
+.term span{font-size:13px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--i-ink-2)}
+.term b{font-size:30px;font-weight:700;line-height:1;font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+
+.verdict{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:16px 22px;border-top:1px solid var(--i-line);
+  background:var(--i-fill);border-radius:0 0 var(--i-r) var(--i-r);
+}
+.verdict .status{flex-shrink:0}
+.verdict p{margin:0;font-size:15px;color:var(--i-ink-2)}
+
+/* ---------------- status: kontras tinggi, terbaca saat silau (F3) ------- */
+.status{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:7px 14px;border-radius:99px;
+  font-size:15px;font-weight:800;letter-spacing:.01em;
+}
+.status::before{content:"";width:9px;height:9px;border-radius:50%;background:currentColor;flex-shrink:0}
+.status[data-tone="ok"]{background:var(--i-ok-bg);color:var(--i-ok)}
+.status[data-tone="warn"]{background:var(--i-warn-bg);color:var(--i-warn)}
+.status[data-tone="bad"]{background:var(--i-bad-bg);color:var(--i-bad)}
+.status[data-tone="idle"]{background:var(--i-idle-bg);color:var(--i-idle)}
+
+/* ---------------- antrian: baris setinggi ibu jari (F2) ---------------- */
+.q-row{
+  display:flex;align-items:center;gap:16px;
+  padding:14px 18px;min-height:78px;
+  border-bottom:1px solid var(--i-line-soft);
+}
+.slab .q-row:last-child{border-bottom:0}
+.q-n{
+  width:58px;height:58px;flex-shrink:0;border-radius:var(--i-r);
+  display:grid;place-items:center;
+  font-family:"JetBrains Mono",monospace;font-size:24px;font-weight:700;
+  background:var(--i-warn-bg);color:var(--i-warn);
+}
+.q-row[data-tone="bad"] .q-n{background:var(--i-bad-bg);color:var(--i-bad)}
+.q-row[data-tone="idle"] .q-n{background:var(--i-idle-bg);color:var(--i-idle);font-weight:400}
+.q-txt{flex:1;min-width:0}
+.q-txt b{display:block;font-size:17px;font-weight:600;line-height:1.3}
+.q-txt span{font-size:15px;color:var(--i-ink-3)}
+
+/* Tombol aksi diisi hitam pekat: satu-satunya bentuk yang tetap jelas
+   sebagai "bisa ditekan" saat layar kena silau (F3). */
+.go{
+  display:inline-flex;align-items:center;gap:9px;flex-shrink:0;
+  height:var(--i-touch);padding:0 20px;border:0;border-radius:var(--i-r);
+  background:var(--i-ink);color:#fff;
+  font-family:inherit;font-size:16px;font-weight:800;cursor:pointer;
+  transition:opacity var(--i-dur) var(--i-ease);
+}
+.go:hover{opacity:.86}
+.go-quiet{background:var(--i-paper);color:var(--i-ink);border:2px solid var(--i-ink)}
+.locked{
+  display:inline-flex;align-items:center;gap:9px;flex-shrink:0;
+  height:var(--i-touch);padding:0 18px;border-radius:var(--i-r);
+  background:var(--i-fill);color:var(--i-ink-3);font-size:15px;font-weight:600;
+}
+
+/* ---------------- pool sebagai kartu, bukan tabel (F4) ---------------- */
+.pools{display:grid;gap:14px;grid-template-columns:1fr}
+@media(min-width:700px){.pools{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1060px){.pools{grid-template-columns:repeat(3,1fr)}}
+
+.pool{padding:18px;display:flex;flex-direction:column;gap:14px}
+.pool-head{display:flex;align-items:flex-start;gap:10px}
+.pool-head b{font-size:19px;font-weight:800;letter-spacing:-.01em;line-height:1.2}
+.pool-head .status{margin-inline-start:auto;flex-shrink:0}
+.pool-src{
+  display:inline-block;margin-top:3px;padding:2px 8px;border:1px solid var(--i-line);border-radius:6px;
+  font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:500;color:var(--i-ink-2);
+}
+.pool-src[data-src="EDGE"]{border-style:dashed}
+
+.pool-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding-top:14px;border-top:1px solid var(--i-line-soft)}
+.pool-grid > div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.pool-grid span{font-size:12.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--i-ink-3)}
+.pool-grid b{font-size:24px;font-weight:700;line-height:1.05;font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.pool-grid b.neg{color:var(--i-bad)}
+.pool-grid small{font-size:12.5px;font-weight:500;color:var(--i-ink-3);font-family:"JetBrains Mono",monospace;white-space:nowrap}
+
+.pool-sum{background:var(--i-fill)}
+
+/* ---------------- pita keadaan sebagian ---------------- */
+.band{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:16px 18px;border-radius:var(--i-r);
+  background:var(--i-warn-bg);color:#5a3403;
+  border:1px solid #e2bd85;
+}
+.band svg{flex-shrink:0}
+.band p{margin:0;font-size:16px;font-weight:600;flex:1;min-width:220px}
+
+.note{
+  border:1px dashed var(--i-line);border-radius:var(--i-r);padding:16px 18px;
+  color:var(--i-ink-2);font-size:15px;
+}
+.note h3{margin:0 0 7px;font-size:12.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--i-ink-3)}
+.note ul{margin:0;padding-inline-start:19px}
+.note li+li{margin-top:6px}
+
+@media(max-width:620px){
+  .q-row{flex-wrap:wrap}
+  .go,.locked{width:100%;justify-content:center}
+}
+@media(prefers-reduced-motion:reduce){*{transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <span class="top-mark">
+    <svg width="26" height="26" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <circle cx="10" cy="10" r="7.25" stroke="currentColor" stroke-width="1.9"/>
+      <path d="M6 11.5h8M10 5.75v5.75" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+    </svg>
+    <b>Retail Edge</b>
+  </span>
+
+  <button type="button" class="site-pick">
+    store-04
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m3.5 5.5 3.5 3.5 3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+
+  <span class="top-right">
+    <span class="freshness"><i></i>15:42 · 12 dari 13 node</span>
+  </span>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="Layar">
+  <button type="button" role="tab" aria-selected="true">Ringkasan</button>
+  <button type="button" role="tab" aria-selected="false">Pool</button>
+  <button type="button" role="tab" aria-selected="false">Count<span class="tab-n">3</span></button>
+  <button type="button" role="tab" aria-selected="false">Missing<span class="tab-n">12</span></button>
+  <button type="button" role="tab" aria-selected="false">Terima</button>
+</nav>
+
+<div class="wrap">
+
+  <!-- ================= neraca ================= -->
+  <section class="slab" aria-labelledby="n-h">
+    <div class="neraca">
+      <div class="neraca-label" id="n-h">Stock estate</div>
+      <div class="neraca-fig">48.312</div>
+    </div>
+    <div class="terms">
+      <div class="term"><span>Allotted</span><b>3.104</b></div>
+      <div class="term"><span>On Hand</span><b>44.902</b></div>
+      <div class="term"><span>Missing</span><b>306</b></div>
+    </div>
+    <div class="verdict">
+      <span class="status" data-tone="ok">Seimbang</span>
+      <p>Ketiganya menjumlah tepat ke Stock. <b>store-07</b> belum sinkron sejak 14:02 — angkanya belum termasuk.</p>
+    </div>
+  </section>
+
+  <!-- ================= perlu keputusan ================= -->
+  <div class="sec-head">
+    <h2>Perlu keputusan</h2>
+    <span>18 antrian · tertua 6 hari</span>
+  </div>
+
+  <section class="slab">
+    <div class="q-row" data-tone="bad">
+      <span class="q-n">12</span>
+      <span class="q-txt">
+        <b>Missing lewat 72 jam</b>
+        <span>9 di toko, 3 di DC · tertua 6 hari</span>
+      </span>
+      <button type="button" class="go">Selesaikan
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9m0 0-3.5-3.5M12 8l-3.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <div class="q-row">
+      <span class="q-n">3</span>
+      <span class="q-txt">
+        <b>Official Count menunggu persetujuan</b>
+        <span>dc.warehouse · store-02.floor · store-11.warehouse</span>
+      </span>
+      <button type="button" class="go">Tinjau
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9m0 0-3.5-3.5M12 8l-3.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <div class="q-row" data-tone="bad">
+      <span class="q-n">1</span>
+      <span class="q-txt">
+        <b>Allotment melebihi On Hand</b>
+        <span>store-04.warehouse · On Hand −12</span>
+      </span>
+      <button type="button" class="go">Lihat
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9m0 0-3.5-3.5M12 8l-3.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <div class="q-row">
+      <span class="q-n">2</span>
+      <span class="q-txt">
+        <b>Bacaan RFID tidak cocok dengan ledger</b>
+        <span>store-03.floor · 4 jam lalu</span>
+      </span>
+      <button type="button" class="go go-quiet">Periksa</button>
+    </div>
+
+    <!-- Ditolak bukan kosong: barisnya tetap ada dan menyebut syaratnya. -->
+    <div class="q-row" data-tone="idle">
+      <span class="q-n">—</span>
+      <span class="q-txt">
+        <b>Selisih proyeksi buku besar</b>
+        <span>Angkanya tidak dibuka untuk peran kamu</span>
+      </span>
+      <span class="locked">
+        <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true"><rect x="3" y="6.2" width="8" height="6" rx="1.2" stroke="currentColor" stroke-width="1.5"/><path d="M5 6.2V4.6a2 2 0 0 1 4 0v1.6" stroke="currentColor" stroke-width="1.5"/></svg>
+        Butuh supervisor
+      </span>
+    </div>
+  </section>
+
+  <!-- ================= pool sebagai kartu (F4) ================= -->
+  <div class="sec-head">
+    <h2>Pool</h2>
+    <span>Tiga angka yang ditindaklanjuti di lantai. Selebihnya ada di layar Pool.</span>
+  </div>
+
+  <section class="pools">
+
+    <article class="slab pool">
+      <div class="pool-head">
+        <div>
+          <b>dc.warehouse</b>
+          <span class="pool-src" data-src="CLOUD">CLOUD_LEDGER</span>
+        </div>
+        <span class="status" data-tone="ok">Normal</span>
+      </div>
+      <div class="pool-grid">
+        <div><span>On Hand</span><b>18.376</b></div>
+        <div><span>Missing</span><b>92</b></div>
+        <div><span>Lost 30h</span><b>0,41%</b><small>74 ÷ 18.052</small></div>
+      </div>
+    </article>
+
+    <article class="slab pool">
+      <div class="pool-head">
+        <div>
+          <b>store-04</b>
+          <span class="pool-src" data-src="EDGE">EDGE_LOCAL</span>
+        </div>
+        <span class="status" data-tone="bad">Allotment lebih</span>
+      </div>
+      <div class="pool-grid">
+        <div><span>On Hand</span><b class="neg">−12</b></div>
+        <div><span>Missing</span><b>9</b></div>
+        <div><span>Lost 30h</span><b>0,60%</b><small>9 ÷ 1.501</small></div>
+      </div>
+    </article>
+
+    <article class="slab pool">
+      <div class="pool-head">
+        <div>
+          <b>store-03</b>
+          <span class="pool-src" data-src="EDGE">EDGE_LOCAL</span>
+        </div>
+        <span class="status" data-tone="warn">Lost tinggi</span>
+      </div>
+      <div class="pool-grid">
+        <div><span>On Hand</span><b>1.876</b></div>
+        <div><span>Missing</span><b>31</b></div>
+        <div><span>Lost 30h</span><b>1,44%</b><small>27 ÷ 1.874</small></div>
+      </div>
+    </article>
+
+    <article class="slab pool">
+      <div class="pool-head">
+        <div>
+          <b>store-07</b>
+          <span class="pool-src" data-src="EDGE">EDGE_LOCAL</span>
+        </div>
+        <span class="status" data-tone="warn">Putus 14:02</span>
+      </div>
+      <div class="pool-grid">
+        <div><span>On Hand</span><b>1.944</b></div>
+        <div><span>Missing</span><b>18</b></div>
+        <div><span>Lost 30h</span><b class="nil">—</b><small>belum sinkron</small></div>
+      </div>
+    </article>
+
+    <article class="slab pool">
+      <div class="pool-head">
+        <div>
+          <b>dc.reject.dc</b>
+          <span class="pool-src" data-src="CLOUD">CLOUD_LEDGER</span>
+        </div>
+        <span class="status" data-tone="idle">Diam</span>
+      </div>
+      <div class="pool-grid">
+        <div><span>On Hand</span><b>612</b></div>
+        <div><span>Missing</span><b class="nil">—</b></div>
+        <div><span>Lost 30h</span><b class="nil">—</b><small>tanpa paparan</small></div>
+      </div>
+    </article>
+
+    <article class="slab pool pool-sum">
+      <div class="pool-head">
+        <div>
+          <b>Σ Semua pool</b>
+          <span class="pool-src">12 dari 13 node</span>
+        </div>
+      </div>
+      <div class="pool-grid">
+        <div><span>On Hand</span><b>44.902</b></div>
+        <div><span>Missing</span><b>306</b></div>
+        <div><span>Lost 30h</span><b>0,58%</b><small>250 ÷ 44.084</small></div>
+      </div>
+    </article>
+  </section>
+
+  <div class="band">
+    <svg width="24" height="24" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <circle cx="7" cy="7" r="5.75" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M7 3.9v3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="7" cy="9.7" r=".9" fill="currentColor"/>
+    </svg>
+    <p><b>store-07</b> belum sinkron sejak 14:02. Angka toko itu di layar ini adalah angka terakhir yang sampai, bukan angka sekarang.</p>
+    <button type="button" class="go go-quiet">Coba sinkron</button>
+  </div>
+
+  <aside class="note">
+    <h3>Catatan prototipe</h3>
+    <ul>
+      <li>Tidak ada teks di bawah 15px dan tidak ada sasaran sentuh di bawah 56px. Kalau sesuatu terlalu kecil untuk aturan itu, ia tidak diletakkan di layar ini.</li>
+      <li>Tabel Pool sembilan kolom diganti kartu tiga angka. Yang dibuang bukan datanya — ia tetap ada di layar Pool; yang dibuang adalah menuntut orang membaca sembilan kolom sambil memegang barang.</li>
+      <li>Chrome sengaja hitam-putih. Warna disimpan utuh untuk status, supaya tetap berarti saat layar kena matahari.</li>
+    </ul>
+  </aside>
+</div>
+
+<script>
+document.querySelectorAll('.tabs button').forEach(function (tab) {
+  tab.addEventListener('click', function () {
+    document.querySelectorAll('.tabs button').forEach(function (other) {
+      other.setAttribute('aria-selected', String(other === tab));
+    });
+  });
+});
+</script>
+</body>
+</html>

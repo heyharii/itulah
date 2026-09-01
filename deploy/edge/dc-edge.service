@@ -1,0 +1,24 @@
+# systemd unit for the distribution-centre Edge node.
+[Unit]
+Description=itulah DC Edge
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=itulah
+Group=itulah
+WorkingDirectory=/var/lib/itulah
+EnvironmentFile=/etc/itulah/dc.env
+ExecStart=/usr/local/bin/dc
+Restart=always
+RestartSec=5
+
+StateDirectory=itulah
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

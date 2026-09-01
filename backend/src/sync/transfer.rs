@@ -1,0 +1,185 @@
+//! Owner-bound transfer evidence shared by independent inventory nodes.
+//!
+//! Claims are observations, not ledger movements. DC and Store edges append
+//! them independently; Cloud reconciles only claims with the same immutable
+//! physical and shipment identity.
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use uuid::Uuid;
+
+pub const INVENTORY_TRANSFER_CLAIM_V1: &str = "inventory.transfer_claim.v1";
+pub const TRANSFER_CLAIM_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TransferClaimKind {
+    InTransit,
+    Received,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TransferClaimPayload {
+    pub schema_version: u32,
+    pub claim_kind: TransferClaimKind,
+    pub source_dc_id: Option<String>,
+    pub destination_store_id: String,
+    pub shipment_reference: Option<String>,
+    pub epc: String,
+    pub quantity: i64,
+    pub sku_code: String,
+    pub movement_group_id: Uuid,
+    pub receipt_id: Option<Uuid>,
+    pub occurred_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum TransferClaimValidationError {
+    #[error("transfer claim schema_version must be {TRANSFER_CLAIM_SCHEMA_VERSION}")]
+    UnsupportedSchemaVersion,
+    #[error("transfer claim {0} is required")]
+    MissingField(&'static str),
+    #[error("transfer claim {0} must be trimmed")]
+    UntrimmedField(&'static str),
+    #[error("transfer claim {0} must be uppercase")]
+    NonCanonicalField(&'static str),
+    #[error("transfer claim quantity must be exactly one per EPC")]
+    InvalidQuantity,
+    #[error("transfer claim movement_group_id must not be nil")]
+    NilMovementGroup,
+    #[error("IN_TRANSIT claim requires source_dc_id and cannot contain receipt_id")]
+    InvalidInTransitIdentity,
+    #[error("RECEIVED claim requires receipt_id")]
+    MissingReceiptId,
+}
+
+impl TransferClaimPayload {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        claim_kind: TransferClaimKind,
+        source_dc_id: Option<String>,
+        destination_store_id: String,
+        shipment_reference: Option<String>,
+        epc: String,
+        sku_code: String,
+        movement_group_id: Uuid,
+        receipt_id: Option<Uuid>,
+        occurred_at: DateTime<Utc>,
+    ) -> Result<Self, TransferClaimValidationError> {
+        let payload = Self {
+            schema_version: TRANSFER_CLAIM_SCHEMA_VERSION,
+            claim_kind,
+            source_dc_id: source_dc_id.map(|value| value.trim().to_owned()),
+            destination_store_id: destination_store_id.trim().to_owned(),
+            shipment_reference: shipment_reference.map(|value| value.trim().to_owned()),
+            epc: epc.trim().to_ascii_uppercase(),
+            quantity: 1,
+            sku_code: sku_code.trim().to_ascii_uppercase(),
+            movement_group_id,
+            receipt_id,
+            occurred_at,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    pub fn validate(&self) -> Result<(), TransferClaimValidationError> {
+        if self.schema_version != TRANSFER_CLAIM_SCHEMA_VERSION {
+            return Err(TransferClaimValidationError::UnsupportedSchemaVersion);
+        }
+        validate_required("destination_store_id", &self.destination_store_id)?;
+        validate_required("epc", &self.epc)?;
+        validate_required("sku_code", &self.sku_code)?;
+        validate_optional("source_dc_id", self.source_dc_id.as_deref())?;
+        validate_optional("shipment_reference", self.shipment_reference.as_deref())?;
+        if self.epc != self.epc.to_ascii_uppercase() {
+            return Err(TransferClaimValidationError::NonCanonicalField("epc"));
+        }
+        if self.sku_code != self.sku_code.to_ascii_uppercase() {
+            return Err(TransferClaimValidationError::NonCanonicalField("sku_code"));
+        }
+        if self.quantity != 1 {
+            return Err(TransferClaimValidationError::InvalidQuantity);
+        }
+        if self.movement_group_id.is_nil() {
+            return Err(TransferClaimValidationError::NilMovementGroup);
+        }
+        match self.claim_kind {
+            TransferClaimKind::InTransit
+                if self.source_dc_id.is_none() || self.receipt_id.is_some() =>
+            {
+                Err(TransferClaimValidationError::InvalidInTransitIdentity)
+            }
+            TransferClaimKind::Received if self.receipt_id.is_none() => {
+                Err(TransferClaimValidationError::MissingReceiptId)
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+fn validate_required(field: &'static str, value: &str) -> Result<(), TransferClaimValidationError> {
+    if value.trim().is_empty() {
+        return Err(TransferClaimValidationError::MissingField(field));
+    }
+    if value != value.trim() {
+        return Err(TransferClaimValidationError::UntrimmedField(field));
+    }
+    Ok(())
+}
+
+fn validate_optional(
+    field: &'static str,
+    value: Option<&str>,
+) -> Result<(), TransferClaimValidationError> {
+    if let Some(value) = value {
+        validate_required(field, value)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constructor_canonicalizes_reconciliation_identity() {
+        let movement_group_id = Uuid::new_v4();
+        let claim = TransferClaimPayload::new(
+            TransferClaimKind::InTransit,
+            Some(" dc-01 ".into()),
+            " store-07 ".into(),
+            Some(" shipment-42 ".into()),
+            " e200-abc ".into(),
+            " sku-1 ".into(),
+            movement_group_id,
+            None,
+            Utc::now(),
+        )
+        .unwrap_or_else(|error| panic!("claim: {error}"));
+        assert_eq!(claim.source_dc_id.as_deref(), Some("dc-01"));
+        assert_eq!(claim.destination_store_id, "store-07");
+        assert_eq!(claim.shipment_reference.as_deref(), Some("shipment-42"));
+        assert_eq!(claim.epc, "E200-ABC");
+        assert_eq!(claim.sku_code, "SKU-1");
+    }
+
+    #[test]
+    fn received_requires_a_receipt_identity() {
+        let error = TransferClaimPayload::new(
+            TransferClaimKind::Received,
+            Some("dc-01".into()),
+            "store-07".into(),
+            Some("shipment-42".into()),
+            "EPC-1".into(),
+            "SKU-1".into(),
+            Uuid::new_v4(),
+            None,
+            Utc::now(),
+        )
+        .err()
+        .unwrap_or_else(|| panic!("receipt identity must be required"));
+        assert_eq!(error, TransferClaimValidationError::MissingReceiptId);
+    }
+}
