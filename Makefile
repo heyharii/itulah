@@ -69,11 +69,11 @@ contract-check: contract
 # `frontend-contract` — the wire types generated from Rust and the one browser
 # transport — not the interface.
 #
-# Each deployed one is its own static site that rewrites /api/* to its own node
-# (see render.yaml), so a browser sees one origin and the SameSite=Strict
-# session cookie is actually sent. `frontend-customer` is built here but
-# deliberately absent from render.yaml: it has no customer sign-in yet, so
-# there is nothing to put it behind (frontend-customer/README.md).
+# Each is its own static site that rewrites /api/* to its own node (see
+# render.yaml), so a browser sees one origin and the SameSite=Strict session
+# cookie is actually sent. `frontend-customer` is deployed too, but as a
+# preview rather than a shopper-facing product until customer sign-in exists
+# (frontend-customer/README.md).
 FRONTENDS := frontend-cloud frontend-dc frontend-store frontend-employee frontend-customer
 
 front:

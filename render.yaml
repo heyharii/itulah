@@ -14,10 +14,11 @@
 # migration, not a rename. Custom domains are the cheaper answer if the URLs
 # matter.
 #
-# These eight services exist and were made by hand or by API, not from this
-# file: no blueprint is linked to the account, so applying this would try to
-# adopt or duplicate them. It is a description of what is deployed, kept
-# truthful so the next person is not misled by it.
+# These services exist and were made by hand or by API, not from this file: no
+# blueprint is linked to the account, so applying this would try to adopt or
+# duplicate them. It is a description of what is deployed, kept truthful so the
+# next person is not misled by it — which is why `frontend-customer` below
+# carries a note saying it is the one entry written before its service exists.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -57,6 +58,42 @@ services:
         value: "false"
       - key: RUST_LOG
         value: inventory_backend=info,tower_http=info
+      # ── Catalogue imagery in object storage (Cloudflare R2) ──────────────
+      #
+      # Only the CLOUD node has these: `cloud::media` is where product
+      # photography is addressed, and an edge has no catalogue to serve.
+      #
+      # Leaving them unset is a supported state, not a broken one — the media
+      # routes answer 404 saying so and the node boots normally. Sourcing does
+      # not need them at all: supplier_item.image_url already holds a public
+      # r2.dev URL that a browser fetches directly. Set them when the server
+      # itself must sign URLs — presigned reads for a private bucket, or
+      # presigned uploads so a handheld can send a photograph without pushing
+      # the bytes through this process.
+      #
+      # THE KEYS ARE NOT IN THIS FILE, and the pair below should belong to a
+      # token scoped to Object Read & Write on the `images` bucket alone. An
+      # account-wide R2 token here would let anything that reaches this process
+      # delete every bucket on the account, which is a much larger blast radius
+      # than serving photographs deserves.
+      - key: R2_ACCOUNT_ID
+        value: 0aded8001fcbfddf2dfd44f8527ac63e
+      - key: R2_BUCKET
+        value: images
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      # The browser-facing domain, NOT the S3 endpoint. Without it every URL
+      # this node hands out is presigned and expires. `pub-*.r2.dev` is
+      # rate-limited and Cloudflare does not offer it for production traffic;
+      # a custom domain replaces this value and nothing else.
+      - key: R2_PUBLIC_BASE_URL
+        value: https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev
+      - key: R2_CATALOGUE_PREFIX
+        value: catalogue
+      - key: R2_SUPPLIER_PREFIX
+        value: supplier
       - key: DATABASE_URL
         fromDatabase:
           # NOT renamed, deliberately. A web service's name is just an address;
@@ -240,6 +277,33 @@ services:
     name: frontend-employee
     buildCommand: cd frontend-employee && npm install --no-audit --no-fund && npm run build
     staticPublishPath: ./frontend-employee/dist
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://itulah-cloud.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # The member's own surface: points earned, purchases, one receipt. Reads the
+  # CLOUD node, because a shopper's points are not a property of one shop —
+  # they buy in one town and in the next, and only the centre holds both.
+  #
+  # NOT YET CREATED at the time of writing: this is the one entry in this file
+  # that describes a service rather than reporting one. Create it as a static
+  # site from exactly these settings and this note goes away.
+  #
+  # Read this before pointing anybody at the URL: there is no customer sign-in
+  # in this system yet. The API sits behind the ordinary node session, so a
+  # shopper reaching this page meets a device login they have no account for —
+  # nothing leaks, but nothing works for them either. It is a preview for the
+  # people building it until phone-and-code sign-in exists
+  # (frontend-customer/README.md).
+  - type: web
+    runtime: static
+    name: frontend-customer
+    buildCommand: cd frontend-customer && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: ./frontend-customer/dist
     routes:
       - type: rewrite
         source: /api/*

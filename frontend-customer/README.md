@@ -40,8 +40,13 @@ number, not a credential, and the code says so. The endpoints therefore sit
 behind the ordinary node session like every other route — which is why this
 app has a device sign-in that a real shopper should never have to see. Customer
 sign-in (a phone number and a one-time code) is the work that replaces
-`src/components/login-form.tsx`, and until it exists **this surface must not be
-deployed publicly**. That is also why it is absent from `render.yaml`.
+`src/components/login-form.tsx`.
+
+Until that exists, the deployed site (`frontend-customer` in `render.yaml`) is a
+**preview for the people building it, not a shopper-facing product**: anyone
+reaching the URL meets a device login they have no account for. Nothing leaks —
+every route is behind the node session — but do not hand the address to
+customers or announce it as a member app before sign-in lands.
 
 **Points are earned, never spent.** `points_earned_total` is a lifetime total,
 not a balance: nothing in this system records a redemption yet. The wording on
