@@ -398,6 +398,44 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("RecordBillRequest: {e}"));
     inventory_backend::cloud::postgres::UnbilledReceipt::export_all(&config)
         .unwrap_or_else(|e| panic!("UnbilledReceipt: {e}"));
+
+    // Fixed assets. `AssetRow.decision` is an Option on purpose: absent means
+    // nobody has assessed the asset, which is an open control gap and must not
+    // render the same as "assessed and expensed".
+    inventory_backend::cloud::postgres::AssetRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetRow: {e}"));
+    inventory_backend::cloud::postgres::RegisterAssetRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RegisterAssetRequest: {e}"));
+    inventory_backend::cloud::postgres::AssessAssetRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssessAssetRequest: {e}"));
+    inventory_backend::cloud::postgres::DepreciationRun::export_all(&config)
+        .unwrap_or_else(|e| panic!("DepreciationRun: {e}"));
+    inventory_backend::cloud::postgres::DepreciationLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("DepreciationLine: {e}"));
+    inventory_backend::cloud::domain::DepreciationMethod::export_all(&config)
+        .unwrap_or_else(|e| panic!("DepreciationMethod: {e}"));
+    inventory_backend::cloud::domain::SkipReason::export_all(&config)
+        .unwrap_or_else(|e| panic!("SkipReason: {e}"));
+
+    // Bank reconciliation. `Suggestion.reasons` is the field that matters: a
+    // 0-100 score explains nothing about which field agreed, and the person
+    // accepting a match is reading the reasons, not the number.
+    inventory_backend::cloud::postgres::BankStatementRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankStatementRow: {e}"));
+    inventory_backend::cloud::postgres::BankStatementLineRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankStatementLineRow: {e}"));
+    inventory_backend::cloud::postgres::ImportStatementRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ImportStatementRequest: {e}"));
+    inventory_backend::cloud::postgres::ImportStatementLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("ImportStatementLine: {e}"));
+    inventory_backend::cloud::postgres::ImportOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("ImportOutcome: {e}"));
+    inventory_backend::cloud::postgres::LineSuggestions::export_all(&config)
+        .unwrap_or_else(|e| panic!("LineSuggestions: {e}"));
+    inventory_backend::cloud::postgres::ConfirmMatchRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ConfirmMatchRequest: {e}"));
+    inventory_backend::cloud::domain::Suggestion::export_all(&config)
+        .unwrap_or_else(|e| panic!("Suggestion: {e}"));
     // Employment. `export_all` pulls the nested views in with each root, so the
     // list below is the set of things a screen actually fetches rather than
     // every struct in the module.

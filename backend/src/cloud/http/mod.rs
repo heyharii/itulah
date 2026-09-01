@@ -386,6 +386,34 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/finance/bills/{id}/post", post(finance::post_bill))
         .route("/api/v1/finance/unbilled", get(finance::unbilled))
         .route(
+            "/api/v1/finance/assets",
+            get(finance::assets).post(finance::register_asset),
+        )
+        .route(
+            "/api/v1/finance/assets/{id}/assess",
+            post(finance::assess_asset),
+        )
+        .route(
+            "/api/v1/finance/depreciation/run",
+            post(finance::run_depreciation),
+        )
+        .route(
+            "/api/v1/finance/bank-statements",
+            get(finance::bank_statements).post(finance::import_bank_statement),
+        )
+        .route(
+            "/api/v1/finance/bank-statements/{id}/lines",
+            get(finance::bank_statement_lines),
+        )
+        .route(
+            "/api/v1/finance/bank-statements/{id}/suggestions",
+            get(finance::bank_suggestions),
+        )
+        .route(
+            "/api/v1/finance/bank-lines/{id}/match",
+            post(finance::confirm_bank_match).delete(finance::unmatch_bank_line),
+        )
+        .route(
             "/api/v1/finance/account-map",
             get(finance::account_map).post(finance::set_account_map),
         )

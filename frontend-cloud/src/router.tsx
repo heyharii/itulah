@@ -11,6 +11,8 @@ import { GeneralLedgerScreen } from "@/components/finance/general-ledger"
 import { JournalScreen } from "@/components/finance/journal"
 import { FinanceOverview } from "@/components/finance/overview"
 import { PeriodsScreen } from "@/components/finance/periods"
+import { AssetRegisterScreen } from "@/components/finance/asset-register"
+import { BankReconciliationScreen } from "@/components/finance/bank-reconciliation"
 import { PositionScreen } from "@/components/finance/position"
 import { StatementScreen } from "@/components/finance/statement"
 import { SupplierBillsScreen } from "@/components/finance/supplier-bills"
@@ -651,6 +653,24 @@ const reportAssetsRoute = createRoute({
   ),
 })
 
+/// The register of individual assets, which a balance view cannot be: an
+/// account balance says what the machines are worth together, not which machine
+/// is which, when it went into service, or whether anybody has decided it
+/// belongs in the books at all.
+const assetRegisterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/assets/register",
+  component: AssetRegisterScreen,
+})
+
+/// Agreeing the bank's account of events with ours. Records agreement and
+/// posts nothing — see the note on the screen.
+const bankReconciliationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/cash/reconciliation",
+  component: BankReconciliationScreen,
+})
+
 const routeTree = rootRoute.addChildren([
   sourcingRoute,
   basketRoute,
@@ -679,6 +699,8 @@ const routeTree = rootRoute.addChildren([
   financeLedgerRoute,
   financeTrialBalanceRoute,
   financePeriodsRoute,
+  assetRegisterRoute,
+  bankReconciliationRoute,
   payablesGiroRoute,
   payablesDiscountsRoute,
   payablesNonMerchRoute,

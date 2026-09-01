@@ -1,6 +1,8 @@
 mod allotments;
+mod assets;
 mod attendance;
 mod auth_policy;
+mod banking;
 mod basket;
 mod chat;
 mod commercial;
@@ -31,8 +33,10 @@ mod time_machine;
 mod users;
 
 pub use allotments::*;
+pub use assets::*;
 pub use attendance::*;
 pub use auth_policy::*;
+pub use banking::*;
 pub use basket::*;
 pub use chat::*;
 pub use commercial::*;

@@ -80,6 +80,8 @@ export type FinanceRoute =
   | "/finance/reports/by-location"
   | "/finance/reports/expenses"
   | "/finance/reports/assets"
+  | "/finance/assets/register"
+  | "/finance/cash/reconciliation"
 
 interface FinanceItem {
   readonly label: string
@@ -139,7 +141,7 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
       { label: "Cash Position", accounts: "1011001", to: "/finance/cash/position", ready: true },
       { label: "Bank Position", accounts: "1011002-4", to: "/finance/cash/bank", ready: true },
       { label: "Movements", accounts: "" },
-      { label: "Bank Reconciliation" },
+      { label: "Bank Reconciliation", to: "/finance/cash/reconciliation", ready: true },
       { label: "Store Deposits" },
       { label: "Cash Variance", accounts: "8010110002" },
     ],
@@ -175,7 +177,7 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
     label: "Fixed Assets",
     icon: Building2,
     items: [
-      { label: "Asset Register", accounts: "10215" },
+      { label: "Asset Register", accounts: "10215", to: "/finance/assets/register", ready: true },
       { label: "Depreciation", accounts: "10216 · 70102", to: "/finance/assets/depreciation", ready: true },
       { label: "Disposal" },
       { label: "Intangibles", accounts: "10217", to: "/finance/assets/intangibles", ready: true },

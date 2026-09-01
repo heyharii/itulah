@@ -14,9 +14,11 @@ use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{
-        self as infrastructure, AccountBalance, BalanceMatrix, FiscalPeriod, GeneralLedger,
-        JournalEntryDetail, JournalEntryRow, LedgerAccount, PostingIntent, PostingLine,
-        RecordBillRequest, SetAccountMappingRequest, Statement, SupplierBill, TrialBalance,
+        self as infrastructure, AccountBalance, AssessAssetRequest, AssetRow, BalanceMatrix,
+        BankStatementLineRow, BankStatementRow, ConfirmMatchRequest, DepreciationRun, FiscalPeriod,
+        GeneralLedger, ImportOutcome, ImportStatementRequest, JournalEntryDetail, JournalEntryRow,
+        LedgerAccount, LineSuggestions, PostingIntent, PostingLine, RecordBillRequest,
+        RegisterAssetRequest, SetAccountMappingRequest, Statement, SupplierBill, TrialBalance,
         UnbilledReceipt,
     },
 };
@@ -448,4 +450,145 @@ pub async fn unbilled(
     Ok(Json(
         infrastructure::unbilled_receipts(&state.db, 200).await?,
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Fixed assets
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct AssetQuery {
+    pub site: Option<String>,
+    pub category: Option<String>,
+    /// Only assets nobody has assessed. The open control gap, asked for
+    /// directly — it is the list Finance works from.
+    #[serde(default)]
+    pub unassessed: bool,
+    pub limit: Option<i64>,
+}
+
+pub async fn assets(
+    State(state): State<AppState>,
+    Query(query): Query<AssetQuery>,
+) -> Result<Json<Vec<AssetRow>>, AppError> {
+    Ok(Json(
+        infrastructure::list_assets(
+            &state.db,
+            query.site.as_deref(),
+            query.category.as_deref(),
+            query.unassessed,
+            query.limit.unwrap_or(500),
+        )
+        .await?,
+    ))
+}
+
+pub async fn register_asset(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<RegisterAssetRequest>,
+) -> Result<Json<AssetRow>, AppError> {
+    Ok(Json(
+        infrastructure::register_asset(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+pub async fn assess_asset(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(asset_id): Path<Uuid>,
+    Json(request): Json<AssessAssetRequest>,
+) -> Result<Json<AssetRow>, AppError> {
+    Ok(Json(
+        infrastructure::assess_asset(&state.db, asset_id, &request, &principal.username).await?,
+    ))
+}
+
+/// Charge one month across every capitalised asset.
+///
+/// Safe to run twice: the unique index on (asset, period) refuses a second
+/// entry, so a repeat reports every asset as already done rather than doubling
+/// the charge.
+pub async fn run_depreciation(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<PeriodRequest>,
+) -> Result<Json<DepreciationRun>, AppError> {
+    if !(1..=12).contains(&request.month) {
+        return Err(AppError::Validation("month must be 1..12".into()));
+    }
+    let missing = infrastructure::unmapped_categories(&state.db).await?;
+    if !missing.is_empty() {
+        return Err(AppError::Validation(format!(
+            "map these before running depreciation, or the run refuses asset by asset: {}",
+            missing.join("; ")
+        )));
+    }
+    Ok(Json(
+        infrastructure::run_depreciation(
+            &state.db,
+            request.year,
+            request.month as u32,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Bank reconciliation
+// ---------------------------------------------------------------------------
+
+pub async fn bank_statements(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<BankStatementRow>>, AppError> {
+    Ok(Json(infrastructure::list_statements(&state.db).await?))
+}
+
+pub async fn import_bank_statement(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<ImportStatementRequest>,
+) -> Result<Json<ImportOutcome>, AppError> {
+    Ok(Json(
+        infrastructure::import_statement(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+pub async fn bank_statement_lines(
+    State(state): State<AppState>,
+    Path(statement_id): Path<Uuid>,
+) -> Result<Json<Vec<BankStatementLineRow>>, AppError> {
+    Ok(Json(
+        infrastructure::statement_lines(&state.db, statement_id).await?,
+    ))
+}
+
+/// Score every unmatched line against our own ledger.
+pub async fn bank_suggestions(
+    State(state): State<AppState>,
+    Path(statement_id): Path<Uuid>,
+) -> Result<Json<Vec<LineSuggestions>>, AppError> {
+    Ok(Json(
+        infrastructure::suggest_matches(&state.db, statement_id).await?,
+    ))
+}
+
+/// Agree that a bank line and a journal line are the same event. Posts nothing.
+pub async fn confirm_bank_match(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(line_id): Path<Uuid>,
+    Json(request): Json<ConfirmMatchRequest>,
+) -> Result<Json<Value>, AppError> {
+    infrastructure::confirm_match(&state.db, line_id, &request, &principal.username).await?;
+    Ok(Json(json!({ "matched": true })))
+}
+
+pub async fn unmatch_bank_line(
+    State(state): State<AppState>,
+    Path(line_id): Path<Uuid>,
+) -> Result<Json<Value>, AppError> {
+    infrastructure::unmatch(&state.db, line_id).await?;
+    Ok(Json(json!({ "matched": false })))
 }

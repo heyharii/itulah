@@ -1,7 +1,10 @@
 mod allotment;
+mod attendance;
 mod auth;
+mod bank_match;
 mod commercial;
 mod count;
+mod depreciation;
 mod employment;
 mod identity;
 mod ids;
@@ -14,9 +17,12 @@ mod supplier;
 mod sync;
 
 pub use allotment::*;
+pub use attendance::*;
 pub use auth::*;
+pub use bank_match::*;
 pub use commercial::*;
 pub use count::*;
+pub use depreciation::*;
 pub use employment::*;
 pub use identity::*;
 pub use ids::*;
