@@ -4,4 +4,18 @@
  * Where a run has got to. Counts come from the items, never from a tally kept
  * in parallel with them.
  */
-export type PrintSessionSummary = { session_id: string, job_id: string, status: string, total_items: number, printed_count: number, failed_count: number, pending_count: number, };
+export type PrintSessionSummary = { session_id: string, job_id: string, status: string, 
+/**
+ * Which bench this run belongs to.
+ *
+ * On the summary because a run outlives the screen that opened it. Whoever
+ * picks it up must be able to see where its labels come out before they
+ * press print, or a second operator quietly feeds a printer in another
+ * room.
+ */
+printer_host: string, printer_port: number, 
+/**
+ * How many labels one pass hands over. The run's own value, which is not
+ * necessarily what the device that resumed it has stored.
+ */
+chunk_size: number, total_items: number, printed_count: number, failed_count: number, pending_count: number, };

@@ -21,7 +21,7 @@ use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use chrono::{SecondsFormat, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Transaction};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -69,6 +69,40 @@ const fn default_label_height() -> i64 {
     40
 }
 
+/// Move an open run to the printer in front of whoever is now holding it.
+///
+/// The printer is a fact about a bench, and a run that was opened at one bench
+/// is regularly finished at another — the first printer jammed, the shift
+/// changed, somebody carried the handheld. Without this the labels keep coming
+/// out where the run started, which is discovered by walking there.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct RepointPrinterRequest {
+    pub printer_host: String,
+    #[serde(default = "default_printer_port")]
+    pub printer_port: u16,
+    pub chunk_size: Option<i64>,
+}
+
+/// Which labels to put back in the queue.
+///
+/// Two ways to name them, because the tag is in two states when this is
+/// needed. A tag whose print smeared still reads: the chip is fine, so the
+/// reader gives the EPC and that is the exact label to redo. A tag the jam
+/// destroyed reads nothing, and all anybody has is where it was in the run —
+/// "it ate three hundred and thirty-eight to three hundred and forty-one".
+#[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReprintRequest {
+    /// Named by the tag itself. Matched case-insensitively against the stored
+    /// form: an operator reading a chip should not have to care.
+    #[serde(default)]
+    pub epcs: Vec<String>,
+    /// Named by position in the run, inclusive at both ends.
+    pub from_seq: Option<i64>,
+    pub to_seq: Option<i64>,
+}
+
 /// Where a run has got to. Counts come from the items, never from a tally kept
 /// in parallel with them.
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -77,6 +111,17 @@ pub struct PrintSessionSummary {
     pub session_id: String,
     pub job_id: String,
     pub status: String,
+    /// Which bench this run belongs to.
+    ///
+    /// On the summary because a run outlives the screen that opened it. Whoever
+    /// picks it up must be able to see where its labels come out before they
+    /// press print, or a second operator quietly feeds a printer in another
+    /// room.
+    pub printer_host: String,
+    pub printer_port: u16,
+    /// How many labels one pass hands over. The run's own value, which is not
+    /// necessarily what the device that resumed it has stored.
+    pub chunk_size: i64,
     pub total_items: i64,
     pub printed_count: i64,
     pub failed_count: i64,
@@ -432,40 +477,48 @@ pub fn record_outcomes(
         }
     }
 
-    // Counters and status are recomputed from the items, so they cannot drift
-    // away from what the queue actually holds.
-    transaction
-        .execute(
-            "UPDATE print_session SET
-                 printed_count = (SELECT COUNT(*) FROM print_item
-                                   WHERE session_id = ?1 AND status='PRINTED'),
-                 failed_count  = (SELECT COUNT(*) FROM print_item
-                                   WHERE session_id = ?1 AND status='FAILED'),
-                 updated_at = ?2
-               WHERE session_id = ?1",
-            params![session_id, now],
-        )
-        .map_err(db)?;
+    recompute(&transaction, session_id, &now)?;
+    transaction.commit().map_err(db)?;
+    summarise(connection, session_id)
+}
 
+/// Bring a session's counters and status back in line with its items.
+///
+/// Counters and status are recomputed from the items, so they cannot drift
+/// away from what the queue actually holds. Shared by everything that moves an
+/// item between states: two copies of this arithmetic would be two answers to
+/// "is this run finished", and the schema's own CHECKs would start refusing
+/// perfectly ordinary work.
+fn recompute(transaction: &Transaction<'_>, session_id: &str, now: &str) -> Result<(), EdgeError> {
+    // Counts and status move in ONE statement, because SQLite checks its
+    // CHECKs after each one. Writing the counters first and the status second
+    // is a moment where a run that has just had a label put back for reprint
+    // still calls itself COMPLETED while its printed count has already
+    // dropped — which the schema refuses, and rightly.
     transaction
         .execute(
-            "UPDATE print_session SET
+            "UPDATE print_session AS s SET
+                 printed_count = counted.printed,
+                 failed_count  = counted.failed,
                  status = CASE
-                     WHEN printed_count = total_items THEN 'COMPLETED'
-                     WHEN printed_count + failed_count = total_items THEN 'PARTIAL'
+                     WHEN counted.printed = s.total_items THEN 'COMPLETED'
+                     WHEN counted.printed + counted.failed = s.total_items THEN 'PARTIAL'
                      ELSE 'PRINTING'
                  END,
                  closed_at = CASE
-                     WHEN printed_count + failed_count = total_items THEN ?2
+                     WHEN counted.printed + counted.failed = s.total_items THEN ?2
                      ELSE NULL
-                 END
-               WHERE session_id = ?1 AND status <> 'CANCELLED'",
+                 END,
+                 updated_at = ?2
+               FROM (SELECT COALESCE(SUM(status = 'PRINTED'), 0) AS printed,
+                            COALESCE(SUM(status = 'FAILED'), 0) AS failed
+                       FROM print_item WHERE session_id = ?1) AS counted
+              WHERE s.session_id = ?1 AND s.status <> 'CANCELLED'",
             params![session_id, now],
         )
         .map_err(db)?;
 
-    transaction.commit().map_err(db)?;
-    summarise(connection, session_id)
+    Ok(())
 }
 
 pub fn summarise(
@@ -474,7 +527,9 @@ pub fn summarise(
 ) -> Result<PrintSessionSummary, EdgeError> {
     connection
         .query_row(
-            "SELECT s.session_id,s.job_id,s.status,s.total_items,s.printed_count,s.failed_count,
+            "SELECT s.session_id,s.job_id,s.status,
+                    s.printer_host,s.printer_port,s.chunk_size,
+                    s.total_items,s.printed_count,s.failed_count,
                     (SELECT COUNT(*) FROM print_item
                       WHERE session_id = s.session_id AND status IN ('PENDING','CLAIMED','FAILED'))
                FROM print_session s WHERE s.session_id = ?1",
@@ -484,10 +539,13 @@ pub fn summarise(
                     session_id: row.get(0)?,
                     job_id: row.get(1)?,
                     status: row.get(2)?,
-                    total_items: row.get(3)?,
-                    printed_count: row.get(4)?,
-                    failed_count: row.get(5)?,
-                    pending_count: row.get(6)?,
+                    printer_host: row.get(3)?,
+                    printer_port: u16::try_from(row.get::<_, i64>(4)?).unwrap_or(9100),
+                    chunk_size: row.get(5)?,
+                    total_items: row.get(6)?,
+                    printed_count: row.get(7)?,
+                    failed_count: row.get(8)?,
+                    pending_count: row.get(9)?,
                 })
             },
         )
@@ -497,6 +555,217 @@ pub fn summarise(
             }
             other => db(other),
         })
+}
+
+/// The run a tagging job already has, if anybody ever opened one.
+///
+/// A print run outlives the screen that started it: a handheld sleeps, a tab
+/// reloads, an operator walks away mid-batch. While the session id lived only
+/// in the browser, losing it meant a job that could never be finished — a
+/// second `open_session` is refused, and rightly so, because two sessions
+/// would be two tags carrying one identity.
+pub fn session_for_job(
+    connection: &Connection,
+    job_id: &str,
+) -> Result<Option<PrintSessionSummary>, EdgeError> {
+    let session_id: Option<String> = connection
+        .query_row(
+            "SELECT session_id FROM print_session WHERE job_id = ?1",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map(Some)
+        .or_else(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(db(other)),
+        })?;
+
+    match session_id {
+        None => Ok(None),
+        Some(session_id) => summarise(connection, &session_id).map(Some),
+    }
+}
+
+/// Point an open run at a different printer.
+///
+/// Deliberately an explicit act rather than something `run_print_chunk` infers
+/// from whoever called it: a resumed run silently following the caller's own
+/// printer setting is how one operator's labels appear on another operator's
+/// bench, and nobody would know which of the two started it.
+pub fn repoint(
+    connection: &mut Connection,
+    session_id: &str,
+    request: RepointPrinterRequest,
+) -> Result<PrintSessionSummary, EdgeError> {
+    let host = request.printer_host.trim().to_string();
+    if host.is_empty() {
+        return Err(EdgeError::Validation("printer host is required".into()));
+    }
+    if let Some(chunk_size) = request.chunk_size {
+        if !(1..=1000).contains(&chunk_size) {
+            return Err(EdgeError::Validation(
+                "chunk size must be between 1 and 1000".into(),
+            ));
+        }
+    }
+
+    let status: String = connection
+        .query_row(
+            "SELECT status FROM print_session WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => {
+                EdgeError::NotFound(format!("print session {session_id}"))
+            }
+            other => db(other),
+        })?;
+    // A finished run has nothing left to send anywhere. Moving it would look
+    // like it did something.
+    if status == "COMPLETED" || status == "CANCELLED" {
+        return Err(EdgeError::Validation(format!(
+            "print session {session_id} is {}",
+            status.to_lowercase()
+        )));
+    }
+
+    connection
+        .execute(
+            "UPDATE print_session
+                SET printer_host = ?2,
+                    printer_port = ?3,
+                    chunk_size = COALESCE(?4, chunk_size),
+                    updated_at = ?5
+              WHERE session_id = ?1",
+            params![
+                session_id,
+                host,
+                i64::from(request.printer_port),
+                request.chunk_size,
+                now_text(),
+            ],
+        )
+        .map_err(db)?;
+
+    summarise(connection, session_id)
+}
+
+/// Put labels that have already printed back in the queue.
+///
+/// The queue's own retry only brings back what the printer refused, which is
+/// the common case and not the expensive one. The expensive one is a tag that
+/// printed perfectly and was then lost — a jam that cooked the next four, a
+/// strip nobody can scan, a garment that came back from the floor with its tag
+/// torn off. Until this existed the only way to recover those was to edit the
+/// database by hand, and the temptation instead was to mint fresh EPCs.
+///
+/// So: the same EPC is reprinted, never a new one. The unit's identity is
+/// already in the ledger and already on the shop floor; a second EPC for one
+/// garment is the same corruption as printing a job twice.
+pub fn reprint(
+    connection: &mut Connection,
+    session_id: &str,
+    request: ReprintRequest,
+) -> Result<PrintSessionSummary, EdgeError> {
+    let range = match (request.from_seq, request.to_seq) {
+        (None, None) => None,
+        (Some(from), Some(to)) if from <= to && from > 0 => Some((from, to)),
+        _ => {
+            return Err(EdgeError::Validation(
+                "a range needs both ends, lowest first, counting from 1".into(),
+            ))
+        }
+    };
+    let epcs: Vec<String> = request
+        .epcs
+        .iter()
+        .map(|epc| epc.trim().to_ascii_uppercase())
+        .filter(|epc| !epc.is_empty())
+        .collect();
+    if epcs.is_empty() && range.is_none() {
+        return Err(EdgeError::Validation(
+            "name the labels to reprint, by EPC or by position".into(),
+        ));
+    }
+
+    let transaction = connection.transaction().map_err(db)?;
+
+    let status: String = transaction
+        .query_row(
+            "SELECT status FROM print_session WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => {
+                EdgeError::NotFound(format!("print session {session_id}"))
+            }
+            other => db(other),
+        })?;
+    if status == "CANCELLED" {
+        return Err(EdgeError::Validation(format!(
+            "print session {session_id} is cancelled"
+        )));
+    }
+
+    let now = now_text();
+    let mut requeued = 0usize;
+
+    // A label the operator named must exist in this run. Naming one from
+    // another run is a mistake worth stopping, not a no-op worth hiding.
+    for epc in &epcs {
+        let known: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM print_item
+                  WHERE session_id = ?1 AND upper(epc) = ?2",
+                params![session_id, epc],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if known == 0 {
+            return Err(EdgeError::NotFound(format!(
+                "label {epc} is not part of print session {session_id}"
+            )));
+        }
+        // Only what actually printed comes back. One already waiting its turn
+        // is left alone: an operator naming a mixed handful means all of them
+        // to be printed, not an error.
+        requeued += transaction
+            .execute(
+                // `attempts` and `claimed_at` are left where they are: they
+                // record what this label has already cost, and an operator
+                // deciding whether the printer is misbehaving needs to see
+                // that this is its fourth pass, not its first.
+                "UPDATE print_item
+                    SET status='PENDING', printed_at = NULL, last_error = NULL
+                  WHERE session_id = ?1 AND upper(epc) = ?2 AND status = 'PRINTED'",
+                params![session_id, epc],
+            )
+            .map_err(db)?;
+    }
+
+    if let Some((from, to)) = range {
+        requeued += transaction
+            .execute(
+                "UPDATE print_item
+                    SET status='PENDING', printed_at = NULL, last_error = NULL
+                  WHERE session_id = ?1 AND seq BETWEEN ?2 AND ?3
+                    AND status = 'PRINTED'",
+                params![session_id, from, to],
+            )
+            .map_err(db)?;
+    }
+
+    if requeued == 0 {
+        return Err(EdgeError::Validation(
+            "none of those labels have printed, so they are already waiting".into(),
+        ));
+    }
+
+    recompute(&transaction, session_id, &now)?;
+    transaction.commit().map_err(db)?;
+    summarise(connection, session_id)
 }
 
 /// Hand a claimed chunk to the printer, one label per connection.
@@ -844,6 +1113,234 @@ mod tests {
         match open_session(&mut connection, missing) {
             Err(EdgeError::NotFound(_)) => {}
             other => panic!("expected not found, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_run_can_be_found_again_from_the_job_alone() {
+        let mut connection = job_with(9);
+        let opened = open(&mut connection);
+
+        // This is the reload: nothing is remembered but the job.
+        let found = match session_for_job(&connection, "job-1") {
+            Ok(Some(found)) => found,
+            other => panic!("expected the open run, got {other:?}"),
+        };
+        assert_eq!(found.session_id, opened.session_id);
+        assert_eq!(found.pending_count, 9);
+        // And it says which bench it belongs to, so whoever resumed it can see
+        // where the labels will come out.
+        assert_eq!(found.printer_host, "10.0.0.9");
+        assert_eq!(found.chunk_size, 4);
+    }
+
+    #[test]
+    fn a_job_nobody_has_queued_has_no_run() {
+        let connection = job_with(1);
+        match session_for_job(&connection, "job-1") {
+            Ok(None) => {}
+            other => panic!("expected no run, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_run_follows_the_bench_that_picked_it_up() {
+        let mut connection = job_with(9);
+        let opened = open(&mut connection);
+
+        let moved = match repoint(
+            &mut connection,
+            &opened.session_id,
+            RepointPrinterRequest {
+                printer_host: "  10.0.0.22  ".into(),
+                printer_port: 9101,
+                chunk_size: Some(2),
+            },
+        ) {
+            Ok(moved) => moved,
+            Err(error) => panic!("repoint: {error}"),
+        };
+        assert_eq!(moved.printer_host, "10.0.0.22");
+        assert_eq!(moved.printer_port, 9101);
+
+        // The next chunk goes to the new bench, and is the new size.
+        let chunk = match claim_chunk(&mut connection, &opened.session_id) {
+            Ok(chunk) => chunk,
+            Err(error) => panic!("claim_chunk: {error}"),
+        };
+        assert_eq!(chunk.printer_host, "10.0.0.22");
+        assert_eq!(chunk.printer_port, 9101);
+        assert_eq!(chunk.labels.len(), 2);
+    }
+
+    #[test]
+    fn a_run_cannot_be_moved_nowhere() {
+        let mut connection = job_with(1);
+        let opened = open(&mut connection);
+        match repoint(
+            &mut connection,
+            &opened.session_id,
+            RepointPrinterRequest {
+                printer_host: "   ".into(),
+                printer_port: 9100,
+                chunk_size: None,
+            },
+        ) {
+            Err(EdgeError::Validation(_)) => {}
+            other => panic!("expected the empty host to be refused, got {other:?}"),
+        }
+    }
+
+    /// Print the whole run and report every label as landed.
+    fn print_everything(connection: &mut Connection, session_id: &str) {
+        loop {
+            let labels = claim(connection, session_id);
+            if labels.is_empty() {
+                return;
+            }
+            let outcomes: Vec<PrintOutcomeRecord> = labels.iter().map(ok).collect();
+            if let Err(error) = record_outcomes(connection, session_id, &outcomes) {
+                panic!("record_outcomes: {error}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_tag_that_printed_and_was_then_destroyed_can_be_done_again() {
+        let mut connection = job_with(9);
+        let opened = open(&mut connection);
+        print_everything(&mut connection, &opened.session_id);
+
+        let again = match reprint(
+            &mut connection,
+            &opened.session_id,
+            ReprintRequest {
+                // Lower case, as a reader hands it over.
+                epcs: vec!["a0123456781230000000".to_string() + "0003"],
+                ..ReprintRequest::default()
+            },
+        ) {
+            Ok(again) => again,
+            Err(error) => panic!("reprint: {error}"),
+        };
+
+        assert_eq!(again.pending_count, 1);
+        assert_eq!(again.printed_count, 8);
+        // The run is open again, which is what a run with work left must say.
+        assert_eq!(again.status, "PRINTING");
+
+        // And it is the same EPC that goes back on the printer, not a new one.
+        let labels = claim(&mut connection, &opened.session_id);
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].epc, "A01234567812300000000003");
+        assert!(labels[0]
+            .zpl
+            .contains("^RFW,H,1,12,1^FDA01234567812300000000003"));
+        // Its history follows it: this is the label's second pass.
+        assert_eq!(labels[0].attempts, 2);
+    }
+
+    #[test]
+    fn a_jam_is_undone_by_the_range_it_ate() {
+        let mut connection = job_with(9);
+        let opened = open(&mut connection);
+        print_everything(&mut connection, &opened.session_id);
+
+        let again = match reprint(
+            &mut connection,
+            &opened.session_id,
+            ReprintRequest {
+                epcs: Vec::new(),
+                from_seq: Some(4),
+                to_seq: Some(7),
+            },
+        ) {
+            Ok(again) => again,
+            Err(error) => panic!("reprint: {error}"),
+        };
+        assert_eq!(again.pending_count, 4);
+
+        let labels = claim(&mut connection, &opened.session_id);
+        let seqs: Vec<i64> = labels.iter().map(|label| label.seq).collect();
+        assert_eq!(seqs, vec![4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn a_label_from_another_run_is_not_reprinted_here() {
+        let mut connection = job_with(2);
+        let opened = open(&mut connection);
+        print_everything(&mut connection, &opened.session_id);
+
+        match reprint(
+            &mut connection,
+            &opened.session_id,
+            ReprintRequest {
+                epcs: vec!["A0999999999990000000001".into()],
+                ..ReprintRequest::default()
+            },
+        ) {
+            Err(EdgeError::NotFound(_)) => {}
+            other => panic!("expected a stranger's label to be refused, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_reprint_that_names_nothing_printed_is_refused() {
+        let mut connection = job_with(4);
+        let opened = open(&mut connection);
+
+        // Nothing has printed yet, so these four are already waiting.
+        match reprint(
+            &mut connection,
+            &opened.session_id,
+            ReprintRequest {
+                epcs: Vec::new(),
+                from_seq: Some(1),
+                to_seq: Some(4),
+            },
+        ) {
+            Err(EdgeError::Validation(message)) => {
+                assert!(message.contains("already waiting"), "{message}");
+            }
+            other => panic!("expected the reprint to be refused, got {other:?}"),
+        }
+
+        // As is a request that names nothing at all.
+        match reprint(
+            &mut connection,
+            &opened.session_id,
+            ReprintRequest::default(),
+        ) {
+            Err(EdgeError::Validation(_)) => {}
+            other => panic!("expected an empty reprint to be refused, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_finished_run_is_not_moved_anywhere() {
+        let mut connection = job_with(1);
+        let opened = open(&mut connection);
+        let labels = claim(&mut connection, &opened.session_id);
+        let outcomes: Vec<PrintOutcomeRecord> = labels.iter().map(ok).collect();
+        let done = match record_outcomes(&mut connection, &opened.session_id, &outcomes) {
+            Ok(done) => done,
+            Err(error) => panic!("record_outcomes: {error}"),
+        };
+        assert_eq!(done.status, "COMPLETED");
+
+        match repoint(
+            &mut connection,
+            &opened.session_id,
+            RepointPrinterRequest {
+                printer_host: "10.0.0.22".into(),
+                printer_port: 9100,
+                chunk_size: None,
+            },
+        ) {
+            Err(EdgeError::Validation(message)) => {
+                assert!(message.contains("completed"), "{message}")
+            }
+            other => panic!("expected a finished run to be refused, got {other:?}"),
         }
     }
 }

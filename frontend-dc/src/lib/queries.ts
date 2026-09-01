@@ -15,8 +15,10 @@ export const keys = {
   verifyQueue: () => ["dc", "purchase-counts"] as const,
 
   taggingJobs: () => ["dc", "tagging-jobs"] as const,
-  printSession: (sessionId: string) =>
-    ["dc", "print-session", sessionId] as const,
+  /// Keyed by the job, not the session: the run belongs to the job, and a
+  /// screen that reloaded knows only which job it was printing.
+  jobPrintSession: (jobId: string) =>
+    ["dc", "tagging-job", jobId, "print-session"] as const,
 
   picklist: () => ["dc", "picklist"] as const,
   pickSessions: () => ["dc", "pick-sessions"] as const,

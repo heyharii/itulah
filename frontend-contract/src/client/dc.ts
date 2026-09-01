@@ -41,6 +41,8 @@ import type {
   PurchaseVerifyResult,
   PurchaseWorkLine,
   RecordInvoiceRequest,
+  RepointPrinterRequest,
+  ReprintRequest,
   Session,
   Shipment,
   ShipmentDetail,
@@ -231,6 +233,52 @@ export class Dc {
   ): Promise<PrintSessionSummary> {
     return this.node.get<PrintSessionSummary>(
       `/api/v1/dc/print-sessions/${encodeURIComponent(sessionId)}`,
+      { signal },
+    );
+  }
+
+  /// The run this job already has, or null if nobody has queued it yet.
+  ///
+  /// A screen asks this rather than remembering a session id of its own: the
+  /// job is only ever given one run, and a handheld that slept must come back
+  /// to it rather than to a queue button that will be refused.
+  async jobPrintSession(
+    jobId: string,
+    signal?: AbortSignal,
+  ): Promise<PrintSessionSummary | null> {
+    const body = await this.node.get<{ session: PrintSessionSummary | null }>(
+      `/api/v1/dc/tagging-jobs/${encodeURIComponent(jobId)}/print-session`,
+      { signal },
+    );
+    return body.session;
+  }
+
+  /// Move a run to the printer in front of whoever picked it up.
+  repointPrintSession(
+    sessionId: string,
+    request: RepointPrinterRequest,
+    signal?: AbortSignal,
+  ): Promise<PrintSessionSummary> {
+    return this.node.post<PrintSessionSummary>(
+      `/api/v1/dc/print-sessions/${encodeURIComponent(sessionId)}/printer`,
+      request,
+      { signal },
+    );
+  }
+
+  /// Put labels that already printed back in the queue.
+  ///
+  /// The same EPCs, never fresh ones: a tag that was destroyed after it
+  /// printed still belongs to a unit the ledger knows about, and a second EPC
+  /// for one garment reads downstream as a second garment.
+  reprintLabels(
+    sessionId: string,
+    request: ReprintRequest,
+    signal?: AbortSignal,
+  ): Promise<PrintSessionSummary> {
+    return this.node.post<PrintSessionSummary>(
+      `/api/v1/dc/print-sessions/${encodeURIComponent(sessionId)}/reprint`,
+      request,
       { signal },
     );
   }

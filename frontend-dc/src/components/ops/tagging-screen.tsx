@@ -95,17 +95,39 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
   const client = useQueryClient()
   const action = useAction()
   const [printer, setPrinter] = useState<Printer>(loadPrinter)
-  const [sessionId, setSessionId] = useState<string | null>(null)
   const [report, setReport] = useState<string | null>(null)
+  const [scanned, setScanned] = useState("")
+  const [fromSeq, setFromSeq] = useState("")
+  const [toSeq, setToSeq] = useState("")
 
-  // Polled while a run is open: the printer is a physical machine and a chunk
-  // it refused is not visible from here any other way.
-  const session = useQuery({
-    queryKey: keys.printSession(sessionId ?? ""),
-    queryFn: ({ signal }) => dc.printSession(sessionId as string, signal),
-    enabled: sessionId !== null,
-    refetchInterval: 4000,
+  /// The run belongs to the job, not to this tab.
+  ///
+  /// A job is given one print run and the server refuses a second — two runs
+  /// would be two tags carrying one identity. So the screen asks which run the
+  /// job has rather than remembering one it opened: a handheld that slept, a
+  /// reloaded tab and the person who took over at the next bench all come back
+  /// to the same half-finished batch, instead of to a button that is refused
+  /// and a job nobody can finish.
+  const run = useQuery({
+    queryKey: keys.jobPrintSession(job.job_id),
+    queryFn: ({ signal }) => dc.jobPrintSession(job.job_id, signal),
+    // Polled only while labels are outstanding: the printer is a physical
+    // machine, and a chunk it refused is not visible from here any other way.
+    refetchInterval: (query) =>
+      (query.state.data?.pending_count ?? 0) > 0 ? 4000 : false,
   })
+
+  const session = run.data ?? null
+  // The run carries its own printer. If it is not the one in front of this
+  // person, the labels are coming out in another room and saying so is the
+  // only way they find out without walking there.
+  const elsewhere =
+    session !== null &&
+    (session.printer_host !== printer.host ||
+      session.printer_port !== printer.port)
+
+  const refresh = () =>
+    client.invalidateQueries({ queryKey: keys.jobPrintSession(job.job_id) })
 
   const remember = (next: Printer) => {
     setPrinter(next)
@@ -114,7 +136,7 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
 
   const startPrinting = () =>
     void action.run(async () => {
-      const opened = await dc.openPrintSession({
+      await dc.openPrintSession({
         job_id: job.job_id,
         printer_host: printer.host,
         printer_port: printer.port,
@@ -123,20 +145,57 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
         chunk_size: printer.chunk,
         actor_id: actor,
       })
-      setSessionId(opened.session_id)
       setReport(null)
+      await refresh()
+    })
+
+  const moveHere = () =>
+    void action.run(async () => {
+      if (session === null) {
+        return
+      }
+      await dc.repointPrintSession(session.session_id, {
+        printer_host: printer.host,
+        printer_port: printer.port,
+        chunk_size: printer.chunk,
+      })
+      await refresh()
     })
 
   const runChunk = () =>
     void action.run(async () => {
-      if (sessionId === null) {
+      if (session === null) {
         return
       }
-      const chunk = await dc.runPrintChunk(sessionId)
+      const chunk = await dc.runPrintChunk(session.session_id)
       setReport(
-        `${chunk.printed} printed, ${chunk.failed} refused of ${chunk.attempted} attempted`
+        `${chunk.printed} printed, ${chunk.failed} refused of ${chunk.attempted} attempted`,
       )
-      void client.invalidateQueries({ queryKey: keys.printSession(sessionId) })
+      await refresh()
+    })
+
+  /// Put labels that already printed back in the queue.
+  ///
+  /// Both routes end in the same call because they name the same thing two
+  /// ways: a tag whose print smeared still reads, so the chip gives the EPC;
+  /// a tag the jam destroyed reads nothing, and all anybody has left is where
+  /// it sat in the run.
+  const reprint = (request: { epcs: string[]; from: string; to: string }) =>
+    void action.run(async () => {
+      if (session === null) {
+        return
+      }
+      const before = session.pending_count
+      const after = await dc.reprintLabels(session.session_id, {
+        epcs: request.epcs,
+        from_seq: request.from === "" ? null : Number(request.from),
+        to_seq: request.to === "" ? null : Number(request.to),
+      })
+      setScanned("")
+      setFromSeq("")
+      setToSeq("")
+      setReport(`${units(after.pending_count - before)} back in the queue`)
+      await refresh()
     })
 
   const confirm = () =>
@@ -146,7 +205,6 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
         actor_id: actor,
         idempotency_key: idempotencyKey(),
       })
-      setSessionId(null)
       setReport(null)
       void client.invalidateQueries({ queryKey: ["dc"] })
     })
@@ -170,11 +228,11 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
       <Panel
         title="Printer"
         meta={
-          session.data === undefined ? (
+          session === null ? (
             "not started"
           ) : (
-            <Pill tone={session.data.pending_count === 0 ? "good" : "warn"}>
-              {session.data.status.toLowerCase()}
+            <Pill tone={session.pending_count === 0 ? "good" : "warn"}>
+              {session.status.toLowerCase()}
             </Pill>
           )
         }
@@ -184,14 +242,13 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
             value={printer.host}
             placeholder="Printer host"
             className="h-(--tap) min-w-40 flex-1 font-mono"
-            onChange={(event) =>
-              remember({ ...printer, host: event.target.value })
-            }
+            onChange={(event) => remember({ ...printer, host: event.target.value })}
           />
           <Input
             value={String(printer.port)}
             inputMode="numeric"
             className="h-(--tap) w-24 font-mono"
+            aria-label="Printer port"
             onChange={(event) =>
               remember({ ...printer, port: Number(event.target.value) })
             }
@@ -207,50 +264,132 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
           />
         </div>
 
-        {sessionId === null ? (
-          <div className="border-t px-4 py-3">
-            <Button
-              className="h-(--tap) w-full"
-              disabled={action.pending}
-              onClick={startPrinting}
-            >
-              Queue {units(job.total_quantity)} labels
-            </Button>
-          </div>
-        ) : (
-          <>
-            <PrintProgress summary={session.data ?? null} />
-            <div className="flex flex-wrap gap-2 border-t px-4 py-3">
+        {run.isPending && <ScreenState>Looking for a run…</ScreenState>}
+        {run.isError && (
+          <ScreenState tone="problem">{(run.error as Error).message}</ScreenState>
+        )}
+
+        {run.isSuccess &&
+          (session === null ? (
+            <div className="border-t px-4 py-3">
               <Button
-                className="h-(--tap) flex-1"
-                disabled={
-                  action.pending || (session.data?.pending_count ?? 0) === 0
-                }
-                onClick={runChunk}
+                className="h-(--tap) w-full"
+                disabled={action.pending}
+                onClick={startPrinting}
               >
-                Print next pass
-              </Button>
-              <Button
-                variant="ghost"
-                className="h-(--tap)"
-                onClick={() => setSessionId(null)}
-              >
-                Leave it
+                Queue {units(job.total_quantity)} labels
               </Button>
             </div>
-            {report !== null && (
-              <p className="px-4 pb-3 text-xs text-muted-foreground">
-                {report}
-              </p>
-            )}
-          </>
-        )}
+          ) : (
+            <>
+              <PrintProgress summary={session} />
+              {elsewhere && (
+                <div className="flex flex-col gap-2 border-t px-4 py-3">
+                  <p className="text-muted-foreground text-xs">
+                    This run prints at{" "}
+                    <span className="font-mono">
+                      {session.printer_host}:{session.printer_port}
+                    </span>
+                    , which is not the printer set on this device. Its labels
+                    come out there until somebody moves the run.
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="h-(--tap)"
+                    disabled={action.pending}
+                    onClick={moveHere}
+                  >
+                    Print from this bench instead
+                  </Button>
+                </div>
+              )}
+              <div className="border-t px-4 py-3">
+                <Button
+                  className="h-(--tap) w-full"
+                  disabled={action.pending || session.pending_count === 0}
+                  onClick={runChunk}
+                >
+                  {session.pending_count === 0
+                    ? "Every label has printed"
+                    : `Print the next ${units(
+                        Math.min(session.chunk_size, session.pending_count),
+                      )}`}
+                </Button>
+              </div>
+              {session.printed_count > 0 && (
+                <div className="flex flex-col gap-3 border-t px-4 py-3">
+                  <p className="text-muted-foreground text-xs">
+                    A tag that printed and was then lost — smeared, torn off,
+                    eaten by a jam — goes back in the queue carrying the same
+                    EPC. Never a fresh one: that unit is already on the floor
+                    and already in the ledger.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      value={scanned}
+                      placeholder="Read the chip, or paste EPCs"
+                      aria-label="EPCs to reprint"
+                      className="h-(--tap) min-w-48 flex-1 font-mono"
+                      onChange={(event) => setScanned(event.target.value)}
+                    />
+                    <Button
+                      variant="outline"
+                      className="h-(--tap)"
+                      disabled={action.pending || scanned.trim() === ""}
+                      onClick={() =>
+                        reprint({
+                          epcs: scanned.split(/[\s,]+/).filter((epc) => epc !== ""),
+                          from: "",
+                          to: "",
+                        })
+                      }
+                    >
+                      Queue those again
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-muted-foreground text-xs">
+                      …or by position in the run
+                    </span>
+                    <Input
+                      value={fromSeq}
+                      inputMode="numeric"
+                      aria-label="From label number"
+                      className="h-(--tap) w-20 font-mono"
+                      onChange={(event) => setFromSeq(event.target.value)}
+                    />
+                    <span className="text-muted-foreground text-xs">to</span>
+                    <Input
+                      value={toSeq}
+                      inputMode="numeric"
+                      aria-label="To label number"
+                      className="h-(--tap) w-20 font-mono"
+                      onChange={(event) => setToSeq(event.target.value)}
+                    />
+                    <Button
+                      variant="outline"
+                      className="h-(--tap)"
+                      disabled={
+                        action.pending || fromSeq.trim() === "" || toSeq.trim() === ""
+                      }
+                      onClick={() => reprint({ epcs: [], from: fromSeq, to: toSeq })}
+                    >
+                      Queue that range
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {report !== null && (
+                <p className="text-muted-foreground px-4 pb-3 text-xs">{report}</p>
+              )}
+            </>
+          ))}
         <Problem error={action.error} />
       </Panel>
 
       <Panel title="The tags are on the goods">
         <div className="flex flex-col gap-3 px-4 py-4">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             One confirmation for the whole job, given by the person who attached
             them.
           </p>
@@ -282,17 +421,14 @@ function JobDetail({ job }: { job: TaggingWorkJob }) {
   )
 }
 
-function PrintProgress({ summary }: { summary: PrintSessionSummary | null }) {
-  if (summary === null) {
-    return <ScreenState>Opening the run…</ScreenState>
-  }
+function PrintProgress({ summary }: { summary: PrintSessionSummary }) {
   const done = summary.total_items - summary.pending_count
   const share = summary.total_items === 0 ? 0 : done / summary.total_items
   return (
     <div className="flex flex-col gap-2 border-t px-4 py-3">
-      <div className="h-2 overflow-hidden rounded-full bg-muted">
+      <div className="bg-muted h-2 overflow-hidden rounded-full">
         <div
-          className="h-full rounded-full bg-primary transition-[width]"
+          className="bg-primary h-full rounded-full transition-[width]"
           style={{ width: `${Math.round(share * 100)}%` }}
         />
       </div>
@@ -306,6 +442,9 @@ function PrintProgress({ summary }: { summary: PrintSessionSummary | null }) {
             {units(summary.failed_count)} refused — they come round again
           </span>
         )}
+        <span className="text-muted-foreground">
+          {summary.printer_host}:{summary.printer_port}
+        </span>
       </div>
     </div>
   )

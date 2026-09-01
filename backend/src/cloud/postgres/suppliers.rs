@@ -945,6 +945,12 @@ struct CatalogItemSnapshot {
     version: i64,
     quantity: i64,
     promised_date: Option<NaiveDate>,
+    /// Carried onto the order line, not merely displayed. What a thing IS
+    /// survives the order: `tagging` reads these back when it mints the
+    /// article at goods receipt, so dropping them here produces articles with
+    /// no division and no tags even though the catalogue knew both.
+    division_code: Option<String>,
+    tags: Vec<String>,
 }
 
 fn map_catalog_purchase_error(error: sqlx::Error, po_number: &str) -> AppError {
@@ -1044,9 +1050,16 @@ pub async fn create_catalog_purchase_order(
     let mut snapshots = Vec::with_capacity(request.lines.len());
     for line in request.lines {
         let row = sqlx::query(
-            "SELECT supplier_id, supplier_item_code, name, image_url,
-                    unit_price_minor, currency, status, version
-             FROM supplier_item WHERE supplier_item_id = $1 FOR SHARE",
+            "SELECT i.supplier_id, i.supplier_item_code, i.name, i.image_url,
+                    i.unit_price_minor, i.currency, i.status, i.version,
+                    i.division_code,
+                    COALESCE(
+                        (SELECT array_agg(t.tag_code ORDER BY t.tag_code)
+                           FROM supplier_item_tag t
+                          WHERE t.supplier_item_id = i.supplier_item_id),
+                        ARRAY[]::text[]
+                    ) AS tags
+             FROM supplier_item i WHERE i.supplier_item_id = $1 FOR SHARE",
         )
         .bind(line.supplier_item_id)
         .fetch_optional(&mut *transaction)
@@ -1083,6 +1096,8 @@ pub async fn create_catalog_purchase_order(
             version: row.try_get("version")?,
             quantity: line.quantity,
             promised_date: line.promised_date,
+            division_code: row.try_get("division_code")?,
+            tags: row.try_get("tags")?,
         });
     }
 
@@ -1119,12 +1134,13 @@ pub async fn create_catalog_purchase_order(
         sqlx::query(
             "INSERT INTO purchase_order_line
                  (po_line_id, purchase_order_id, line_number,
-                  article_code, article_name, image_url, ordered_quantity,
+                  article_code, article_name, image_url, division_code,
+                  ordered_quantity,
                   unit_price_minor, line_amount_minor, promised_date,
                   supplier_item_id, supplier_item_code_snapshot,
                   supplier_item_name_snapshot, supplier_item_image_snapshot,
                   supplier_item_version, currency)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$4,$5,$6,$12,$13)",
+             VALUES ($1,$2,$3,$4,$5,$6,$14,$7,$8,$9,$10,$11,$4,$5,$6,$12,$13)",
         )
         .bind(po_line_id)
         .bind(purchase_order_id)
@@ -1139,17 +1155,36 @@ pub async fn create_catalog_purchase_order(
         .bind(item.supplier_item_id)
         .bind(item.version)
         .bind(&item.currency)
+        .bind(&item.division_code)
         .execute(&mut *transaction)
         .await
         .map_err(|error| map_catalog_purchase_error(error, &po_number))?;
+        // The tags the catalogue already holds, carried onto the line. They
+        // are known-good — a supplier item cannot hold a tag that is not in
+        // the vocabulary — so unlike the legacy path there is nothing to
+        // validate here, only to copy.
+        for tag in &item.tags {
+            sqlx::query(
+                "INSERT INTO purchase_order_line_tag (po_line_id, tag_code)
+                 VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            )
+            .bind(po_line_id)
+            .bind(tag)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| map_catalog_purchase_error(error, &po_number))?;
+        }
         wire_lines.push(PurchaseOrderLinePayload {
             po_line_id,
             line_number,
             article_code: item.supplier_item_code,
             article_name: item.name,
             image_url: item.image_url,
-            division_code: None,
-            tags: Vec::new(),
+            // The edge receives what was ordered, classification included.
+            // It was `None` and empty here, which meant the DC's copy of the
+            // order disagreed with head office's about what the goods are.
+            division_code: item.division_code,
+            tags: item.tags,
             ordered_quantity: item.quantity,
             unit_price_minor: item.unit_price_minor,
             promised_date: item.promised_date.map(|date| date.to_string()),

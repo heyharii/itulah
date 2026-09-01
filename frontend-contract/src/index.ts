@@ -93,6 +93,8 @@ export type { QuotedLine } from "./contract/QuotedLine";
 export type { ReceiveRequest } from "./contract/ReceiveRequest";
 export type { RecordInvoiceRequest } from "./contract/RecordInvoiceRequest";
 export type { ReplyRequest } from "./contract/ReplyRequest";
+export type { RepointPrinterRequest } from "./contract/RepointPrinterRequest";
+export type { ReprintRequest } from "./contract/ReprintRequest";
 export type { ResetPasswordRequest } from "./contract/ResetPasswordRequest";
 export type { Role } from "./contract/Role";
 export type { SaleRequest } from "./contract/SaleRequest";

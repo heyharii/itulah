@@ -426,6 +426,24 @@ pub trait EdgeInventory: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<super::printing::PrintSessionSummary, EdgeError>;
+    /// The run a tagging job already has, if any. A print run outlives the
+    /// screen that opened it, and a job is refused a second one.
+    fn job_print_session(
+        &self,
+        job_id: &str,
+    ) -> Result<Option<super::printing::PrintSessionSummary>, EdgeError>;
+    /// Point a run at the printer in front of whoever picked it up.
+    fn repoint_print_session(
+        &self,
+        session_id: &str,
+        request: super::printing::RepointPrinterRequest,
+    ) -> Result<super::printing::PrintSessionSummary, EdgeError>;
+    /// Put labels that already printed back in the queue, keeping their EPCs.
+    fn reprint_labels(
+        &self,
+        session_id: &str,
+        request: super::printing::ReprintRequest,
+    ) -> Result<super::printing::PrintSessionSummary, EdgeError>;
 
     // Outbound containment: koli, shipment, dispatch, and the sessions that
     // produce them. Position is derived from containment, never stored.

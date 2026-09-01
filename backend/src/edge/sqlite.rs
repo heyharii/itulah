@@ -2095,6 +2095,34 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::printing::summarise(&connection, session_id)
     }
 
+    fn job_print_session(
+        &self,
+        job_id: &str,
+    ) -> Result<Option<crate::edge::printing::PrintSessionSummary>, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::printing::session_for_job(&connection, job_id)
+    }
+
+    fn repoint_print_session(
+        &self,
+        session_id: &str,
+        request: crate::edge::printing::RepointPrinterRequest,
+    ) -> Result<crate::edge::printing::PrintSessionSummary, EdgeError> {
+        self.require_dc("printing happens at a DC")?;
+        let mut connection = self.lock()?;
+        crate::edge::printing::repoint(&mut connection, session_id, request)
+    }
+
+    fn reprint_labels(
+        &self,
+        session_id: &str,
+        request: crate::edge::printing::ReprintRequest,
+    ) -> Result<crate::edge::printing::PrintSessionSummary, EdgeError> {
+        self.require_dc("printing happens at a DC")?;
+        let mut connection = self.lock()?;
+        crate::edge::printing::reprint(&mut connection, session_id, request)
+    }
+
     fn open_outbound_session(
         &self,
         kind: crate::edge::outbound::SessionKind,

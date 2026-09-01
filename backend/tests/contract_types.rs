@@ -217,6 +217,10 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("OpenPrintSessionRequest: {e}"));
     inventory_backend::edge::printing::PrintSessionSummary::export_all(&config)
         .unwrap_or_else(|e| panic!("PrintSessionSummary: {e}"));
+    inventory_backend::edge::printing::RepointPrinterRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RepointPrinterRequest: {e}"));
+    inventory_backend::edge::printing::ReprintRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReprintRequest: {e}"));
     inventory_backend::edge::printing::PrintChunkReport::export_all(&config)
         .unwrap_or_else(|e| panic!("PrintChunkReport: {e}"));
 

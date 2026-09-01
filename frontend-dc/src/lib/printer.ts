@@ -14,11 +14,15 @@ export interface Printer {
   chunk: number
 }
 
+/// 58 x 40 mm because that is the tag the ZPL layout was tuned against by
+/// hand, and the size the server assumes when a request leaves it out. Other
+/// sizes scale from it, so a smaller default here would quietly hand every new
+/// bench a tag nobody calibrated.
 export const DEFAULT_PRINTER: Printer = {
   host: "127.0.0.1",
   port: 9100,
-  widthMm: 50,
-  heightMm: 30,
+  widthMm: 58,
+  heightMm: 40,
   chunk: 25,
 }
 

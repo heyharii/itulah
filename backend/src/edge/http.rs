@@ -169,6 +169,18 @@ pub fn dc_router_with_sync(
             "/api/v1/dc/print-sessions/{session_id}/run",
             post(dc_run_print_chunk),
         )
+        .route(
+            "/api/v1/dc/print-sessions/{session_id}/printer",
+            post(dc_repoint_print_session),
+        )
+        .route(
+            "/api/v1/dc/print-sessions/{session_id}/reprint",
+            post(dc_reprint_labels),
+        )
+        .route(
+            "/api/v1/dc/tagging-jobs/{job_id}/print-session",
+            get(dc_job_print_session),
+        )
         .route("/api/v1/dc/movements", post(move_stock))
         .route("/api/v1/dc/official-counts", get(dc_official_counts))
         .route(
@@ -955,6 +967,50 @@ async fn dc_print_session(
 ) -> Result<Json<Value>, ApiError> {
     require_permission(&state, principal, EdgePermission::InventoryRead)?;
     let result = run_blocking(move || state.inventory.print_session(&session_id)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// The run this job already has, or `null` if nobody has queued it yet.
+///
+/// The screen asks this rather than remembering a session id of its own: a
+/// handheld that slept, a tab that reloaded and a colleague at another bench
+/// must all arrive at the same run, because the job is only ever given one.
+async fn dc_job_print_session(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(job_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.job_print_session(&job_id)).await?;
+    Ok(Json(json!({ "session": result })))
+}
+
+/// Move a run to the printer in front of whoever picked it up.
+async fn dc_repoint_print_session(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(session_id): Path<String>,
+    Json(request): Json<crate::edge::printing::RepointPrinterRequest>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::DcOperate)?;
+    let result =
+        run_blocking(move || state.inventory.repoint_print_session(&session_id, request)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// Put labels that already printed back in the queue.
+///
+/// The same EPCs, never fresh ones: the units are already in the ledger and
+/// already on the floor, and a second EPC for one garment reads downstream as
+/// a second garment.
+async fn dc_reprint_labels(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(session_id): Path<String>,
+    Json(request): Json<crate::edge::printing::ReprintRequest>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::DcOperate)?;
+    let result = run_blocking(move || state.inventory.reprint_labels(&session_id, request)).await?;
     Ok(Json(serde_json::to_value(result)?))
 }
 
