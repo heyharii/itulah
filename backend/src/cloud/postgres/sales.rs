@@ -527,3 +527,115 @@ pub async fn list_sales(pool: &PgPool, query: SaleQuery) -> Result<Value, AppErr
     let items:Vec<Value>=rows.into_iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"sale_number":row.get::<String,_>("sale_number"),"site_id":row.get::<String,_>("site_id"),"channel":row.get::<String,_>("channel"),"status":row.get::<String,_>("status"),"commercial_version":row.get::<i64,_>("commercial_version"),"currency":row.get::<String,_>("currency").trim(),"total_minor":row.get::<i64,_>("total_minor"),"paid_minor":row.get::<i64,_>("paid_minor"),"change_minor":row.get::<i64,_>("change_minor"),"movement_group_id":row.get::<Option<Uuid>,_>("movement_group_id"),"created_at":row.get::<DateTime<Utc>,_>("created_at"),"completed_at":row.get::<Option<DateTime<Utc>>,_>("completed_at")})).collect();
     Ok(json!({"items":items,"limit":limit}))
 }
+
+/// One sale as it happened at a shop, with the promotions that came off it.
+///
+/// `get_sale` above reads the centre's own `sale` table. This reads
+/// `edge_sale` — the shop's, arrived over the sync lane — which is where
+/// essentially every real sale in this business lives.
+///
+/// The promotions are the point. A shop has always sent which ones applied and
+/// what each was worth; the centre counted them into `commercial_usage` and
+/// discarded the list, so "what has the Lebaran promo cost us" had an answer
+/// and "why was this customer charged this" did not. That second question is
+/// the one asked at a counter with somebody waiting.
+///
+/// The rule's name is looked up best-effort and may be absent. A receipt has to
+/// stay readable after the promotion it names has been superseded, so the name
+/// is a courtesy and the id is the record.
+pub async fn get_shop_sale(pool: &PgPool, sale_id: Uuid) -> Result<Value, AppError> {
+    let sale = sqlx::query(
+        "SELECT sale_id, site_id, actor_id, occurred_at, received_at, currency::text currency,
+                total_minor, paid_minor, change_minor, discount_total_minor, points_earned,
+                pricing_trace_id, customer_id
+           FROM edge_sale WHERE sale_id = $1",
+    )
+    .bind(sale_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("a sale from a shop".into()))?;
+
+    // The product's name comes from the catalogue, not from the sale: a receipt
+    // records what was sold and for how much, and a garment's name is not part
+    // of that record. A product since deleted simply has no name to show.
+    let lines: Vec<Value> = sqlx::query(
+        "SELECT l.sku_code, l.quantity, l.unit_price_minor, l.line_total_minor,
+                l.price_source, l.publication_version, a.name article_name, a.article_code
+           FROM edge_sale_line l
+           LEFT JOIN sku s ON s.sku_code = l.sku_code
+           LEFT JOIN article a ON a.id = s.article_id
+          WHERE l.sale_id = $1
+          ORDER BY l.sku_code",
+    )
+    .bind(sale_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        let unit: i64 = row.get("unit_price_minor");
+        let quantity: i64 = row.get("quantity");
+        let charged: Option<i64> = row.get("line_total_minor");
+        json!({
+            "sku_code": row.get::<String, _>("sku_code"),
+            "article_code": row.get::<Option<String>, _>("article_code"),
+            "article_name": row.get::<Option<String>, _>("article_name"),
+            "quantity": quantity,
+            "unit_price_minor": unit,
+            // What the line was actually charged. Not always unit times
+            // quantity: a promotion acts on the line, and an apportioned flat
+            // discount does not divide evenly. Null on sales recorded before
+            // the column existed, which is not the same as zero.
+            "line_total_minor": charged,
+            "price_source": row.get::<Option<String>, _>("price_source"),
+            "publication_version": row.get::<Option<i64>, _>("publication_version"),
+        })
+    })
+    .collect();
+
+    let promotions: Vec<Value> = sqlx::query(
+        "SELECT p.rule_id, p.campaign_id, p.coupon_code, p.benefit_minor,
+                (SELECT r.name FROM commercial_rule r
+                   JOIN commercial_publication pub ON pub.id = r.publication_id
+                  WHERE r.rule_id = p.rule_id AND pub.status = 'PUBLISHED'
+                  ORDER BY pub.version DESC LIMIT 1) AS name
+           FROM edge_sale_promotion p
+          WHERE p.sale_id = $1
+          ORDER BY p.benefit_minor DESC, p.rule_id",
+    )
+    .bind(sale_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "rule_id": row.get::<String, _>("rule_id"),
+            "campaign_id": row.get::<Option<String>, _>("campaign_id"),
+            "coupon_code": row.get::<Option<String>, _>("coupon_code"),
+            "name": row.get::<Option<String>, _>("name"),
+            "benefit_minor": row.get::<i64, _>("benefit_minor"),
+        })
+    })
+    .collect();
+
+    Ok(json!({
+        "sale_id": sale.get::<Uuid, _>("sale_id"),
+        "site_id": sale.get::<String, _>("site_id"),
+        "actor_id": sale.get::<String, _>("actor_id"),
+        // The shop's clock and the centre's. The gap between them is how long
+        // the takings took to arrive.
+        "occurred_at": sale.get::<DateTime<Utc>, _>("occurred_at"),
+        "received_at": sale.get::<DateTime<Utc>, _>("received_at"),
+        "currency": sale.get::<String, _>("currency").trim(),
+        "total_minor": sale.get::<i64, _>("total_minor"),
+        "paid_minor": sale.get::<i64, _>("paid_minor"),
+        "change_minor": sale.get::<i64, _>("change_minor"),
+        "discount_total_minor": sale.get::<i64, _>("discount_total_minor"),
+        "points_earned": sale.get::<i64, _>("points_earned"),
+        // The fingerprint of the pricing decision. What makes a disputed
+        // receipt reproducible rather than arguable.
+        "pricing_trace_id": sale.get::<Option<String>, _>("pricing_trace_id"),
+        "customer_id": sale.get::<Option<String>, _>("customer_id"),
+        "lines": lines,
+        "promotions": promotions,
+    }))
+}

@@ -36,7 +36,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     str::FromStr,
 };
 use uuid::Uuid;
@@ -465,31 +465,54 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
 
     let mut facts: Vec<&SyncFact> = batch.facts.iter().collect();
     facts.sort_by_key(|f| f.seq);
+    let event_ids: Vec<Uuid> = facts.iter().map(|fact| fact.event_id).collect();
+    let sequences: Vec<i64> = facts.iter().map(|fact| fact.seq).collect();
+    let held_rows = sqlx::query(
+        "SELECT origin_id,generation,seq,event_id,status,reason FROM sync_ingest_fact
+         WHERE event_id = ANY($1)
+         UNION ALL
+         SELECT origin_id,generation,seq,event_id,status,reason FROM sync_ingest_fact
+         WHERE origin_id=$2 AND generation=$3 AND seq = ANY($4)",
+    )
+    .bind(&event_ids)
+    .bind(&batch.origin_id)
+    .bind(batch.generation)
+    .bind(&sequences)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut held_by_event: HashMap<Uuid, (String, Option<String>)> = HashMap::new();
+    let mut held_by_sequence: HashMap<i64, (String, Option<String>)> = HashMap::new();
+    for row in held_rows {
+        let status: String = row.get("status");
+        let reason: Option<String> = row.get("reason");
+        held_by_event.insert(row.get("event_id"), (status.clone(), reason.clone()));
+        if row.get::<String, _>("origin_id") == batch.origin_id
+            && row.get::<i64, _>("generation") == batch.generation
+        {
+            held_by_sequence.insert(row.get("seq"), (status, reason));
+        }
+    }
     let mut rejected = Vec::new();
+    let mut pending_rows = Vec::new();
     for fact in facts {
         if fact.seq <= durable {
             // A sender can lose the response after the Cloud committed a
             // permanent rejection. Repeat its tombstone on the retry so the
             // sender still records a dead letter before advancing locally.
-            let prior = sqlx::query(
-                "SELECT reason FROM sync_ingest_fact
-                 WHERE status = 'REJECTED'
-                   AND ((origin_id = $1 AND generation = $2 AND seq = $3)
-                        OR event_id = $4)
-                 ORDER BY (origin_id = $1 AND generation = $2 AND seq = $3) DESC
-                 LIMIT 1",
-            )
-            .bind(&batch.origin_id)
-            .bind(batch.generation)
-            .bind(fact.seq)
-            .bind(fact.event_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-            if let Some(row) = prior {
+            let prior = held_by_sequence
+                .get(&fact.seq)
+                .filter(|(status, _)| status == "REJECTED")
+                .or_else(|| {
+                    held_by_event
+                        .get(&fact.event_id)
+                        .filter(|(status, _)| status == "REJECTED")
+                });
+            if let Some((_status, reason)) = prior {
                 include_rejection(
                     &mut rejected,
                     fact.seq,
-                    row.get::<Option<String>, _>("reason")
+                    reason
+                        .clone()
                         .unwrap_or_else(|| "permanently rejected".into()),
                 );
             }
@@ -498,17 +521,13 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
         if fact.seq > durable + 1 {
             break;
         }
-        let already_held =
-            sqlx::query("SELECT status, reason FROM sync_ingest_fact WHERE event_id = $1")
-                .bind(fact.event_id)
-                .fetch_optional(&mut *tx)
-                .await?;
-        if let Some(row) = already_held {
-            if row.get::<String, _>("status") == "REJECTED" {
+        if let Some((status, reason)) = held_by_event.get(&fact.event_id) {
+            if status == "REJECTED" {
                 include_rejection(
                     &mut rejected,
                     fact.seq,
-                    row.get::<Option<String>, _>("reason")
+                    reason
+                        .clone()
                         .unwrap_or_else(|| "permanently rejected".into()),
                 );
             }
@@ -657,26 +676,32 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
             Some(reason) => ("REJECTED", Some(reason)),
             None => ("ACCEPTED", None),
         };
-        sqlx::query(
-            "INSERT INTO sync_ingest_fact
-                 (origin_id, generation, seq, event_id, event_type, payload, status, reason)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (origin_id, generation, seq) DO NOTHING",
-        )
-        .bind(&batch.origin_id)
-        .bind(batch.generation)
-        .bind(fact.seq)
-        .bind(fact.event_id)
-        .bind(&fact.event_type)
-        .bind(&fact.payload)
-        .bind(status)
-        .bind(&reason)
-        .execute(&mut *tx)
-        .await?;
+        pending_rows.push(json!({
+            "seq":fact.seq,"event_id":fact.event_id,"event_type":fact.event_type,
+            "payload":fact.payload,"status":status,"reason":reason
+        }));
+        let held = (status.to_owned(), reason.clone());
+        held_by_event.insert(fact.event_id, held.clone());
+        held_by_sequence.insert(fact.seq, held);
         if let Some(reason) = reason {
             include_rejection(&mut rejected, fact.seq, reason);
         }
         durable = fact.seq;
+    }
+    if !pending_rows.is_empty() {
+        sqlx::query(
+            "INSERT INTO sync_ingest_fact
+                 (origin_id,generation,seq,event_id,event_type,payload,status,reason)
+             SELECT $1,$2,row.seq,row.event_id,row.event_type,row.payload,row.status,row.reason
+             FROM jsonb_to_recordset($3::jsonb) AS row(
+                 seq bigint,event_id uuid,event_type text,payload jsonb,status text,reason text)
+             ON CONFLICT (origin_id,generation,seq) DO NOTHING",
+        )
+        .bind(&batch.origin_id)
+        .bind(batch.generation)
+        .bind(Value::Array(pending_rows))
+        .execute(&mut *tx)
+        .await?;
     }
     rejected.sort_by_key(|fact| fact.seq);
     sqlx::query(
@@ -2104,43 +2129,39 @@ async fn apply_rfid_observation_batch(
         None => return Err(AppError::Validation("RFID device is not registered".into())),
     }
 
-    let mut inserted = false;
-    for sighting in &batch.sightings {
-        let subject_id = sqlx::query("SELECT id FROM inventory_subject WHERE epc=$1")
-            .bind(&sighting.epc)
-            .fetch_optional(&mut **tx)
-            .await?
-            .map(|row| row.get::<Uuid, _>("id"));
-        let result = sqlx::query(
-            "INSERT INTO observation_sighting
+    let inserted_count: i64 = sqlx::query_scalar(
+        "WITH payload AS (
+             SELECT * FROM jsonb_to_recordset($1::jsonb) AS sighting(
+                 observation_id uuid, epc text, read_count bigint,
+                 best_rssi real, antenna text)
+         ), inserted AS (
+             INSERT INTO observation_sighting
                  (observation_id,subject_id,epc,site_id,pool_id,first_seen_at,
                   last_seen_at,received_at,device_id,reader_session_id,method,
                   read_count,best_rssi,antenna,operator_id,edge_origin_id,
                   edge_batch_id,device_sequence)
-             VALUES($1,$2,$3,$4,$5,$6,$6,$7,$8,$9,'RFID_HANDHELD',$10,$11,$12,
-                    $13,$14,$15,$16)
-             ON CONFLICT(observation_id) DO NOTHING",
-        )
-        .bind(sighting.observation_id)
-        .bind(subject_id)
-        .bind(&sighting.epc)
-        .bind(&batch.site_id)
-        .bind(&batch.pool_id)
-        .bind(batch.observed_at)
-        .bind(batch.received_at)
-        .bind(&batch.device_id)
-        .bind(&batch.reader_session_id)
-        .bind(sighting.read_count)
-        .bind(sighting.best_rssi)
-        .bind(&sighting.antenna)
-        .bind(&batch.operator_id)
-        .bind(origin_id)
-        .bind(batch.batch_id)
-        .bind(batch.device_sequence)
-        .execute(&mut **tx)
-        .await?;
-        inserted |= result.rows_affected() == 1;
-    }
+             SELECT sighting.observation_id,subject.id,sighting.epc,$2,$3,$4,$4,$5,
+                    $6,$7,'RFID_HANDHELD',sighting.read_count,sighting.best_rssi,
+                    sighting.antenna,$8,$9,$10,$11
+             FROM payload sighting
+             LEFT JOIN inventory_subject subject ON subject.epc=sighting.epc
+             ON CONFLICT(observation_id) DO NOTHING
+             RETURNING 1
+         ) SELECT COUNT(*)::bigint FROM inserted",
+    )
+    .bind(json!(&batch.sightings))
+    .bind(&batch.site_id)
+    .bind(&batch.pool_id)
+    .bind(batch.observed_at)
+    .bind(batch.received_at)
+    .bind(&batch.device_id)
+    .bind(&batch.reader_session_id)
+    .bind(&batch.operator_id)
+    .bind(origin_id)
+    .bind(batch.batch_id)
+    .bind(batch.device_sequence)
+    .fetch_one(&mut **tx)
+    .await?;
     sqlx::query(
         "UPDATE rfid_device
          SET last_seen_at=GREATEST(COALESCE(last_seen_at,$2),$2)
@@ -2150,7 +2171,7 @@ async fn apply_rfid_observation_batch(
     .bind(batch.received_at)
     .execute(&mut **tx)
     .await?;
-    Ok(inserted)
+    Ok(inserted_count > 0)
 }
 
 /// Persist one immutable owner claim without touching either inventory ledger.
@@ -5223,6 +5244,36 @@ async fn apply_sale(
     // place a running total is written, and it is written from a fact that has
     // already been accepted.
     for promotion in &sale.promotions {
+        // The detail, kept beside the count. Both are written from this one
+        // accepted fact and behind the same idempotency guard, so the totals on
+        // the usage screen and the promotions on a receipt cannot drift apart —
+        // which they would the moment they were derived from two reads.
+        sqlx::query(
+            "INSERT INTO edge_sale_promotion
+                 (sale_id, rule_id, campaign_id, coupon_code, benefit_minor)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (sale_id, rule_id) DO NOTHING",
+        )
+        .bind(sale.sale_id)
+        .bind(promotion.rule_id.trim())
+        .bind(
+            promotion
+                .campaign_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty()),
+        )
+        .bind(
+            promotion
+                .coupon_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|code| !code.is_empty()),
+        )
+        .bind(promotion.benefit_minor)
+        .execute(&mut **tx)
+        .await?;
+
         let mut keys: Vec<(&str, &str)> = vec![("RULE", promotion.rule_id.trim())];
         if let Some(campaign_id) = promotion.campaign_id.as_deref() {
             if !campaign_id.trim().is_empty() {

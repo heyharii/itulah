@@ -1463,3 +1463,59 @@ async fn every_kind_of_promotion_reaches_the_shop_intact() {
         );
     }
 }
+
+/// A receipt says which promotion took the money off, not just that one did.
+///
+/// The shop has always sent this — which rules applied, the campaign each sat
+/// in, the code that unlocked it, and what each was worth. The centre added it
+/// to the running totals and dropped the list, so all that survived on the sale
+/// was one `discount_total_minor`: a discount happened, and nothing about which.
+///
+/// That is the question asked at a counter with a customer waiting, and it had
+/// no answer while the answer was arriving every time and being thrown away.
+#[tokio::test]
+async fn a_sale_keeps_the_promotions_that_came_off_it() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    let mut offer = percent_off("R-KEM", 2_000);
+    offer["coupon_code"] = json!("HEMAT20");
+    shop.deliver_commercial(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![],
+        vec![offer],
+        vec![json!({
+            "code": "HEMAT20",
+            "rule_id": "R-KEM",
+            "active": true,
+        })],
+    )
+    .await;
+
+    shop.stock_one("EPC-KEM-1", "KEM001");
+    shop.sell("EPC-KEM-1", 160_000, &["HEMAT20"]);
+    let fact = sale_fact(&shop);
+    let parsed = inventory_backend::cloud::domain::parse_sales_completed(&fact)
+        .unwrap_or_else(|e| panic!("the sale fact: {e}"));
+
+    assert_eq!(
+        parsed.promotions.len(),
+        1,
+        "the shop reports the promotion that applied: {fact}"
+    );
+    let promotion = &parsed.promotions[0];
+    assert_eq!(promotion.rule_id, "R-KEM");
+    assert_eq!(
+        promotion.coupon_code.as_deref(),
+        Some("HEMAT20"),
+        "and the code that unlocked it, so a receipt can say why"
+    );
+    assert_eq!(
+        promotion.benefit_minor, 40_000,
+        "and what it was worth on its own, not folded into a total"
+    );
+    assert_eq!(
+        parsed.discount_total_minor, 40_000,
+        "the total and the detail come from one fact, so they cannot disagree"
+    );
+}

@@ -211,6 +211,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/sales/{id}/complete", post(complete_sale))
         .route("/api/v1/sales/{id}/void", post(void_sale))
         .route("/api/v1/sales/{id}/receipt", get(sale_receipt))
+        // A sale that happened at a shop, not one made here. Separate paths
+        // because they are separate records: `sale` is the centre's own, and
+        // `edge_sale` is where essentially every real sale lives.
+        .route("/api/v1/shop-sales/{id}", get(shop_sale_detail))
         .route("/api/v1/sales/{id}/returns", post(create_sale_return))
         .route("/api/v1/returns", get(sale_returns))
         .route("/api/v1/returns/{id}", get(sale_return_detail))
@@ -991,6 +995,13 @@ async fn commercial_offers(
         )
         .await?,
     ))
+}
+
+async fn shop_sale_detail(
+    State(s): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::get_shop_sale(&s.db, id).await?))
 }
 
 async fn sales(
