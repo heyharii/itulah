@@ -1,54 +1,72 @@
 import { AppShell, ScreenHeader } from "@/components/app-shell"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/custom/table"
 import { Nav } from "@/components/nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import type { AllotmentType, CreateAllotmentLine } from "@/lib/allotments"
+import type { AvailabilityItem, CreateAllotmentLine } from "@/lib/allotments"
 import {
-  ALLOTMENT_TYPES,
   availability,
   createAllotment,
-  fixedDestinationFor,
-  humanise,
   sourcePoolsFor,
+  spread,
 } from "@/lib/allotments"
 import { useIdentity } from "@/lib/identity"
 import { units } from "@/lib/money"
 import { listPools, sitesOf } from "@/lib/pools"
 import { cn } from "@/lib/utils"
+import { useVocabulary } from "@/lib/vocabulary"
 import { ApiError } from "@itulah/contract/client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Search, X } from "lucide-react"
-import { useMemo, useRef, useState } from "react"
+import { ChevronRight, Search, X } from "lucide-react"
+import { Fragment, useMemo, useRef, useState } from "react"
 
-/// Promise goods that have not moved yet.
+/// How wide the three columns that never scroll are. Named here because the
+/// sticky offsets are the running total of the ones to their left, and a
+/// number typed twice is a column that drifts out from under its header.
+const ARTICLE_WIDTH = 260
+const STOCK_WIDTH = 68
+const TOTAL_WIDTH = 68
+
+/// One article, with its SKUs and what the pool holds of them.
+interface ArticleRow {
+  readonly id: string
+  readonly name: string
+  readonly image: string | null
+  readonly division: string | null
+  readonly tags: readonly string[]
+  readonly skus: readonly AvailabilityItem[]
+  readonly on_hand: number
+  readonly stock: number
+}
+
+/// The DC warehouse is where goods bound for a store come out of. It is not a
+/// choice on this screen: every other DC pool is either goods already spoken
+/// for or goods not yet identified, and a store allotment out of one of those
+/// is refused by the server anyway.
+const WAREHOUSE_POOL_CODE = "WAREHOUSE"
+
+/// Promise goods to the shops.
 ///
-/// The three kinds are not a dropdown of flavours: each one has its own legal
-/// source pool and its own destination, and the server refuses every other
-/// combination outright. So the kind is chosen first and everything below it
-/// narrows — a person cannot compose an Allotment that is certain to be
-/// refused, and when the screen and the server disagree anyway, the server's
-/// own words are what gets shown.
+/// The screen is a grid: an article per row, a store per column, and a piece
+/// count in every cell. That shape is the job — an allocator decides how many
+/// of THIS shirt each of thirteen shops gets, in one pass, comparing them —
+/// and a form that asked for one destination at a time made that comparison
+/// impossible. An empty cell is not an allotment; only what is typed is
+/// promised.
+///
+/// The article column stays put while the stores scroll, because losing which
+/// row you are on halfway across the shops is how the wrong shop gets the
+/// goods.
 export function AllotmentDraft() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const identity = useIdentity()
+  const vocabulary = useVocabulary()
 
-  const [type, setType] = useState<AllotmentType>("TO_STORE")
-  const [sourcePoolId, setSourcePoolId] = useState("")
-  const [destinationId, setDestinationId] = useState("")
+  /// Keyed `skuId|storeId`. Per SKU rather than per article because that is
+  /// what a line names; the article cells above are sums of these.
   const [quantities, setQuantities] = useState<Record<string, number>>({})
-  const [notes, setNotes] = useState("")
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState("")
 
   // One key per attempt at THIS allotment, held across retries and rotated only
@@ -62,60 +80,152 @@ export function AllotmentDraft() {
     staleTime: 5 * 60_000,
   })
 
-  const sources = useMemo(
-    () => sourcePoolsFor(type, pools.data ?? []),
-    [type, pools.data],
-  )
+  const source = useMemo(() => {
+    const sources = sourcePoolsFor("TO_STORE", pools.data ?? [])
+    return (
+      sources.find((pool) => pool.pool_code === WAREHOUSE_POOL_CODE) ?? null
+    )
+  }, [pools.data])
   const stores = useMemo(() => sitesOf(pools.data ?? [], "STORE"), [pools.data])
-  const fixed = fixedDestinationFor(type)
-  const source = sources.find((pool) => pool.id === sourcePoolId)
 
   const stock = useQuery({
-    queryKey: ["inventory", "availability", sourcePoolId],
-    queryFn: ({ signal }) => availability(sourcePoolId, signal),
-    enabled: sourcePoolId !== "",
+    queryKey: ["inventory", "availability", source?.id ?? ""],
+    queryFn: ({ signal }) => availability(source?.id ?? "", signal),
+    enabled: source !== null,
   })
 
-  const items = stock.data?.items ?? []
+  const articles = useMemo<ArticleRow[]>(() => {
+    const byArticle = new Map<string, AvailabilityItem[]>()
+    for (const item of stock.data?.items ?? []) {
+      const skus = byArticle.get(item.article_id)
+      if (skus === undefined) {
+        byArticle.set(item.article_id, [item])
+      } else {
+        skus.push(item)
+      }
+    }
+    return [...byArticle.values()]
+      .map((skus) => ({
+        id: skus[0].article_id,
+        name: skus[0].article_name,
+        image: skus[0].image_url,
+        division: skus[0].division_code,
+        tags: skus[0].tags,
+        skus,
+        on_hand: skus.reduce((sum, sku) => sum + sku.on_hand_qty, 0),
+        stock: skus.reduce((sum, sku) => sum + sku.stock_qty, 0),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+  }, [stock.data])
+
   const needle = search.trim().toLowerCase()
-  const shown = items.filter(
-    (item) =>
-      needle === "" ||
-      item.sku_code.toLowerCase().includes(needle) ||
-      item.article_code.toLowerCase().includes(needle) ||
-      item.article_name.toLowerCase().includes(needle),
+  const shown = articles.filter((article) => {
+    if (needle === "") return true
+    const division =
+      article.division === null ? "" : vocabulary.division(article.division)
+    const tags = article.tags.map((tag) => vocabulary.tag(tag)).join(" ")
+    return `${article.name} ${division} ${tags}`.toLowerCase().includes(needle)
+  })
+
+  const quantityOf = (skuId: string, storeId: string) =>
+    quantities[`${skuId}|${storeId}`] ?? 0
+  const articleQuantity = (article: ArticleRow, storeId: string) =>
+    article.skus.reduce((sum, sku) => sum + quantityOf(sku.sku_id, storeId), 0)
+
+  const write = (changes: Record<string, number>) => {
+    setQuantities((current) => {
+      const next = { ...current }
+      for (const [key, quantity] of Object.entries(changes)) {
+        if (quantity <= 0) {
+          delete next[key]
+        } else {
+          next[key] = quantity
+        }
+      }
+      return next
+    })
+  }
+
+  const setSkuQuantity = (skuId: string, storeId: string, quantity: number) =>
+    write({ [`${skuId}|${storeId}`]: quantity })
+
+  /// Typing against the article splits the number across its SKUs by what the
+  /// pool has of each. Whatever was set by hand on the expanded rows for this
+  /// store is replaced — one cell, one answer.
+  const setArticleQuantity = (
+    article: ArticleRow,
+    storeId: string,
+    quantity: number
+  ) => {
+    const given = spread(
+      quantity,
+      article.skus.map((sku) => sku.on_hand_qty)
+    )
+    write(
+      Object.fromEntries(
+        article.skus.map((sku, index) => [
+          `${sku.sku_id}|${storeId}`,
+          given[index],
+        ])
+      )
+    )
+  }
+
+  const toggle = (articleId: string) =>
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(articleId)) {
+        next.delete(articleId)
+      } else {
+        next.add(articleId)
+      }
+      return next
+    })
+
+  const filled = Object.entries(quantities).filter(
+    ([, quantity]) => quantity > 0
   )
+  const pieces = filled.reduce((sum, [, quantity]) => sum + quantity, 0)
+  const destinations = new Set(filled.map(([key]) => key.split("|")[1]))
 
-  const chosen = items.filter((item) => (quantities[item.sku_id] ?? 0) > 0)
-  const pieces = chosen.reduce((sum, item) => sum + (quantities[item.sku_id] ?? 0), 0)
-  // Promising more than a pool holds is allowed — the server records it and
-  // reports the pool as short — but it is never accidental, so it is said out
-  // loud before the allotment is raised rather than found on a list afterwards.
-  const overreach = chosen.filter((item) => (quantities[item.sku_id] ?? 0) > item.on_hand_qty)
-
-  const destination = fixed?.destination_id ?? destinationId
-  const problems: string[] = []
-  if (sourcePoolId === "") problems.push("Choose the pool the goods come out of.")
-  if (destination === "") problems.push("Choose where the goods are going.")
-  if (chosen.length === 0) problems.push("An allotment needs at least one line.")
+  // The count shown here is the centre's projection; the number the server
+  // checks against is the warehouse's own, reported by the DC node. They can
+  // disagree, so this is a warning and not a block — but a row promising more
+  // than the centre thinks exists is the one the DC is most likely to refuse,
+  // and that is worth reading before the allotment is raised.
+  const overreach = articles.filter((article) => {
+    const promised = article.skus.reduce(
+      (sum, sku) =>
+        sum +
+        stores.reduce(
+          (row, store) => row + quantityOf(sku.sku_id, store.site_id),
+          0
+        ),
+      0
+    )
+    return promised > article.on_hand
+  })
 
   const create = useMutation({
     mutationFn: () => {
-      if (source === undefined) {
-        throw new Error("no source pool")
+      if (source === null) {
+        throw new Error("no DC warehouse pool")
       }
-      const lines: CreateAllotmentLine[] = chosen.map((item) => ({
-        source_site_id: source.site_id,
-        source_pool_id: source.id,
-        destination_type: fixed?.destination_type ?? "STORE",
-        destination_id: destination,
-        sku_id: item.sku_id,
-        quantity: quantities[item.sku_id] ?? 0,
-      }))
+      const lines: CreateAllotmentLine[] = filled.map(([key, quantity]) => {
+        const [skuId, storeId] = key.split("|")
+        return {
+          source_site_id: source.site_id,
+          source_pool_id: source.id,
+          destination_type: "STORE" as const,
+          destination_id: storeId,
+          sku_id: skuId,
+          quantity,
+        }
+      })
       return createAllotment({
-        type,
+        type: "TO_STORE",
         lines,
-        notes: notes.trim() === "" ? null : notes.trim(),
+        notes: null,
         actor_id: identity.data?.username ?? "",
         idempotency_key: idempotencyKey.current,
       })
@@ -132,268 +242,367 @@ export function AllotmentDraft() {
     },
   })
 
-  const setQuantity = (skuId: string, quantity: number) => {
-    const next = { ...quantities }
-    if (quantity <= 0) {
-      delete next[skuId]
-    } else {
-      next[skuId] = quantity
-    }
-    setQuantities(next)
+  const problems: string[] = []
+  if (source === null && pools.isSuccess) {
+    problems.push("The DC has no warehouse pool to promise goods out of.")
+  }
+  if (filled.length === 0)
+    problems.push("Type a quantity against a store to allot it.")
+
+  const stickyLeft = {
+    article: 0,
+    stock: ARTICLE_WIDTH,
+    total: ARTICLE_WIDTH + STOCK_WIDTH,
   }
 
   return (
     <AppShell nav={<Nav />}>
       <ScreenHeader
         title="New allotment"
-        subtitle={source === undefined ? undefined : source.label}
+        subtitle={
+          source === null
+            ? "DC warehouse"
+            : `${source.site_name} · ${source.label}`
+        }
       >
-        <span className="text-muted-foreground font-mono text-[11px]">
-          {units(chosen.length)} line{chosen.length === 1 ? "" : "s"} · {units(pieces)} pieces
+        <span className="font-mono text-[11px] text-muted-foreground">
+          {units(pieces)} pieces · {destinations.size} store
+          {destinations.size === 1 ? "" : "s"}
         </span>
-        <Button variant="ghost" size="sm" onClick={() => void navigate({ to: "/allotments" })}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void navigate({ to: "/allotments" })}
+        >
           <X className="size-3.5" />
           Discard
         </Button>
       </ScreenHeader>
 
       {pools.isError && (
-        <div className="text-destructive border-b px-3.5 py-2 text-[11.5px]">
+        <div className="border-b px-3.5 py-2 text-[11.5px] text-destructive">
           {pools.error instanceof ApiError
             ? pools.error.message
             : "The pools could not be loaded."}
         </div>
       )}
       {create.isError && (
-        <div className="text-destructive border-b px-3.5 py-2 text-[11.5px]">
+        <div className="border-b px-3.5 py-2 text-[11.5px] text-destructive">
           {create.error instanceof ApiError
             ? create.error.message
             : "The allotment could not be raised."}
         </div>
       )}
 
+      <div className="flex h-11 shrink-0 items-center gap-3 border-b px-3.5">
+        <span className="text-xs font-semibold">
+          {shown.length} article{shown.length === 1 ? "" : "s"} across{" "}
+          {stores.length} store
+          {stores.length === 1 ? "" : "s"}
+        </span>
+        {stock.data !== undefined && (
+          <span className="hidden font-mono text-[11px] text-muted-foreground lg:inline">
+            {/* The server states this equation in the same response it sends the
+                numbers with; repeating it is why On Hand is the column shown. */}
+            On hand {units(stock.data.on_hand_qty)} of{" "}
+            {units(stock.data.stock_qty)}
+          </span>
+        )}
+        <label className="relative ml-auto">
+          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Article, division or tag…"
+            aria-label="Search the catalogue"
+            className="h-7 w-56 pl-7 text-xs"
+          />
+        </label>
+      </div>
+
       <div className="min-h-0 flex-1 overflow-auto">
-        <div className="grid gap-3 border-b p-3.5 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-1.5 sm:col-span-2">
-            <Label className="text-xs">Kind</Label>
-            <div className="flex flex-wrap gap-1.5">
-              {ALLOTMENT_TYPES.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => {
-                    // Every choice below depends on the kind, and none of them
-                    // survives it changing: a source pool legal for one kind is
-                    // refused for another.
-                    setType(option)
-                    setSourcePoolId("")
-                    setDestinationId("")
-                    setQuantities({})
-                  }}
-                  className={cn(
-                    "h-8 rounded-full border px-3 text-[11.5px] transition-colors",
-                    type === option
-                      ? "bg-foreground text-background border-transparent font-medium"
-                      : "text-muted-foreground hover:bg-muted/60",
-                  )}
-                >
-                  {humanise(option)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="allotment-source" className="text-xs">
-              Out of
-            </Label>
-            <select
-              id="allotment-source"
-              value={sourcePoolId}
-              onChange={(event) => {
-                setSourcePoolId(event.target.value)
-                setQuantities({})
-              }}
-              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-            >
-              <option value="">Choose a pool…</option>
-              {sources.map((pool) => (
-                <option key={pool.id} value={pool.id}>
-                  {pool.site_name} · {pool.label}
-                </option>
-              ))}
-            </select>
-            {pools.isSuccess && sources.length === 0 && (
-              <p className="text-[10.5px] text-amber-600">
-                No pool this kind of allotment may draw from exists yet.
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="allotment-destination" className="text-xs">
-              To
-            </Label>
-            {fixed === null ? (
-              <select
-                id="allotment-destination"
-                value={destinationId}
-                onChange={(event) => setDestinationId(event.target.value)}
-                className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-              >
-                <option value="">Choose a store…</option>
-                {stores.map((site) => (
-                  <option key={site.site_id} value={site.site_id}>
-                    {site.site_name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <>
-                <div className="border-input bg-muted/40 text-muted-foreground flex h-8 items-center rounded-md border px-2 font-mono text-xs">
-                  {fixed.destination_id}
-                </div>
-                {/* Not a disabled dropdown pretending to be a choice: this kind
-                    of allotment has exactly one legal destination. */}
-                <p className="text-muted-foreground text-[10.5px]">
-                  The only destination this kind allows.
-                </p>
-              </>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5 lg:col-span-2">
-            <Label htmlFor="allotment-notes" className="text-xs">
-              Notes
-            </Label>
-            <Textarea
-              id="allotment-notes"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              rows={2}
-              className="min-h-8 text-xs"
-            />
-          </div>
-
-          {stock.data !== undefined && (
-            <div className="text-muted-foreground flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] lg:col-span-2">
-              {/* The server states this equation in the same response it sends
-                  the numbers with; repeating it here is why On Hand is the
-                  column that matters. */}
-              <span className="italic">{stock.data.inventory_equation}</span>
-              <span className="font-mono">Stock {units(stock.data.stock_qty)}</span>
-              <span className="font-mono">Allotted {units(stock.data.allotted_qty)}</span>
-              <span className="font-mono">On hand {units(stock.data.on_hand_qty)}</span>
-            </div>
-          )}
-        </div>
-
-        {sourcePoolId === "" ? (
-          <p className="text-muted-foreground px-3.5 py-6 text-center text-xs">
-            Choose a source pool to see what it can promise.
+        {source === null && pools.isSuccess ? (
+          <p className="px-3.5 py-6 text-center text-xs text-muted-foreground">
+            No DC warehouse pool exists to promise goods out of.
           </p>
         ) : stock.isPending ? (
-          <p className="text-muted-foreground px-3.5 py-6 text-center text-xs">
-            Reading what is in the pool…
+          <p className="px-3.5 py-6 text-center text-xs text-muted-foreground">
+            Reading what the warehouse holds…
           </p>
         ) : stock.isError ? (
-          <p className="text-destructive px-3.5 py-6 text-center text-xs">
+          <p className="px-3.5 py-6 text-center text-xs text-destructive">
             {stock.error instanceof ApiError
               ? stock.error.message
-              : "The pool's stock could not be read."}
+              : "The warehouse's stock could not be read."}
           </p>
         ) : (
-          <>
-            <div className="flex h-11 items-center gap-3 border-b px-3.5">
-              <span className="text-xs font-semibold">What is in {source?.label}</span>
-              <label className="relative ml-auto">
-                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="SKU, code or name…"
-                  aria-label="Search the pool"
-                  className="h-7 w-52 pl-7 text-xs"
-                />
-              </label>
-            </div>
-            <Table>
-              <TableHeader className="bg-muted/50">
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Article</TableHead>
-                  <TableHead className="text-right">Stock</TableHead>
-                  <TableHead className="text-right">Allotted</TableHead>
-                  <TableHead className="text-right">On hand</TableHead>
-                  <TableHead className="text-right">Allot</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {shown.slice(0, 300).map((item) => {
-                  const quantity = quantities[item.sku_id] ?? 0
-                  const over = quantity > item.on_hand_qty
-                  return (
-                    <TableRow key={item.sku_id} className={cn(quantity > 0 && "bg-muted/30")}>
-                      <TableCell className="font-mono text-[11px]">{item.sku_code}</TableCell>
-                      <TableCell>
-                        <div className="min-w-0">
-                          <div className="truncate text-[13px]">{item.article_name}</div>
-                          <div className="text-muted-foreground truncate font-mono text-[10.5px]">
-                            {item.article_code}
+          <table className="border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th
+                  style={{
+                    left: stickyLeft.article,
+                    width: ARTICLE_WIDTH,
+                    minWidth: ARTICLE_WIDTH,
+                  }}
+                  className="sticky top-0 z-30 border-r border-b bg-muted px-2 py-1.5 text-left text-[11px] font-medium"
+                >
+                  Article
+                </th>
+                <th
+                  style={{
+                    left: stickyLeft.stock,
+                    width: STOCK_WIDTH,
+                    minWidth: STOCK_WIDTH,
+                  }}
+                  className="sticky top-0 z-30 border-r border-b bg-muted px-2 py-1.5 text-right text-[11px] font-medium"
+                >
+                  On hand
+                </th>
+                <th
+                  style={{
+                    left: stickyLeft.total,
+                    width: TOTAL_WIDTH,
+                    minWidth: TOTAL_WIDTH,
+                  }}
+                  className="sticky top-0 z-30 border-r border-b bg-muted px-2 py-1.5 text-right text-[11px] font-medium"
+                >
+                  Allot
+                </th>
+                {stores.map((store) => (
+                  <th
+                    key={store.site_id}
+                    className="sticky top-0 z-20 min-w-[86px] border-r border-b bg-muted px-2 py-1.5 text-center text-[11px] font-medium"
+                  >
+                    {store.site_name}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((article) => {
+                const open = expanded.has(article.id)
+                const promised = stores.reduce(
+                  (sum, store) => sum + articleQuantity(article, store.site_id),
+                  0
+                )
+                return (
+                  <Fragment key={article.id}>
+                    <tr>
+                      <td
+                        style={{
+                          left: stickyLeft.article,
+                          width: ARTICLE_WIDTH,
+                          minWidth: ARTICLE_WIDTH,
+                        }}
+                        className="sticky z-10 border-r border-b bg-background p-1.5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggle(article.id)}
+                            aria-label={`${open ? "Hide" : "Show"} the colours and sizes of ${article.name}`}
+                            aria-expanded={open}
+                            className="shrink-0 text-muted-foreground hover:text-foreground"
+                          >
+                            <ChevronRight
+                              className={cn(
+                                "size-3.5 transition-transform",
+                                open && "rotate-90"
+                              )}
+                            />
+                          </button>
+                          <Photo name={article.name} src={article.image} />
+                          <div className="min-w-0">
+                            <div className="truncate text-[12.5px] leading-tight">
+                              {article.name}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1 text-[10px] leading-tight text-muted-foreground">
+                              {article.division !== null && (
+                                <span>
+                                  {vocabulary.division(article.division)}
+                                </span>
+                              )}
+                              {article.tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="rounded bg-muted px-1 py-px"
+                                >
+                                  {vocabulary.tag(tag)}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-right font-mono text-xs tabular-nums">
-                        {units(item.stock_qty)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-right font-mono text-xs tabular-nums">
-                        {units(item.allotted_qty)}
-                      </TableCell>
-                      <TableCell
+                      </td>
+                      <td
+                        style={{
+                          left: stickyLeft.stock,
+                          width: STOCK_WIDTH,
+                          minWidth: STOCK_WIDTH,
+                        }}
                         className={cn(
-                          "text-right font-mono text-xs tabular-nums",
-                          item.on_hand_qty <= 0 && "text-amber-600",
+                          "sticky z-10 border-r border-b bg-background px-2 text-right font-mono text-[11px] tabular-nums",
+                          article.on_hand <= 0 && "text-amber-600"
                         )}
                       >
-                        {units(item.on_hand_qty)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={quantity === 0 ? "" : String(quantity)}
-                          onChange={(event) =>
-                            setQuantity(item.sku_id, Math.floor(Number(event.target.value) || 0))
+                        {units(article.on_hand)}
+                      </td>
+                      <td
+                        style={{
+                          left: stickyLeft.total,
+                          width: TOTAL_WIDTH,
+                          minWidth: TOTAL_WIDTH,
+                        }}
+                        className={cn(
+                          "sticky z-10 border-r border-b bg-background px-2 text-right font-mono text-[11px] tabular-nums",
+                          promised > 0
+                            ? "font-medium"
+                            : "text-muted-foreground",
+                          promised > article.on_hand && "text-amber-600"
+                        )}
+                      >
+                        {promised === 0 ? "" : units(promised)}
+                      </td>
+                      {stores.map((store) => (
+                        <Cell
+                          key={store.site_id}
+                          value={articleQuantity(article, store.site_id)}
+                          label={`Pieces of ${article.name} for ${store.site_name}`}
+                          onChange={(quantity) =>
+                            setArticleQuantity(article, store.site_id, quantity)
                           }
-                          aria-label={`Quantity to allot of ${item.sku_code}`}
-                          className={cn(
-                            "ml-auto h-7 w-24 text-right font-mono text-xs",
-                            over && "border-amber-500",
-                          )}
                         />
-                      </TableCell>
-                    </TableRow>
+                      ))}
+                    </tr>
+                    {open &&
+                      article.skus.map((sku) => {
+                        const line = stores.reduce(
+                          (sum, store) =>
+                            sum + quantityOf(sku.sku_id, store.site_id),
+                          0
+                        )
+                        return (
+                          <tr key={sku.sku_id}>
+                            <td
+                              style={{
+                                left: stickyLeft.article,
+                                width: ARTICLE_WIDTH,
+                                minWidth: ARTICLE_WIDTH,
+                              }}
+                              className="sticky z-10 border-r border-b bg-background py-1 pr-2 pl-11 text-[11px] text-muted-foreground"
+                            >
+                              {[sku.colour, sku.size]
+                                .filter((part) => part !== null)
+                                .join(" · ")}
+                            </td>
+                            <td
+                              style={{
+                                left: stickyLeft.stock,
+                                width: STOCK_WIDTH,
+                                minWidth: STOCK_WIDTH,
+                              }}
+                              className={cn(
+                                "sticky z-10 border-r border-b bg-background px-2 text-right font-mono text-[11px] text-muted-foreground tabular-nums",
+                                sku.on_hand_qty <= 0 && "text-amber-600"
+                              )}
+                            >
+                              {units(sku.on_hand_qty)}
+                            </td>
+                            <td
+                              style={{
+                                left: stickyLeft.total,
+                                width: TOTAL_WIDTH,
+                                minWidth: TOTAL_WIDTH,
+                              }}
+                              className="sticky z-10 border-r border-b bg-background px-2 text-right font-mono text-[11px] text-muted-foreground tabular-nums"
+                            >
+                              {line === 0 ? "" : units(line)}
+                            </td>
+                            {stores.map((store) => (
+                              <Cell
+                                key={store.site_id}
+                                muted
+                                value={quantityOf(sku.sku_id, store.site_id)}
+                                label={`Pieces of ${sku.sku_code} for ${store.site_name}`}
+                                onChange={(quantity) =>
+                                  setSkuQuantity(
+                                    sku.sku_id,
+                                    store.site_id,
+                                    quantity
+                                  )
+                                }
+                              />
+                            ))}
+                          </tr>
+                        )
+                      })}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td
+                  style={{
+                    left: stickyLeft.article,
+                    width: ARTICLE_WIDTH,
+                    minWidth: ARTICLE_WIDTH,
+                  }}
+                  className="sticky bottom-0 z-30 border-r border-b bg-muted px-2 py-1.5 text-[11px] font-medium"
+                >
+                  Promised
+                </td>
+                <td
+                  style={{
+                    left: stickyLeft.stock,
+                    width: STOCK_WIDTH,
+                    minWidth: STOCK_WIDTH,
+                  }}
+                  className="sticky bottom-0 z-30 border-r border-b bg-muted"
+                />
+                <td
+                  style={{
+                    left: stickyLeft.total,
+                    width: TOTAL_WIDTH,
+                    minWidth: TOTAL_WIDTH,
+                  }}
+                  className="sticky bottom-0 z-30 border-r border-b bg-muted px-2 text-right font-mono text-[11px] font-medium tabular-nums"
+                >
+                  {pieces === 0 ? "" : units(pieces)}
+                </td>
+                {stores.map((store) => {
+                  const column = articles.reduce(
+                    (sum, article) =>
+                      sum + articleQuantity(article, store.site_id),
+                    0
+                  )
+                  return (
+                    <td
+                      key={store.site_id}
+                      className="sticky bottom-0 z-20 border-r border-b bg-muted px-2 text-center font-mono text-[11px] tabular-nums"
+                    >
+                      {column === 0 ? "" : units(column)}
+                    </td>
                   )
                 })}
-              </TableBody>
-            </Table>
-            {shown.length > 300 && (
-              <p className="text-muted-foreground px-3.5 py-3 text-center text-[11px]">
-                {units(shown.length - 300)} more SKUs — narrow the search to reach them.
-              </p>
-            )}
-          </>
+              </tr>
+            </tfoot>
+          </table>
         )}
       </div>
 
       <div className="flex shrink-0 items-center gap-3 border-t px-3.5 py-2.5">
         {problems.length > 0 ? (
-          <span className="text-muted-foreground truncate text-[11.5px]">{problems[0]}</span>
+          <span className="truncate text-[11.5px] text-muted-foreground">
+            {problems[0]}
+          </span>
         ) : (
           overreach.length > 0 && (
             <span className="truncate text-[11.5px] text-amber-600">
-              {overreach.length} line{overreach.length === 1 ? "" : "s"} promise more than the
-              pool holds. The allotment will stand, and the pool will read short.
+              {overreach.length} article{overreach.length === 1 ? "" : "s"}{" "}
+              promise more than the warehouse is thought to hold. The DC's own
+              count decides, and may refuse them.
             </span>
           )
         )}
@@ -408,5 +617,67 @@ export function AllotmentDraft() {
         </div>
       </div>
     </AppShell>
+  )
+}
+
+/// One cell of the grid.
+///
+/// Empty is zero and zero is empty: a screen of thirteen columns full of `0`
+/// reads as thirteen decisions, and only the shops with a number against them
+/// are being sent anything.
+function Cell({
+  value,
+  label,
+  muted = false,
+  onChange,
+}: {
+  value: number
+  label: string
+  muted?: boolean
+  onChange: (quantity: number) => void
+}) {
+  return (
+    <td className={cn("border-r border-b p-0", value > 0 && "bg-muted/40")}>
+      <input
+        type="number"
+        min={0}
+        inputMode="numeric"
+        value={value === 0 ? "" : String(value)}
+        onChange={(event) =>
+          onChange(Math.max(0, Math.floor(Number(event.target.value) || 0)))
+        }
+        aria-label={label}
+        className={cn(
+          // The stepper arrows are removed rather than styled: they are a
+          // control for nudging one number, and this screen is a grid of
+          // hundreds where the only sensible input is typing the figure.
+          "h-8 w-full min-w-[86px] appearance-none bg-transparent text-center font-mono text-xs tabular-nums outline-none focus:bg-background focus:ring-1 focus:ring-ring focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+          value > 0 ? "font-medium" : "text-muted-foreground",
+          muted && "text-[11px]"
+        )}
+      />
+    </td>
+  )
+}
+
+/// The article's photograph, or a legible admission that it has none.
+function Photo({ name, src }: { name: string; src: string | null }) {
+  if (src === null) {
+    return (
+      <span
+        aria-label={`${name} has no photo`}
+        className="grid size-8 shrink-0 place-items-center rounded bg-muted text-[7px] text-muted-foreground"
+      >
+        no photo
+      </span>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={name}
+      loading="lazy"
+      className="size-8 shrink-0 rounded bg-muted object-cover"
+    />
   )
 }

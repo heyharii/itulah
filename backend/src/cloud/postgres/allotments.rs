@@ -1320,8 +1320,19 @@ WITH ledger_delta AS (
     WHERE event.sku_id IS NOT NULL AND event.occurred_at <= $1
       AND COALESCE(event.source_pool_id,line.source_pool_id)=$2
     GROUP BY event.sku_id
+-- What the article IS, carried alongside what there is of it. The screen that
+-- promises goods to stores reads by article, not by SKU code, so the division,
+-- the tags and the photograph have to arrive with the balances rather than in
+-- a second read per row.
+), article_tags AS (
+    SELECT article_id,array_agg(tag_code ORDER BY tag_code) codes
+    FROM article_tag GROUP BY article_id
 )
-SELECT sku.id sku_id,sku.sku_code,article.article_code,article.name article_name,
+SELECT sku.id sku_id,sku.sku_code,article.id article_id,
+       article.article_code,article.name article_name,
+       article.division_code,article.image_url,
+       COALESCE(tags.codes,ARRAY[]::text[]) tags,
+       sku.color colour,sku.size size,
        (COALESCE(ledger.normal_quantity,0)+COALESCE(ledger.missing_quantity,0))::bigint stock_quantity,
        COALESCE(allotted.allotted_quantity,0)::bigint allotted_quantity,
        (COALESCE(ledger.normal_quantity,0)-COALESCE(allotted.allotted_quantity,0))::bigint on_hand_quantity,
@@ -1329,7 +1340,8 @@ SELECT sku.id sku_id,sku.sku_code,article.article_code,article.name article_name
 FROM sku JOIN article ON article.id=sku.article_id
 LEFT JOIN ledger_balance ledger ON ledger.sku_id=sku.id
 LEFT JOIN allotted_balance allotted ON allotted.sku_id=sku.id
-WHERE sku.active ORDER BY sku.sku_code
+LEFT JOIN article_tags tags ON tags.article_id=article.id
+WHERE sku.active ORDER BY article.article_code,sku.sku_code
 "#)
         .bind(at)
         .bind(&source_pool_id)
@@ -1341,8 +1353,14 @@ WHERE sku.active ORDER BY sku.sku_code
             json!({
                 "sku_id":row.get::<Uuid,_>("sku_id"),
                 "sku_code":row.get::<String,_>("sku_code"),
+                "article_id":row.get::<Uuid,_>("article_id"),
                 "article_code":row.get::<String,_>("article_code"),
                 "article_name":row.get::<String,_>("article_name"),
+                "division_code":row.get::<Option<String>,_>("division_code"),
+                "image_url":row.get::<Option<String>,_>("image_url"),
+                "tags":row.get::<Vec<String>,_>("tags"),
+                "colour":row.get::<Option<String>,_>("colour"),
+                "size":row.get::<Option<String>,_>("size"),
                 "stock_qty":row.get::<i64,_>("stock_quantity"),
                 "allotted_qty":row.get::<i64,_>("allotted_quantity"),
                 "on_hand_qty":row.get::<i64,_>("on_hand_quantity"),

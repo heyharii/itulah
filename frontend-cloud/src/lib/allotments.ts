@@ -308,8 +308,17 @@ export interface AllotmentDetail {
 export interface AvailabilityItem {
   readonly sku_id: string
   readonly sku_code: string
+  readonly article_id: string
   readonly article_code: string
   readonly article_name: string
+  /// What the article IS, carried here rather than fetched per row: the
+  /// allotment screen groups by article and shows it the way the catalogue
+  /// does — a photograph, a division and its tags.
+  readonly division_code: string | null
+  readonly image_url: string | null
+  readonly tags: readonly string[]
+  readonly colour: string | null
+  readonly size: string | null
   readonly stock_qty: number
   readonly allotted_qty: number
   readonly on_hand_qty: number
@@ -600,4 +609,43 @@ export function lineStage(line: AllotmentLine, stage: StageKey): number {
     case "received":
       return line.received_quantity
   }
+}
+
+/// Split a per-article promise across that article's SKUs.
+///
+/// The allotment screen is read and filled in by article — a photograph, a
+/// division, a row of stores — but an allotment line names a SKU, because a
+/// SKU is what the warehouse picks and what the ledger moves. Something has to
+/// decide which sizes make up "forty of this shirt to Store 03", and doing it
+/// here rather than on the server keeps that decision visible: the numbers it
+/// produces are shown on the expanded rows and can be overridden one by one.
+///
+/// Weight is what each SKU actually has on hand, so the split follows the
+/// stock rather than dividing evenly into sizes the warehouse cannot supply.
+/// When nothing is on hand the split is even — the promise still stands, and
+/// the pool reads short, which is the honest outcome rather than a refusal.
+export function spread(total: number, weights: readonly number[]): number[] {
+  const count = weights.length
+  if (count === 0 || total <= 0) {
+    return new Array<number>(count).fill(0)
+  }
+  const positive = weights.map((weight) => (weight > 0 ? weight : 0))
+  const sum = positive.reduce((running, weight) => running + weight, 0)
+  const shares =
+    sum > 0
+      ? positive.map((weight) => (weight / sum) * total)
+      : positive.map(() => total / count)
+  const given = shares.map(Math.floor)
+  // Largest remainder: the pieces integer division dropped go to the SKUs that
+  // came closest to earning them, so the parts always add back up to the whole.
+  let left = total - given.reduce((running, piece) => running + piece, 0)
+  const order = shares
+    .map((share, index) => ({ index, remainder: share - Math.floor(share) }))
+    .sort((first, second) => second.remainder - first.remainder)
+  for (const { index } of order) {
+    if (left <= 0) break
+    given[index] += 1
+    left -= 1
+  }
+  return given
 }
