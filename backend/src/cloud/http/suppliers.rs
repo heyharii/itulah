@@ -41,6 +41,15 @@ const fn default_sourcing_limit() -> i64 {
     120
 }
 
+/// The words the catalogue may be described with, so a screen can show
+/// "Kaus Kaki" where the database says `KAUS_KAKI` — and still filter by the
+/// code, which is the thing that does not change when somebody edits a label.
+pub async fn catalogue_vocabulary(
+    State(state): State<AppState>,
+) -> Result<Json<infrastructure::CatalogueVocabulary>, AppError> {
+    Ok(Json(infrastructure::catalogue_vocabulary(&state.db).await?))
+}
+
 /// Everything on offer, across every supplier.
 pub async fn search_supplier_items(
     State(state): State<AppState>,

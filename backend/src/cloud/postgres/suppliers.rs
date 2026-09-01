@@ -1360,3 +1360,56 @@ async fn replace_supplier_item_tags(
     applied.sort();
     Ok(applied)
 }
+
+/// One word the catalogue is allowed to use, and what it reads as.
+///
+/// `code` is what the database stores and what filters address; `label` is
+/// what a person sees. Sending only the code — which is what the sourcing
+/// screen had — puts `KAUS_KAKI` in front of a buyer and makes the catalogue
+/// look like a database table. Sending only the label would be worse: two
+/// labels can be edited to read alike, and a filter cannot address a word.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct VocabularyTerm {
+    pub code: String,
+    pub label: String,
+}
+
+/// The words a catalogue may be described with.
+///
+/// One request rather than two, because a screen that filters by both needs
+/// both before it can draw either, and because they are read together often
+/// enough that splitting them only buys a second round trip.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CatalogueVocabulary {
+    /// In `display_order`, which is the order the business thinks in — not
+    /// alphabetical, which would put Accessories before Menswear.
+    pub divisions: Vec<VocabularyTerm>,
+    pub tags: Vec<VocabularyTerm>,
+}
+
+/// Read the vocabulary. Inactive terms are left out: a filter offering a word
+/// nothing can be classified as is a dead end a buyer has to discover by
+/// clicking it.
+pub async fn catalogue_vocabulary(pool: &PgPool) -> Result<CatalogueVocabulary, AppError> {
+    let divisions = sqlx::query_as::<_, (String, String)>(
+        "SELECT code, label FROM division WHERE active ORDER BY display_order, label",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(code, label)| VocabularyTerm { code, label })
+    .collect();
+
+    let tags = sqlx::query_as::<_, (String, String)>(
+        "SELECT code, label FROM tag WHERE active ORDER BY label",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(code, label)| VocabularyTerm { code, label })
+    .collect();
+
+    Ok(CatalogueVocabulary { divisions, tags })
+}

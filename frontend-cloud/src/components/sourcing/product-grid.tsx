@@ -2,8 +2,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { money } from "@/lib/money"
 import { cn } from "@/lib/utils"
 import { Plus } from "lucide-react"
-import { StatusDot, Tag, Thumb } from "./columns"
-import type { SourcingRow } from "./rows"
+import type { Vocabulary } from "@/lib/vocabulary"
+import { Tag, Thumb } from "./columns"
+import { UNCLASSIFIED, type SourcingRow } from "./rows"
 
 /// The same rows as the table, looked at rather than compared.
 ///
@@ -18,9 +19,11 @@ export function ProductGrid({
   onSelect,
   onAdd,
   onOpen,
+  vocabulary,
 }: {
   rows: readonly SourcingRow[]
   held: Map<string, number>
+  vocabulary: Vocabulary
   isSelected: (id: string) => boolean
   onSelect: (id: string, selected: boolean) => void
   onAdd: (id: string) => void
@@ -98,23 +101,35 @@ export function ProductGrid({
               >
                 {row.name}
               </button>
-              <div className="text-muted-foreground truncate font-mono text-[10.5px]">
-                {row.code}
-              </div>
               <div className="text-muted-foreground truncate text-[11.5px]">{row.supplier}</div>
+
               <div className="mt-auto flex items-center justify-between gap-2 pt-1.5">
                 <span className="font-mono text-xs font-medium tabular-nums">
                   {money(row.price, row.currency)}
                 </span>
-                <StatusDot status={row.status} />
+                {/* Only the exception is worth a word. Nearly everything in the
+                    catalogue is orderable, so labelling that state put the same
+                    badge on every card and left the buyer nothing to notice. */}
+                {onHold && (
+                  <span className="shrink-0 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-700 dark:text-amber-500">
+                    On hold
+                  </span>
+                )}
               </div>
-              {row.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 pt-0.5">
-                  {row.tags.slice(0, 3).map((tag) => (
-                    <Tag key={tag}>{tag}</Tag>
-                  ))}
-                </div>
-              )}
+
+              {/* What it is, in the vocabulary rather than in codes. Division
+                  first and set apart: it is the coarse cut a buyer navigates
+                  by, and the tags qualify it rather than compete with it. */}
+              <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                {row.division !== UNCLASSIFIED && (
+                  <span className="bg-foreground/85 text-background inline-flex h-5 shrink-0 items-center rounded-md px-1.5 text-[11px] font-medium whitespace-nowrap">
+                    {vocabulary.division(row.division)}
+                  </span>
+                )}
+                {row.tags.slice(0, 2).map((tag) => (
+                  <Tag key={tag}>{vocabulary.tag(tag)}</Tag>
+                ))}
+              </div>
             </div>
           </article>
         )

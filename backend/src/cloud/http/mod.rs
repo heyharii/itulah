@@ -150,6 +150,10 @@ pub fn router(state: AppState) -> Router {
             get(suppliers::search_supplier_items),
         )
         .route(
+            "/api/v1/catalogue/vocabulary",
+            get(suppliers::catalogue_vocabulary),
+        )
+        .route(
             "/api/v1/supplier-items/{id}",
             get(suppliers::supplier_item_detail).patch(suppliers::update_supplier_item),
         )

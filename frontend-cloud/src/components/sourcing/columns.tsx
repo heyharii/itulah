@@ -8,6 +8,7 @@ import { createSchema, field } from "@/lib/store/schema"
 import type { DataTableFeatures } from "@/lib/table/features"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Plus } from "lucide-react"
+import type { Vocabulary } from "@/lib/vocabulary"
 import type { SourcingRow } from "./rows"
 
 /// The filter state, named once.
@@ -273,12 +274,29 @@ export function sourcingColumns({
 /// empty screen.
 export function sourcingFilterFields(
   rows: readonly SourcingRow[],
+  vocabulary: Vocabulary,
 ): DataTableFilterField<SourcingRow>[] {
-  const unique = (values: readonly string[]) =>
-    [...new Set(values)].sort((a, b) => a.localeCompare(b)).map((value) => ({
-      label: value,
-      value,
-    }))
+  /// Facets are labelled but still addressed by code: what a filter matches
+  /// must not change when somebody renames a division.
+  const unique = (values: readonly string[], label: (value: string) => string = (v) => v) =>
+    [...new Set(values)]
+      .map((value) => ({ label: label(value), value }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+
+  /// Divisions read in the order the business thinks in — Menswear before
+  /// Accessories — rather than alphabetically, which is nobody's mental model
+  /// of a range. Anything the vocabulary does not know (Unclassified) settles
+  /// at the end.
+  const byDivisionOrder = (values: readonly string[]) => {
+    const rank = new Map(vocabulary.divisionOrder.map((code, index) => [code, index]))
+    return [...new Set(values)]
+      .map((value) => ({ label: vocabulary.division(value), value }))
+      .sort(
+        (a, b) =>
+          (rank.get(a.value) ?? Number.MAX_SAFE_INTEGER) -
+            (rank.get(b.value) ?? Number.MAX_SAFE_INTEGER) || a.label.localeCompare(b.label),
+      )
+  }
 
   const prices = rows.map((row) => row.price)
   return [
@@ -300,13 +318,13 @@ export function sourcingFilterFields(
       value: "division",
       type: "checkbox",
       defaultOpen: true,
-      options: unique(rows.map((row) => row.division)),
+      options: byDivisionOrder(rows.map((row) => row.division)),
     },
     {
       label: "Tags",
       value: "tags",
       type: "checkbox",
-      options: unique(rows.flatMap((row) => row.tags)),
+      options: unique(rows.flatMap((row) => row.tags), vocabulary.tag),
     },
     {
       label: "Status",

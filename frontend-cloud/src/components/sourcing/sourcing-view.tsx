@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/components/custom/table"
 import { DataTableFilterControls } from "@/components/data-table/data-table-filter-controls"
+import { useVocabulary } from "@/lib/vocabulary"
 import { DataTableFloatingBar } from "@/components/data-table/data-table-floating-bar"
 import { DataTableProvider } from "@/components/data-table/data-table-provider"
 import { DataTableResetButton } from "@/components/data-table/data-table-reset-button"
@@ -76,7 +77,11 @@ export function SourcingView() {
     () => (items.data ?? []).map(toSourcingRow),
     [items.data],
   )
-  const filterFields = useMemo(() => sourcingFilterFields(rows), [rows])
+  const vocabulary = useVocabulary()
+  const filterFields = useMemo(
+    () => sourcingFilterFields(rows, vocabulary),
+    [rows, vocabulary],
+  )
 
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [sorting, setSorting] = useState<SortingState>([])
@@ -234,6 +239,7 @@ export function SourcingView() {
                 held={held}
                 isSelected={(id) => rowSelection[id] === true}
                 onSelect={select}
+                vocabulary={vocabulary}
                 onAdd={addOne}
                 onOpen={setOpenItemId}
               />
