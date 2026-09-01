@@ -83,6 +83,31 @@ pub async fn load_site_pricing(
     channel: &str,
     at: DateTime<Utc>,
 ) -> Result<SitePricing, AppError> {
+    let mut pricing = load_site_price_book(tx, site_id, channel, at).await?;
+    pricing.snapshot.rules = load_rules(tx).await?;
+    pricing.snapshot.coupons = load_coupons(tx).await?;
+    pricing.snapshot.campaigns = load_campaigns(tx).await?;
+    Ok(pricing)
+}
+
+/// What a product costs here, without the promotions.
+///
+/// The half of [`load_site_pricing`] that answers "what is this priced at" —
+/// price list entries and the markdowns that replace them. Promotions are
+/// statements about a *basket*, so a caller resolving a shelf price never reads
+/// one, and one that loaded them anyway would pay for three queries it throws
+/// away.
+///
+/// That is invisible against one shop and is the whole cost of the screen
+/// against thirty: pricing every style at every shop ran this per shop, so the
+/// promotion tables were being read once per branch to be discarded once per
+/// branch.
+pub async fn load_site_price_book(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+    channel: &str,
+    at: DateTime<Utc>,
+) -> Result<SitePricing, AppError> {
     let rows = sqlx::query(
         "SELECT p.version, p.effective_from, p.effective_to,
                 pr.sku_id, s.sku_code, pr.site_id, pr.site_ids, pr.tier, pr.channel,
@@ -156,9 +181,25 @@ pub async fn load_site_pricing(
     })
     .collect();
 
-    // Promotions are stored as the engine's own documents. One this build
-    // cannot read is skipped rather than fatal, exactly as at a shop: an
-    // unreadable offer must cost a discount, never the ability to sell.
+    let _ = at; // The window is applied by the engine, from the context.
+    Ok(SitePricing {
+        snapshot: PricingSnapshot {
+            publication_version,
+            entries,
+            markdowns,
+            rules: Vec::new(),
+            coupons: Vec::new(),
+            campaigns: Vec::new(),
+        },
+        sku_code_by_id,
+        sku_id_by_code,
+    })
+}
+
+/// Promotions are stored as the engine's own documents. One this build cannot
+/// read is skipped rather than fatal, exactly as at a shop: an unreadable offer
+/// must cost a discount, never the ability to sell.
+async fn load_rules(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Rule>, AppError> {
     let mut rules = Vec::new();
     for row in sqlx::query(
         "SELECT r.definition FROM commercial_rule r
@@ -178,7 +219,12 @@ pub async fn load_site_pricing(
         }
     }
 
-    let coupons = sqlx::query(
+    Ok(rules)
+}
+
+/// The codes that unlock those promotions.
+async fn load_coupons(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Coupon>, AppError> {
+    Ok(sqlx::query(
         "SELECT c.code, c.rule_id, c.active, c.customer_id, c.valid_from, c.valid_to,
                 c.max_uses, c.used
            FROM commercial_coupon c
@@ -198,9 +244,12 @@ pub async fn load_site_pricing(
         max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
         used: i64::from(row.get::<i32, _>("used")),
     })
-    .collect();
+    .collect())
+}
 
-    let campaigns = sqlx::query(
+/// The envelopes those promotions sit in.
+async fn load_campaigns(tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Campaign>, AppError> {
+    Ok(sqlx::query(
         "SELECT c.campaign_id, c.name, c.status, c.valid_from, c.valid_to,
                 c.budget_minor, c.spent_minor, c.max_uses, c.used, c.max_uses_per_customer
            FROM commercial_campaign c
@@ -226,21 +275,7 @@ pub async fn load_site_pricing(
                 .map(i64::from),
         },
     })
-    .collect();
-
-    let _ = at; // The window is applied by the engine, from the context.
-    Ok(SitePricing {
-        snapshot: PricingSnapshot {
-            publication_version,
-            entries,
-            markdowns,
-            rules,
-            coupons,
-            campaigns,
-        },
-        sku_code_by_id,
-        sku_id_by_code,
-    })
+    .collect())
 }
 
 /// What a product *is*, as the rules that price a whole range need to know it.

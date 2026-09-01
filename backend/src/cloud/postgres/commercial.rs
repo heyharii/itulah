@@ -1609,8 +1609,12 @@ pub async fn article_prices(
         }));
 
         let mut tx = pool.begin().await?;
+        // The price book only. A stack is base prices and markdowns; a
+        // promotion is a statement about a basket and is never consulted here,
+        // so reading the promotion tables once per shop would be paying for
+        // three queries per branch to throw all three away.
         let pricing =
-            super::pricing::load_site_pricing(&mut tx, &site_id, channel.as_str(), at).await?;
+            super::pricing::load_site_price_book(&mut tx, &site_id, channel.as_str(), at).await?;
         tx.commit().await?;
         let context = PricingContext::new(&site_id, channel.as_str(), at);
 
