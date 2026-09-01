@@ -12,6 +12,7 @@ export type { AddToBasketRequest } from "./contract/AddToBasketRequest";
 export type { AdvanceKoliRequest } from "./contract/AdvanceKoliRequest";
 export type { AssessAssetRequest } from "./contract/AssessAssetRequest";
 export type { AssetRow } from "./contract/AssetRow";
+export type { Assignment } from "./contract/Assignment";
 export type { AssignmentView } from "./contract/AssignmentView";
 export type { BalanceMatrix } from "./contract/BalanceMatrix";
 export type { BalanceRow } from "./contract/BalanceRow";

@@ -436,6 +436,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("ConfirmMatchRequest: {e}"));
     inventory_backend::cloud::domain::Suggestion::export_all(&config)
         .unwrap_or_else(|e| panic!("Suggestion: {e}"));
+    inventory_backend::cloud::domain::Assignment::export_all(&config)
+        .unwrap_or_else(|e| panic!("Assignment: {e}"));
     // Employment. `export_all` pulls the nested views in with each root, so the
     // list below is the set of things a screen actually fetches rather than
     // every struct in the module.

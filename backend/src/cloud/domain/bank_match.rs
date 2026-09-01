@@ -14,6 +14,11 @@
 //! * **Every refusal and every match is explained.** A 0–100 score alone tells
 //!   nobody which field agreed.
 //!
+//! And one it did not have, which this now does: a GLOBAL assignment. Scoring
+//! each line on its own is not enough, because two lines can each pick the same
+//! ledger row as their unique best. The database refuses the second, but by then
+//! the screen has already offered it — see [`resolve`].
+//!
 //! One thing is deliberately different. The reference implementation scored a
 //! statement line against *other statement lines*, because its ledger authority
 //! had not landed. Ours scores against `journal_line` rows on the same bank
@@ -141,6 +146,59 @@ pub fn suggest(line: &BankLine, candidates: &[Candidate], rules: &Ruleset) -> Ve
         }
     }
     scored
+}
+
+/// One bank line paired with the ledger row the plan gives it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct Assignment {
+    pub line_id: String,
+    pub journal_line_id: String,
+    pub score: i32,
+    pub reasons: Vec<String>,
+}
+
+/// Plan the whole statement at once, so no ledger row is promised twice.
+///
+/// # Why scoring each line on its own is not enough
+///
+/// We paid two suppliers five million each on the same Friday. The bank reports
+/// two debits of five million. Line one quotes an entry number and wins its
+/// candidate outright; line two happens to sit on the same day as that SAME
+/// candidate and a day away from the other, so it also has a unique top — the
+/// one already spoken for.
+///
+/// Scored independently, both lines are offered an "Accept" button pointing at
+/// one ledger row. The first click saves; the second fails on
+/// `UNIQUE (journal_line_id)`. The data stays right and the screen has lied:
+/// somebody was shown a confident suggestion that could never have worked.
+///
+/// So the plan is made across every line together. Lines are walked in id order
+/// — not the order the database happened to return them — and a candidate that
+/// has been taken is passed over. A line whose only auto-match is already spoken
+/// for gets no assignment, which is the honest answer: a person has to look.
+pub fn resolve(lines: &[BankLine], candidates: &[Candidate], rules: &Ruleset) -> Vec<Assignment> {
+    let mut ordered: Vec<&BankLine> = lines.iter().collect();
+    ordered.sort_by(|a, b| a.line_id.cmp(&b.line_id));
+
+    let mut taken: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut plan = Vec::new();
+    for line in ordered {
+        for suggestion in suggest(line, candidates, rules) {
+            if !suggestion.auto_match || taken.contains(&suggestion.journal_line_id) {
+                continue;
+            }
+            taken.insert(suggestion.journal_line_id.clone());
+            plan.push(Assignment {
+                line_id: line.line_id.clone(),
+                journal_line_id: suggestion.journal_line_id,
+                score: suggestion.score,
+                reasons: suggestion.reasons,
+            });
+            break;
+        }
+    }
+    plan
 }
 
 fn score(line: &BankLine, candidate: &Candidate, rules: &Ruleset) -> Option<Suggestion> {
@@ -294,6 +352,84 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(ids(&one), ids(&two));
+    }
+
+    #[test]
+    fn one_ledger_row_is_never_promised_to_two_lines() {
+        // Two payments of five million on the same Friday, and a statement that
+        // reports both. Line "a" quotes the entry number of candidate x; line
+        // "b" quotes nothing but sits on x's day, so scored alone it would pick
+        // x too.
+        let lines = [
+            BankLine {
+                line_id: "a".into(),
+                day: 10,
+                amount_minor: 5_000_000,
+                outgoing: true,
+                reference: "JV-00000007".into(),
+                description: "TRSF DB JV-00000007".into(),
+            },
+            BankLine {
+                line_id: "b".into(),
+                day: 10,
+                amount_minor: 5_000_000,
+                outgoing: true,
+                reference: String::new(),
+                description: "TRSF DB".into(),
+            },
+        ];
+        let pool = [
+            candidate("x", 5_000_000, 10, "JV-00000007"),
+            candidate("y", 5_000_000, 14, "JV-00000008"),
+        ];
+
+        // Scored alone, "b" would take x: same day beats four days apart.
+        let alone = suggest(&lines[1], &pool, &Ruleset::default());
+        assert_eq!(alone.first().map(|s| s.journal_line_id.as_str()), Some("x"));
+
+        // Planned together, x goes to the line that quoted it and "b" is left
+        // for a person rather than being offered something already spoken for.
+        let plan = resolve(&lines, &pool, &Ruleset::default());
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].line_id, "a");
+        assert_eq!(plan[0].journal_line_id, "x");
+    }
+
+    #[test]
+    fn the_plan_does_not_depend_on_the_order_the_lines_arrived() {
+        let lines = [
+            BankLine {
+                line_id: "a".into(),
+                day: 10,
+                amount_minor: 1_000_000,
+                outgoing: true,
+                reference: "JV-1".into(),
+                description: "x".into(),
+            },
+            BankLine {
+                line_id: "b".into(),
+                day: 10,
+                amount_minor: 1_000_000,
+                outgoing: true,
+                reference: "JV-2".into(),
+                description: "x".into(),
+            },
+        ];
+        let pool = [
+            candidate("p", 1_000_000, 10, "JV-1"),
+            candidate("q", 1_000_000, 10, "JV-2"),
+        ];
+        let mut backwards = lines.to_vec();
+        backwards.reverse();
+        let key = |plan: Vec<Assignment>| {
+            plan.into_iter()
+                .map(|a| (a.line_id, a.journal_line_id))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            key(resolve(&lines, &pool, &Ruleset::default())),
+            key(resolve(&backwards, &pool, &Ruleset::default()))
+        );
     }
 
     #[test]

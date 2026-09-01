@@ -21,7 +21,7 @@
 //! rather than doubling every figure on the screen.
 
 use crate::cloud::application::AppError;
-use crate::cloud::domain::{suggest, BankLine, Candidate, Ruleset, Suggestion};
+use crate::cloud::domain::{resolve, suggest, BankLine, Candidate, Ruleset, Suggestion};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -301,20 +301,22 @@ pub async fn statement_lines(
 async fn candidates_for(
     pool: &PgPool,
     account_code: &str,
-    around: NaiveDate,
-    window_days: i64,
-) -> Result<Vec<(Candidate, Uuid)>, AppError> {
+    from: NaiveDate,
+    to: NaiveDate,
+    slack_days: i64,
+) -> Result<Vec<Candidate>, AppError> {
     let rows = sqlx::query(
         "SELECT l.line_id, e.posting_date, l.debit_minor, l.credit_minor,
                 e.entry_number, COALESCE(l.memo, e.memo, '') AS memo
            FROM journal_line l JOIN journal_entry e USING (entry_id)
           WHERE l.account_code = $1
-            AND e.posting_date BETWEEN ($2::date - $3::int) AND ($2::date + $3::int)
+            AND e.posting_date BETWEEN ($2::date - $4::int) AND ($3::date + $4::int)
             AND NOT EXISTS (SELECT 1 FROM bank_line_match m WHERE m.journal_line_id = l.line_id)",
     )
     .bind(account_code)
-    .bind(around)
-    .bind(window_days as i32)
+    .bind(from)
+    .bind(to)
+    .bind(slack_days as i32)
     .fetch_all(pool)
     .await?;
 
@@ -324,21 +326,18 @@ async fn candidates_for(
             let date: NaiveDate = row.try_get("posting_date")?;
             let debit: i64 = row.try_get("debit_minor")?;
             let credit: i64 = row.try_get("credit_minor")?;
-            Ok((
-                Candidate {
-                    journal_line_id: line_id.to_string(),
-                    day: i64::from(date.num_days_from_ce()),
-                    // A credit on our bank account is money leaving it, which
-                    // the bank reports as a debit on its own statement. The
-                    // matcher compares magnitudes and directions, so the
-                    // translation happens exactly here and nowhere else.
-                    amount_minor: debit.max(credit),
-                    outgoing: credit > 0,
-                    reference: row.try_get("entry_number")?,
-                    memo: row.try_get("memo")?,
-                },
-                line_id,
-            ))
+            Ok(Candidate {
+                journal_line_id: line_id.to_string(),
+                day: i64::from(date.num_days_from_ce()),
+                // A credit on our bank account is money leaving it, which the
+                // bank reports as a debit on its own statement. The matcher
+                // compares magnitudes and directions, so the translation
+                // happens exactly here and nowhere else.
+                amount_minor: debit.max(credit),
+                outgoing: credit > 0,
+                reference: row.try_get("entry_number")?,
+                memo: row.try_get("memo")?,
+            })
         })
         .collect()
 }
@@ -350,29 +349,48 @@ pub struct LineSuggestions {
     pub suggestions: Vec<Suggestion>,
 }
 
-/// Score every unmatched line of a statement against the ledger.
+/// Score every unmatched line of a statement against the ledger, as one plan.
+///
+/// The candidates are fetched once for the whole statement rather than per
+/// line, because the assignment has to be made across all of them together: two
+/// lines can each pick the same ledger row as their unique best, and only a plan
+/// that sees both can refuse the second. Per-line scoring would offer an
+/// "Accept" button that the database then rejects — correct data, and a screen
+/// that lied.
 pub async fn suggest_matches(
     pool: &PgPool,
     statement_id: Uuid,
 ) -> Result<Vec<LineSuggestions>, AppError> {
-    let account: String =
-        sqlx::query("SELECT account_code FROM bank_statement WHERE statement_id = $1")
-            .bind(statement_id)
-            .fetch_optional(pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound("statement".into()))?
-            .try_get("account_code")?;
+    let row = sqlx::query(
+        "SELECT account_code, period_start, period_end FROM bank_statement WHERE statement_id = $1",
+    )
+    .bind(statement_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("statement".into()))?;
+    let account: String = row.try_get("account_code")?;
+    let start: NaiveDate = row.try_get("period_start")?;
+    let end: NaiveDate = row.try_get("period_end")?;
 
     let rules = Ruleset::default();
     let lines = statement_lines(pool, statement_id).await?;
-    let mut out = Vec::new();
-    for line in lines {
-        if line.matched_journal_line_id.is_some() {
-            continue;
-        }
-        let candidates =
-            candidates_for(pool, &account, line.value_date, rules.date_window_days).await?;
-        let bank = BankLine {
+    let open: Vec<&BankStatementLineRow> = lines
+        .iter()
+        .filter(|line| line.matched_journal_line_id.is_none())
+        .collect();
+    if open.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // One window covering the whole statement plus the matcher's date slack, so
+    // every line is scored against the same candidate set. Scoring line by line
+    // against different sets would make the plan depend on which line was asked
+    // about first.
+    let candidates = candidates_for(pool, &account, start, end, rules.date_window_days).await?;
+
+    let bank: Vec<BankLine> = open
+        .iter()
+        .map(|line| BankLine {
             line_id: line.line_id.to_string(),
             day: i64::from(line.value_date.num_days_from_ce()),
             amount_minor: line.debit_minor.max(line.credit_minor),
@@ -380,14 +398,45 @@ pub async fn suggest_matches(
             outgoing: line.debit_minor > 0,
             reference: line.reference.clone().unwrap_or_default(),
             description: line.description.clone(),
-        };
-        let only: Vec<Candidate> = candidates.into_iter().map(|(c, _)| c).collect();
-        out.push(LineSuggestions {
-            line_id: line.line_id,
-            suggestions: suggest(&bank, &only, &rules),
-        });
-    }
-    Ok(out)
+        })
+        .collect();
+
+    let plan = resolve(&bank, &candidates, &rules);
+    // Which line the plan gave each ledger row to. A row promised to somebody
+    // else is not offered here at all — the alternative is a button that cannot
+    // work, and a person who has to discover that by clicking it.
+    let spoken_for: std::collections::HashMap<&str, &str> = plan
+        .iter()
+        .map(|a| (a.journal_line_id.as_str(), a.line_id.as_str()))
+        .collect();
+
+    Ok(bank
+        .iter()
+        .map(|line| LineSuggestions {
+            line_id: line.line_id.parse().unwrap_or_default(),
+            suggestions: suggest(line, &candidates, &rules)
+                .into_iter()
+                .filter_map(|mut suggestion| {
+                    match spoken_for.get(suggestion.journal_line_id.as_str()) {
+                        // Planned for a different line: not shown.
+                        Some(&owner) if owner != line.line_id => None,
+                        // Planned for this one: the plan decides, not the score.
+                        Some(_) => {
+                            suggestion.auto_match = true;
+                            Some(suggestion)
+                        }
+                        // Nobody's: offer it, but never as an automatic match —
+                        // if it were good enough for that the plan would have
+                        // taken it.
+                        None => {
+                            suggestion.auto_match = false;
+                            Some(suggestion)
+                        }
+                    }
+                })
+                .collect(),
+        })
+        .collect())
 }
 
 #[derive(Clone, Debug, Deserialize)]
