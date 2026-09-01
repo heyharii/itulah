@@ -2069,3 +2069,129 @@ async fn the_usage_list_reports_the_limit_the_newest_book_declares(pool: PgPool)
         "two shoppers have used it, counted once each"
     );
 }
+
+/// A cloud sale can still sell a product the newest book does not mention.
+///
+/// A price book is a list of changes: the newest book that names a product
+/// wins, and one that never names it changes nothing. The publish check says so
+/// in as many words, and the engine has always resolved that way.
+///
+/// The cloud sale path never learned it. It picks the single newest published
+/// book at the moment the sale opens, pins every line to that book, and refuses
+/// any line whose offer resolves to a different version. So repricing one shirt
+/// makes every other product in the shop unsellable through this path — they
+/// are still priced, by an older book that is still in force, and the sale
+/// refuses them anyway.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_cloud_sale_sells_what_an_older_book_still_prices(pool: PgPool) {
+    // Something on the floor, and something else to reprice.
+    let (epc, on_floor_sku): (String, Uuid) = sqlx::query_as(
+        "SELECT s.epc, s.sku_id FROM inventory_subject s
+           JOIN movement m ON m.to_place_id = 'store-07.floor:on_hand'
+          WHERE m.subject_id = s.id AND s.sku_id IS NOT NULL
+          LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("something on the floor at store-07: {e}"));
+
+    let other_sku: Uuid = sqlx::query_scalar(
+        "SELECT id FROM sku WHERE active AND id <> $1 ORDER BY sku_code LIMIT 1",
+    )
+    .bind(on_floor_sku)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("a different SKU: {e}"));
+
+    // One shirt is repriced. Nothing else is mentioned, which is the ordinary
+    // shape of a repricing and the whole reason a book is a list of changes.
+    let created = infrastructure::create_commercial_publication(
+        &pool,
+        CreateCommercialPublicationRequest {
+            version: 820,
+            name: "Naikkan satu harga".into(),
+            effective_from: Utc::now() - Duration::days(1),
+            effective_to: None,
+            tax_rules: vec![CommercialTaxRuleInput {
+                tax_category: "STANDARD".into(),
+                rate_bps: 0,
+                tax_inclusive: true,
+            }],
+            offer_rules: vec![CommercialOfferRuleInput {
+                sku_id: other_sku,
+                site_id: None,
+                site_ids: None,
+                tier: None,
+                channel: CommercialChannel::Store,
+                sellable: true,
+                currency: "IDR".into(),
+                unit_price_minor: 333_000,
+                tax_category: "STANDARD".into(),
+            }],
+            markdowns: Vec::new(),
+            rules: Vec::new(),
+            coupons: Vec::new(),
+            campaigns: Vec::new(),
+            actor_id: "merchandiser".into(),
+            idempotency_key: "one-price-draft".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("draft: {e}"));
+    let publication_id: Uuid = created["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no id: {created}"))
+        .parse()
+        .unwrap_or_else(|e| panic!("id: {e}"));
+    infrastructure::publish_commercial_publication(
+        &pool,
+        publication_id,
+        CommandRequest {
+            actor_id: "merchandiser".into(),
+            idempotency_key: "one-price-publish".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("publish: {e}"));
+
+    let sale = infrastructure::create_sale(
+        &pool,
+        CreateSaleRequest {
+            site_id: "store-07".into(),
+            channel: CommercialChannel::Store,
+            actor_id: "cashier".into(),
+            idempotency_key: "older-book-sale".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("open the sale: {e}"));
+    let sale_id: Uuid = sale["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no sale id"))
+        .parse()
+        .unwrap_or_else(|e| panic!("sale id: {e}"));
+
+    // The shirt on the floor was priced by the seed's book and never repriced.
+    // It is still priced, and the shop may still sell it.
+    let line = infrastructure::add_sale_line(
+        &pool,
+        sale_id,
+        AddSaleLineRequest {
+            epc,
+            quantity: 1,
+            actor_id: "cashier".into(),
+            idempotency_key: "older-book-line".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| {
+        panic!(
+            "a product the newest book does not mention is still priced by the book \
+             that last named it, and must still be sellable: {e}"
+        )
+    });
+    assert!(
+        line["unit_price_minor"].as_i64().unwrap_or_default() > 0,
+        "and it is charged what that book says: {line}"
+    );
+}

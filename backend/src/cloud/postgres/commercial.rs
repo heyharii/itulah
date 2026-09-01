@@ -3,7 +3,7 @@ use crate::cloud::{
     application::{
         AppError, CommandRequest, CreateCommercialPublicationRequest, ResolveOfferQuery,
     },
-    domain::{CommercialChannel, CurrencyCode, ResolvedOffer, SiteId},
+    domain::{CommercialChannel, CurrencyCode, SiteId},
 };
 use chrono::{DateTime, Utc};
 use pricing_engine::{price_catalog, CartLine, PricingContext};
@@ -860,59 +860,13 @@ pub async fn resolve_offer(pool: &PgPool, query: ResolveOfferQuery) -> Result<Va
     }))
 }
 
-pub(super) async fn resolve_offer_in_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    sku_id: Uuid,
-    site_id: &str,
-    channel: CommercialChannel,
-    at: DateTime<Utc>,
-    publication_id: Option<Uuid>,
-) -> Result<ResolvedOffer, AppError> {
-    SiteId::new(site_id).map_err(|e| AppError::Validation(e.to_string()))?;
-    let row = sqlx::query(r#"
-SELECT cp.id publication_id,cp.version,cp.effective_from,cp.effective_to,
-       ar.sellable,pr.currency::text currency,pr.unit_price_minor,pr.tax_category,tr.rate_bps,tr.tax_inclusive
-FROM commercial_publication cp
-JOIN LATERAL (
-    SELECT sellable FROM commercial_assortment_rule
-    WHERE publication_id=cp.id AND sku_id=$1 AND channel=$3 AND (site_id=$2 OR site_id IS NULL)
-    ORDER BY (site_id IS NOT NULL) DESC LIMIT 1
-) ar ON TRUE
-JOIN LATERAL (
-    SELECT currency,unit_price_minor,tax_category FROM commercial_price_rule
-    WHERE publication_id=cp.id AND sku_id=$1 AND channel=$3 AND (site_id=$2 OR site_id IS NULL)
-    ORDER BY (site_id IS NOT NULL) DESC LIMIT 1
-) pr ON TRUE
-JOIN commercial_tax_rule tr ON tr.publication_id=cp.id AND tr.tax_category=pr.tax_category
-WHERE cp.status='PUBLISHED' AND cp.effective_from <= $4 AND (cp.effective_to IS NULL OR cp.effective_to > $4)
-  AND ($5::uuid IS NULL OR cp.id=$5)
-ORDER BY cp.version DESC LIMIT 1
-"#)
-        .bind(sku_id)
-        .bind(site_id)
-        .bind(channel.as_str())
-        .bind(at)
-        .bind(publication_id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound("published effective commercial offer".into()))?;
-    Ok(ResolvedOffer {
-        publication_id: row.get("publication_id"),
-        version: row.get("version"),
-        sku_id,
-        site_id: site_id.into(),
-        channel,
-        sellable: row.get("sellable"),
-        currency: CurrencyCode::new(row.get::<String, _>("currency").trim())
-            .map_err(|e| AppError::Conflict(e.to_string()))?,
-        unit_price_minor: row.get("unit_price_minor"),
-        tax_category: row.get("tax_category"),
-        tax_rate_bps: row.get("rate_bps"),
-        tax_inclusive: row.get("tax_inclusive"),
-        effective_from: row.get("effective_from"),
-        effective_to: row.get("effective_to"),
-    })
-}
+// `resolve_offer_in_tx` stood here: a price cascade written in SQL, reading
+// price rules, assortment rules and tax and knowing nothing about clearance. It
+// priced every line of every cloud sale.
+//
+// It is gone rather than deprecated. A second evaluator left lying about is one
+// somebody wires back in, and the whole design rests on there being exactly one
+// answer to "what does this cost".
 
 pub async fn list_commercial_publications(pool: &PgPool) -> Result<Value, AppError> {
     let rows = sqlx::query("SELECT p.id,p.version,p.name,p.status,p.effective_from,p.effective_to,p.created_by,p.created_at,p.published_by,p.published_at,(SELECT count(*)::bigint FROM commercial_price_rule WHERE publication_id=p.id) offer_count FROM commercial_publication p ORDER BY version DESC")

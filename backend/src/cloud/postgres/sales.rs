@@ -1,6 +1,5 @@
 use super::{
     apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest,
-    resolve_offer_in_tx,
 };
 use crate::cloud::{
     application::{
@@ -98,17 +97,31 @@ GROUP BY cp.id,cp.version ORDER BY cp.version DESC LIMIT 1
 
 /// Add one EPC to an open sale at the centre.
 ///
-/// This prices from `commercial_price_rule` alone — it cannot see markdowns,
-/// promotions or coupons, all of which a shop's own till does see. So the same
-/// basket can ring up differently here and at the counter, and it will do so on
-/// exactly the days a promotion runs.
+/// Priced by `pricing-engine`, the evaluator the till runs, rather than by SQL
+/// of its own. It used to resolve with a hand-written cascade that read price
+/// rules and tax and could not see a markdown — so a shirt on clearance rang up
+/// here at list price while the counter charged the clearance.
 ///
-/// That is not fixed here, because the decision was to stop selling from the
-/// centre altogether: the centre will show a shop's catalogue and no longer
-/// take money. Attempting to unify the two evaluators first was the wrong
-/// order — a cart-level promotion needs the whole basket re-priced on every
-/// scan, and re-writing the lines breaks the ids that `sale_return_line` points
-/// at.
+/// It also pinned the whole sale to one publication and refused any line whose
+/// price came from another. That was the old whole-book model, and it had
+/// become a live fault rather than a rough edge: a book is a list of changes,
+/// so repricing one shirt made every product the new book did not mention
+/// unsellable through this path — still priced, by a book still in force, and
+/// refused anyway.
+///
+/// # What is still not equal to a till
+///
+/// Promotions and coupons. Those are statements about a whole BASKET, and this
+/// path prices a line as it is added; honouring them means re-pricing every
+/// line on every scan, and rewriting lines breaks the ids `sale_return_line`
+/// points at. The standing decision is that the centre stops taking money
+/// altogether and shows a shop's catalogue instead, which makes that work
+/// unnecessary rather than merely deferred.
+///
+/// What changed is the part that decision does not cover: while this path still
+/// takes money, it should at least charge what the shop charges for one item.
+/// A markdown is this product's price, not a basket-shaped offer, so there was
+/// never a reason for it to be missing.
 pub async fn add_sale_line(
     pool: &PgPool,
     sale_id: Uuid,
@@ -134,8 +147,6 @@ pub async fn add_sale_line(
     let site_id: String = sale.get("site_id");
     let channel = CommercialChannel::from_str(&sale.get::<String, _>("channel"))
         .map_err(|e| AppError::Conflict(e.to_string()))?;
-    let publication_id: Uuid = sale.get("commercial_publication_id");
-    let commercial_version: i64 = sale.get("commercial_version");
     let sale_currency: String = sale.get::<String, _>("currency").trim().into();
     let sale_created_at: DateTime<Utc> = sale.get("created_at");
     let subject = sqlx::query("SELECT id,subject_type,sku_id FROM inventory_subject WHERE epc=$1")
@@ -168,51 +179,94 @@ pub async fn add_sale_line(
             "EPC is not currently Store Floor / On Hand at {site_id}"
         )));
     }
-    let offer = resolve_offer_in_tx(
-        &mut tx,
-        sku_id,
-        &site_id,
-        channel,
-        sale_created_at,
-        Some(publication_id),
+    // Priced by the shared evaluator, at the instant the sale opened.
+    //
+    // This used to resolve with SQL of its own — a cascade that knew about
+    // price rules and tax and nothing about clearance — and then demand that
+    // every line come from one publication. Both were the old whole-book model.
+    // A price book is a list of changes: the newest book that names a product
+    // wins and one that never names it changes nothing, so a basket of two
+    // shirts legitimately draws its prices from two different books. Pinning
+    // the sale to one made every product the newest book did not mention
+    // unsellable through this path, while the shop that sells it every day
+    // charges it happily.
+    let pricing =
+        super::pricing::load_site_price_book(&mut tx, &site_id, channel.as_str(), sale_created_at)
+            .await?;
+    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
+    let sku_code = pricing
+        .sku_code_by_id
+        .get(&sku_id)
+        .cloned()
+        .ok_or_else(|| AppError::NotFound("a published price for this SKU".into()))?;
+    let context = pricing_engine::PricingContext::new(&site_id, channel.as_str(), sale_created_at);
+    // The catalogue reading, not the basket one: a promotion is a statement
+    // about a whole basket, and this path prices a line as it is added. What it
+    // does now honour is the markdown, which IS this product's price.
+    let priced = pricing_engine::price_catalog(
+        &pricing.snapshot,
+        &context,
+        &[super::pricing::cart_line(&sku_code, 1, &merchandise)],
     )
-    .await?;
-    if !offer.sellable {
-        return Err(AppError::Conflict(
-            "SKU is not sellable for this store/channel".into(),
-        ));
-    }
-    if offer.currency.as_str() != sale_currency {
+    .into_iter()
+    .next()
+    // The engine drops anything unsellable before it prices it, so nothing
+    // coming back means exactly that: this shop may not sell this here.
+    .ok_or_else(|| {
+        AppError::Conflict("SKU is not sellable for this store/channel".into())
+    })?;
+    if priced.currency.0 != sale_currency {
         return Err(AppError::Conflict(
             "offer currency does not match the sale currency".into(),
         ));
     }
-    if offer.version != commercial_version {
-        return Err(AppError::Conflict(
-            "offer version does not match the sale snapshot".into(),
-        ));
-    }
+    // Which book decided this line — not which book the sale opened under.
+    let book = sqlx::query(
+        "SELECT p.id, tr.rate_bps, tr.tax_inclusive
+           FROM commercial_publication p
+           JOIN commercial_tax_rule tr
+             ON tr.publication_id = p.id AND tr.tax_category = $2
+          WHERE p.version = $1",
+    )
+    .bind(priced.publication_version)
+    .bind(&priced.tax_category)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| {
+        AppError::Conflict(format!(
+            "book v{} prices this product but declares no {} tax rule",
+            priced.publication_version, priced.tax_category
+        ))
+    })?;
+    let line_publication_id: Uuid = book.get("id");
+    let tax_rate_bps: i32 = book.get("rate_bps");
+    let tax_inclusive: bool = book.get("tax_inclusive");
     let totals = calculate_line_totals(
-        offer.unit_price_minor,
+        priced.unit_price.minor,
         request.quantity,
-        offer.tax_rate_bps,
-        offer.tax_inclusive,
+        tax_rate_bps,
+        tax_inclusive,
     )
     .map_err(|e| AppError::Validation(e.to_string()))?;
-    let offer_digest = payload_digest(&offer)?;
+    // The fingerprint covers what was actually charged and where it came from,
+    // including the markdown — the old digest covered an offer that could not
+    // have named one.
+    let offer_digest = payload_digest(&priced)?;
     let line_id = Uuid::new_v4();
     sqlx::query("INSERT INTO sale_line(id,sale_id,subject_id,sku_id,quantity,unit_price_minor,net_minor,tax_minor,total_minor,currency,tax_category,tax_rate_bps,tax_inclusive,commercial_publication_id,commercial_version,price_snapshot_digest,actor_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)")
-        .bind(line_id).bind(sale_id).bind(subject_id).bind(sku_id).bind(request.quantity).bind(offer.unit_price_minor)
-        .bind(totals.net_minor).bind(totals.tax_minor).bind(totals.total_minor).bind(offer.currency.as_str()).bind(&offer.tax_category)
-        .bind(offer.tax_rate_bps).bind(offer.tax_inclusive).bind(offer.publication_id).bind(offer.version).bind(&offer_digest)
+        .bind(line_id).bind(sale_id).bind(subject_id).bind(sku_id).bind(request.quantity).bind(priced.unit_price.minor)
+        .bind(totals.net_minor).bind(totals.tax_minor).bind(totals.total_minor).bind(&priced.currency.0).bind(&priced.tax_category)
+        .bind(tax_rate_bps).bind(tax_inclusive).bind(line_publication_id).bind(priced.publication_version).bind(&offer_digest)
         .bind(request.actor_id.trim()).bind(&request.idempotency_key).execute(&mut *tx).await?;
     sqlx::query("UPDATE sale SET net_minor=net_minor+$2,tax_minor=tax_minor+$3,total_minor=total_minor+$4 WHERE id=$1")
         .bind(sale_id).bind(totals.net_minor).bind(totals.tax_minor).bind(totals.total_minor).execute(&mut *tx).await?;
     let response = json!({
         "sale_id":sale_id,"line_id":line_id,"subject_id":subject_id,"epc":request.epc.trim().to_ascii_uppercase(),"sku_id":sku_id,"quantity":request.quantity,
-        "unit_price_minor":offer.unit_price_minor,"net_minor":totals.net_minor,"tax_minor":totals.tax_minor,"total_minor":totals.total_minor,
-        "currency":offer.currency.as_str(),"tax_category":offer.tax_category,"tax_rate_bps":offer.tax_rate_bps,"tax_inclusive":offer.tax_inclusive,
-        "commercial_publication_id":offer.publication_id,"commercial_version":offer.version,"price_snapshot_digest":offer_digest
+        "unit_price_minor":priced.unit_price.minor,"base_unit_price_minor":priced.base_unit_price.minor,
+        "price_source":priced.source.as_str(),"markdown_id":priced.markdown_id,
+        "net_minor":totals.net_minor,"tax_minor":totals.tax_minor,"total_minor":totals.total_minor,
+        "currency":priced.currency.0,"tax_category":priced.tax_category,"tax_rate_bps":tax_rate_bps,"tax_inclusive":tax_inclusive,
+        "commercial_publication_id":line_publication_id,"commercial_version":priced.publication_version,"price_snapshot_digest":offer_digest
     });
     complete_idempotent(&mut tx, &request.idempotency_key, &response).await?;
     tx.commit().await?;
