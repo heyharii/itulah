@@ -231,6 +231,23 @@ services:
         source: /*
         destination: /index.html
 
+  # The employee's own surface: profile, leave, hours, payslips. It reads the
+  # CLOUD node like head office does, because an employee's record follows the
+  # person rather than the building — the same assistant covers a shift at the
+  # other store next week and their leave balance does not change when they do.
+  - type: web
+    runtime: static
+    name: frontend-employee
+    buildCommand: cd frontend-employee && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: ./frontend-employee/dist
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://itulah-cloud.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
   - type: web
     runtime: static
     name: frontend-dc

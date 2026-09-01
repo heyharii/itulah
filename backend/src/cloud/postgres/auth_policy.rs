@@ -87,7 +87,11 @@ pub async fn upsert_edge_assignment(
 ) -> Result<Value, AppError> {
     let origin_id = request.origin_id.trim().to_string();
     origin_node(pool, &origin_id).await?;
-    let ttl = assignment_ttl(request.role, request.offline_ttl_seconds)?;
+    // The wire role becomes Cloud's own at the boundary: the policy decisions
+    // below (the TTL ceiling, the role ladder) belong to `cloud::domain::Role`,
+    // not to the shape a browser posted.
+    let role: Role = request.role.into();
+    let ttl = assignment_ttl(role, request.offline_ttl_seconds)?;
     let credential_hash = hash_edge_credential(&request.edge_password)?;
     let exists = sqlx::query("SELECT 1 FROM app_user WHERE id=$1")
         .bind(request.user_id)
@@ -116,7 +120,7 @@ pub async fn upsert_edge_assignment(
     )
     .bind(&origin_id)
     .bind(request.user_id)
-    .bind(request.role.as_str())
+    .bind(role.as_str())
     .bind(credential_hash)
     .bind(ttl)
     .bind(actor)

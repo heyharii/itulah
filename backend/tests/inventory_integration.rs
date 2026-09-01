@@ -118,6 +118,7 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
             auth_cookie_secure: false,
             bootstrap_admin_password: None,
             cors_allowed_origins: None,
+            media: None,
         },
     ));
     let health = app
@@ -727,6 +728,7 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
             auth_cookie_secure: false,
             bootstrap_admin_password: None,
             cors_allowed_origins: None,
+            media: None,
         },
     ));
     let offers_response = app
@@ -1498,6 +1500,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
             auth_cookie_secure: false,
             bootstrap_admin_password: None,
             cors_allowed_origins: None,
+            media: None,
         },
     ));
     for uri in [

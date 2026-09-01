@@ -1,3 +1,6 @@
+import { AllotmentDetailView } from "@/components/allotment/allotment-detail"
+import { AllotmentDraft } from "@/components/allotment/allotment-draft"
+import { AllotmentsView } from "@/components/allotment/allotments-view"
 import { OrderDetail } from "@/components/po/order-detail"
 import { PoDraft } from "@/components/po/po-draft"
 import { PriceAmendmentsView } from "@/components/po/price-amendments-view"
@@ -61,6 +64,29 @@ const orderRoute = createRoute({
   component: OrderDetail,
 })
 
+/// What the centre has promised out of its own warehouses.
+///
+/// `/allotments/new` sits above `/allotments/$allotmentId` in the tree only for
+/// reading; the router ranks a static segment over a dynamic one itself, so
+/// "new" is a screen and never an id.
+const allotmentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/allotments",
+  component: AllotmentsView,
+})
+
+const allotmentDraftRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/allotments/new",
+  component: AllotmentDraft,
+})
+
+const allotmentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/allotments/$allotmentId",
+  component: AllotmentDetailView,
+})
+
 const amendmentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/amendments",
@@ -74,6 +100,9 @@ const routeTree = rootRoute.addChildren([
   draftRoute,
   orderRoute,
   amendmentsRoute,
+  allotmentsRoute,
+  allotmentDraftRoute,
+  allotmentRoute,
 ])
 
 export const router = createRouter({ routeTree })
@@ -84,4 +113,4 @@ declare module "@tanstack/react-router" {
   }
 }
 
-export { draftRoute, orderRoute }
+export { allotmentRoute, draftRoute, orderRoute }

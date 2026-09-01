@@ -30,6 +30,27 @@ pub enum Role {
     Admin,
 }
 
+impl Role {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cashier => "CASHIER",
+            Self::Supervisor => "SUPERVISOR",
+            Self::Admin => "ADMIN",
+        }
+    }
+}
+
+/// The wire role back into Cloud's own, which carries the policy.
+impl From<Role> for crate::cloud::domain::Role {
+    fn from(role: Role) -> Self {
+        match role {
+            Role::Cashier => Self::Cashier,
+            Role::Supervisor => Self::Supervisor,
+            Role::Admin => Self::Admin,
+        }
+    }
+}
+
 impl From<crate::cloud::domain::Role> for Role {
     fn from(role: crate::cloud::domain::Role) -> Self {
         match role {
@@ -155,4 +176,82 @@ pub struct EdgeSyncTriggered {
     /// the button did nothing rather than being shown a success.
     pub triggered: bool,
     pub reason: Option<String>,
+}
+
+// ---- Account administration ----------------------------------------------
+//
+// These are what an administration screen sends. They were declared in
+// `cloud::application` where no generator could see them, and `edge::http`
+// carried a second private copy of ChangePasswordRequest — the same
+// two-copies-of-one-truth that LoginRequest had. Declared here they are
+// generated for the browser like everything else on the wire.
+
+/// Somebody changing their OWN password. The old one is required; an
+/// administrator resetting a forgotten password uses `ResetPasswordRequest`,
+/// which deliberately does not ask for it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+/// An administrator setting a password for somebody who cannot supply the old
+/// one. Without this a forgotten password retires the account permanently:
+/// usernames are never released and there is no delete.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ResetPasswordRequest {
+    pub new_password: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CreateUserRequest {
+    pub username: String,
+    pub display_name: String,
+    pub password: String,
+    pub role: Role,
+}
+
+/// Suspending or restoring an account everywhere at once. Suspending it at one
+/// Edge only is a different request against the Edge assignment.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SetUserActiveRequest {
+    pub active: bool,
+}
+
+/// Promotion or demotion at Cloud. This is the head-office role only: the same
+/// person's role AT an Edge lives on their Edge assignment, because a
+/// supervisor at head office can be an ordinary cashier at the till.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SetUserRoleRequest {
+    pub role: Role,
+}
+
+/// Giving somebody access to one Edge, or rotating the PIN they use there.
+///
+/// `edge_password` is separate from their Cloud password on purpose: the same
+/// person signs in at head office with one credential and at a till with
+/// another, and the Edge never receives the Cloud one.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UpsertEdgeAssignmentRequest {
+    pub origin_id: String,
+    pub user_id: Uuid,
+    pub role: Role,
+    /// Hashed immediately; never stored in the clear and never sent to the Edge.
+    pub edge_password: String,
+    pub offline_ttl_seconds: Option<i32>,
+}
+
+/// Suspending or restoring somebody at ONE Edge, leaving every other node
+/// alone. Rotating their PIN does not do this and must not: those are two
+/// different decisions.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SetEdgeAssignmentActiveRequest {
+    pub active: bool,
 }

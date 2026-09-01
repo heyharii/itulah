@@ -1,6 +1,6 @@
 use crate::cloud::domain::{
     AllotmentStatus, AllotmentType, CommercialChannel, CountKind, DestinationType, PaymentMethod,
-    RfidRead, Role,
+    RfidRead,
 };
 use axum::{
     http::StatusCode,
@@ -54,6 +54,9 @@ pub struct AppConfig {
     pub bootstrap_admin_password: Option<String>,
     /// Comma-separated exact origins; None permits same-origin requests only.
     pub cors_allowed_origins: Option<String>,
+    /// Object storage for catalogue imagery. None means this node serves no
+    /// images, which is a valid deployment rather than a misconfiguration.
+    pub media: Option<crate::cloud::media::MediaConfig>,
 }
 
 impl AppConfig {
@@ -142,6 +145,7 @@ impl AppConfig {
                 .unwrap_or(false),
             bootstrap_admin_password: env_opt("INVENTORY_BOOTSTRAP_ADMIN_PASSWORD"),
             cors_allowed_origins: env_opt("INVENTORY_CORS_ALLOWED_ORIGINS"),
+            media: crate::cloud::media::MediaConfig::from_env(),
         })
     }
 }
@@ -168,14 +172,29 @@ fn parse_env(name: &str, default: i64) -> Result<i64, AppError> {
 pub struct AppState {
     pub db: PgPool,
     pub config: Arc<AppConfig>,
+    /// Present only when object storage is configured; handlers that need it
+    /// answer 404 rather than 500 when it is absent.
+    pub media: Option<Arc<crate::cloud::media::CatalogueMedia>>,
     /// Wakes the sync sender outside its interval (`POST /api/v1/sync/trigger`).
     pub sync_wake: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
     pub fn new(db: PgPool, config: AppConfig) -> Self {
+        // A media config that will not construct is a deployment error worth
+        // shouting about, but not worth refusing to serve inventory over.
+        let media = config.media.as_ref().and_then(|media_config| {
+            match crate::cloud::media::CatalogueMedia::new(media_config) {
+                Ok(media) => Some(Arc::new(media)),
+                Err(error) => {
+                    tracing::error!(%error, "catalogue media disabled");
+                    None
+                }
+            }
+        });
         Self {
             db,
+            media,
             config: Arc::new(config),
             sync_wake: Arc::new(tokio::sync::Notify::new()),
         }
@@ -602,61 +621,14 @@ pub struct DeadLetterQuery {
 
 // ---- Authentication ------------------------------------------------------
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct CreateUserRequest {
-    pub username: String,
-    pub display_name: String,
-    pub password: String,
-    pub role: Role,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct ChangePasswordRequest {
-    pub current_password: String,
-    pub new_password: String,
-}
-
-/// Promotion or demotion at Cloud.
-///
-/// This is the head-office role only. An operator's role AT an Edge lives on
-/// their `edge_identity_assignment` and is set by upserting that assignment —
-/// deliberately separate, because the same person can be a supervisor at head
-/// office and an ordinary cashier at the till.
-#[derive(Clone, Debug, Deserialize)]
-pub struct SetUserRoleRequest {
-    pub role: Role,
-}
-
-/// An administrator setting a password for somebody else.
-///
-/// Deliberately carries no `current_password`: the whole point is that nobody
-/// knows it. `ChangePasswordRequest` remains the self-service path and still
-/// demands the old password.
-#[derive(Clone, Debug, Deserialize)]
-pub struct ResetPasswordRequest {
-    pub new_password: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct SetUserActiveRequest {
-    pub active: bool,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct UpsertEdgeAssignmentRequest {
-    pub origin_id: String,
-    pub user_id: Uuid,
-    pub role: Role,
-    /// Edge-only PIN/password. The plaintext is hashed immediately and never
-    /// stored or sent to the Edge.
-    pub edge_password: String,
-    pub offline_ttl_seconds: Option<i32>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct SetEdgeAssignmentActiveRequest {
-    pub active: bool,
-}
+// The request bodies an administration screen sends live in `crate::contract`
+// so the browser's TypeScript is generated from them. Re-exported here because
+// this is where the rest of the application layer expects to find them.
+pub use crate::contract::{
+    ChangePasswordRequest, CreateUserRequest, LoginRequest, ResetPasswordRequest,
+    SetEdgeAssignmentActiveRequest, SetUserActiveRequest, SetUserRoleRequest,
+    UpsertEdgeAssignmentRequest,
+};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegisterRfidDeviceRequest {

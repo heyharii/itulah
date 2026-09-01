@@ -56,6 +56,24 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::contract::EdgeSyncTriggered::export_all(&config)
         .unwrap_or_else(|e| panic!("EdgeSyncTriggered: {e}"));
 
+    // Account administration. An admin screen posts these, and until they were
+    // exported the only way to build one was to hand-write the shapes beside
+    // the Rust that parses them.
+    inventory_backend::contract::CreateUserRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreateUserRequest: {e}"));
+    inventory_backend::contract::SetUserActiveRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetUserActiveRequest: {e}"));
+    inventory_backend::contract::SetUserRoleRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetUserRoleRequest: {e}"));
+    inventory_backend::contract::ChangePasswordRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChangePasswordRequest: {e}"));
+    inventory_backend::contract::ResetPasswordRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ResetPasswordRequest: {e}"));
+    inventory_backend::contract::UpsertEdgeAssignmentRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpsertEdgeAssignmentRequest: {e}"));
+    inventory_backend::contract::SetEdgeAssignmentActiveRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetEdgeAssignmentActiveRequest: {e}"));
+
     // Each of these is something a browser is handed by an HTTP route. The
     // list is the contract; anything not on it is server-side only.
     inventory_backend::edge::SaleRequest::export_all(&config)
@@ -96,10 +114,102 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PickResult: {e}"));
     inventory_backend::edge::PackKoliRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PackKoliRequest: {e}"));
+    // What packing answers: which allotment line each EPC in the box went
+    // to. Attribution happens at the box, not at the rack, so this is the
+    // only place a packer can see it.
+    inventory_backend::edge::FulfillmentProgressResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("FulfillmentProgressResult: {e}"));
     inventory_backend::edge::MovementView::export_all(&config)
         .unwrap_or_else(|e| panic!("MovementView: {e}"));
     inventory_backend::edge::EdgeOfficialCountSummary::export_all(&config)
         .unwrap_or_else(|e| panic!("EdgeOfficialCountSummary: {e}"));
+
+    // Receiving, past the count: what the verifier decides on, what the
+    // decision answers, and the supplier's invoice recorded against the
+    // delivery.
+    inventory_backend::edge::PurchaseCountResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseCountResult: {e}"));
+    inventory_backend::edge::PurchaseVerifyResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseVerifyResult: {e}"));
+    inventory_backend::edge::PurchaseCountAwaitingVerification::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseCountAwaitingVerification: {e}"));
+    inventory_backend::edge::RecordInvoiceRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordInvoiceRequest: {e}"));
+
+    // An Official Count as the warehouse works it: the sheet, the entries it
+    // posts, and what submitting one answers.
+    inventory_backend::edge::EdgeOfficialCountLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("EdgeOfficialCountLine: {e}"));
+    inventory_backend::edge::EdgeOfficialCountDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("EdgeOfficialCountDetail: {e}"));
+    inventory_backend::edge::OfficialCountEntryInput::export_all(&config)
+        .unwrap_or_else(|e| panic!("OfficialCountEntryInput: {e}"));
+    inventory_backend::edge::OfficialCountEntriesRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("OfficialCountEntriesRequest: {e}"));
+    inventory_backend::edge::OfficialCountSubmitRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("OfficialCountSubmitRequest: {e}"));
+    inventory_backend::edge::OfficialCountSubmitResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("OfficialCountSubmitResult: {e}"));
+
+    // Outbound, end to end: the two session kinds, the picker's sheet, the
+    // box and its manifest, and the consignment and truck run they roll up
+    // into. A warehouse screen drives all of it, and every one of these was
+    // previously reachable only by hand-writing its shape beside the Rust.
+    inventory_backend::edge::outbound::Session::export_all(&config)
+        .unwrap_or_else(|e| panic!("Session: {e}"));
+    inventory_backend::edge::outbound::OpenSessionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpenSessionRequest: {e}"));
+    inventory_backend::edge::outbound::PickedLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("PickedLine: {e}"));
+    inventory_backend::edge::outbound::PickSessionSummary::export_all(&config)
+        .unwrap_or_else(|e| panic!("PickSessionSummary: {e}"));
+    inventory_backend::edge::outbound::PicklistLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("PicklistLine: {e}"));
+    inventory_backend::edge::outbound::OutstandingLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("OutstandingLine: {e}"));
+    inventory_backend::edge::outbound::TargetLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("TargetLine: {e}"));
+    inventory_backend::edge::outbound::OpenPackingBoxRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpenPackingBoxRequest: {e}"));
+    inventory_backend::edge::outbound::PackingBox::export_all(&config)
+        .unwrap_or_else(|e| panic!("PackingBox: {e}"));
+    inventory_backend::edge::outbound::CaptureLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("CaptureLine: {e}"));
+    inventory_backend::edge::outbound::CaptureOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("CaptureOutcome: {e}"));
+    inventory_backend::edge::outbound::ManifestLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("ManifestLine: {e}"));
+    inventory_backend::edge::outbound::Koli::export_all(&config)
+        .unwrap_or_else(|e| panic!("Koli: {e}"));
+    inventory_backend::edge::outbound::KoliManifest::export_all(&config)
+        .unwrap_or_else(|e| panic!("KoliManifest: {e}"));
+    inventory_backend::edge::outbound::PackingSessionSummary::export_all(&config)
+        .unwrap_or_else(|e| panic!("PackingSessionSummary: {e}"));
+    inventory_backend::edge::outbound::PrintKoliLabelRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PrintKoliLabelRequest: {e}"));
+    inventory_backend::edge::outbound::Shipment::export_all(&config)
+        .unwrap_or_else(|e| panic!("Shipment: {e}"));
+    inventory_backend::edge::outbound::CreateShipmentRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreateShipmentRequest: {e}"));
+    inventory_backend::edge::outbound::ShipmentDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("ShipmentDetail: {e}"));
+    inventory_backend::edge::outbound::Dispatch::export_all(&config)
+        .unwrap_or_else(|e| panic!("Dispatch: {e}"));
+    inventory_backend::edge::outbound::CreateDispatchRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreateDispatchRequest: {e}"));
+    inventory_backend::edge::outbound::DispatchDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("DispatchDetail: {e}"));
+    inventory_backend::edge::outbound::LinePosition::export_all(&config)
+        .unwrap_or_else(|e| panic!("LinePosition: {e}"));
+
+    // The label queue: what the warehouse asks the printer for, and how far
+    // it has got.
+    inventory_backend::edge::printing::OpenPrintSessionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpenPrintSessionRequest: {e}"));
+    inventory_backend::edge::printing::PrintSessionSummary::export_all(&config)
+        .unwrap_or_else(|e| panic!("PrintSessionSummary: {e}"));
+    inventory_backend::edge::printing::PrintChunkReport::export_all(&config)
+        .unwrap_or_else(|e| panic!("PrintChunkReport: {e}"));
 
     // Sourcing and suppliers: the first screens the centre gets.
     inventory_backend::cloud::domain::Supplier::export_all(&config)
@@ -126,8 +236,63 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::cloud::postgres::SetBasketQuantityRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("SetBasketQuantityRequest: {e}"));
 
+    // What a member sees of their own custom: points earned, purchases, one
+    // receipt. Read-only, and derived entirely from sales the shops reported —
+    // so a member's screen and the centre's revenue cannot disagree.
+    inventory_backend::cloud::postgres::CustomerSummary::export_all(&config)
+        .unwrap_or_else(|e| panic!("CustomerSummary: {e}"));
+    inventory_backend::cloud::postgres::CustomerTransaction::export_all(&config)
+        .unwrap_or_else(|e| panic!("CustomerTransaction: {e}"));
+    inventory_backend::cloud::postgres::CustomerTransactionLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("CustomerTransactionLine: {e}"));
+    inventory_backend::cloud::postgres::CustomerTransactionDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("CustomerTransactionDetail: {e}"));
+    inventory_backend::cloud::postgres::CustomerTransactionPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("CustomerTransactionPage: {e}"));
+
     // Where an order can be delivered — the purchasing question, asked without
     // the administration privilege the sync origin register requires.
     inventory_backend::cloud::postgres::PurchaseDestination::export_all(&config)
         .unwrap_or_else(|e| panic!("PurchaseDestination: {e}"));
+
+    // Talking: conversations, discussions, and the files both carry.
+    //
+    // These matter here more than most. A conversation's `latest_message_seq`
+    // and `last_read_seq` are the two numbers that place the unread line, and
+    // a browser that hand-mirrored them one field apart would draw that line
+    // in the wrong place without anything failing.
+    inventory_backend::cloud::postgres::ChatConversation::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChatConversation: {e}"));
+    inventory_backend::cloud::postgres::ChatMessage::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChatMessage: {e}"));
+    inventory_backend::cloud::postgres::StartConversationRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("StartConversationRequest: {e}"));
+    inventory_backend::cloud::postgres::SendMessageRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SendMessageRequest: {e}"));
+    inventory_backend::cloud::postgres::MarkReadRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("MarkReadRequest: {e}"));
+    inventory_backend::cloud::postgres::CollaborationEvent::export_all(&config)
+        .unwrap_or_else(|e| panic!("CollaborationEvent: {e}"));
+
+    inventory_backend::cloud::postgres::DiscussionThread::export_all(&config)
+        .unwrap_or_else(|e| panic!("DiscussionThread: {e}"));
+    inventory_backend::cloud::postgres::DiscussionPost::export_all(&config)
+        .unwrap_or_else(|e| panic!("DiscussionPost: {e}"));
+    inventory_backend::cloud::postgres::OpenThreadRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpenThreadRequest: {e}"));
+    inventory_backend::cloud::postgres::ReplyRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReplyRequest: {e}"));
+    inventory_backend::cloud::postgres::SubjectCount::export_all(&config)
+        .unwrap_or_else(|e| panic!("SubjectCount: {e}"));
+    inventory_backend::cloud::http::discussion::AcceptSolutionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("AcceptSolutionRequest: {e}"));
+    inventory_backend::cloud::http::discussion::SetThreadStatusRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetThreadStatusRequest: {e}"));
+    inventory_backend::cloud::http::discussion::SetBookmarkRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetBookmarkRequest: {e}"));
+
+    inventory_backend::cloud::postgres::StoredFile::export_all(&config)
+        .unwrap_or_else(|e| panic!("StoredFile: {e}"));
+    inventory_backend::cloud::postgres::FileInContext::export_all(&config)
+        .unwrap_or_else(|e| panic!("FileInContext: {e}"));
 }

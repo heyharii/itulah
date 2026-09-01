@@ -118,6 +118,19 @@
 }
 
 @layer base {
+  /* Touch targets on this surface are larger than the system default: it is
+     used while holding goods, not while sitting down. 44px is the floor
+     anywhere; under 768px — a handheld, gloves, a moving warehouse — it goes
+     to 56px. Written as one token so a button, an input and a nav row cannot
+     drift apart. */
+  :root {
+    --tap: 2.75rem;
+    }
+  @media (width < 48rem) {
+    :root {
+      --tap: 3.5rem;
+      }
+    }
   * {
     @apply border-border outline-ring/50;
     }

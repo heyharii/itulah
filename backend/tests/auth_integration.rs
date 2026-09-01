@@ -145,6 +145,7 @@ fn cloud_config() -> AppConfig {
         auth_cookie_secure: false,
         bootstrap_admin_password: None,
         cors_allowed_origins: Some("http://127.0.0.1:8080".into()),
+        media: None,
     }
 }
 
@@ -406,7 +407,7 @@ async fn cloud_cookie_bearer_rbac_revocation_lockout_and_csrf(pool: PgPool) {
             username: "lockout.user".into(),
             display_name: "Lockout User".into(),
             password: "lockout-password".into(),
-            role: Role::Cashier,
+            role: Role::Cashier.into(),
         },
         "test",
     )
@@ -700,7 +701,7 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
             username: "store.cashier".into(),
             display_name: "Store Cashier".into(),
             password: "cloud-password-1".into(),
-            role: Role::Cashier,
+            role: Role::Cashier.into(),
         },
         "admin",
     )
@@ -715,7 +716,7 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         UpsertEdgeAssignmentRequest {
             origin_id: origin_id.into(),
             user_id,
-            role: Role::Cashier,
+            role: Role::Cashier.into(),
             edge_password: "1234567".into(),
             offline_ttl_seconds: Some(7 * 24 * 60 * 60),
         },
@@ -728,7 +729,7 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         UpsertEdgeAssignmentRequest {
             origin_id: origin_id.into(),
             user_id,
-            role: Role::Cashier,
+            role: Role::Cashier.into(),
             edge_password: "edge-cashier-pin".into(),
             offline_ttl_seconds: Some(7 * 24 * 60 * 60),
         },

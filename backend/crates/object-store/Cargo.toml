@@ -1,0 +1,29 @@
+[package]
+name = "object-store"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "S3-compatible object storage (Cloudflare R2): SigV4 request signing, put/get/head/delete, and presigned URLs. One client for catalogue images and any other blob the system keeps outside the database."
+
+# Signing is implemented here rather than pulled in with an SDK. The AWS SDK
+# brings its own runtime, credential-provider chain, and retry policy, none of
+# which this system wants: credentials come from config, the runtime is already
+# chosen, and a blob store that silently retries a PUT is a blob store that can
+# write twice. SigV4 is a few hundred lines of HMAC and string concatenation,
+# and it is fully specified — so it is written out, pinned, and tested against
+# the published test vectors.
+[dependencies]
+chrono = { version = "=0.4.41", features = ["serde"] }
+hex = "=0.4.3"
+hmac = "=0.12.1"
+reqwest = { version = "=0.12.24", default-features = false, features = ["rustls-tls", "stream"] }
+serde = { version = "=1.0.219", features = ["derive"] }
+sha2 = "=0.10.9"
+thiserror = "=2.0.12"
+
+[dev-dependencies]
+tokio = { version = "=1.45.1", features = ["macros", "rt-multi-thread"] }
+reqwest = { version = "=0.12.24", default-features = false, features = ["rustls-tls"] }
+
+[lints]
+workspace = true

@@ -108,6 +108,29 @@ pub fn optional_supplier_text(value: Option<String>) -> Option<String> {
     })
 }
 
+/// Tag codes, uppercased and de-duplicated, order preserved.
+///
+/// De-duplication matters because `supplier_item_tag` is keyed on
+/// `(supplier_item_id, tag_code)`: the same tag twice in one request is not a
+/// conflict the caller should have to hear about, it is the same statement
+/// made twice. Blanks are dropped rather than refused for the same reason —
+/// a trailing comma in a feed is not a validation event.
+///
+/// Unknown codes are NOT filtered here. Whether a code exists is a question
+/// for the database, and answering it by silently dropping the tag would turn
+/// a typo into a row that quietly fails to appear under its own filter.
+pub fn normalize_tag_codes(tags: Vec<String>) -> Result<Vec<String>, SupplierCatalogError> {
+    let mut seen = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let tag = tag.trim().to_uppercase();
+        if tag.is_empty() || seen.contains(&tag) {
+            continue;
+        }
+        seen.push(tag);
+    }
+    Ok(seen)
+}
+
 pub fn normalize_supplier_code(
     field: &'static str,
     value: &str,

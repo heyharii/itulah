@@ -5168,8 +5168,8 @@ async fn apply_sale(
         "INSERT INTO edge_sale
              (sale_id, origin_id, generation, seq, movement_group_id, site_id, actor_id,
               occurred_at, currency, total_minor, paid_minor, change_minor,
-              discount_total_minor, points_earned, pricing_trace_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+              discount_total_minor, points_earned, pricing_trace_id, customer_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (sale_id) DO NOTHING",
     )
     .bind(sale.sale_id)
@@ -5187,6 +5187,15 @@ async fn apply_sale(
     .bind(sale.discount_total_minor)
     .bind(sale.points_earned)
     .bind(sale.pricing_trace_id.as_deref())
+    // Blank is not a customer. A till that sends an empty string means the
+    // shopper was anonymous, and storing "" would put a row in every member's
+    // history that belongs to nobody.
+    .bind(
+        sale.customer_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty()),
+    )
     .execute(&mut **tx)
     .await?
     .rows_affected()

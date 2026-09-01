@@ -83,6 +83,15 @@ pub fn required_role(method: &str, path: &str) -> Role {
         // login / change-password / me: any authenticated user.
         return Role::Cashier;
     }
+    // Talking is not an administrative act. Without this, the fall-through at
+    // the bottom would make posting a message require Supervisor — a cashier
+    // could read a conversation they are in and not answer it.
+    if path.starts_with("/api/v1/chat")
+        || path.starts_with("/api/v1/discussions")
+        || path.starts_with("/api/v1/files")
+    {
+        return Role::Cashier;
+    }
     if path.starts_with("/api/v1/sales") {
         let supervisor_actions = ["/void", "/returns"];
         if supervisor_actions.iter().any(|s| path.ends_with(s)) {
@@ -154,6 +163,21 @@ mod tests {
             required_role("POST", "/api/v1/commercial/publications"),
             Role::Supervisor
         );
+    }
+
+    /// Everyone talks. A cashier who could read a conversation and not answer
+    /// it would be worse than one who could not see it at all.
+    #[test]
+    fn talking_is_cashier_on_the_way_in_as_well_as_out() {
+        assert_eq!(
+            required_role("POST", "/api/v1/chat/conversations/abc/messages"),
+            Role::Cashier
+        );
+        assert_eq!(
+            required_role("POST", "/api/v1/discussions/abc/posts"),
+            Role::Cashier
+        );
+        assert_eq!(required_role("POST", "/api/v1/files"), Role::Cashier);
     }
 
     #[test]

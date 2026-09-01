@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/inventory-time-machine", "crates/pricing-engine"]
+members = [".", "crates/inventory-time-machine", "crates/object-store", "crates/pricing-engine"]
 default-members = ["."]
 resolver = "2"
 
@@ -46,11 +46,14 @@ ts = ["dep:ts-rs"]
 
 [dependencies]
 inventory-time-machine = { path = "crates/inventory-time-machine" }
+object-store = { path = "crates/object-store" }
 ts-rs = { version = "=12.0.1", optional = true, features = ["uuid-impl", "chrono-impl"] }
 pricing-engine = { path = "crates/pricing-engine" }
 async-trait = "=0.1.88"
 argon2 = "=0.5.3"
 axum = { version = "=0.8.4", features = ["json", "macros"] }
+# Server-sent events need a Stream; this is the one already in the tree.
+futures-util = "=0.3.34"
 chrono = { version = "=0.4.41", features = ["serde"] }
 dotenvy = "=0.15.7"
 hex = "=0.4.3"

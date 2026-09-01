@@ -13,6 +13,10 @@ use uuid::Uuid;
 
 pub mod auth;
 pub mod basket;
+pub mod chat;
+pub mod customer;
+pub mod discussion;
+pub mod files;
 pub mod suppliers;
 
 /// Exact browser origins from config. Unset means same-origin only.
@@ -43,6 +47,7 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
 pub fn router(state: AppState) -> Router {
     let frontend = state.config.frontend_dir.clone();
     Router::new()
+        .merge(crate::cloud::media::router())
         .route("/api/v1/health", get(health))
         .route("/api/v1/inventory/pools", get(pools))
         .route("/api/v1/inventory/fleet-pools", get(fleet_pools))
@@ -182,6 +187,21 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/returns", get(sale_returns))
         .route("/api/v1/returns/{id}", get(sale_return_detail))
         .route("/api/v1/reports/sales/daily", get(daily_report))
+        // What a member is allowed to see about themselves. Read-only: points
+        // are earned by buying something at a till, and the surface a shopper
+        // holds is the last place that should be able to change them.
+        .route(
+            "/api/v1/customer/{customer_id}/summary",
+            get(customer::summary),
+        )
+        .route(
+            "/api/v1/customer/{customer_id}/transactions",
+            get(customer::transactions),
+        )
+        .route(
+            "/api/v1/customer/{customer_id}/transactions/{sale_id}",
+            get(customer::transaction),
+        )
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/me", get(auth::me))
         .route("/api/v1/auth/logout", post(auth::logout))
@@ -280,6 +300,72 @@ pub fn router(state: AppState) -> Router {
             post(issue_setup_session),
         )
         .route("/api/v1/article-codes", post(mint_article_code))
+        // Talking. Conversations are private to their participants;
+        // discussions are readable by everybody signed in, because an argument
+        // about a purchase order is a record and not correspondence.
+        .route(
+            "/api/v1/chat/conversations",
+            get(chat::list_conversations).post(chat::start_conversation),
+        )
+        .route(
+            "/api/v1/chat/conversations/{id}",
+            get(chat::read_conversation),
+        )
+        .route(
+            "/api/v1/chat/conversations/{id}/messages",
+            get(chat::read_messages).post(chat::send_message),
+        )
+        .route("/api/v1/chat/conversations/{id}/read", post(chat::mark_read))
+        .route(
+            "/api/v1/chat/conversations/{id}/files",
+            get(chat::conversation_files),
+        )
+        // The conversation id in this path is the permission, not decoration:
+        // a file id on its own reaches nothing.
+        .route(
+            "/api/v1/chat/conversations/{id}/attachments/{file_id}",
+            get(chat::attachment),
+        )
+        // Resumable from the last event actually received, so a dropped
+        // connection fills its gap instead of skipping it.
+        .route("/api/v1/chat/stream", get(chat::stream))
+        .route("/api/v1/chat/events", get(chat::events))
+        .route(
+            "/api/v1/discussions",
+            get(discussion::list_threads).post(discussion::open_thread),
+        )
+        .route("/api/v1/discussions/subjects", get(discussion::subject_counts))
+        .route("/api/v1/discussions/{id}", get(discussion::read_thread))
+        .route(
+            "/api/v1/discussions/{id}/posts",
+            get(discussion::read_posts).post(discussion::reply),
+        )
+        .route(
+            "/api/v1/discussions/{id}/solution",
+            post(discussion::accept_solution),
+        )
+        .route("/api/v1/discussions/{id}/status", post(discussion::set_status))
+        .route(
+            "/api/v1/discussions/{id}/bookmark",
+            post(discussion::set_bookmark),
+        )
+        .route(
+            "/api/v1/discussions/{id}/attachments/{file_id}",
+            get(discussion::attachment),
+        )
+        // Its own body limit, replacing the router-wide one for this route
+        // alone: everything else here is JSON measured in kilobytes, and an
+        // attachment is the one place a person hands over megabytes on
+        // purpose. The ceiling itself is enforced in `postgres::files`, which
+        // can explain it in a sentence rather than answering a bare 413.
+        .route(
+            "/api/v1/files",
+            get(files::list)
+                .post(files::upload)
+                .layer(DefaultBodyLimit::max(
+                    infrastructure::MAX_ATTACHMENT_BYTES + 64 * 1024,
+                )),
+        )
         .route("/metrics", get(metrics))
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->

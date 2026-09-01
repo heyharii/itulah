@@ -1,5 +1,6 @@
 use crate::contract::{
-    EdgeMe, EdgeSyncStatus, EdgeSyncTriggered, LoginRequest, LoginResponse, SessionUser,
+    ChangePasswordRequest, EdgeMe, EdgeSyncStatus, EdgeSyncTriggered, LoginRequest, LoginResponse,
+    SessionUser,
 };
 use crate::edge::{
     sync::EdgeSyncHandle, AdvanceKoliRequest, CreateKoliShipmentRequest, DeviceProof, EdgeAuth,
@@ -1122,12 +1123,6 @@ impl IntoResponse for ApiError {
     }
 }
 
-#[derive(Deserialize)]
-struct ChangePasswordRequest {
-    current_password: String,
-    new_password: String,
-}
-
 async fn login(
     State(state): State<EdgeState>,
     Json(request): Json<LoginRequest>,
@@ -1245,23 +1240,49 @@ async fn sync_trigger(
     }))
 }
 
-async fn me(Extension(principal): Extension<EdgePrincipal>) -> Json<EdgeMe> {
-    Json(EdgeMe {
-        id: principal.user_id,
-        username: principal.username,
-        display_name: principal.display_name,
-        role: principal.role.into(),
-        source: principal.source,
-        site_id: None,
-    })
+/// Who is signed in.
+///
+/// The principal is optional here because the middleware does not insert one
+/// when authentication is switched off — a bench, a demo, a recovery. Every
+/// other handler already copes with that through `require_permission`, and
+/// this one answering 500 meant the whole warehouse surface was unusable in
+/// the one mode that exists so a person can run it without an account.
+///
+/// The development identity is named as such rather than borrowing somebody's
+/// login: a screen showing "Development" is telling the truth about a node
+/// that is not checking anything.
+async fn me(principal: Option<Extension<EdgePrincipal>>) -> Json<EdgeMe> {
+    match principal {
+        Some(Extension(principal)) => Json(EdgeMe {
+            id: principal.user_id,
+            username: principal.username,
+            display_name: principal.display_name,
+            role: principal.role.into(),
+            source: principal.source,
+            site_id: None,
+        }),
+        None => Json(EdgeMe {
+            id: Uuid::nil(),
+            username: "development".to_owned(),
+            display_name: "Development".to_owned(),
+            role: crate::contract::Role::Admin,
+            source: "DEVELOPMENT".to_owned(),
+            site_id: None,
+        }),
+    }
 }
 
 async fn logout(
     State(state): State<EdgeState>,
-    Extension(principal): Extension<EdgePrincipal>,
+    principal: Option<Extension<EdgePrincipal>>,
 ) -> Result<Response, ApiError> {
-    let auth = state.auth.clone();
-    run_blocking(move || auth.logout(principal.session_id)).await?;
+    // Signing out of a node that never signed anybody in is not an error: the
+    // browser still wants its cookies cleared and its screen returned to the
+    // sign-in box.
+    if let Some(Extension(principal)) = principal {
+        let auth = state.auth.clone();
+        run_blocking(move || auth.logout(principal.session_id)).await?;
+    }
     cleared_auth_response(&state, json!({"signed_out":true}))
 }
 

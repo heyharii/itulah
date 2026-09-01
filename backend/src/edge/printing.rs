@@ -44,6 +44,7 @@ const PRINTER_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What a print run needs to know before it starts.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OpenPrintSessionRequest {
     pub job_id: String,
     pub printer_host: String,
@@ -71,6 +72,7 @@ const fn default_label_height() -> i64 {
 /// Where a run has got to. Counts come from the items, never from a tally kept
 /// in parallel with them.
 #[derive(Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PrintSessionSummary {
     pub session_id: String,
     pub job_id: String,
@@ -83,6 +85,7 @@ pub struct PrintSessionSummary {
 
 /// What one pass at the printer achieved.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PrintChunkReport {
     pub attempted: usize,
     pub printed: usize,

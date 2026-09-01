@@ -1,14 +1,35 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { LoginForm } from "@/components/login-form"
-import { Outbox } from "@/components/outbox"
-import { Button } from "@/components/ui/button"
 import { auth, node } from "@/lib/api"
+import { router } from "@/router"
+import { SessionProvider } from "@/lib/session"
 import {
   ApiError,
   type Identity,
   type NodeIdentity,
 } from "@itulah/contract/client"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { RouterProvider } from "@tanstack/react-router"
+
+/// One client for the whole surface.
+///
+/// `retry: false` because this app talks to a node in the same building. A
+/// request that failed here failed for a reason a person can act on — the node
+/// is down, the session lapsed, the rule refused — and three silent retries
+/// only delay them being told.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      // A warehouse screen is looked at, walked away from, and looked at
+      // again. Refetching when it comes back into focus is what stops somebody
+      // acting on a queue that emptied while they were at the racks.
+      refetchOnWindowFocus: true,
+      staleTime: 5_000,
+    },
+  },
+})
 
 export function App() {
   // Three states, not two. `undefined` means the session has not been checked
@@ -57,13 +78,18 @@ export function App() {
     return () => controller.abort()
   }, [])
 
-  const signOut = useCallback(async () => {
-    try {
-      await auth.logout()
-    } finally {
-      // Whatever the server said, this browser is done with the session.
-      setIdentity(null)
-    }
+  const signOut = useCallback(() => {
+    void (async () => {
+      try {
+        await auth.logout()
+      } finally {
+        // Whatever the server said, this browser is done with the session.
+        // The cache goes with it: the next person to sign in at this bench
+        // must not be shown the last one's queue.
+        queryClient.clear()
+        setIdentity(null)
+      }
+    })()
   }, [])
 
   if (identity === undefined) {
@@ -101,29 +127,14 @@ export function App() {
   }
 
   return (
-    <main className="flex min-h-svh flex-col">
-      <header className="flex items-center gap-4 border-b px-6 py-4">
-        <div className="min-w-0">
-          <p className="truncate font-medium">{identity.display_name}</p>
-          <p className="text-muted-foreground text-xs">
-            {identity.username} · {identity.role}
-          </p>
-        </div>
-        <div className="ml-auto flex items-center gap-3">
-          {where !== null && (
-            <span className="text-muted-foreground hidden text-xs sm:inline">
-              {where.node_id} · {where.node_role}
-            </span>
-          )}
-          <Button variant="outline" onClick={() => void signOut()}>
-            Sign out
-          </Button>
-        </div>
-      </header>
-      <div className="p-6">
-        <Outbox className="max-w-md" />
-      </div>
-    </main>
+    <QueryClientProvider client={queryClient}>
+      {/* Mounted only once there is a session. Every operations screen reads
+          this node's work queues, so a router running behind the login screen
+          would fire a page of requests that can only answer 401. */}
+      <SessionProvider identity={identity} node={where} signOut={signOut}>
+        <RouterProvider router={router} />
+      </SessionProvider>
+    </QueryClientProvider>
   )
 }
 

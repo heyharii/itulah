@@ -120,6 +120,7 @@ pub fn qr_svg(payload: &str) -> Result<String, EdgeError> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct Session {
     pub session_id: String,
     pub actor_id: String,
@@ -129,6 +130,7 @@ pub struct Session {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OpenSessionRequest {
     #[serde(default)]
     pub actor_id: String,
@@ -255,6 +257,7 @@ pub fn load_session(
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct Koli {
     pub koli_id: String,
     pub koli_number: String,
@@ -270,6 +273,7 @@ pub struct Koli {
 
 /// What is in the box, and what the label on it should say.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct KoliManifest {
     pub koli: Koli,
     /// The QR carried on the sticker, following the house convention that the
@@ -287,6 +291,7 @@ pub struct KoliManifest {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ManifestLine {
     pub sku_code: String,
     pub allotment_id: String,
@@ -452,6 +457,7 @@ pub fn koli_manifest(connection: &Connection, koli_id: &str) -> Result<KoliManif
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct Shipment {
     pub shipment_id: String,
     pub shipment_number: String,
@@ -464,6 +470,7 @@ pub struct Shipment {
 
 /// Where to send a koli sticker.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PrintKoliLabelRequest {
     pub printer_host: String,
     #[serde(default = "default_printer_port")]
@@ -490,6 +497,7 @@ pub fn print_koli_label(
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CreateShipmentRequest {
     pub koli_ids: Vec<String>,
     #[serde(default)]
@@ -611,6 +619,7 @@ pub fn load_shipment(connection: &Connection, shipment_id: &str) -> Result<Shipm
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct Dispatch {
     pub dispatch_id: String,
     pub dispatch_number: String,
@@ -623,6 +632,7 @@ pub struct Dispatch {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CreateDispatchRequest {
     pub shipment_ids: Vec<String>,
     pub carrier: Option<String>,
@@ -766,6 +776,7 @@ pub fn load_dispatch(connection: &Connection, dispatch_id: &str) -> Result<Dispa
 /// How far along one allotment line is, counted from containment rather than
 /// read off a tally kept beside it.
 #[derive(Debug, Serialize, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct LinePosition {
     pub packed: i64,
     pub in_shipment: i64,
@@ -820,6 +831,7 @@ pub fn allotment_line_position(
 
 /// One SKU as it came off its rack, and how many trips it took.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PickedLine {
     pub sku_code: String,
     pub picked: i64,
@@ -835,6 +847,7 @@ pub struct PickedLine {
 /// rack. The event stays per SKU because that is the unit of what happens at a
 /// rack; this is what gathers them into the round they belonged to.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PickSessionSummary {
     pub session: Session,
     pub sku_count: i64,
@@ -877,6 +890,7 @@ pub fn pick_session_summary(
 
 /// "These 200 pieces became how many boxes, and what is in each?"
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PackingSessionSummary {
     pub session: Session,
     pub koli_count: i64,
@@ -925,6 +939,7 @@ pub fn packing_session_summary(
 /// a box, so a picker walks the racks with a SKU and a number and nothing else
 /// to get wrong.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PicklistLine {
     pub sku_code: String,
     pub outstanding: i64,
@@ -962,6 +977,7 @@ pub fn picklist(connection: &Connection) -> Result<Vec<PicklistLine>, EdgeError>
 
 /// The surat jalan: one consignment, the boxes in it, and what is in them.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ShipmentDetail {
     pub shipment: Shipment,
     /// Scanned at the store to open the whole consignment at once, rather than
@@ -1001,6 +1017,7 @@ pub fn shipment_detail(
 
 /// The loading manifest: one truck run and every consignment on it.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct DispatchDetail {
     pub dispatch: Dispatch,
     pub shipments: Vec<Shipment>,
@@ -1037,6 +1054,7 @@ pub fn dispatch_detail(
 /// What is still picked and unpacked for a destination — the list a packer is
 /// offered when opening a box.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OutstandingLine {
     pub sku_code: String,
     /// What this store still has coming, across all its open allotment lines.
@@ -1100,6 +1118,7 @@ pub fn outstanding_for_destination(
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OpenPackingBoxRequest {
     pub destination_store_id: String,
     /// What this box is meant to hold. Fixed when the session opens: a target
@@ -1111,12 +1130,14 @@ pub struct OpenPackingBoxRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct TargetLine {
     pub sku_code: String,
     pub target_qty: i64,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PackingBox {
     pub session: Session,
     pub destination_store_id: String,
@@ -1228,6 +1249,7 @@ pub fn load_packing_box(
 
 /// One SKU as the target asked for it and the sweep found it.
 #[derive(Debug, Serialize, Clone)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CaptureLine {
     pub sku_code: String,
     pub target_qty: i64,
@@ -1242,6 +1264,7 @@ impl CaptureLine {
 
 /// What one sweep of a box found, set against what the box was meant to hold.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CaptureOutcome {
     pub capture_id: String,
     pub session_id: String,

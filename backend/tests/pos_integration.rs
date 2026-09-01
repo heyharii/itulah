@@ -52,6 +52,7 @@ fn test_config(jwt_secret: Option<&str>) -> AppConfig {
         auth_cookie_secure: false,
         bootstrap_admin_password: None,
         cors_allowed_origins: None,
+        media: None,
     }
 }
 

@@ -61,17 +61,20 @@ contract-check: contract
 	fi
 	@echo "contract is current"
 
-# Build all three surfaces.
+# Build every surface.
 #
-# Three builds rather than one, because the three are different products: a
-# till on a touch screen at arm's length, a warehouse console, and head
-# office. What they share is `frontend-contract` — the wire types generated
-# from Rust and the one browser transport — not the interface.
+# Separate builds rather than one, because these are different products: a till
+# on a touch screen at arm's length, a warehouse console, head office, a phone
+# in an apron pocket, and a phone in a shopper's hand. What they share is
+# `frontend-contract` — the wire types generated from Rust and the one browser
+# transport — not the interface.
 #
-# Each is deployed as its own static site that rewrites /api/* to its own node
+# Each deployed one is its own static site that rewrites /api/* to its own node
 # (see render.yaml), so a browser sees one origin and the SameSite=Strict
-# session cookie is actually sent.
-FRONTENDS := frontend-cloud frontend-dc frontend-store
+# session cookie is actually sent. `frontend-customer` is built here but
+# deliberately absent from render.yaml: it has no customer sign-in yet, so
+# there is nothing to put it behind (frontend-customer/README.md).
+FRONTENDS := frontend-cloud frontend-dc frontend-store frontend-employee frontend-customer
 
 front:
 	@for app in $(FRONTENDS); do \
@@ -84,4 +87,4 @@ front:
 # `tsc --noEmit` against it checks nothing at all and reports success while
 # the build is broken. Do not "simplify" this to a typecheck-only target.
 front-check: front
-	@echo "all three surfaces typechecked and built"
+	@echo "every surface typechecked and built"

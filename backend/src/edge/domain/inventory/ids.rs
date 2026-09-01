@@ -50,7 +50,11 @@ uuid_id!(CountId);
 #[serde(transparent)]
 // A site id is a string on the wire and must stay one in TypeScript: the
 // browser has no business reconstructing the rules that make it valid.
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/", type = "string"))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "contract/", type = "string")
+)]
 pub struct SiteId(String);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

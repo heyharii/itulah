@@ -147,6 +147,7 @@ impl FulfillmentStage {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PackageUnitAllocation {
     pub allotment_id: Uuid,
     pub allotment_line_id: Uuid,

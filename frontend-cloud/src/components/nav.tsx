@@ -1,9 +1,10 @@
+import { allotmentListKey, listAllotments } from "@/lib/allotments"
 import { useBasket } from "@/lib/basket"
 import { pendingPriceAmendments } from "@/lib/purchase-orders"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useRouterState } from "@tanstack/react-router"
-import { ClipboardList, ClipboardX, Shirt, ShoppingBasket } from "lucide-react"
+import { ClipboardList, ClipboardX, Shirt, ShoppingBasket, Truck } from "lucide-react"
 
 /// Where the buyer can go, and what is waiting for them there.
 ///
@@ -21,11 +22,24 @@ export function Nav() {
     refetchInterval: 60_000,
   })
   const waiting = amendments.data?.length ?? 0
+  // The same key and page the Allotments screen asks for, so opening it does
+  // not fetch the list a second time.
+  const allotments = useQuery({
+    queryKey: allotmentListKey(),
+    queryFn: ({ signal }) => listAllotments({ limit: 500 }, signal),
+    refetchInterval: 60_000,
+  })
+  // Allotments still holding stock back. A completed one is not unfinished
+  // work, and counting it here would make the number never go down.
+  const reserving = (allotments.data?.items ?? []).filter(
+    (row) => row.remaining_quantity > 0,
+  ).length
 
   // Orders, one order, and a draft are three routes but one place as far as
   // somebody reading the nav is concerned.
   const path = useRouterState({ select: (state) => state.location.pathname })
   const onOrders = path.startsWith("/orders")
+  const onAllotments = path.startsWith("/allotments")
 
   return (
     <nav className="flex flex-col gap-0.5" aria-label="Buying">
@@ -44,6 +58,16 @@ export function Nav() {
       </NavLink>
       <NavLink to="/orders" icon={<ClipboardList className="size-4" />} active={onOrders}>
         Purchase orders
+      </NavLink>
+      <NavLink
+        to="/allotments"
+        icon={<Truck className={cn("size-4", reserving > 0 && "text-amber-600")} />}
+        active={onAllotments}
+        // Allotments with something still reserved: stock promised and not yet
+        // gone, which is the only part of this list anybody has to act on.
+        count={reserving}
+      >
+        Allotments
       </NavLink>
       <NavLink
         to="/amendments"

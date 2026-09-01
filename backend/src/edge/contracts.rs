@@ -254,6 +254,7 @@ pub struct AdvanceKoliRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct FulfillmentProgressResult {
     pub progress_id: Uuid,
     pub koli_id: Uuid,
@@ -329,6 +330,7 @@ pub struct MovementView {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OfficialCountEntryInput {
     pub epc: String,
     pub sku_code: String,
@@ -336,6 +338,7 @@ pub struct OfficialCountEntryInput {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OfficialCountEntriesRequest {
     pub entries: Vec<OfficialCountEntryInput>,
     pub actor_id: String,
@@ -343,12 +346,14 @@ pub struct OfficialCountEntriesRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OfficialCountSubmitRequest {
     pub actor_id: String,
     pub idempotency_key: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct EdgeOfficialCountLine {
     pub epc: String,
     pub sku_code: String,
@@ -385,12 +390,14 @@ pub struct EdgeOfficialCountSummary {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct EdgeOfficialCountDetail {
     pub summary: EdgeOfficialCountSummary,
     pub lines: Vec<EdgeOfficialCountLine>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OfficialCountSubmitResult {
     pub count_id: Uuid,
     pub result_id: Uuid,
@@ -611,6 +618,7 @@ pub struct OpenGoodsReceiptRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct RecordInvoiceRequest {
     pub receipt_id: uuid::Uuid,
     pub invoice_number: String,
@@ -718,6 +726,7 @@ pub struct PurchaseCountRequest {
 
 /// A count awaiting a verifier.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PurchaseCountResult {
     pub count_id: uuid::Uuid,
     pub po_line_id: uuid::Uuid,
@@ -832,6 +841,7 @@ pub enum PurchaseVerifyDecision {
 
 /// What verification did.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PurchaseVerifyResult {
     pub count_id: uuid::Uuid,
     pub po_line_id: uuid::Uuid,
@@ -855,6 +865,7 @@ pub struct PurchaseVerifyResult {
 /// verifier is comparing — against the count in front of them and the
 /// supplier's invoice that arrived on the same lorry as the goods.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PurchaseCountAwaitingVerification {
     pub count_id: uuid::Uuid,
     pub po_line_id: uuid::Uuid,

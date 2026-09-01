@@ -440,10 +440,7 @@ fn load_rules(connection: &Connection, usage: &UsageCounts) -> Result<Vec<Rule>,
     Ok(rules)
 }
 
-fn load_coupons(
-    connection: &Connection,
-    usage: &UsageCounts,
-) -> Result<Vec<Coupon>, EdgeError> {
+fn load_coupons(connection: &Connection, usage: &UsageCounts) -> Result<Vec<Coupon>, EdgeError> {
     let mut statement = connection
         .prepare(
             "SELECT code, rule_id, active, customer_id, valid_from, valid_to, max_uses, used

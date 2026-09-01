@@ -2,7 +2,8 @@ use super::{begin_idempotent, complete_idempotent, inventory_dc_owner_tx, issue_
 use crate::cloud::{
     application::AppError,
     domain::{
-        normalize_supplier_code, optional_supplier_text, parse_purchase_order,
+        normalize_supplier_code, normalize_tag_codes, optional_supplier_text,
+        parse_purchase_order,
         required_supplier_text, validate_supplier_item_price, PurchaseOrderLinePayload, Supplier,
         SupplierItem, SupplierStatus, COMMAND_PURCHASE_ORDER_ACTIVATE,
     },
@@ -111,6 +112,14 @@ pub struct CreateSupplierItemRequest {
     pub internal_article_code: Option<String>,
     #[serde(default)]
     pub status: SupplierStatus,
+    /// Which part of the range this belongs to, in our own vocabulary.
+    /// Absent means unclassified, which is a real state — see 0038.
+    #[serde(default)]
+    pub division_code: Option<String>,
+    /// Tag codes from `tag`. Unknown codes are refused rather than dropped: a
+    /// tag that silently disappears is a filter that silently misses rows.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -133,6 +142,16 @@ pub struct UpdateSupplierItemRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub internal_article_code: NullablePatch<String>,
+    /// Null clears the classification back to unclassified, which is a state
+    /// somebody may legitimately want to return an item to.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub division_code: NullablePatch<String>,
+    /// Absent leaves tags alone; present REPLACES them. An empty list is
+    /// therefore "remove every tag", which is a thing to be able to say — and
+    /// is why this is not merged into the existing set.
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 fn default_currency() -> String {
@@ -650,6 +669,8 @@ pub async fn create_supplier_item(
     let description = optional_supplier_text(request.description);
     let image_url = optional_supplier_text(request.image_url);
     let internal_article_code = optional_supplier_text(request.internal_article_code);
+    let division_code = optional_supplier_text(request.division_code);
+    let tags = normalize_tag_codes(request.tags).map_err(validation)?;
 
     let mut transaction = pool.begin().await?;
     if let Some(response) = replay_or_begin(
@@ -675,8 +696,8 @@ pub async fn create_supplier_item(
              (supplier_item_id, supplier_id, supplier_item_code,
               supplier_item_code_normalized, name, description, image_url,
               unit_price_minor, currency, internal_article_code, status,
-              created_by, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)
+              division_code, created_by, updated_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
          RETURNING *",
     )
     .bind(Uuid::new_v4())
@@ -690,11 +711,13 @@ pub async fn create_supplier_item(
     .bind(currency)
     .bind(internal_article_code)
     .bind(request.status.as_str())
+    .bind(division_code)
     .bind(actor)
     .fetch_one(&mut *transaction)
     .await
     .map_err(map_catalog_write_error)?;
-    let item = supplier_item_from_row(row)?;
+    let mut item = supplier_item_from_row(row)?;
+    item.tags = replace_supplier_item_tags(&mut transaction, item.supplier_item_id, &tags).await?;
     complete_item_mutation(&mut transaction, idempotency_key, &item).await?;
     transaction.commit().await?;
     Ok(item)
@@ -721,13 +744,17 @@ pub async fn update_supplier_item(
     let changes_price = request.unit_price_minor.is_some();
     let changes_currency = request.currency.is_some();
     let changes_article = request.internal_article_code.is_present();
+    let changes_division = request.division_code.is_present();
+    let changes_tags = request.tags.is_some();
     if !(changes_code
         || changes_name
         || changes_description
         || changes_image
         || changes_price
         || changes_currency
-        || changes_article)
+        || changes_article
+        || changes_division
+        || changes_tags)
     {
         return Err(AppError::Validation(
             "Supplier Item update must contain at least one field".into(),
@@ -762,6 +789,12 @@ pub async fn update_supplier_item(
     let description = optional_supplier_text(request.description.into_option());
     let image_url = optional_supplier_text(request.image_url.into_option());
     let internal_article_code = optional_supplier_text(request.internal_article_code.into_option());
+    let division_code = optional_supplier_text(request.division_code.into_option());
+    let tags = request
+        .tags
+        .map(normalize_tag_codes)
+        .transpose()
+        .map_err(validation)?;
 
     let mut transaction = pool.begin().await?;
     if let Some(response) = replay_or_begin(
@@ -784,7 +817,8 @@ pub async fn update_supplier_item(
              unit_price_minor = CASE WHEN $12 THEN $13 ELSE unit_price_minor END,
              currency = CASE WHEN $14 THEN $15 ELSE currency END,
              internal_article_code = CASE WHEN $16 THEN $17 ELSE internal_article_code END,
-             version = version + 1, updated_by = $18, updated_at = now()
+             division_code = CASE WHEN $18 THEN $19 ELSE division_code END,
+             version = version + 1, updated_by = $20, updated_at = now()
          WHERE supplier_item_id = $1 AND version = $2
          RETURNING *",
     )
@@ -805,6 +839,8 @@ pub async fn update_supplier_item(
     .bind(currency)
     .bind(changes_article)
     .bind(internal_article_code)
+    .bind(changes_division)
+    .bind(division_code)
     .bind(actor)
     .fetch_optional(&mut *transaction)
     .await
@@ -812,7 +848,10 @@ pub async fn update_supplier_item(
     let Some(row) = row else {
         return Err(stale_item_error(&mut transaction, supplier_item_id, expected_version).await);
     };
-    let item = supplier_item_from_row(row)?;
+    let mut item = supplier_item_from_row(row)?;
+    if let Some(tags) = tags {
+        item.tags = replace_supplier_item_tags(&mut transaction, supplier_item_id, &tags).await?;
+    }
     complete_item_mutation(&mut transaction, idempotency_key, &item).await?;
     transaction.commit().await?;
     Ok(item)
@@ -1227,11 +1266,62 @@ pub async fn purchase_destinations(pool: &PgPool) -> Result<Vec<PurchaseDestinat
         })
         .collect::<Result<_, AppError>>()?;
     // Warehouses first, then shops, alphabetically inside each — the order a
-    // buyer scans them in.
+    // buyer scans them in. The label comparison folds case, because these are
+    // names people typed: with a plain byte comparison "STORE store-07" sorts
+    // before "Store 02", which is not alphabetical to anybody reading it.
     destinations.sort_by(|a, b| {
         a.node_role
             .cmp(&b.node_role)
-            .then_with(|| a.label.cmp(&b.label))
+            .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
     });
     Ok(destinations)
+}
+
+/// Set an item's tags to exactly `tags`, and report what they now are.
+///
+/// A replace rather than a merge: the caller sent the whole set, so anything
+/// absent from it was removed on purpose. Doing this inside the caller's
+/// transaction is what keeps an item from being visible with half its tags.
+///
+/// Unknown codes are refused with the codes named. The alternative — letting
+/// the foreign key fire — produces a 500 and a constraint name, which tells a
+/// buyer who mistyped a tag nothing at all.
+async fn replace_supplier_item_tags(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    supplier_item_id: Uuid,
+    tags: &[String],
+) -> Result<Vec<String>, AppError> {
+    sqlx::query("DELETE FROM supplier_item_tag WHERE supplier_item_id = $1")
+        .bind(supplier_item_id)
+        .execute(&mut **transaction)
+        .await?;
+    if tags.is_empty() {
+        return Ok(Vec::new());
+    }
+    let known: Vec<String> = sqlx::query_scalar("SELECT code FROM tag WHERE code = ANY($1)")
+        .bind(tags)
+        .fetch_all(&mut **transaction)
+        .await?;
+    let unknown: Vec<&str> = tags
+        .iter()
+        .filter(|tag| !known.contains(tag))
+        .map(String::as_str)
+        .collect();
+    if !unknown.is_empty() {
+        return Err(AppError::Validation(format!(
+            "unknown tag codes: {}",
+            unknown.join(", ")
+        )));
+    }
+    sqlx::query(
+        "INSERT INTO supplier_item_tag (supplier_item_id, tag_code)
+         SELECT $1, code FROM unnest($2::text[]) AS code",
+    )
+    .bind(supplier_item_id)
+    .bind(tags)
+    .execute(&mut **transaction)
+    .await?;
+    let mut applied = tags.to_vec();
+    applied.sort();
+    Ok(applied)
 }
