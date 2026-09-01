@@ -1,4 +1,4 @@
-# Render Blueprint for the central Cloud runtime.
+# Render Blueprint for the central Cloud API and its separate frontend.
 #
 # The DC and Store binaries are intentionally deployed to their edge hosts,
 # not as public Render services: their SQLite files and RFID/physical-device
@@ -20,7 +20,7 @@ services:
       - key: APP_BIN
         value: cloud
       - key: FRONTEND_DIR
-        value: /app/frontend
+        value: /app/api-only
       - key: INVENTORY_NODE_ID
         value: cloud-primary
       - key: INVENTORY_NODE_ROLE
@@ -47,6 +47,25 @@ services:
         fromDatabase:
           name: itulah-postgres
           property: connectionString
+
+  - type: web
+    runtime: static
+    name: itulah-frontend-new
+    buildCommand: cd frontend-new && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: ./frontend-new/dist
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://itulah-cloud.onrender.com/api/*
+      - type: rewrite
+        source: /edge/*
+        destination: https://dc-br5g.onrender.com/api/*
+      - type: rewrite
+        source: /store-api/*
+        destination: https://store-mhpy.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
 
 databases:
   - name: itulah-postgres

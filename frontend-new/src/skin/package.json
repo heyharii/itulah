@@ -1,0 +1,9 @@
+{
+  "name": "@itulah/skin",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./retail.css": "./retail.css",
+    "./fonts.css": "./fonts/fonts.css"
+  }
+}

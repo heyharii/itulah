@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-# One image contains all three server binaries. APP_BIN selects the role at
+# One API image contains all three server binaries. APP_BIN selects the role at
 # runtime, so the same build artifact can be promoted across environments.
+# Browser assets are deployed separately as a static site.
 FROM rust:1.88-bookworm AS builder
 
 WORKDIR /app
@@ -26,14 +27,13 @@ WORKDIR /app
 COPY --from=builder /app/backend/target/release/cloud /usr/local/bin/cloud
 COPY --from=builder /app/backend/target/release/dc /usr/local/bin/dc
 COPY --from=builder /app/backend/target/release/store /usr/local/bin/store
-COPY frontend ./frontend
 COPY deploy/render/entrypoint.sh /usr/local/bin/itulah-entrypoint
 
 RUN chmod 0755 /usr/local/bin/itulah-entrypoint \
     && useradd --system --uid 10001 --create-home --home-dir /nonexistent --shell /usr/sbin/nologin itulah
 
 ENV APP_BIN=cloud \
-    FRONTEND_DIR=/app/frontend \
+    FRONTEND_DIR=/app/api-only \
     INVENTORY_AUTH_MODE=required \
     INVENTORY_AUTH_COOKIE_SECURE=true \
     RUST_LOG=inventory_backend=info,tower_http=info

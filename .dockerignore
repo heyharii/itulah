@@ -7,6 +7,10 @@
 **/*.sqlite3-wal
 backend/target
 frontend/node_modules
+frontend-new/node_modules
+frontend-new/dist
+frontend-new/.tanstack
+frontend-new/.env.local*
 docs/*.png
 semantic-review
 frontend/packages/*/node_modules
