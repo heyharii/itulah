@@ -2318,3 +2318,69 @@ async fn an_ended_promotion_does_not_read_as_one_that_never_arrived(pool: PgPool
     );
     assert_eq!(refused["explanation"], "the promotion has ended");
 }
+
+/// A book numbered below one already written is refused, not published.
+///
+/// The engine ranks by version before anything else, so such a book loses every
+/// product the higher one names: it is accepted, dispatched to every shop, and
+/// changes nothing. Nothing fails, nothing logs, and the prices somebody
+/// carefully authored are simply not the prices anybody is charged.
+///
+/// The number is allocated by the setup path with a lock and taken from the
+/// caller by this one — two authorities for one sequence. The lock is now taken
+/// here too, so the check cannot be raced past.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_book_numbered_below_the_newest_is_refused(pool: PgPool) {
+    let sku: Uuid = sqlx::query_scalar("SELECT id FROM sku WHERE active ORDER BY sku_code LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("a seeded SKU: {e}"));
+
+    let book = |version: i64, key: &'static str| CreateCommercialPublicationRequest {
+        version,
+        name: format!("Buku {version}"),
+        effective_from: Utc::now() - Duration::days(1),
+        effective_to: None,
+        tax_rules: vec![CommercialTaxRuleInput {
+            tax_category: "STANDARD".into(),
+            rate_bps: 0,
+            tax_inclusive: true,
+        }],
+        offer_rules: vec![CommercialOfferRuleInput {
+            sku_id: sku,
+            site_id: None,
+            site_ids: None,
+            tier: None,
+            channel: CommercialChannel::Store,
+            sellable: true,
+            currency: "IDR".into(),
+            unit_price_minor: 100_000 + version,
+            tax_category: "STANDARD".into(),
+        }],
+        markdowns: Vec::new(),
+        rules: Vec::new(),
+        coupons: Vec::new(),
+        campaigns: Vec::new(),
+        actor_id: "merchandiser".into(),
+        idempotency_key: key.into(),
+    };
+
+    infrastructure::create_commercial_publication(&pool, book(900, "climb-1"))
+        .await
+        .unwrap_or_else(|e| panic!("a book above the seed is fine: {e}"));
+
+    let backwards = infrastructure::create_commercial_publication(&pool, book(899, "climb-2")).await;
+    let message = match backwards {
+        Err(error) => error.to_string(),
+        Ok(created) => panic!("a book numbered below v900 was accepted: {created}"),
+    };
+    assert!(
+        message.contains("change nothing"),
+        "and it says why, not just that it refused: {message}"
+    );
+
+    // The same number twice is refused for the same reason, before the unique
+    // index has to catch it.
+    let repeat = infrastructure::create_commercial_publication(&pool, book(900, "climb-3")).await;
+    assert!(repeat.is_err(), "v900 already exists");
+}

@@ -30,6 +30,36 @@ pub async fn create_commercial_publication(
         tx.commit().await?;
         return Ok(response);
     }
+    // A book's number has to climb, and one authority has to say what the next
+    // one is.
+    //
+    // The engine ranks by version before anything else, so a book numbered
+    // below one already written loses every product the higher book names — it
+    // publishes, it dispatches, and it changes nothing. Silently, which is the
+    // shape of fault this system keeps paying for.
+    //
+    // The lock is the same one `tagging.rs` takes when a setup allocates a
+    // number, and it is taken here for the same reason: two books written at
+    // the same moment would otherwise read the same maximum and pick the same
+    // next number. The unique index would catch that — loudly, and after the
+    // work — but a lock costs nothing and refuses earlier.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('commercial_publication_version'))")
+        .execute(&mut *tx)
+        .await?;
+    let highest: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(version), 0) FROM commercial_publication",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if request.version <= highest {
+        return Err(AppError::Validation(format!(
+            "book v{} would be written below v{highest}, which is already here. \
+             The newest book wins, so this one would publish and change nothing — \
+             number it v{} or later.",
+            request.version,
+            highest + 1
+        )));
+    }
     let publication_id = Uuid::new_v4();
     sqlx::query("INSERT INTO commercial_publication(id,version,name,status,effective_from,effective_to,created_by) VALUES($1,$2,$3,'DRAFT',$4,$5,$6)")
         .bind(publication_id)

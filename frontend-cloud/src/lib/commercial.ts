@@ -604,6 +604,12 @@ export interface PriceRung {
   /// alone, and the company rung is then in force for the rest. A boolean would
   /// have to pick one of those and be wrong about the other.
   readonly in_force_for: number
+  /// When this rung starts and stops applying. Sent because a clearance with an
+  /// end date is a different thing to read than one without, and typed here so
+  /// the interface describes what actually arrives — an untyped field is one
+  /// nobody knows they already have.
+  readonly effective_from: string
+  readonly effective_to: string | null
 }
 
 export interface ShopPrices {
