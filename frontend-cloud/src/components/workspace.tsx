@@ -1,11 +1,14 @@
 import { OrderDetail } from "@/components/po/order-detail"
 import { PoDraft } from "@/components/po/po-draft"
+import { PriceAmendmentsView } from "@/components/po/price-amendments-view"
 import { PurchaseOrdersView } from "@/components/po/purchase-orders-view"
 import { BasketView } from "@/components/sourcing/basket-view"
 import { SourcingView } from "@/components/sourcing/sourcing-view"
 import { useBasket } from "@/lib/basket"
+import { pendingPriceAmendments } from "@/lib/purchase-orders"
 import { cn } from "@/lib/utils"
-import { ClipboardList, Shirt, ShoppingBasket } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { ClipboardList, ClipboardX, Shirt, ShoppingBasket } from "lucide-react"
 import { useState } from "react"
 
 /// Where the buyer is.
@@ -20,12 +23,20 @@ type View =
   | { name: "basket" }
   | { name: "orders" }
   | { name: "order"; id: string }
+  | { name: "amendments" }
   | { name: "draft"; supplierId: string; quantities: Record<string, number> }
 
 export function Workspace() {
   const [view, setView] = useState<View>({ name: "sourcing" })
   const basket = useBasket()
   const pieces = (basket.data ?? []).reduce((sum, line) => sum + line.quantity, 0)
+  // Polled rather than fetched once: these arrive from a warehouse mid-shift,
+  // and a buyer with the screen open should see one appear without reloading.
+  const amendments = useQuery({
+    queryKey: ["purchase-price-amendments"],
+    queryFn: ({ signal }) => pendingPriceAmendments(signal),
+    refetchInterval: 60_000,
+  })
 
   const nav = (
     <nav className="flex flex-col gap-0.5" aria-label="Buying">
@@ -56,6 +67,18 @@ export function Workspace() {
       >
         Purchase orders
       </NavItem>
+      <NavItem
+        icon={
+          <ClipboardX
+            className={cn("size-4", (amendments.data?.length ?? 0) > 0 && "text-amber-600")}
+          />
+        }
+        active={view.name === "amendments"}
+        count={amendments.data?.length ?? 0}
+        onClick={() => setView({ name: "amendments" })}
+      >
+        Price amendments
+      </NavItem>
     </nav>
   )
 
@@ -79,6 +102,8 @@ export function Workspace() {
           onNew={() => setView({ name: "sourcing" })}
         />
       )
+    case "amendments":
+      return <PriceAmendmentsView nav={nav} />
     case "order":
       return (
         <OrderDetail

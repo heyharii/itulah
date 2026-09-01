@@ -142,3 +142,81 @@ export function listDestinations(signal?: AbortSignal): Promise<Origin[]> {
       ),
     )
 }
+
+// ---------------------------------------------------------------------------
+// The two things a buyer does to an order after raising it.
+//
+// Both routes existed on the server long before any screen offered them, which
+// is its own kind of bug: a line nobody can close short waits forever, and an
+// amendment queue nobody can see is a delivery blocked on an answer that will
+// never come.
+
+/// A supplier billed a different price than the order says, and the DC that
+/// took the delivery is asking head office what to do about it.
+///
+/// The ordered price is captured by the server when the request arrives, not
+/// sent up by the warehouse — the DC was never told what the order cost, so it
+/// could not have quoted it. Both sides are stored so a later reader can see
+/// the gap without reconstructing what the order said at the time.
+export interface PriceAmendment {
+  readonly request_id: string
+  readonly po_number: string
+  readonly po_line_id: string
+  /// Which node took the delivery and raised the question.
+  readonly origin_id: string
+  readonly count_id: string
+  readonly article_code: string
+  readonly article_name: string
+  readonly ordered_price_minor: number
+  readonly invoiced_price_minor: number
+  /// Invoiced minus ordered. Negative means the supplier billed LESS than
+  /// agreed, which is still a disagreement worth answering.
+  readonly difference_minor: number
+  readonly note: string
+  readonly requested_by: string
+  readonly requested_at: string
+}
+
+/// `Approved` changes the order's price to the invoice and tells the DC in one
+/// step; `Rejected` leaves the order alone and records the disagreement. Spelled
+/// exactly as the Rust enum serialises it — no `rename_all`, so the variant
+/// names go on the wire as they are written.
+export type PriceAmendmentOutcome = "Approved" | "Rejected"
+
+export function pendingPriceAmendments(signal?: AbortSignal): Promise<PriceAmendment[]> {
+  return node
+    .get<{ pending: number; items: PriceAmendment[] }>("/api/v1/purchase-price-amendments", {
+      signal,
+    })
+    .then((body) => body.items)
+}
+
+export function decidePriceAmendment(
+  requestId: string,
+  outcome: PriceAmendmentOutcome,
+  decidedBy: string,
+  note: string | null,
+): Promise<unknown> {
+  return node.post(`/api/v1/purchase-price-amendments/${requestId}/decide`, {
+    outcome,
+    decided_by: decidedBy,
+    note,
+  })
+}
+
+/// Stop waiting for the rest of a line.
+///
+/// 100 of 300 arrived and the buyer decides the other 200 are not coming. The
+/// shortfall stays on the record — "settled" and "arrived" are not the same
+/// thing — but the line stops counting as outstanding, so the order can be
+/// finished. The server refuses a second attempt on a line already closed.
+export function closePurchaseLineShort(
+  poLineId: string,
+  closedBy: string,
+  reason: string,
+): Promise<unknown> {
+  return node.post(`/api/v1/purchase-order-lines/${poLineId}/close-short`, {
+    closed_by: closedBy,
+    reason,
+  })
+}

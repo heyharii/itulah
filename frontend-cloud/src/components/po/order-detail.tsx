@@ -9,11 +9,14 @@ import {
 } from "@/components/custom/table"
 import { Tag } from "@/components/sourcing/columns"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { useIdentity } from "@/lib/identity"
 import { money, units } from "@/lib/money"
-import { purchaseOrderDetail } from "@/lib/purchase-orders"
+import { closePurchaseLineShort, purchaseOrderDetail } from "@/lib/purchase-orders"
 import { ApiError } from "@itulah/contract/client"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft } from "lucide-react"
+import { useState } from "react"
 import { OrderStatus } from "./columns"
 
 /// One order, and what has actually arrived against it.
@@ -31,9 +34,27 @@ export function OrderDetail({
   purchaseOrderId: string
   onBack: () => void
 }) {
+  const queryClient = useQueryClient()
+  const identity = useIdentity()
   const order = useQuery({
     queryKey: ["purchase-orders", purchaseOrderId],
     queryFn: ({ signal }) => purchaseOrderDetail(purchaseOrderId, signal),
+  })
+
+  // Which line the buyer is closing, and why. One at a time on purpose: this
+  // is the decision that stops a line waiting forever, and it should read like
+  // a decision rather than a row of buttons.
+  const [closing, setClosing] = useState<string | null>(null)
+  const [reason, setReason] = useState("")
+
+  const closeShort = useMutation({
+    mutationFn: ({ poLineId, why }: { poLineId: string; why: string }) =>
+      closePurchaseLineShort(poLineId, identity.data?.username ?? "", why),
+    onSuccess: () => {
+      setClosing(null)
+      setReason("")
+      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] })
+    },
   })
 
   const back = (
@@ -114,6 +135,7 @@ export function OrderDetail({
               <TableHead className="text-right">Unit</TableHead>
               <TableHead className="text-right">Payable</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -176,8 +198,76 @@ export function OrderDetail({
                     </span>
                   )}
                 </TableCell>
+                <TableCell>
+                  {/* Only a line still waiting can be closed short. A line that
+                      arrived in full has nothing to stop waiting for, and one
+                      already closed is refused by the server anyway. */}
+                  {line.outstanding_stock_units > 0 && line.closed_short_units === null && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 whitespace-nowrap"
+                      onClick={() => {
+                        setClosing(line.po_line_id)
+                        setReason("")
+                      }}
+                    >
+                      Close short
+                    </Button>
+                  )}
+                </TableCell>
               </TableRow>
             ))}
+            {detail.lines.map((line) =>
+              closing !== line.po_line_id ? null : (
+                <TableRow key={`${line.po_line_id}-closing`} className="hover:bg-transparent">
+                  <TableCell colSpan={9} className="bg-muted/40">
+                    <div className="flex flex-col gap-2 py-1">
+                      <p className="text-[12px]">
+                        Stop waiting for the remaining{" "}
+                        <span className="font-mono font-medium">
+                          {units(line.outstanding_stock_units)}
+                        </span>{" "}
+                        of <span className="font-medium">{line.article_name}</span>. The
+                        shortfall stays on the record — settled is not the same as arrived —
+                        and the supplier is paid only for what turned up.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                          value={reason}
+                          onChange={(event) => setReason(event.target.value)}
+                          placeholder="Why is this line not being filled?"
+                          aria-label="Reason for closing short"
+                          className="h-8 min-w-64 flex-1 text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          disabled={reason.trim() === "" || closeShort.isPending}
+                          onClick={() =>
+                            closeShort.mutate({
+                              poLineId: line.po_line_id,
+                              why: reason.trim(),
+                            })
+                          }
+                        >
+                          {closeShort.isPending ? "Closing…" : "Close this line short"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setClosing(null)}>
+                          Keep waiting
+                        </Button>
+                      </div>
+                      {closeShort.isError && (
+                        <p className="text-destructive text-[11.5px]">
+                          {closeShort.error instanceof ApiError
+                            ? closeShort.error.message
+                            : "The line could not be closed."}
+                        </p>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ),
+            )}
           </TableBody>
         </Table>
       </div>
