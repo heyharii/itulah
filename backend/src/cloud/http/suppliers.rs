@@ -24,6 +24,11 @@ pub struct CatalogListQuery {
 }
 
 /// What a sourcing screen asks for.
+///
+/// The multi-valued facets arrive comma-separated — `division=KIDS,DIVIDED` —
+/// rather than as repeated keys, because that is what the browser's own filter
+/// state already serialises to in the URL, and a second encoding for the same
+/// idea is a second thing to get wrong.
 #[derive(Debug, Deserialize)]
 pub struct SourcingQuery {
     /// Matches an item's name or code, or the supplier's name.
@@ -32,13 +37,38 @@ pub struct SourcingQuery {
     #[serde(default)]
     status: Option<SupplierStatus>,
     #[serde(default)]
-    supplier_id: Option<Uuid>,
+    supplier_id: Option<String>,
+    #[serde(default)]
+    division: Option<String>,
+    #[serde(default)]
+    tags: Option<String>,
+    /// From a previous page's `next_cursor`. Absent asks for the first page.
+    #[serde(default)]
+    cursor: Option<String>,
+    #[serde(default)]
+    price_min: Option<i64>,
+    #[serde(default)]
+    price_max: Option<i64>,
     #[serde(default = "default_sourcing_limit")]
     limit: i64,
 }
 
 const fn default_sourcing_limit() -> i64 {
     120
+}
+
+/// Split a comma-separated facet selection, dropping the empties a trailing
+/// comma leaves behind.
+fn facet_values(raw: Option<&str>) -> Vec<String> {
+    raw.map(|value| {
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(str::to_string)
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// The words the catalogue may be described with, so a screen can show
@@ -50,18 +80,33 @@ pub async fn catalogue_vocabulary(
     Ok(Json(infrastructure::catalogue_vocabulary(&state.db).await?))
 }
 
-/// Everything on offer, across every supplier.
+/// Everything on offer, across every supplier — one page, plus what the rest
+/// of the catalogue contains.
 pub async fn search_supplier_items(
     State(state): State<AppState>,
     Query(query): Query<SourcingQuery>,
-) -> Result<Json<Vec<infrastructure::SourcedItem>>, AppError> {
+) -> Result<Json<infrastructure::SourcingPage>, AppError> {
+    let supplier_ids = facet_values(query.supplier_id.as_deref())
+        .into_iter()
+        .map(|value| {
+            Uuid::parse_str(&value)
+                .map_err(|_| AppError::Validation(format!("supplier_id {value:?} is not a uuid")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(Json(
         infrastructure::search_supplier_items(
             &state.db,
-            query.q.as_deref(),
-            query.status,
-            query.supplier_id,
-            query.limit,
+            infrastructure::SourcingScope {
+                needle: query.q,
+                status: query.status,
+                supplier_ids,
+                division_codes: facet_values(query.division.as_deref()),
+                tag_codes: facet_values(query.tags.as_deref()),
+                cursor: query.cursor,
+                price_min: query.price_min,
+                price_max: query.price_max,
+                limit: query.limit,
+            },
         )
         .await?,
     ))

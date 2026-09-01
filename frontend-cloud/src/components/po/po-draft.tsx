@@ -60,13 +60,13 @@ export function PoDraft() {
   )
   const catalogue = useQuery({
     queryKey: ["sourcing", "supplier", supplierId],
-    queryFn: ({ signal }) => searchSourcedItems({ supplierId, limit: 500 }, signal),
+    queryFn: ({ signal }) => searchSourcedItems({ supplierIds: [supplierId], limit: 200 }, signal),
   })
   const destinations = useDestinations()
   const { remove: removeFromBasket } = useBasketActions()
 
   const rows = useMemo<SourcingRow[]>(
-    () => (catalogue.data ?? []).map(toSourcingRow),
+    () => (catalogue.data?.items ?? []).map(toSourcingRow),
     [catalogue.data],
   )
   const byId = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
@@ -119,10 +119,17 @@ export function PoDraft() {
           supplier_id: supplierId,
           destination_site_id: destination,
           notes: notes.trim() === "" ? null : notes.trim(),
+          discount_minor: null,
+          // The new optional fields — an agreed price, a corrected name — are
+          // not offered by this screen yet, so they go null and the catalogue's
+          // own values stand.
           lines: lines.map((line) => ({
             supplier_item_id: line.row.id,
             quantity: line.quantity,
             promised_date: promisedDate === "" ? null : promisedDate,
+            unit_price_minor: null,
+            article_name: null,
+            image_url: null,
           })),
         },
         idempotencyKey.current,
@@ -194,7 +201,18 @@ export function PoDraft() {
         <span className="font-mono text-xs font-medium tabular-nums">
           {currency === null ? "—" : money(totalMinor, currency)}
         </span>
-        <Button variant="ghost" size="sm" onClick={() => void navigate({ to: "/basket" })}>
+        {/* Back where this draft was started from. A draft opened by naming a
+            supplier on the orders screen has no basket behind it, and sending
+            that buyer to an empty basket reads as though something was lost. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            void navigate({
+              to: Object.keys(seedQuantities).length > 0 ? "/basket" : "/orders",
+            })
+          }
+        >
           <X className="size-3.5" />
           Discard
         </Button>

@@ -2,10 +2,12 @@ import { node } from "@/lib/api"
 import type {
   CreateSupplierItemRequest,
   SourcedItem,
+  SourcingPage,
   Supplier,
   SupplierItem,
   SupplierStatus,
 } from "@itulah/contract"
+import { useInfiniteQuery } from "@tanstack/react-query"
 
 /// Sourcing is one question — "who sells this, and for how much" — so the
 /// server answers it in one request. `GET /api/v1/supplier-items` matches an
@@ -14,20 +16,33 @@ import type {
 /// that would put the definition of "matches" in a place nobody can see, and
 /// would cost one request per supplier.
 export interface SourcingScope {
-  /// Free text, matched server-side against item name, item code and supplier
-  /// name.
+  /// Free text, matched server-side against item name, item code, supplier
+  /// name and supplier code.
   readonly q?: string
-  readonly supplierId?: string
+  /// Every facet is a set: a buyer looking at kids and footwear is looking at
+  /// both, not at the intersection of the two, which is empty.
+  readonly supplierIds?: readonly string[]
+  readonly divisionCodes?: readonly string[]
+  readonly tagCodes?: readonly string[]
   readonly status?: SupplierStatus
   readonly limit?: number
+  readonly priceMin?: number
+  readonly priceMax?: number
+  /// From a previous page's `next_cursor`.
+  readonly cursor?: string
 }
 
 function scopeToQuery(scope: SourcingScope): string {
   const params = new URLSearchParams()
   if (scope.q !== undefined && scope.q.trim() !== "") params.set("q", scope.q.trim())
   if (scope.status !== undefined) params.set("status", scope.status)
-  if (scope.supplierId !== undefined) params.set("supplier_id", scope.supplierId)
+  if (scope.supplierIds?.length) params.set("supplier_id", scope.supplierIds.join(","))
+  if (scope.divisionCodes?.length) params.set("division", scope.divisionCodes.join(","))
+  if (scope.tagCodes?.length) params.set("tags", scope.tagCodes.join(","))
   if (scope.limit !== undefined) params.set("limit", String(scope.limit))
+  if (scope.priceMin !== undefined) params.set("price_min", String(scope.priceMin))
+  if (scope.priceMax !== undefined) params.set("price_max", String(scope.priceMax))
+  if (scope.cursor !== undefined) params.set("cursor", scope.cursor)
   const query = params.toString()
   return query === "" ? "" : `?${query}`
 }
@@ -35,8 +50,37 @@ function scopeToQuery(scope: SourcingScope): string {
 export function searchSourcedItems(
   scope: SourcingScope = {},
   signal?: AbortSignal,
-): Promise<SourcedItem[]> {
-  return node.get<SourcedItem[]>(`/api/v1/supplier-items${scopeToQuery(scope)}`, { signal })
+): Promise<SourcingPage> {
+  return node.get<SourcingPage>(`/api/v1/supplier-items${scopeToQuery(scope)}`, { signal })
+}
+
+/// One page of the catalogue, plus what the rest of it contains.
+///
+/// Facets are counted by the server over everything the search matches, not
+/// over the page. They used to be counted in the browser from whatever had been
+/// fetched, which was true while a catalogue was five items and became a lie at
+/// 2806: the counts described the page, and filtering by a division searched
+/// only the part of the catalogue that happened to have loaded.
+export function useSourcingCatalogue(scope: Omit<SourcingScope, "cursor">) {
+  const query = useInfiniteQuery({
+    queryKey: ["sourcing", "items", scope],
+    queryFn: ({ pageParam, signal }) =>
+      searchSourcedItems({ ...scope, cursor: pageParam ?? undefined }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+  const pages = query.data?.pages ?? []
+  return {
+    ...query,
+    /// Every row fetched so far, in order. The list only grows as the buyer
+    /// scrolls, so this is append-only rather than a window.
+    items: pages.flatMap((page) => page.items),
+    /// From the first page: every page reports the same totals, and taking the
+    /// first means the counts do not flicker as more pages arrive.
+    total: pages[0]?.total ?? 0,
+    facets: pages[0]?.facets,
+  }
 }
 
 export function listSuppliers(

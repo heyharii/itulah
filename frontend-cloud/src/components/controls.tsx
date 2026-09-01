@@ -17,7 +17,13 @@ export function ControlsProvider({ children }: { children: React.ReactNode }) {
       <div
         // REMINDER: access the data-expanded state with tailwind via `group-data-[expanded=true]/controls:block`
         // In tailwindcss v4, we could even use `group-data-expanded/controls:block`
-        className="group/controls"
+        // Sized, not just named. This sits between the app's `h-svh` column
+        // and the shell's grid, so a bare block here breaks the chain of
+        // `min-h-0` that lets the content area scroll: the inner
+        // `overflow-auto` grows to fit its rows instead of scrolling them, and
+        // the whole page scrolls instead — which also stops any
+        // IntersectionObserver inside it from ever seeing its own bottom.
+        className="group/controls flex min-h-0 flex-1 flex-col"
         data-expanded={open}
       >
         {children}

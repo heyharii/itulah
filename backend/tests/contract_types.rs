@@ -239,6 +239,16 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("CatalogPurchaseOrderRequest: {e}"));
     inventory_backend::cloud::postgres::SourcedItem::export_all(&config)
         .unwrap_or_else(|e| panic!("SourcedItem: {e}"));
+    inventory_backend::cloud::postgres::SourcingPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("SourcingPage: {e}"));
+    inventory_backend::cloud::postgres::SourcingFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("SourcingFacets: {e}"));
+    inventory_backend::cloud::postgres::FacetCount::export_all(&config)
+        .unwrap_or_else(|e| panic!("FacetCount: {e}"));
+    inventory_backend::cloud::postgres::CatalogueVocabulary::export_all(&config)
+        .unwrap_or_else(|e| panic!("CatalogueVocabulary: {e}"));
+    inventory_backend::cloud::postgres::VocabularyTerm::export_all(&config)
+        .unwrap_or_else(|e| panic!("VocabularyTerm: {e}"));
 
     // The buyer's basket. Picked out, not yet ordered — and now a record the
     // server keeps rather than a set of ids in one browser's storage.
@@ -303,6 +313,15 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SetThreadStatusRequest: {e}"));
     inventory_backend::cloud::http::discussion::SetBookmarkRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("SetBookmarkRequest: {e}"));
+
+    // Work that found a person. The read state is per reader, which is why
+    // `read_at` sits on the notification a reader is handed rather than on the
+    // notification itself — a browser mirroring this by hand would sooner or
+    // later show one person's cleared badge to everybody.
+    inventory_backend::cloud::postgres::Notification::export_all(&config)
+        .unwrap_or_else(|e| panic!("Notification: {e}"));
+    inventory_backend::cloud::postgres::NotificationPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("NotificationPage: {e}"));
 
     inventory_backend::cloud::postgres::StoredFile::export_all(&config)
         .unwrap_or_else(|e| panic!("StoredFile: {e}"));

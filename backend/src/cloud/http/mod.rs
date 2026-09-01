@@ -17,6 +17,7 @@ pub mod chat;
 pub mod customer;
 pub mod discussion;
 pub mod files;
+pub mod notifications;
 pub mod suppliers;
 
 /// Exact browser origins from config. Unset means same-origin only.
@@ -334,6 +335,18 @@ pub fn router(state: AppState) -> Router {
         // connection fills its gap instead of skipping it.
         .route("/api/v1/chat/stream", get(chat::stream))
         .route("/api/v1/chat/events", get(chat::events))
+        // Work that found a person. Read-only plus two ways to say "dealt
+        // with": nothing here can raise one, because a notification exists
+        // only as a consequence of something that actually happened.
+        .route("/api/v1/notifications", get(notifications::list))
+        .route(
+            "/api/v1/notifications/read-all",
+            post(notifications::mark_all_read),
+        )
+        .route(
+            "/api/v1/notifications/{id}/read",
+            post(notifications::mark_read),
+        )
         .route(
             "/api/v1/discussions",
             get(discussion::list_threads).post(discussion::open_thread),

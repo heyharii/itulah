@@ -81,6 +81,36 @@ export class Node {
     if (body !== undefined) {
       headers["content-type"] = "application/json";
     }
+    return this.send<T>(
+      method,
+      path,
+      body === undefined ? undefined : JSON.stringify(body),
+      headers,
+      options,
+    );
+  }
+
+  /// A write whose body is bytes rather than a document.
+  ///
+  /// Upload is the only one: the browser hands the `File` straight to `fetch`,
+  /// and the name and content type travel as query parameters — see
+  /// `cloud/http/files.rs`, which chose that over a header so no cross-origin
+  /// preflight has to be widened, and over multipart so nothing has to be
+  /// re-encoded. Everything else is an ordinary write, and it lives here for
+  /// that reason: a loose `fetch` in one screen would be a write without the
+  /// CSRF header, which the server refuses, and without the error shape every
+  /// other call already knows how to read.
+  upload<T>(path: string, body: Blob, options: RequestOptions = {}): Promise<T> {
+    return this.send<T>("POST", path, body, {}, options);
+  }
+
+  private async send<T>(
+    method: string,
+    path: string,
+    body: BodyInit | undefined,
+    headers: Record<string, string>,
+    options: RequestOptions,
+  ): Promise<T> {
     // A cookie-authenticated write must carry the CSRF token in a header as
     // well as the cookie; the server compares the two and rejects the request
     // when either is missing. Omitting this header is why a signed-in browser
@@ -97,7 +127,7 @@ export class Node {
     const response = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body,
       // The session cookie the node sets when auth is on.
       credentials: "include",
       signal: options.signal,

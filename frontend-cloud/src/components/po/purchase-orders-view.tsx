@@ -11,6 +11,7 @@ import { DataTableFilterControls } from "@/components/data-table/data-table-filt
 import { DataTableProvider } from "@/components/data-table/data-table-provider"
 import { DataTableResetButton } from "@/components/data-table/data-table-reset-button"
 import { Nav } from "@/components/nav"
+import { useSupplierPicker } from "@/components/po/new-order"
 import { Button } from "@/components/ui/button"
 import { listPurchaseOrders } from "@/lib/purchase-orders"
 import { useMemoryAdapter } from "@/lib/store/adapters/memory"
@@ -30,6 +31,7 @@ const PAGE = 500
 /// The buyer's list of orders, and the way into any one of them.
 export function PurchaseOrdersView() {
   const navigate = useNavigate()
+  const supplierPicker = useSupplierPicker()
   const open = (purchaseOrderId: string) =>
     void navigate({ to: "/orders/$purchaseOrderId", params: { purchaseOrderId } })
   const orders = useQuery({
@@ -87,11 +89,15 @@ export function PurchaseOrdersView() {
             }
           >
             <DataTableResetButton />
-            <Button size="sm" onClick={() => void navigate({ to: "/" })}>
+            {/* Straight to a draft by naming the supplier. Sourcing is still
+                one click away in the rail for a buyer who is shopping rather
+                than ordering something they have already decided on. */}
+            <Button size="sm" onClick={supplierPicker.open}>
               <Plus className="size-3.5" />
               New PO
             </Button>
           </ScreenHeader>
+          {supplierPicker.picker}
 
           <div className="min-h-0 flex-1 overflow-auto">
             {orders.isPending ? (
@@ -110,7 +116,16 @@ export function PurchaseOrdersView() {
                   : "The orders could not be loaded."}
               </ScreenState>
             ) : visible.length === 0 ? (
-              <ScreenState>
+              <ScreenState
+                action={
+                  rows.length === 0 ? (
+                    <Button size="sm" onClick={supplierPicker.open}>
+                      <Plus className="size-3.5" />
+                      Raise one
+                    </Button>
+                  ) : undefined
+                }
+              >
                 {rows.length === 0
                   ? "No purchase orders have been raised yet."
                   : "No orders match these filters."}

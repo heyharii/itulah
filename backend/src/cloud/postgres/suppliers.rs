@@ -525,7 +525,91 @@ pub struct SourcedItem {
     pub supplier: Supplier,
 }
 
-/// Everything on offer, across every supplier.
+/// How many items carry one value of a facet, across the whole catalogue.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct FacetCount {
+    pub value: String,
+    pub count: i64,
+}
+
+/// What the catalogue contains, beside the page of it being shown.
+///
+/// Counted over everything the text search matches, NOT over the current
+/// selection. Choosing a division should not make the other divisions vanish
+/// or read zero: a facet list is how a buyer sees what else is there, and one
+/// that only describes what they have already chosen cannot answer "what if I
+/// looked at menswear instead".
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SourcingFacets {
+    pub divisions: Vec<FacetCount>,
+    pub tags: Vec<FacetCount>,
+    pub suppliers: Vec<FacetCount>,
+}
+
+/// One page of the catalogue, and enough about the rest to describe it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SourcingPage {
+    pub items: Vec<SourcedItem>,
+    /// Opaque. Pass it back to get the next page; absent means this was the
+    /// last one. Deliberately not an offset: rows are added and deactivated
+    /// while a buyer scrolls, and an offset would skip or repeat items when
+    /// they are.
+    pub next_cursor: Option<String>,
+    /// Every item the search matches, not just this page. Without it a screen
+    /// can only say "500 items", which is a statement about the page size.
+    pub total: i64,
+    pub facets: SourcingFacets,
+}
+
+/// Where the previous page stopped, in the sort's own terms.
+///
+/// Every component of the sort is here, ending in the id — the sort is not
+/// unique without it, and a keyset that stops at a non-unique key loses or
+/// repeats the rows that tie.
+#[derive(Serialize, Deserialize)]
+struct SourcingCursor {
+    rank: i32,
+    supplier_name: String,
+    item_name: String,
+    id: Uuid,
+}
+
+impl SourcingCursor {
+    /// Hex rather than base64 only because `hex` is already a dependency and
+    /// base64 is not; the point is that it is opaque, not that it is short.
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// What a caller is asking the catalogue for.
+#[derive(Clone, Debug, Default)]
+pub struct SourcingScope {
+    pub needle: Option<String>,
+    pub status: Option<SupplierStatus>,
+    pub supplier_ids: Vec<Uuid>,
+    pub division_codes: Vec<String>,
+    pub tag_codes: Vec<String>,
+    pub cursor: Option<String>,
+    /// Inclusive bounds on the catalogue price, in minor units. Server-side
+    /// for the same reason the facets are: a slider that only narrows the page
+    /// already fetched tells a buyer there is nothing cheaper when there is.
+    pub price_min: Option<i64>,
+    pub price_max: Option<i64>,
+    pub limit: i64,
+}
+
+/// Everything on offer, across every supplier, a page at a time.
 ///
 /// Added because the screen that needs it could only be built by asking for
 /// each supplier's items in turn and stitching the answers together in the
@@ -535,14 +619,32 @@ pub struct SourcedItem {
 ///
 /// `needle` matches an item's name or code, or the supplier's name — the three
 /// things somebody actually knows when they are looking for something to buy.
+///
+/// Division and tags are filtered HERE, not in the browser. They used to be
+/// faceted client-side over whatever rows had been fetched, which was honest
+/// while a catalogue was five items and became a lie at 2806: the counts
+/// described the page rather than the catalogue, and filtering by a division
+/// searched only the part of it that happened to have loaded.
 pub async fn search_supplier_items(
     pool: &PgPool,
-    needle: Option<&str>,
-    status: Option<SupplierStatus>,
-    supplier_id: Option<Uuid>,
-    limit: i64,
-) -> Result<Vec<SourcedItem>, AppError> {
-    let trimmed = needle.map(str::trim).filter(|value| !value.is_empty());
+    scope: SourcingScope,
+) -> Result<SourcingPage, AppError> {
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let status = scope.status.map(|value| value.as_str().to_string());
+    let suppliers = (!scope.supplier_ids.is_empty()).then_some(scope.supplier_ids);
+    let divisions = (!scope.division_codes.is_empty()).then_some(scope.division_codes);
+    let tags = (!scope.tag_codes.is_empty()).then_some(scope.tag_codes);
+    let cursor = scope.cursor.as_deref().map(SourcingCursor::decode).transpose()?;
+    // A page, not the catalogue. The browser asks for the next one when the
+    // buyer reaches the bottom, which is the only way a 2806-item range can be
+    // shown without handing a laptop 2806 photographs at once.
+    let limit = scope.limit.clamp(1, 200);
+
     let rows = sqlx::query(
         "SELECT i.*,
                 COALESCE(
@@ -551,6 +653,7 @@ pub async fn search_supplier_items(
                       WHERE t.supplier_item_id = i.supplier_item_id),
                     '{}'
                 ) AS tags,
+                CASE i.status WHEN 'ACTIVE' THEN 0 ELSE 1 END AS rank,
                 s.supplier_id AS s_supplier_id, s.supplier_code AS s_supplier_code,
                 s.supplier_code_normalized AS s_supplier_code_normalized, s.name AS s_name,
                 s.contact_name AS s_contact_name, s.phone AS s_phone, s.email AS s_email,
@@ -560,24 +663,132 @@ pub async fn search_supplier_items(
            FROM supplier_item i
            JOIN supplier s ON s.supplier_id = i.supplier_id
           WHERE ($1::text IS NULL OR i.status = $1)
-            AND ($2::uuid IS NULL OR i.supplier_id = $2)
+            AND ($2::uuid[] IS NULL OR i.supplier_id = ANY($2))
             AND ($3::text IS NULL
                  OR i.name ILIKE '%' || $3 || '%'
                  OR i.supplier_item_code ILIKE '%' || $3 || '%'
-                 OR s.name ILIKE '%' || $3 || '%')
-          ORDER BY CASE i.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, s.name, i.name
-          LIMIT $4",
+                 OR s.name ILIKE '%' || $3 || '%'
+                 -- The code as well as the name: it is what appears on the
+                 -- order and on the carton, so it is what somebody has in
+                 -- front of them when they come here looking.
+                 OR s.supplier_code ILIKE '%' || $3 || '%')
+            AND ($4::text[] IS NULL OR i.division_code = ANY($4))
+            AND ($5::text[] IS NULL OR EXISTS (
+                    SELECT 1 FROM supplier_item_tag t
+                     WHERE t.supplier_item_id = i.supplier_item_id
+                       AND t.tag_code = ANY($5)))
+            AND ($11::bigint IS NULL OR i.unit_price_minor >= $11)
+            AND ($12::bigint IS NULL OR i.unit_price_minor <= $12)
+            -- Keyset: strictly after the last row of the previous page, in the
+            -- sort's own order. Row-value comparison rather than an unrolled
+            -- chain of ORs, so the planner can use the ordering directly.
+            AND ($6::int IS NULL OR
+                 (CASE i.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, s.name, i.name, i.supplier_item_id)
+                 > ($6::int, $7::text, $8::text, $9::uuid))
+          ORDER BY rank, s.name, i.name, i.supplier_item_id
+          LIMIT $10",
     )
-    .bind(status.map(|value| value.as_str()))
-    .bind(supplier_id)
-    .bind(trimmed)
-    // Bounded, because a sourcing screen shows a page and a browser handed
-    // every item a large company has ever been offered stops answering.
-    .bind(limit.clamp(1, 500))
+    .bind(&status)
+    .bind(&suppliers)
+    .bind(&needle)
+    .bind(&divisions)
+    .bind(&tags)
+    .bind(cursor.as_ref().map(|c| c.rank))
+    .bind(cursor.as_ref().map(|c| c.supplier_name.clone()))
+    .bind(cursor.as_ref().map(|c| c.item_name.clone()))
+    .bind(cursor.as_ref().map(|c| c.id))
+    .bind(limit)
+    .bind(scope.price_min)
+    .bind(scope.price_max)
     .fetch_all(pool)
     .await?;
 
-    rows.into_iter().map(sourced_item_from_row).collect()
+    // The cursor is built from the last row BEFORE the rows are converted,
+    // because the sort keys include the supplier's name, which the converted
+    // shape nests one level down.
+    let next_cursor = if (rows.len() as i64) < limit {
+        None
+    } else {
+        match rows.last() {
+            Some(row) => Some(
+                SourcingCursor {
+                    rank: row.try_get("rank")?,
+                    supplier_name: row.try_get("s_name")?,
+                    item_name: row.try_get("name")?,
+                    id: row.try_get("supplier_item_id")?,
+                }
+                .encode()?,
+            ),
+            None => None,
+        }
+    };
+
+    let items = rows
+        .into_iter()
+        .map(sourced_item_from_row)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let (total, facets) = sourcing_facets(pool, needle.as_deref(), status.as_deref()).await?;
+    Ok(SourcingPage {
+        items,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// What the whole search contains, by division, tag and supplier.
+///
+/// One round trip: a screen cannot draw its facet list before it has all three,
+/// so splitting them would only buy two more waits.
+async fn sourcing_facets(
+    pool: &PgPool,
+    needle: Option<&str>,
+    status: Option<&str>,
+) -> Result<(i64, SourcingFacets), AppError> {
+    let row = sqlx::query(
+        "WITH base AS (
+             SELECT i.supplier_item_id, i.division_code, i.supplier_id
+               FROM supplier_item i
+               JOIN supplier s ON s.supplier_id = i.supplier_id
+              WHERE ($1::text IS NULL OR i.status = $1)
+                AND ($2::text IS NULL
+                     OR i.name ILIKE '%' || $2 || '%'
+                     OR i.supplier_item_code ILIKE '%' || $2 || '%'
+                     OR s.name ILIKE '%' || $2 || '%'
+                     OR s.supplier_code ILIKE '%' || $2 || '%')
+         )
+         SELECT
+             (SELECT count(*) FROM base) AS total,
+             COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
+                                        ORDER BY count DESC, value)
+                         FROM (SELECT COALESCE(division_code, 'Unclassified') AS value,
+                                      count(*) AS count
+                                 FROM base GROUP BY 1) d), '[]'::jsonb) AS divisions,
+             COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
+                                        ORDER BY count DESC, value)
+                         FROM (SELECT t.tag_code AS value, count(*) AS count
+                                 FROM base b
+                                 JOIN supplier_item_tag t USING (supplier_item_id)
+                                GROUP BY 1) g), '[]'::jsonb) AS tags,
+             COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
+                                        ORDER BY count DESC, value)
+                         FROM (SELECT b.supplier_id::text AS value, count(*) AS count
+                                 FROM base b GROUP BY 1) p), '[]'::jsonb) AS suppliers",
+    )
+    .bind(status)
+    .bind(needle)
+    .fetch_one(pool)
+    .await?;
+
+    Ok((
+        row.try_get("total")?,
+        SourcingFacets {
+            divisions: serde_json::from_value(row.try_get("divisions")?)?,
+            tags: serde_json::from_value(row.try_get("tags")?)?,
+            suppliers: serde_json::from_value(row.try_get("suppliers")?)?,
+        },
+    ))
 }
 
 /// One joined `supplier_item` + `supplier` row, as both this module and the

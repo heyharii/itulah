@@ -1,11 +1,16 @@
+import {
+  NotificationRailIcon,
+  NotificationSheet,
+} from "@/components/notifications/notification-sheet"
 import { BasketRailIcon, BasketSheet, useBasketPieces } from "@/components/sourcing/basket-sheet"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { allotmentListKey, listAllotments } from "@/lib/allotments"
+import { listPriceBooks, priceBooksKey } from "@/lib/commercial"
 import { pendingPriceAmendments } from "@/lib/purchase-orders"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useRouterState } from "@tanstack/react-router"
-import { ClipboardList, ClipboardX, Shirt, Truck } from "lucide-react"
+import { ClipboardList, ClipboardX, Shirt, Tag, Truck } from "lucide-react"
 
 /// Where the buyer can go, and what is waiting for them there.
 ///
@@ -40,6 +45,16 @@ export function Nav() {
   const reserving = (allotments.data?.items ?? []).filter(
     (row) => row.remaining_quantity > 0,
   ).length
+  // The same key the Price books screen asks for, so opening it does not fetch
+  // the list a second time.
+  const books = useQuery({
+    queryKey: priceBooksKey(),
+    queryFn: ({ signal }) => listPriceBooks(signal),
+    refetchInterval: 60_000,
+  })
+  // A book written and not published is a price decided and not charged. It is
+  // the only unfinished work Commercial has that nothing else would show.
+  const unpublished = (books.data ?? []).filter((book) => book.status === "DRAFT").length
 
   // Orders, one order, and a draft are three routes but one place as far as
   // somebody reading the nav is concerned.
@@ -80,6 +95,28 @@ export function Nav() {
           icon={<ClipboardX className={cn("size-5", waiting > 0 && "text-amber-600")} />}
           count={waiting}
         />
+        {/* What the shops charge — a different price from the one the
+            amendments queue argues about, and worth keeping a step apart from
+            it: that one is what we pay a supplier, this one is what a customer
+            pays us. */}
+        <RailLink
+          to="/commercial"
+          label="Prices"
+          icon={<Tag className={cn("size-5", unpublished > 0 && "text-amber-600")} />}
+          active={path.startsWith("/commercial")}
+          count={unpublished}
+        />
+
+        {/* Also not a destination, and for a different reason than the basket:
+            what arrived is read in the middle of doing something else, so it
+            opens over the screen rather than replacing it. */}
+        <RailItem label="Notifications" active={false}>
+          <NotificationSheet>
+            <button type="button" className={RAIL_BUTTON} aria-label="Notifications">
+              <NotificationRailIcon />
+            </button>
+          </NotificationSheet>
+        </RailItem>
       </nav>
     </TooltipProvider>
   )

@@ -1,6 +1,8 @@
 import { AllotmentDetailView } from "@/components/allotment/allotment-detail"
 import { AllotmentDraft } from "@/components/allotment/allotment-draft"
 import { AllotmentsView } from "@/components/allotment/allotments-view"
+import { PriceBooksView } from "@/components/commercial/price-books-view"
+import { PricesView } from "@/components/commercial/prices-view"
 import { OrderDetail } from "@/components/po/order-detail"
 import { PoDraft } from "@/components/po/po-draft"
 import { PriceAmendmentsView } from "@/components/po/price-amendments-view"
@@ -93,6 +95,27 @@ const amendmentsRoute = createRoute({
   component: PriceAmendmentsView,
 })
 
+/// What the shops are charging, and the books that decided it.
+///
+/// Two screens rather than one, because they answer questions asked by
+/// different people on different days: "what is Bandung selling this shirt for"
+/// is a daily question with a shop and an instant in it, and "has last week's
+/// repricing gone out" is asked once and needs the fleet, not one branch.
+///
+/// `/commercial` is the priced range because that is the one people open
+/// without being sent — the books are where you go when a price is wrong.
+const pricesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/commercial",
+  component: PricesView,
+})
+
+const priceBooksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/commercial/books",
+  component: PriceBooksView,
+})
+
 const routeTree = rootRoute.addChildren([
   sourcingRoute,
   basketRoute,
@@ -103,6 +126,8 @@ const routeTree = rootRoute.addChildren([
   allotmentsRoute,
   allotmentDraftRoute,
   allotmentRoute,
+  pricesRoute,
+  priceBooksRoute,
 ])
 
 export const router = createRouter({ routeTree })

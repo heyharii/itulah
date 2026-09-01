@@ -8,6 +8,7 @@ import { createSchema, field } from "@/lib/store/schema"
 import type { DataTableFeatures } from "@/lib/table/features"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Plus } from "lucide-react"
+import type { SourcingFacets } from "@itulah/contract"
 import type { Vocabulary } from "@/lib/vocabulary"
 import type { SourcingRow } from "./rows"
 
@@ -275,28 +276,25 @@ export function sourcingColumns({
 export function sourcingFilterFields(
   rows: readonly SourcingRow[],
   vocabulary: Vocabulary,
+  /// Counted by the server over the whole catalogue. Passing the loaded rows
+  /// instead would describe the page — which is what this used to do, and why
+  /// a facet could say "Kids 137" about a catalogue holding 751.
+  facets: SourcingFacets | undefined,
+  /// Supplier ids read as names. The facet's value is the id, because that is
+  /// what the server filters on and what survives a rename.
+  supplierName: (id: string) => string,
 ): DataTableFilterField<SourcingRow>[] {
   /// Facets are labelled but still addressed by code: what a filter matches
   /// must not change when somebody renames a division.
-  const unique = (values: readonly string[], label: (value: string) => string = (v) => v) =>
-    [...new Set(values)]
-      .map((value) => ({ label: label(value), value }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-
-  /// Divisions read in the order the business thinks in — Menswear before
-  /// Accessories — rather than alphabetically, which is nobody's mental model
-  /// of a range. Anything the vocabulary does not know (Unclassified) settles
-  /// at the end.
-  const byDivisionOrder = (values: readonly string[]) => {
-    const rank = new Map(vocabulary.divisionOrder.map((code, index) => [code, index]))
-    return [...new Set(values)]
-      .map((value) => ({ label: vocabulary.division(value), value }))
-      .sort(
-        (a, b) =>
-          (rank.get(a.value) ?? Number.MAX_SAFE_INTEGER) -
-            (rank.get(b.value) ?? Number.MAX_SAFE_INTEGER) || a.label.localeCompare(b.label),
-      )
-  }
+  const counted = (
+    entries: readonly { value: string; count: number }[] | undefined,
+    label: (value: string) => string,
+  ) =>
+    (entries ?? []).map((entry) => ({
+      label: `${label(entry.value)}`,
+      value: entry.value,
+      count: entry.count,
+    }))
 
   const prices = rows.map((row) => row.price)
   return [
@@ -311,20 +309,29 @@ export function sourcingFilterFields(
       value: "supplier",
       type: "checkbox",
       defaultOpen: true,
-      options: unique(rows.map((row) => row.supplier)),
+      options: counted(facets?.suppliers, supplierName).sort((a, b) =>
+        a.label.localeCompare(b.label),
+      ),
     },
     {
       label: "Division",
       value: "division",
       type: "checkbox",
       defaultOpen: true,
-      options: byDivisionOrder(rows.map((row) => row.division)),
+      options: (() => {
+        const rank = new Map(vocabulary.divisionOrder.map((code, index) => [code, index]))
+        return counted(facets?.divisions, vocabulary.division).sort(
+          (a, b) =>
+            (rank.get(a.value) ?? Number.MAX_SAFE_INTEGER) -
+              (rank.get(b.value) ?? Number.MAX_SAFE_INTEGER) || a.label.localeCompare(b.label),
+        )
+      })(),
     },
     {
       label: "Tags",
       value: "tags",
       type: "checkbox",
-      options: unique(rows.flatMap((row) => row.tags), vocabulary.tag),
+      options: counted(facets?.tags, vocabulary.tag),
     },
     {
       label: "Status",

@@ -5787,7 +5787,7 @@ async fn apply_goods_receipt_line(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query(
+    let inserted = sqlx::query(
         "INSERT INTO goods_receipt_line
              (receipt_line_id, receipt_id, po_line_id, quantity, counted_by, verified_by,
               counted_at, verified_at, movement_group_id, generation, seq)
@@ -5807,6 +5807,46 @@ async fn apply_goods_receipt_line(
     .bind(seq)
     .execute(&mut **tx)
     .await?;
+
+    // Accepted goods with no identity yet are head office's move, and nobody
+    // at the warehouse can make it: the article, its SKUs and their EPCs are
+    // minted centrally. Raised only when the line was actually inserted — a
+    // replayed fact is the same delivery, not a second one.
+    if inserted.rows_affected() > 0 {
+        let ordered: Option<(String, String)> = sqlx::query_as(
+            "SELECT o.po_number, l.article_name
+               FROM purchase_order_line l
+               JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+              WHERE l.po_line_id = $1",
+        )
+        .bind(line.po_line_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some((po_number, article_name)) = ordered {
+            let recipients =
+                super::notifications::recipients_with_role(tx, &["ADMIN", "SUPERVISOR"]).await?;
+            super::notifications::raise_notification(
+                tx,
+                super::notifications::NewNotification {
+                    kind: "receipt.awaiting_identity",
+                    title: "Goods arrived without an identity".into(),
+                    body: format!(
+                        "{} pieces of \"{article_name}\" ({po_number}) were accepted on {} at {origin_id} and are waiting to be named, priced and given labels.",
+                        line.quantity, line.receipt_number,
+                    ),
+                    subject: Some(("goods_receipt_line", line.receipt_line_id.to_string())),
+                    origin_id: Some(origin_id),
+                    payload: serde_json::json!({
+                        "receipt_line_id": line.receipt_line_id,
+                        "po_line_id": line.po_line_id,
+                        "quantity": line.quantity,
+                    }),
+                },
+                &recipients,
+            )
+            .await?;
+        }
+    }
     Ok(())
 }
 
@@ -6052,7 +6092,61 @@ async fn apply_price_amendment_request(
     .bind(request.requested_at)
     .execute(&mut **tx)
     .await?;
+
+    // Tell the people who can answer it. Raised here, in the ingest
+    // transaction, rather than by a sweep that looks for undecided rows: a
+    // query is only pending because somebody at a warehouse is waiting, and
+    // "we noticed a few minutes later" is not a property worth building in.
+    let recipients =
+        super::notifications::recipients_with_role(tx, &["ADMIN", "SUPERVISOR"]).await?;
+    let difference = request.invoiced_price_minor - ordered_price;
+    super::notifications::raise_notification(
+        tx,
+        super::notifications::NewNotification {
+            kind: "purchase.price_amendment.requested",
+            title: "A supplier invoiced a different price".into(),
+            body: format!(
+                "{} at {origin_id} accepted a delivery invoiced at {} per piece against an agreed {}, a difference of {}{}.",
+                request.requested_by,
+                minor(request.invoiced_price_minor),
+                minor(ordered_price),
+                if difference > 0 { "+" } else { "" },
+                minor(difference),
+            ),
+            subject: Some(("purchase_price_amendment", request.request_id.to_string())),
+            origin_id: Some(origin_id),
+            payload: serde_json::json!({
+                "request_id": request.request_id,
+                "po_line_id": request.po_line_id,
+                "ordered_price_minor": ordered_price,
+                "invoiced_price_minor": request.invoiced_price_minor,
+            }),
+        },
+        &recipients,
+    )
+    .await?;
     Ok(())
+}
+
+/// Minor units as a person reads them. Rupiah has no subunit in practice, so
+/// this groups thousands and does not invent decimals the currency does not
+/// have — the notification is prose, and prose showing "215000000" teaches
+/// nobody anything.
+fn minor(value: i64) -> String {
+    let negative = value < 0;
+    let digits = value.abs().to_string();
+    let mut grouped = String::new();
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            grouped.push('.');
+        }
+        grouped.push(ch);
+    }
+    if negative {
+        format!("-{grouped}")
+    } else {
+        grouped
+    }
 }
 
 /// Questions waiting for head office. The buyer's inbox.
