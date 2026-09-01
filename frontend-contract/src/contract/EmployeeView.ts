@@ -10,4 +10,4 @@ export type EmployeeView = { employee_id: string, employee_code: string, status:
  * for the browser to derive, so nothing downstream invents its own idea of
  * "still here" and disagrees with the domain.
  */
-selectable: boolean, current_place_id: string | null, assignments: Array<AssignmentView>, history: Array<EmploymentEventView>, code_history: Array<EmployeeCodeCorrectionView>, created_at: string, updated_at: string, };
+selectable: boolean, current_place_id: string | null, current_place_name: string | null, assignments: Array<AssignmentView>, history: Array<EmploymentEventView>, code_history: Array<EmployeeCodeCorrectionView>, created_at: string, updated_at: string, };

@@ -102,6 +102,23 @@
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8177"
       }
+    },
+    {
+      "name": "store-sales-verify",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5185",
+        "--strictPort"
+      ],
+      "port": 5185,
+      "cwd": "frontend-store",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8121"
+      }
     }
   ]
 }

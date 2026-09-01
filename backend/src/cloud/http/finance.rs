@@ -14,9 +14,10 @@ use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{
-        self as infrastructure, AccountBalance, FiscalPeriod, GeneralLedger, JournalEntryDetail,
-        JournalEntryRow, LedgerAccount, PostingIntent, PostingLine, SetAccountMappingRequest,
-        TrialBalance,
+        self as infrastructure, AccountBalance, BalanceMatrix, FiscalPeriod, GeneralLedger,
+        JournalEntryDetail, JournalEntryRow, LedgerAccount, PostingIntent, PostingLine,
+        RecordBillRequest, SetAccountMappingRequest, Statement, SupplierBill, TrialBalance,
+        UnbilledReceipt,
     },
 };
 use axum::{
@@ -326,4 +327,125 @@ pub async fn reverse_entry(
         "entry_id": posted.entry_id,
         "entry_number": posted.entry_number,
     })))
+}
+
+// ---------------------------------------------------------------------------
+// Positions and statements
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct MatrixQuery {
+    /// Any code in the chart. The tree is in the codes, so the caller picks the
+    /// altitude: `1011001` is cash on hand, `10110` is the whole of KAS.
+    pub family: String,
+    pub as_of: Option<NaiveDate>,
+}
+
+/// One account family, by location. The shape behind every position screen —
+/// cash, banks, card receivables, inter-unit, inventory, assets, loans.
+pub async fn balances(
+    State(state): State<AppState>,
+    Query(query): Query<MatrixQuery>,
+) -> Result<Json<BalanceMatrix>, AppError> {
+    let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
+    Ok(Json(
+        infrastructure::balance_matrix(&state.db, query.family.trim(), as_of).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StatementQuery {
+    /// `BALANCE_SHEET` or `PROFIT_LOSS`.
+    pub kind: Option<String>,
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    pub site: Option<String>,
+}
+
+pub async fn statement(
+    State(state): State<AppState>,
+    Query(query): Query<StatementQuery>,
+) -> Result<Json<Statement>, AppError> {
+    let to = query.to.unwrap_or_else(|| Utc::now().date_naive());
+    let kind = query.kind.unwrap_or_else(|| "BALANCE_SHEET".into());
+    // A profit and loss with no start is the year so far, which is what
+    // somebody opening it without choosing a window almost always means.
+    let from = query.from.or_else(|| {
+        (kind == "PROFIT_LOSS")
+            .then(|| NaiveDate::from_ymd_opt(to.year(), 1, 1))
+            .flatten()
+    });
+    Ok(Json(
+        infrastructure::statement(&state.db, &kind, from, to, query.site.as_deref()).await?,
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Supplier bills
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct BillQuery {
+    pub status: Option<String>,
+    pub supplier: Option<String>,
+    pub limit: Option<i64>,
+}
+
+pub async fn bills(
+    State(state): State<AppState>,
+    Query(query): Query<BillQuery>,
+) -> Result<Json<Vec<SupplierBill>>, AppError> {
+    Ok(Json(
+        infrastructure::list_bills(
+            &state.db,
+            query.status.as_deref(),
+            query.supplier.as_deref(),
+            query.limit.unwrap_or(200),
+        )
+        .await?,
+    ))
+}
+
+pub async fn record_bill(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<RecordBillRequest>,
+) -> Result<Json<SupplierBill>, AppError> {
+    Ok(Json(
+        infrastructure::record_bill(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PostBillRequest {
+    pub posting_date: Option<NaiveDate>,
+}
+
+pub async fn post_bill(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(invoice_id): Path<Uuid>,
+    Json(request): Json<PostBillRequest>,
+) -> Result<Json<SupplierBill>, AppError> {
+    Ok(Json(
+        infrastructure::post_bill(
+            &state.db,
+            invoice_id,
+            request.posting_date,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+/// Deliveries with no bill against them.
+///
+/// The books cannot carry this — the client has no goods-received-not-invoiced
+/// account — so it is reported as an operational exposure and labelled as one.
+pub async fn unbilled(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<UnbilledReceipt>>, AppError> {
+    Ok(Json(
+        infrastructure::unbilled_receipts(&state.db, 200).await?,
+    ))
 }

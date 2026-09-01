@@ -45,6 +45,41 @@ export type FinanceRoute =
   | "/finance/ledger"
   | "/finance/trial-balance"
   | "/finance/periods"
+  | "/finance/payables/bills"
+  | "/finance/payables/giro"
+  | "/finance/payables/discounts"
+  | "/finance/payables/non-merchandise"
+  | "/finance/payables/affiliate"
+  | "/finance/payables/accrued"
+  | "/finance/expenses/selling"
+  | "/finance/expenses/payroll"
+  | "/finance/expenses/admin"
+  | "/finance/expenses/maintenance"
+  | "/finance/expenses/rent"
+  | "/finance/expenses/prepaid"
+  | "/finance/cash/position"
+  | "/finance/cash/bank"
+  | "/finance/receivables/cards"
+  | "/finance/receivables/other"
+  | "/finance/receivables/inter-unit"
+  | "/finance/receivables/doubtful"
+  | "/finance/receivables/other-income"
+  | "/finance/inventory/value"
+  | "/finance/inventory/in-transit"
+  | "/finance/inventory/bags"
+  | "/finance/inventory/cogs"
+  | "/finance/inventory/damage"
+  | "/finance/assets/depreciation"
+  | "/finance/assets/intangibles"
+  | "/finance/assets/other"
+  | "/finance/loans/long-term"
+  | "/finance/loans/current"
+  | "/finance/loans/interest"
+  | "/finance/reports/balance-sheet"
+  | "/finance/reports/profit-loss"
+  | "/finance/reports/by-location"
+  | "/finance/reports/expenses"
+  | "/finance/reports/assets"
 
 interface FinanceItem {
   readonly label: string
@@ -73,13 +108,13 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
     label: "Payables",
     icon: ClipboardList,
     items: [
-      { label: "Supplier Bills", accounts: "2012001001" },
+      { label: "Supplier Bills", accounts: "2012001001", to: "/finance/payables/bills", ready: true },
       { label: "Payments", accounts: "1011002 · 1011003" },
-      { label: "Outstanding Giro", accounts: "2012002" },
-      { label: "Purchase Discounts", accounts: "8010110003" },
-      { label: "Non-Merchandise", accounts: "2012001003" },
-      { label: "Affiliate Payables", accounts: "2012301 · 2012302" },
-      { label: "Accrued Expenses", accounts: "2012201" },
+      { label: "Outstanding Giro", accounts: "2012002", to: "/finance/payables/giro", ready: true },
+      { label: "Purchase Discounts", accounts: "8010110003", to: "/finance/payables/discounts", ready: true },
+      { label: "Non-Merchandise", accounts: "2012001003", to: "/finance/payables/non-merchandise", ready: true },
+      { label: "Affiliate Payables", accounts: "2012301 · 2012302", to: "/finance/payables/affiliate", ready: true },
+      { label: "Accrued Expenses", accounts: "2012201", to: "/finance/payables/accrued", ready: true },
     ],
   },
   {
@@ -88,12 +123,12 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
     icon: Receipt,
     items: [
       { label: "Expense Bills", accounts: "6* · 70101 · 70103" },
-      { label: "Selling", accounts: "60101" },
-      { label: "Payroll", accounts: "60102" },
-      { label: "Admin & General", accounts: "60103" },
-      { label: "Repairs & Maintenance", accounts: "60104" },
-      { label: "Rent", accounts: "70101" },
-      { label: "Prepaid & Advances", accounts: "1011301 · 1011303" },
+      { label: "Selling", accounts: "60101", to: "/finance/expenses/selling", ready: true },
+      { label: "Payroll", accounts: "60102", to: "/finance/expenses/payroll", ready: true },
+      { label: "Admin & General", accounts: "60103", to: "/finance/expenses/admin", ready: true },
+      { label: "Repairs & Maintenance", accounts: "60104", to: "/finance/expenses/maintenance", ready: true },
+      { label: "Rent", accounts: "70101", to: "/finance/expenses/rent", ready: true },
+      { label: "Prepaid & Advances", accounts: "1011301 · 1011303", to: "/finance/expenses/prepaid", ready: true },
     ],
   },
   {
@@ -101,8 +136,8 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
     label: "Cash & Bank",
     icon: Banknote,
     items: [
-      { label: "Cash Position", accounts: "1011001" },
-      { label: "Bank Position", accounts: "1011002-4" },
+      { label: "Cash Position", accounts: "1011001", to: "/finance/cash/position", ready: true },
+      { label: "Bank Position", accounts: "1011002-4", to: "/finance/cash/bank", ready: true },
       { label: "Movements", accounts: "" },
       { label: "Bank Reconciliation" },
       { label: "Store Deposits" },
@@ -114,12 +149,12 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
     label: "Receivables",
     icon: HandCoins,
     items: [
-      { label: "Card Receivables", accounts: "1011101" },
+      { label: "Card Receivables", accounts: "1011101", to: "/finance/receivables/cards", ready: true },
       { label: "Settlement", accounts: "6010110002" },
-      { label: "Other Receivables", accounts: "1011102" },
-      { label: "Inter-unit", accounts: "1021401-3" },
-      { label: "Doubtful Debt", accounts: "1011103" },
-      { label: "Other Income & Rent", accounts: "8010110004-7" },
+      { label: "Other Receivables", accounts: "1011102", to: "/finance/receivables/other", ready: true },
+      { label: "Inter-unit", accounts: "1021401-3", to: "/finance/receivables/inter-unit", ready: true },
+      { label: "Doubtful Debt", accounts: "1011103", to: "/finance/receivables/doubtful", ready: true },
+      { label: "Other Income & Rent", accounts: "8010110004-7", to: "/finance/receivables/other-income", ready: true },
     ],
   },
   {
@@ -127,12 +162,12 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
     label: "Inventory & COGS",
     icon: Boxes,
     items: [
-      { label: "Inventory Value", accounts: "1011201001" },
-      { label: "Goods in Transit", accounts: "1011203" },
-      { label: "Shopping Bags", accounts: "1011202 · 1011204" },
-      { label: "Cost of Goods", accounts: "5010110001" },
+      { label: "Inventory Value", accounts: "1011201001", to: "/finance/inventory/value", ready: true },
+      { label: "Goods in Transit", accounts: "1011203", to: "/finance/inventory/in-transit", ready: true },
+      { label: "Shopping Bags", accounts: "1011202 · 1011204", to: "/finance/inventory/bags", ready: true },
+      { label: "Cost of Goods", accounts: "5010110001", to: "/finance/inventory/cogs", ready: true },
       { label: "Stock Count Variance", accounts: "8010110006" },
-      { label: "Damage Allowance", accounts: "1011299" },
+      { label: "Damage Allowance", accounts: "1011299", to: "/finance/inventory/damage", ready: true },
     ],
   },
   {
@@ -141,10 +176,10 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
     icon: Building2,
     items: [
       { label: "Asset Register", accounts: "10215" },
-      { label: "Depreciation", accounts: "10216 · 70102" },
+      { label: "Depreciation", accounts: "10216 · 70102", to: "/finance/assets/depreciation", ready: true },
       { label: "Disposal" },
-      { label: "Intangibles", accounts: "10217" },
-      { label: "Other Assets", accounts: "10318" },
+      { label: "Intangibles", accounts: "10217", to: "/finance/assets/intangibles", ready: true },
+      { label: "Other Assets", accounts: "10318", to: "/finance/assets/other", ready: true },
     ],
   },
   {
@@ -152,9 +187,9 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
     label: "Loans & Financing",
     icon: Landmark,
     items: [
-      { label: "Long-term Loans", accounts: "20224" },
-      { label: "Current Portion", accounts: "20125" },
-      { label: "Interest", accounts: "80201" },
+      { label: "Long-term Loans", accounts: "20224", to: "/finance/loans/long-term", ready: true },
+      { label: "Current Portion", accounts: "20125", to: "/finance/loans/current", ready: true },
+      { label: "Interest", accounts: "80201", to: "/finance/loans/interest", ready: true },
     ],
   },
   {
@@ -175,11 +210,11 @@ export const FINANCE_GROUPS: readonly FinanceGroup[] = [
     label: "Reports",
     icon: Wallet,
     items: [
-      { label: "Balance Sheet", accounts: "1 · 2 · 3" },
-      { label: "Profit & Loss", accounts: "4–8" },
-      { label: "P&L by Location" },
-      { label: "Expense Report", accounts: "6 · 7" },
-      { label: "Fixed Asset Report", accounts: "10215 · 10216" },
+      { label: "Balance Sheet", accounts: "1 · 2 · 3", to: "/finance/reports/balance-sheet", ready: true },
+      { label: "Profit & Loss", accounts: "4–8", to: "/finance/reports/profit-loss", ready: true },
+      { label: "P&L by Location", to: "/finance/reports/by-location", ready: true },
+      { label: "Expense Report", accounts: "6 · 7", to: "/finance/reports/expenses", ready: true },
+      { label: "Fixed Asset Report", accounts: "10215 · 10216", to: "/finance/reports/assets", ready: true },
     ],
   },
 ]

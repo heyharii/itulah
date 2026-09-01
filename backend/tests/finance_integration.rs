@@ -16,25 +16,95 @@ use uuid::Uuid;
 
 const ACTOR: &str = "ana";
 
-/// A chart small enough to read and shaped like the client's: two headings and
-/// three postable leaves under them, with the location in the code.
+/// A chart small enough to read and shaped like the client's.
+///
+/// The ladder matters, not just the leaves: the client's codes ARE the tree, and
+/// a balance rolls up by prefix. A seed of leaves hanging straight off the roots
+/// would pass tests that a real chart fails, because there would be no
+/// intermediate rung for a subtree total to be wrong at.
 async fn seed_chart(pool: &PgPool) {
-    sqlx::query(
-        "INSERT INTO ledger_account (account_code, name, is_group) VALUES
-           ('1','ASSET',true), ('2','LIABILITIES',true), ('5','BIAYA / BEBAN POKOK',true)",
-    )
-    .execute(pool)
-    .await
-    .unwrap_or_else(|error| panic!("roots: {error}"));
-    sqlx::query(
-        "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id) VALUES
-           ('101120100100','Persediaan Barang Dagangan HO','1',false,'dc'),
-           ('201200100100','Hutang Suppliers Barang Dagangan HO','2',false,'dc'),
-           ('501011000100','Harga Pokok Pembelian HO','5',false,'dc')",
-    )
-    .execute(pool)
-    .await
-    .unwrap_or_else(|error| panic!("leaves: {error}"));
+    // (code, name, parent, site) — parents before children, and every parent is
+    // a prefix of its child, which the schema checks.
+    let accounts: [(&str, &str, Option<&str>, Option<&str>); 20] = [
+        ("1", "ASSET", None, None),
+        ("101", "CURRENT ASSET", Some("1"), None),
+        ("10112", "INVENTORY", Some("101"), None),
+        ("1011201", "Persediaan Barang Dagang", Some("10112"), None),
+        ("10113", "PREPAID", Some("101"), None),
+        (
+            "1011302",
+            "PAJAK BAYAR DIMUKA/PREPAID TAX",
+            Some("10113"),
+            None,
+        ),
+        ("2", "LIABILITIES", None, None),
+        ("201", "HUTANG JANGKA PENDEK", Some("2"), None),
+        ("20120", "HUTANG DAGANG", Some("201"), None),
+        ("2012001", "HUTANG SUPPLIER", Some("20120"), None),
+        ("5", "BIAYA / BEBAN POKOK", None, None),
+        ("501", "HARGA POKOK PEMBELIAN", Some("5"), None),
+        ("50101", "HARGA POKOK PEMBELIAN", Some("501"), None),
+        ("5010110", "HARGA POKOK PEMBELIAN", Some("50101"), None),
+        ("8", "BEBAN  NON OPERASIONAL", None, None),
+        ("801", "PENDAPATAN DAN (BIAYA) LAIN - LAIN", Some("8"), None),
+        (
+            "80101",
+            "PENDAPATAN DAN (BIAYA) LAIN - LAIN",
+            Some("801"),
+            None,
+        ),
+        (
+            "8010110",
+            "Pendapatan (Biaya) Lain-lain",
+            Some("80101"),
+            None,
+        ),
+        // The postable leaves, at head office.
+        (
+            "101120100100",
+            "Persediaan Barang Dagangan HO",
+            Some("1011201"),
+            Some("dc"),
+        ),
+        (
+            "201200100100",
+            "Hutang Suppliers Barang Dagangan HO",
+            Some("2012001"),
+            Some("dc"),
+        ),
+    ];
+    for (code, name, parent, site) in accounts {
+        let is_group = code.len() < 12;
+        sqlx::query(
+            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
+             VALUES ($1,$2,$3,$4,$5)",
+        )
+        .bind(code)
+        .bind(name)
+        .bind(parent)
+        .bind(is_group)
+        .bind(site)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("{code}: {error}"));
+    }
+    // The three other postable leaves a bill touches.
+    for (code, name, parent) in [
+        ("501011000100", "Harga Pokok Pembelian HO", "5010110"),
+        ("801011000300", "Potongan Pembelian HO", "8010110"),
+        ("101130200400", "Prepaid - VAT (PPN Masukan) HO", "1011302"),
+    ] {
+        sqlx::query(
+            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
+             VALUES ($1,$2,$3,false,'dc')",
+        )
+        .bind(code)
+        .bind(name)
+        .bind(parent)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("{code}: {error}"));
+    }
 }
 
 async fn open_september(pool: &PgPool) {
@@ -476,4 +546,151 @@ async fn the_general_ledger_opens_where_the_previous_window_closed(pool: PgPool)
     assert!(october.rows.is_empty());
     assert_eq!(october.opening_minor, 3_000);
     assert_eq!(october.closing_minor, 3_000);
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_bill_debits_inventory_gross_and_credits_the_discount(pool: PgPool) {
+    seed_chart(&pool).await;
+    open_september(&pool).await;
+    map(&pool, "inventory", "101120100100").await;
+    map(&pool, "trade_payable", "201200100100").await;
+    map(&pool, "purchase_discount", "801011000300").await;
+    map(&pool, "vat_in", "101130200400").await;
+
+    let recorded = cloud::record_bill(
+        &pool,
+        &cloud::RecordBillRequest {
+            invoice_number: "INV-4471".into(),
+            supplier_id: "SUP01".into(),
+            supplier_name: Some("PT Sinar Jaya".into()),
+            site_id: "dc".into(),
+            invoice_date: september(1),
+            due_date: Some(september(30)),
+            subtotal_minor: 10_000_000,
+            tax_minor: 1_100_000,
+            discount_minor: 500_000,
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("record: {error}"));
+    assert_eq!(recorded.status, "DRAFT", "recording is not posting");
+    assert_eq!(recorded.total_minor, 10_600_000);
+
+    let posted = cloud::post_bill(&pool, recorded.invoice_id, None, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+    assert_eq!(posted.status, "POSTED");
+
+    // The shape that matters. The client keeps purchase discounts under root 8,
+    // PENDAPATAN DAN (BIAYA) LAIN - LAIN, so a discount is other income and NOT
+    // a smaller inventory figure. Netting it off inventory would balance just
+    // as well and quietly empty an account their own statements have a line for.
+    let inventory = cloud::account_balance(&pool, "101120100100", None, None)
+        .await
+        .unwrap_or_else(|error| panic!("inventory: {error}"));
+    assert_eq!(
+        inventory.balance_minor, 10_000_000,
+        "inventory is debited gross, before the discount"
+    );
+    let discount = cloud::account_balance(&pool, "801011000300", None, None)
+        .await
+        .unwrap_or_else(|error| panic!("discount: {error}"));
+    assert_eq!(
+        discount.balance_minor, -500_000,
+        "the discount is a credit to Potongan Pembelian"
+    );
+    let payable = cloud::account_balance(&pool, "201200100100", None, None)
+        .await
+        .unwrap_or_else(|error| panic!("payable: {error}"));
+    assert_eq!(
+        payable.balance_minor, -10_600_000,
+        "the supplier is owed the bill net of the discount"
+    );
+
+    // Posting twice would double the payable.
+    assert!(
+        cloud::post_bill(&pool, recorded.invoice_id, None, ACTOR)
+            .await
+            .is_err(),
+        "a posted bill should not post again"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_balance_sheet_balances_once_the_result_is_counted(pool: PgPool) {
+    seed_chart(&pool).await;
+    open_september(&pool).await;
+    map(&pool, "inventory", "101120100100").await;
+    map(&pool, "trade_payable", "201200100100").await;
+    map(&pool, "purchase_discount", "801011000300").await;
+
+    let recorded = cloud::record_bill(
+        &pool,
+        &cloud::RecordBillRequest {
+            invoice_number: "INV-1".into(),
+            supplier_id: "SUP01".into(),
+            supplier_name: None,
+            site_id: "dc".into(),
+            invoice_date: september(1),
+            due_date: None,
+            subtotal_minor: 1_000_000,
+            tax_minor: 0,
+            discount_minor: 100_000,
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("record: {error}"));
+    cloud::post_bill(&pool, recorded.invoice_id, None, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+
+    let sheet = cloud::statement(&pool, "BALANCE_SHEET", None, september(30), None)
+        .await
+        .unwrap_or_else(|error| panic!("balance sheet: {error}"));
+
+    // Assets 1,000,000; liabilities 900,000; and 100,000 of profit sitting in
+    // class 8 because nobody has closed the year. A sheet of classes 1-3 alone
+    // would report itself out by exactly that, which is alarming and wrong —
+    // the client keeps the figure as `3013001003 Laba (Rugi) bulan berjalan`.
+    assert_eq!(sheet.result_minor, -100_000, "the period earned 100,000");
+    assert_eq!(
+        sheet.out_of_balance_minor, 0,
+        "assets equal liabilities and equity once the result is counted"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_family_shows_a_cell_for_every_location(pool: PgPool) {
+    seed_chart(&pool).await;
+    open_september(&pool).await;
+    map(&pool, "inventory", "101120100100").await;
+    map(&pool, "trade_payable", "201200100100").await;
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin: {error}"));
+    cloud::post(&mut tx, &bill(7_000), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit: {error}"));
+
+    let matrix = cloud::balance_matrix(&pool, "1011201", september(30))
+        .await
+        .unwrap_or_else(|error| panic!("matrix: {error}"));
+
+    // A location with nothing posted is a zero, not an absent key. In a sparse
+    // map "no stock at store 07" and "store 07 was never asked about" look the
+    // same, and they are very different things to an accountant.
+    assert_eq!(matrix.locations.len(), 14);
+    assert_eq!(matrix.locations.first().map(String::as_str), Some("dc"));
+    for row in &matrix.rows {
+        assert_eq!(row.cells.len(), matrix.locations.len());
+    }
+    assert_eq!(matrix.grand_total_minor, 7_000);
 }

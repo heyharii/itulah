@@ -11,6 +11,9 @@ import { GeneralLedgerScreen } from "@/components/finance/general-ledger"
 import { JournalScreen } from "@/components/finance/journal"
 import { FinanceOverview } from "@/components/finance/overview"
 import { PeriodsScreen } from "@/components/finance/periods"
+import { PositionScreen } from "@/components/finance/position"
+import { StatementScreen } from "@/components/finance/statement"
+import { SupplierBillsScreen } from "@/components/finance/supplier-bills"
 import { TrialBalanceScreen } from "@/components/finance/trial-balance"
 import { PricesView } from "@/components/commercial/prices-view"
 import { SimulateView } from "@/components/commercial/simulate-view"
@@ -20,6 +23,7 @@ import {
 } from "@/components/discussion/discussions-view"
 import { ThreadView } from "@/components/discussion/thread-view"
 import { FilesView } from "@/components/files/files-view"
+import { AttendancePolicyView } from "@/components/people/attendance-policy-view"
 import { PeopleView } from "@/components/people/people-view"
 import { PersonDetail } from "@/components/people/person-detail"
 import { OrderDetail } from "@/components/po/order-detail"
@@ -336,10 +340,315 @@ const peopleRoute = createRoute({
   component: PeopleView,
 })
 
+/// What counts as late.
+///
+/// Under `/people` rather than a settings area of its own: it is a rule about
+/// the people on that list, and somebody who has just noticed a run of late
+/// arrivals is one click from the tolerance that decided they were late.
+const attendancePolicyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/people/attendance-policy",
+  component: AttendancePolicyView,
+})
+
 const personRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/people/$employeeId",
   component: PersonDetail,
+})
+
+/// The position screens.
+///
+/// Thirty routes and one component. Every one of them asks the same question of
+/// a different subtree of the client's chart — what is this worth, per location
+/// — and the only thing that differs is the code it starts from. Declaring them
+/// separately rather than generating them in a loop keeps TanStack's `to` a
+/// union of real paths, so a typo in a link is a type error instead of a dead
+/// screen.
+
+const payablesGiroRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/payables/giro",
+  component: () => (
+    <PositionScreen family="2012002" title="Outstanding Giro" />
+  ),
+})
+
+const payablesDiscountsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/payables/discounts",
+  component: () => (
+    <PositionScreen family="8010110003" title="Purchase Discounts" />
+  ),
+})
+
+const payablesNonMerchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/payables/non-merchandise",
+  component: () => (
+    <PositionScreen family="2012001003" title="Non-Merchandise Payables" />
+  ),
+})
+
+const payablesAffiliateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/payables/affiliate",
+  component: () => (
+    <PositionScreen family="20123" title="Affiliate Payables" />
+  ),
+})
+
+const payablesAccruedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/payables/accrued",
+  component: () => (
+    <PositionScreen family="2012201" title="Accrued Expenses" />
+  ),
+})
+
+const expensesSellingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/expenses/selling",
+  component: () => (
+    <PositionScreen family="60101" title="Selling Expenses" />
+  ),
+})
+
+const expensesPayrollRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/expenses/payroll",
+  component: () => (
+    <PositionScreen family="60102" title="Payroll Expenses" />
+  ),
+})
+
+const expensesAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/expenses/admin",
+  component: () => (
+    <PositionScreen family="60103" title="Admin & General" />
+  ),
+})
+
+const expensesMaintenanceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/expenses/maintenance",
+  component: () => (
+    <PositionScreen family="60104" title="Repairs & Maintenance" />
+  ),
+})
+
+const expensesRentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/expenses/rent",
+  component: () => (
+    <PositionScreen family="70101" title="Rent" />
+  ),
+})
+
+const expensesPrepaidRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/expenses/prepaid",
+  component: () => (
+    <PositionScreen family="10113" title="Prepaid & Advances" />
+  ),
+})
+
+const cashPositionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/cash/position",
+  component: () => (
+    <PositionScreen family="1011001" title="Cash Position" />
+  ),
+})
+
+const cashBankRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/cash/bank",
+  component: () => (
+    <PositionScreen
+      family="10110"
+      title="Bank Position"
+      note="Includes cash on hand — the client keeps both under KAS & SETARA KAS."
+    />
+  ),
+})
+
+const receivablesCardsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/receivables/cards",
+  component: () => (
+    <PositionScreen family="1011101" title="Card Receivables" />
+  ),
+})
+
+const receivablesOtherRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/receivables/other",
+  component: () => (
+    <PositionScreen family="1011102" title="Other Receivables" />
+  ),
+})
+
+const receivablesInterUnitRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/receivables/inter-unit",
+  component: () => (
+    <PositionScreen family="10214" title="Inter-unit Receivables" />
+  ),
+})
+
+const receivablesDoubtfulRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/receivables/doubtful",
+  component: () => (
+    <PositionScreen family="1011103" title="Doubtful Debt Allowance" />
+  ),
+})
+
+const receivablesOtherIncomeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/receivables/other-income",
+  component: () => (
+    <PositionScreen family="80101" title="Other Income & Rent" />
+  ),
+})
+
+const inventoryValueRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/inventory/value",
+  component: () => (
+    <PositionScreen family="1011201" title="Inventory Value" />
+  ),
+})
+
+const inventoryTransitRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/inventory/in-transit",
+  component: () => (
+    <PositionScreen
+      family="1011203"
+      title="Goods in Transit"
+      note="Each account is a route, not a place: the source is named in the account, the destination is the column."
+    />
+  ),
+})
+
+const inventoryBagsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/inventory/bags",
+  component: () => (
+    <PositionScreen family="1011202" title="Shopping Bags" />
+  ),
+})
+
+const inventoryCogsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/inventory/cogs",
+  component: () => (
+    <PositionScreen family="50101" title="Cost of Goods" />
+  ),
+})
+
+const inventoryDamageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/inventory/damage",
+  component: () => (
+    <PositionScreen family="1011299" title="Damage Allowance" />
+  ),
+})
+
+const assetsDepreciationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/assets/depreciation",
+  component: () => (
+    <PositionScreen family="10216" title="Accumulated Depreciation" />
+  ),
+})
+
+const assetsIntangiblesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/assets/intangibles",
+  component: () => (
+    <PositionScreen family="10217" title="Intangible Assets" />
+  ),
+})
+
+const assetsOtherRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/assets/other",
+  component: () => (
+    <PositionScreen family="10318" title="Other Assets" />
+  ),
+})
+
+const loansLongTermRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/loans/long-term",
+  component: () => (
+    <PositionScreen family="20224" title="Long-term Loans" />
+  ),
+})
+
+const loansCurrentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/loans/current",
+  component: () => (
+    <PositionScreen family="20125" title="Current Portion" />
+  ),
+})
+
+const loansInterestRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/loans/interest",
+  component: () => (
+    <PositionScreen family="80201" title="Interest" />
+  ),
+})
+
+const financeBillsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/payables/bills",
+  component: SupplierBillsScreen,
+})
+
+/// The statements. Two shapes and five screens: an expense report and a
+/// fixed-asset report are the same statement narrowed to the client's own root
+/// classes, not separate reports that could drift from it.
+const reportBalanceSheetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/reports/balance-sheet",
+  component: () => <StatementScreen kind="BALANCE_SHEET" title="Balance Sheet" />,
+})
+
+const reportProfitLossRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/reports/profit-loss",
+  component: () => <StatementScreen kind="PROFIT_LOSS" title="Profit & Loss" />,
+})
+
+const reportByLocationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/reports/by-location",
+  component: () => (
+    <StatementScreen kind="PROFIT_LOSS" title="P&L by Location" byLocation />
+  ),
+})
+
+const reportExpensesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/reports/expenses",
+  component: () => (
+    <StatementScreen kind="PROFIT_LOSS" title="Expense Report" classes={["6", "7"]} />
+  ),
+})
+
+const reportAssetsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/finance/reports/assets",
+  component: () => (
+    <StatementScreen kind="BALANCE_SHEET" title="Fixed Asset Report" classes={["1"]} />
+  ),
 })
 
 const routeTree = rootRoute.addChildren([
@@ -370,7 +679,43 @@ const routeTree = rootRoute.addChildren([
   financeLedgerRoute,
   financeTrialBalanceRoute,
   financePeriodsRoute,
+  payablesGiroRoute,
+  payablesDiscountsRoute,
+  payablesNonMerchRoute,
+  payablesAffiliateRoute,
+  payablesAccruedRoute,
+  expensesSellingRoute,
+  expensesPayrollRoute,
+  expensesAdminRoute,
+  expensesMaintenanceRoute,
+  expensesRentRoute,
+  expensesPrepaidRoute,
+  cashPositionRoute,
+  cashBankRoute,
+  receivablesCardsRoute,
+  receivablesOtherRoute,
+  receivablesInterUnitRoute,
+  receivablesDoubtfulRoute,
+  receivablesOtherIncomeRoute,
+  inventoryValueRoute,
+  inventoryTransitRoute,
+  inventoryBagsRoute,
+  inventoryCogsRoute,
+  inventoryDamageRoute,
+  assetsDepreciationRoute,
+  assetsIntangiblesRoute,
+  assetsOtherRoute,
+  loansLongTermRoute,
+  loansCurrentRoute,
+  loansInterestRoute,
+  financeBillsRoute,
+  reportBalanceSheetRoute,
+  reportProfitLossRoute,
+  reportByLocationRoute,
+  reportExpensesRoute,
+  reportAssetsRoute,
   peopleRoute,
+  attendancePolicyRoute,
   personRoute,
 ])
 

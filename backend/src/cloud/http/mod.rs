@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use uuid::Uuid;
 
+pub mod attendance;
 pub mod auth;
 pub mod basket;
 pub mod chat;
@@ -376,6 +377,14 @@ pub fn router(state: AppState) -> Router {
             get(finance::account_ledger),
         )
         .route("/api/v1/finance/trial-balance", get(finance::trial_balance))
+        .route("/api/v1/finance/balances", get(finance::balances))
+        .route("/api/v1/finance/statement", get(finance::statement))
+        .route(
+            "/api/v1/finance/bills",
+            get(finance::bills).post(finance::record_bill),
+        )
+        .route("/api/v1/finance/bills/{id}/post", post(finance::post_bill))
+        .route("/api/v1/finance/unbilled", get(finance::unbilled))
         .route(
             "/api/v1/finance/account-map",
             get(finance::account_map).post(finance::set_account_map),
@@ -393,6 +402,13 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/finance/journal/{id}/reverse",
             post(finance::reverse_entry),
+        )
+        // What "late" means. Readable by anybody signed in — a tolerance
+        // kept from the people measured against it is a trap, not a rule —
+        // and writable only at head office.
+        .route(
+            "/api/v1/attendance-policy",
+            get(attendance::read_policy).post(attendance::set_policy),
         )
         // Who works here, under what contract, and where they are posted.
         //

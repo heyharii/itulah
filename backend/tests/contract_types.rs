@@ -372,6 +372,32 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("AccountDetail: {e}"));
     inventory_backend::cloud::http::finance::PeriodRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PeriodRequest: {e}"));
+
+    // Positions and statements. One matrix shape serves every "what is this
+    // family worth, per location" screen, and one statement shape serves the
+    // balance sheet and the profit and loss — which differ only in which of the
+    // client's root classes they cover and whether the window has a start.
+    inventory_backend::cloud::postgres::BalanceMatrix::export_all(&config)
+        .unwrap_or_else(|e| panic!("BalanceMatrix: {e}"));
+    inventory_backend::cloud::postgres::BalanceRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BalanceRow: {e}"));
+    inventory_backend::cloud::postgres::Statement::export_all(&config)
+        .unwrap_or_else(|e| panic!("Statement: {e}"));
+    inventory_backend::cloud::postgres::StatementSection::export_all(&config)
+        .unwrap_or_else(|e| panic!("StatementSection: {e}"));
+    inventory_backend::cloud::postgres::StatementLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("StatementLine: {e}"));
+
+    // Supplier bills. `UnbilledReceipt` is the one that needs explaining: it is
+    // not a balance and has no account behind it, because the client has no
+    // goods-received-not-invoiced account. It is the exposure that the books
+    // cannot carry, reported so somebody can see it anyway.
+    inventory_backend::cloud::postgres::SupplierBill::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierBill: {e}"));
+    inventory_backend::cloud::postgres::RecordBillRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordBillRequest: {e}"));
+    inventory_backend::cloud::postgres::UnbilledReceipt::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnbilledReceipt: {e}"));
     // Employment. `export_all` pulls the nested views in with each root, so the
     // list below is the set of things a screen actually fetches rather than
     // every struct in the module.
@@ -391,4 +417,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PersonalDataView: {e}"));
     inventory_backend::cloud::http::employment::ContractsView::export_all(&config)
         .unwrap_or_else(|e| panic!("ContractsView: {e}"));
+    // The attendance policy. One root: `export_all` pulls the version view and
+    // `Minutes` in behind it.
+    inventory_backend::cloud::http::attendance::PolicyScheduleView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PolicyScheduleView: {e}"));
 }
