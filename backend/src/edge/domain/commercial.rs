@@ -93,51 +93,12 @@ pub struct ResolvedOffer {
     pub effective_to: Option<DateTime<Utc>>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct LineTotals {
-    pub net_minor: i64,
-    pub tax_minor: i64,
-    pub total_minor: i64,
-}
-
-pub fn calculate_line_totals(
-    unit_price_minor: i64,
-    quantity: i64,
-    tax_rate_bps: i32,
-    tax_inclusive: bool,
-) -> Result<LineTotals, CommercialError> {
-    if unit_price_minor < 0 {
-        return Err(CommercialError::NegativePrice);
-    }
-    if quantity <= 0 {
-        return Err(CommercialError::NonPositiveQuantity);
-    }
-    if !(0..=100_000).contains(&tax_rate_bps) {
-        return Err(CommercialError::InvalidTaxRate);
-    }
-    let base = i128::from(unit_price_minor)
-        .checked_mul(i128::from(quantity))
-        .ok_or(CommercialError::MoneyOverflow)?;
-    let rate = i128::from(tax_rate_bps);
-    let (net, tax, total) = if tax_inclusive {
-        let tax = base
-            .checked_mul(rate)
-            .ok_or(CommercialError::MoneyOverflow)?
-            / (10_000 + rate);
-        (base - tax, tax, base)
-    } else {
-        let tax = base
-            .checked_mul(rate)
-            .ok_or(CommercialError::MoneyOverflow)?
-            / 10_000;
-        (base, tax, base + tax)
-    };
-    Ok(LineTotals {
-        net_minor: i64::try_from(net).map_err(|_| CommercialError::MoneyOverflow)?,
-        tax_minor: i64::try_from(tax).map_err(|_| CommercialError::MoneyOverflow)?,
-        total_minor: i64::try_from(total).map_err(|_| CommercialError::MoneyOverflow)?,
-    })
-}
+/// What a line comes to, once tax has had its say.
+///
+/// Re-exported rather than implemented. This function and its tests stood here
+/// and in the other node's `domain::commercial`, character for character — two
+/// copies of one rounding rule, which agree until somebody fixes one of them.
+pub use crate::tax::{calculate_line_totals, LineTotals, TaxError};
 
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum CommercialError {
@@ -145,40 +106,4 @@ pub enum CommercialError {
     InvalidChannel(String),
     #[error("invalid ISO-style currency code: {0}")]
     InvalidCurrency(String),
-    #[error("unit price cannot be negative")]
-    NegativePrice,
-    #[error("quantity must be positive")]
-    NonPositiveQuantity,
-    #[error("tax rate basis points are outside the supported range")]
-    InvalidTaxRate,
-    #[error("money arithmetic overflow")]
-    MoneyOverflow,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn inclusive_tax_is_deterministic_integer_math() {
-        let totals = calculate_line_totals(111_000, 2, 1_100, true)
-            .unwrap_or_else(|e| panic!("totals: {e}"));
-        assert_eq!(totals.total_minor, 222_000);
-        assert_eq!(totals.tax_minor, 22_000);
-        assert_eq!(totals.net_minor, 200_000);
-    }
-
-    #[test]
-    fn exclusive_tax_adds_to_payable_total() {
-        let totals = calculate_line_totals(100_000, 2, 1_100, false)
-            .unwrap_or_else(|e| panic!("totals: {e}"));
-        assert_eq!(
-            totals,
-            LineTotals {
-                net_minor: 200_000,
-                tax_minor: 22_000,
-                total_minor: 222_000
-            }
-        );
-    }
 }

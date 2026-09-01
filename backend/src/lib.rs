@@ -27,3 +27,6 @@ pub mod edge;
 pub mod reporting;
 pub mod security;
 pub mod sync;
+/// What a line comes to once tax has had its say — one implementation for
+/// both nodes, because it was two.
+pub mod tax;
