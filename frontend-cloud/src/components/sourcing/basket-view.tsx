@@ -8,8 +8,9 @@ import { ApiError } from "@itulah/contract/client"
 import { useNavigate } from "@tanstack/react-router"
 import { Minus, Plus, X } from "lucide-react"
 import { useMemo } from "react"
-import { Thumb } from "./columns"
-import { toSourcingRow, type SourcingRow } from "./rows"
+import { useVocabulary } from "@/lib/vocabulary"
+import { Tag, Thumb } from "./columns"
+import { UNCLASSIFIED, toSourcingRow, type SourcingRow } from "./rows"
 
 interface BasketGroup {
   supplierId: string
@@ -33,6 +34,7 @@ interface BasketGroup {
 export function BasketPanel() {
   const navigate = useNavigate()
   const basket = useBasket()
+  const vocabulary = useVocabulary()
   const { setQuantity, remove, clear } = useBasketActions()
 
   const groups = useMemo<BasketGroup[]>(() => {
@@ -146,9 +148,19 @@ export function BasketPanel() {
                       <Thumb row={row} className="size-14 rounded-md" />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-medium">{row.name}</div>
-                        <div className="text-muted-foreground truncate font-mono text-[10.5px]">
-                          {row.code}
-                          {row.division !== "" && ` · ${row.division}`}
+                        {/* What each thing is, on every line and in words. A
+                            basket is where a buyer checks they picked the right
+                            garment, and "0293433029" does not help them do
+                            that. The code stays available in the item itself. */}
+                        <div className="flex flex-wrap items-center gap-1 pt-1">
+                          {row.division !== UNCLASSIFIED && (
+                            <span className="bg-foreground/85 text-background inline-flex h-5 shrink-0 items-center rounded-md px-1.5 text-[11px] font-medium whitespace-nowrap">
+                              {vocabulary.division(row.division)}
+                            </span>
+                          )}
+                          {row.tags.map((tag) => (
+                            <Tag key={tag}>{vocabulary.tag(tag)}</Tag>
+                          ))}
                         </div>
                       </div>
                       <div className="text-muted-foreground w-24 shrink-0 text-right font-mono text-xs tabular-nums">

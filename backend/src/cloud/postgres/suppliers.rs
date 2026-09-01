@@ -910,6 +910,20 @@ pub struct CatalogPurchaseLineRequest {
     pub quantity: i64,
     #[serde(default)]
     pub promised_date: Option<NaiveDate>,
+    /// What this order pays, when that is not what the catalogue says.
+    ///
+    /// A sourcing catalogue goes stale between the day something is picked out
+    /// and the day it is ordered. Absent means "the catalogue's price", which
+    /// is the ordinary case; present means a buyer agreed something else for
+    /// this order, and the catalogue's figure is still recorded beside it.
+    #[serde(default)]
+    pub unit_price_minor: Option<i64>,
+    /// A corrected description for this order only. It does not rename the
+    /// supplier item: one order's wording is not a catalogue edit.
+    #[serde(default)]
+    pub article_name: Option<String>,
+    #[serde(default)]
+    pub image_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -920,6 +934,11 @@ pub struct CatalogPurchaseOrderRequest {
     pub destination_site_id: String,
     #[serde(default)]
     pub notes: Option<String>,
+    /// Agreed reduction on the whole order, in the order currency's minor
+    /// unit. On the order rather than the lines because that is how it is
+    /// negotiated and how an invoice states it — see migration 0044.
+    #[serde(default)]
+    pub discount_minor: Option<i64>,
     pub lines: Vec<CatalogPurchaseLineRequest>,
 }
 
@@ -932,6 +951,13 @@ pub struct CatalogPurchaseOrderReceipt {
     pub destination_site_id: String,
     pub activation_command_id: Uuid,
     pub sent_to_origin: String,
+    /// What the lines come to at the agreed prices, what was taken off, and
+    /// what is left. Returned so the screen that raised the order can show the
+    /// figure the supplier will invoice without recomputing it and risking a
+    /// different answer.
+    pub gross_minor: i64,
+    pub discount_minor: i64,
+    pub net_minor: i64,
 }
 
 #[derive(Debug)]
@@ -945,6 +971,11 @@ struct CatalogItemSnapshot {
     version: i64,
     quantity: i64,
     promised_date: Option<NaiveDate>,
+    /// What this order pays and calls it — the catalogue's values unless the
+    /// buyer said otherwise. The fields above keep what the catalogue said.
+    ordered_price_minor: i64,
+    ordered_name: String,
+    ordered_image_url: Option<String>,
     /// Carried onto the order line, not merely displayed. What a thing IS
     /// survives the order: `tagging` reads these back when it mints the
     /// article at goods receipt, so dropping them here produces articles with
@@ -1086,19 +1117,60 @@ pub async fn create_catalog_purchase_order(
                 line.supplier_item_id
             )));
         }
+        // What the catalogue says, read once: it is both the fallback for an
+        // order that accepts it and the snapshot for one that does not.
+        let catalogue_name: String = row.try_get("name")?;
+        let catalogue_image: Option<String> = row.try_get("image_url")?;
+        let catalogue_price: i64 = row.try_get("unit_price_minor")?;
         snapshots.push(CatalogItemSnapshot {
             supplier_item_id: line.supplier_item_id,
             supplier_item_code: row.try_get("supplier_item_code")?,
-            name: row.try_get("name")?,
-            image_url: row.try_get("image_url")?,
-            unit_price_minor: row.try_get("unit_price_minor")?,
+            name: catalogue_name.clone(),
+            image_url: catalogue_image.clone(),
+            unit_price_minor: catalogue_price,
             currency,
             version: row.try_get("version")?,
             quantity: line.quantity,
             promised_date: line.promised_date,
             division_code: row.try_get("division_code")?,
             tags: row.try_get("tags")?,
+            ordered_price_minor: match line.unit_price_minor {
+                Some(price) if price < 0 => {
+                    return Err(AppError::Validation(
+                        "agreed unit price cannot be negative".into(),
+                    ))
+                }
+                Some(price) => price,
+                None => catalogue_price,
+            },
+            ordered_name: optional_supplier_text(line.article_name).unwrap_or(catalogue_name),
+            ordered_image_url: optional_supplier_text(line.image_url).or(catalogue_image),
         });
+    }
+
+    // What the order is worth before the discount. Computed from the agreed
+    // prices, not the catalogue's, because a discount is taken off what is
+    // actually being paid.
+    let mut gross_minor: i64 = 0;
+    for item in &snapshots {
+        let line = item
+            .ordered_price_minor
+            .checked_mul(item.quantity)
+            .ok_or_else(|| AppError::Validation("order value overflows".into()))?;
+        gross_minor = gross_minor
+            .checked_add(line)
+            .ok_or_else(|| AppError::Validation("order value overflows".into()))?;
+    }
+    let discount_minor = request.discount_minor.unwrap_or(0);
+    if discount_minor < 0 {
+        return Err(AppError::Validation("discount cannot be negative".into()));
+    }
+    // A discount larger than the order is not a discount, it is a credit, and
+    // this is not the instrument for one.
+    if discount_minor > gross_minor {
+        return Err(AppError::Validation(format!(
+            "discount {discount_minor} is more than the order is worth ({gross_minor})"
+        )));
     }
 
     let purchase_order_id = Uuid::new_v4();
@@ -1107,8 +1179,8 @@ pub async fn create_catalog_purchase_order(
              (purchase_order_id, po_number, supplier_id, supplier_name,
               supplier_ref_id, supplier_code_snapshot, supplier_name_snapshot,
               destination_site_id, origin_kind, order_status, currency, notes,
-              created_by, issued_at)
-         VALUES ($1,$2,$3,$4,$5,$3,$4,$6,'DIRECT','ISSUED','IDR',$7,$8,now())",
+              discount_minor, created_by, issued_at)
+         VALUES ($1,$2,$3,$4,$5,$3,$4,$6,'DIRECT','ISSUED','IDR',$7,$9,$8,now())",
     )
     .bind(purchase_order_id)
     .bind(&po_number)
@@ -1118,6 +1190,7 @@ pub async fn create_catalog_purchase_order(
     .bind(&destination_site_id)
     .bind(&notes)
     .bind(&actor)
+    .bind(discount_minor)
     .execute(&mut *transaction)
     .await
     .map_err(|error| map_catalog_purchase_error(error, &po_number))?;
@@ -1127,7 +1200,7 @@ pub async fn create_catalog_purchase_order(
         let line_number = i32::try_from(index + 1)
             .map_err(|_| AppError::Validation("purchase order has too many lines".into()))?;
         let line_amount_minor = item
-            .unit_price_minor
+            .ordered_price_minor
             .checked_mul(item.quantity)
             .ok_or_else(|| AppError::Validation(format!("line {line_number} amount overflows")))?;
         let po_line_id = Uuid::new_v4();
@@ -1140,7 +1213,7 @@ pub async fn create_catalog_purchase_order(
                   supplier_item_id, supplier_item_code_snapshot,
                   supplier_item_name_snapshot, supplier_item_image_snapshot,
                   supplier_item_version, currency)
-             VALUES ($1,$2,$3,$4,$5,$6,$14,$7,$8,$9,$10,$11,$4,$5,$6,$12,$13)",
+             VALUES ($1,$2,$3,$4,$15,$16,$14,$7,$8,$9,$10,$11,$4,$5,$6,$12,$13)",
         )
         .bind(po_line_id)
         .bind(purchase_order_id)
@@ -1149,13 +1222,18 @@ pub async fn create_catalog_purchase_order(
         .bind(&item.name)
         .bind(&item.image_url)
         .bind(item.quantity)
-        .bind(item.unit_price_minor)
+        // The agreed price, not the catalogue's — `line_amount_minor` is
+        // computed from it, and a row where unit price times quantity does not
+        // equal the line amount is a row nobody can reconcile.
+        .bind(item.ordered_price_minor)
         .bind(line_amount_minor)
         .bind(item.promised_date)
         .bind(item.supplier_item_id)
         .bind(item.version)
         .bind(&item.currency)
         .bind(&item.division_code)
+        .bind(&item.ordered_name)
+        .bind(&item.ordered_image_url)
         .execute(&mut *transaction)
         .await
         .map_err(|error| map_catalog_purchase_error(error, &po_number))?;
@@ -1178,15 +1256,15 @@ pub async fn create_catalog_purchase_order(
             po_line_id,
             line_number,
             article_code: item.supplier_item_code,
-            article_name: item.name,
-            image_url: item.image_url,
+            article_name: item.ordered_name,
+            image_url: item.ordered_image_url,
             // The edge receives what was ordered, classification included.
             // It was `None` and empty here, which meant the DC's copy of the
             // order disagreed with head office's about what the goods are.
             division_code: item.division_code,
             tags: item.tags,
             ordered_quantity: item.quantity,
-            unit_price_minor: item.unit_price_minor,
+            unit_price_minor: item.ordered_price_minor,
             promised_date: item.promised_date.map(|date| date.to_string()),
         });
     }
@@ -1226,6 +1304,9 @@ pub async fn create_catalog_purchase_order(
         destination_site_id,
         activation_command_id: command_id,
         sent_to_origin: target,
+        gross_minor,
+        discount_minor,
+        net_minor: gross_minor - discount_minor,
     };
     complete_idempotent(
         &mut transaction,
