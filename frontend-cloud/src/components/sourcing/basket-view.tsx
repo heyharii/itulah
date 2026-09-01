@@ -5,9 +5,9 @@ import { Input } from "@/components/ui/input"
 import { useBasket, useBasketActions } from "@/lib/basket"
 import { money, units } from "@/lib/money"
 import { ApiError } from "@itulah/contract/client"
-import { useNavigate } from "@tanstack/react-router"
 import { Minus, Plus, X } from "lucide-react"
 import { useMemo } from "react"
+import { PoSheet } from "@/components/po/po-sheet"
 import { useVocabulary } from "@/lib/vocabulary"
 import { Tag, Thumb } from "./columns"
 import { UNCLASSIFIED, toSourcingRow, type SourcingRow } from "./rows"
@@ -32,7 +32,6 @@ interface BasketGroup {
 /// invite a buyer to expect one checkout and then explain itself at the last
 /// moment.
 export function BasketPanel() {
-  const navigate = useNavigate()
   const basket = useBasket()
   const vocabulary = useVocabulary()
   const { setQuantity, remove, clear } = useBasketActions()
@@ -125,18 +124,15 @@ export function BasketPanel() {
                     {units(group.lines.length)} item{group.lines.length === 1 ? "" : "s"}
                     {currency !== null && ` · ${money(total, currency)}`}
                   </span>
-                  <Button
-                    size="sm"
-                    className="ml-auto h-7"
-                    onClick={() =>
-                      void navigate({
-                        to: "/orders/new/$supplierId",
-                        params: { supplierId: group.supplierId },
-                      })
-                    }
-                  >
-                    Draft PO
-                  </Button>
+                  {/* Opens over the basket rather than navigating away: the
+                      buyer is mid-errand, and one order per supplier means
+                      they will very likely raise the next one from this same
+                      list a moment later. */}
+                  <PoSheet supplierId={group.supplierId}>
+                    <Button size="sm" className="ml-auto h-7">
+                      Draft PO
+                    </Button>
+                  </PoSheet>
                 </div>
 
                 <ul>

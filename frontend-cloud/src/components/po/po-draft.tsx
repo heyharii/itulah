@@ -37,8 +37,21 @@ import { useMemo, useRef, useState } from "react"
 /// - It does not let the supplier change. One order goes to one supplier
 ///   (`CatalogPurchaseOrderRequest.supplier_id`), so switching supplier means a
 ///   different order, and the screen makes you go back and start it.
-export function PoDraft() {
-  const { supplierId } = useParams({ from: "/orders/new/$supplierId" })
+/// The draft itself, without a screen around it.
+///
+/// Split out so the same draft is a route and a sheet. Raising an order is
+/// something a buyer does while still looking at the range — sending them to
+/// another route to do it throws away the scroll position and the filters that
+/// got them there — so the sheet is the ordinary way in, and the route remains
+/// for a link somebody bookmarked or shared.
+export function PoDraftPanel({
+  supplierId,
+  onLeave,
+}: {
+  supplierId: string
+  /// Where "Discard" goes. A sheet closes; a route navigates.
+  onLeave: () => void
+}) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const basket = useBasket()
@@ -94,6 +107,11 @@ export function PoDraft() {
   /// becomes the article's own, so this is the last moment somebody has the
   /// garment and the paperwork in front of them at once.
   const [agreedDivisions, setAgreedDivisions] = useState<Record<string, string>>({})
+  /// Tags corrected for this order, as a whole set rather than additions.
+  /// The server replaces rather than merges, so what is held here is what the
+  /// line will carry — and an empty set is a buyer saying "none of these", not
+  /// "leave it alone".
+  const [agreedTags, setAgreedTags] = useState<Record<string, string[]>>({})
   /// Which line is open for editing. One at a time: a table where every row is
   /// a form is a table nobody can read.
   const [editing, setEditing] = useState<string | null>(null)
@@ -118,6 +136,7 @@ export function PoDraft() {
   const priceOf = (row: SourcingRow) => agreedPrices[row.id] ?? row.price
   const nameOf = (row: SourcingRow) => agreedNames[row.id] ?? row.name
   const divisionOf = (row: SourcingRow) => agreedDivisions[row.id] ?? row.division
+  const tagsOf = (row: SourcingRow) => agreedTags[row.id] ?? row.tags
   const grossMinor = lines.reduce((sum, line) => sum + priceOf(line.row) * line.quantity, 0)
   const discountMinor = discount.trim() === "" ? 0 : Math.max(0, Number(discount) || 0)
   const totalMinor = grossMinor - discountMinor
@@ -164,8 +183,7 @@ export function PoDraft() {
             article_name: agreedNames[line.row.id] ?? null,
             image_url: null,
             division_code: agreedDivisions[line.row.id] ?? null,
-            // Not offered per line yet; the catalogue's tags stand.
-            tags: null,
+            tags: agreedTags[line.row.id] ?? null,
           })),
         },
         idempotencyKey.current,
@@ -210,7 +228,7 @@ export function PoDraft() {
   }
 
   return (
-    <AppShell nav={<Nav />}>
+    <>
       <ScreenHeader
         title={step === "lines" ? "Draft purchase order" : "Review before raising"}
         subtitle={supplierName}
@@ -253,11 +271,7 @@ export function PoDraft() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() =>
-            void navigate({
-              to: Object.keys(seedQuantities).length > 0 ? "/basket" : "/orders",
-            })
-          }
+          onClick={onLeave}
         >
           <X className="size-3.5" />
           Discard
@@ -415,6 +429,38 @@ export function PoDraft() {
                                 </option>
                               ))}
                             </select>
+                            {/* Every tag in the vocabulary, the line's own
+                                lit. Chips rather than a multi-select: a buyer
+                                is recognising words here, not recalling them. */}
+                            <div className="flex flex-wrap gap-1">
+                              {vocabulary.tagCodes.map((code) => {
+                                const on = tagsOf(line.row).includes(code)
+                                return (
+                                  <button
+                                    key={code}
+                                    type="button"
+                                    aria-pressed={on}
+                                    onClick={() =>
+                                      setAgreedTags((current) => {
+                                        const held = current[line.row.id] ?? line.row.tags
+                                        const next = on
+                                          ? held.filter((value) => value !== code)
+                                          : [...held, code]
+                                        return { ...current, [line.row.id]: next }
+                                      })
+                                    }
+                                    className={cn(
+                                      "inline-flex h-5 items-center rounded-md px-1.5 text-[10.5px] font-medium transition-colors",
+                                      on
+                                        ? "bg-foreground text-background"
+                                        : "bg-muted text-muted-foreground hover:text-foreground",
+                                    )}
+                                  >
+                                    {vocabulary.tag(code)}
+                                  </button>
+                                )
+                              })}
+                            </div>
                           </div>
                         ) : (
                           <>
@@ -427,7 +473,7 @@ export function PoDraft() {
                                   {vocabulary.division(divisionOf(line.row))}
                                 </span>
                               )}
-                              {line.row.tags.slice(0, 3).map((tag) => (
+                              {tagsOf(line.row).slice(0, 3).map((tag) => (
                                 <Tag key={tag}>{vocabulary.tag(tag)}</Tag>
                               ))}
                             </div>
@@ -569,7 +615,20 @@ export function PoDraft() {
         {step === "lines" && (
           <section className="border-t">
             <div className="flex h-11 items-center gap-3 px-3.5">
-              <span className="text-xs font-semibold">Add from {supplierName}</span>
+              {/* Shown, not chosen. One order goes to exactly one supplier,
+                  so this is a fact about the draft rather than a decision left
+                  open — but leaving it out entirely makes a buyer wonder whose
+                  catalogue they are looking at. */}
+              <Label htmlFor="po-supplier" className="text-xs">
+                Supplier
+              </Label>
+              <Input
+                id="po-supplier"
+                value={supplierName}
+                disabled
+                readOnly
+                className="h-7 w-64 text-xs"
+              />
               <label className="relative ml-auto">
                 <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
                 <Input
@@ -637,6 +696,17 @@ export function PoDraft() {
           )}
         </div>
       </div>
+    </>
+  )
+}
+
+/// The draft as its own screen, for a bookmarked or shared link.
+export function PoDraft() {
+  const { supplierId } = useParams({ from: "/orders/new/$supplierId" })
+  const navigate = useNavigate()
+  return (
+    <AppShell nav={<Nav />}>
+      <PoDraftPanel supplierId={supplierId} onLeave={() => void navigate({ to: "/orders" })} />
     </AppShell>
   )
 }

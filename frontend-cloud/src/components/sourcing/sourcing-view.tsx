@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/components/custom/table"
 import { DataTableFilterControls } from "@/components/data-table/data-table-filter-controls"
+import { PoSheet } from "@/components/po/po-sheet"
 import { useVocabulary } from "@/lib/vocabulary"
 import { DataTableFloatingBar } from "@/components/data-table/data-table-floating-bar"
 import { DataTableProvider } from "@/components/data-table/data-table-provider"
@@ -380,6 +381,17 @@ export function SourcingView() {
                   <ShoppingBasket className="size-3.5" />
                   Add {orderable.length} to basket
                 </Button>
+                {/* Straight to an order when the selection is one supplier's.
+                    A purchase order goes to exactly one supplier, so offering
+                    this across a mixed selection would promise something that
+                    cannot be delivered — the basket is the right stop then. */}
+                {new Set(orderable.map((row) => row.supplierId)).size === 1 && (
+                  <PoSheet supplierId={orderable[0].supplierId}>
+                    <Button size="sm" variant="outline">
+                      Draft PO
+                    </Button>
+                  </PoSheet>
+                )}
                 <Button
                   size="sm"
                   variant="outline"

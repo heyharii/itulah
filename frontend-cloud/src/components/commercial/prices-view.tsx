@@ -90,7 +90,24 @@ export function PricesView() {
   const shopCount = page.data?.shops.length ?? 0
 
   return (
-    <AppShell nav={<Nav />}>
+    <AppShell
+      nav={<Nav />}
+      facets={
+        <Facets
+          search={search}
+          onSearch={setSearch}
+          divisions={divisions}
+          division={division}
+          onDivision={setDivision}
+          tags={tags}
+          tag={tag}
+          onTag={setTag}
+          onlyMarkdown={onlyMarkdown}
+          onOnlyMarkdown={setOnlyMarkdown}
+          cleared={cleared}
+        />
+      }
+    >
       <ScreenHeader
         title="Prices"
         subtitle={
@@ -99,57 +116,7 @@ export function PricesView() {
             : `${units(items.length)} style${items.length === 1 ? "" : "s"} · ${units(shopCount)} shop${shopCount === 1 ? "" : "s"}`
         }
       >
-        <label className="relative">
-          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Style or code…"
-            aria-label="Search styles"
-            className="h-8 w-44 pl-7 text-xs"
-          />
-        </label>
-
-        {divisions.length > 0 && (
-          <select
-            value={division}
-            onChange={(event) => setDivision(event.target.value)}
-            aria-label="Division"
-            className="border-input bg-background h-8 max-w-32 rounded-md border px-2 text-xs"
-          >
-            <option value="">Every division</option>
-            {divisions.map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </select>
-        )}
-
-        {tags.length > 0 && (
-          <select
-            value={tag}
-            onChange={(event) => setTag(event.target.value)}
-            aria-label="Tag"
-            className="border-input bg-background h-8 max-w-32 rounded-md border px-2 text-xs"
-          >
-            <option value="">Every tag</option>
-            {tags.map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </select>
-        )}
-
-        <Button
-          size="sm"
-          variant={onlyMarkdown ? "secondary" : "ghost"}
-          onClick={() => setOnlyMarkdown(!onlyMarkdown)}
-        >
-          On markdown{cleared > 0 ? ` · ${units(cleared)}` : ""}
-        </Button>
-
+        {/* What changes the question: which channel, and which instant. */}
         <div className="bg-muted flex items-center gap-0.5 rounded-md p-0.5">
           {CHANNELS.map((option) => (
             <button
@@ -258,6 +225,113 @@ export function PricesView() {
         )}
       </div>
     </AppShell>
+  )
+}
+
+/// What narrows the answer, in the rail.
+///
+/// The header carries what changes the QUESTION — which channel, which instant
+/// — and the rail carries what narrows the answer. Putting both in the header
+/// pushed the name of the screen off it, which is how you can tell there were
+/// two different things in there.
+function Facets({
+  search,
+  onSearch,
+  divisions,
+  division,
+  onDivision,
+  tags,
+  tag,
+  onTag,
+  onlyMarkdown,
+  onOnlyMarkdown,
+  cleared,
+}: {
+  search: string
+  onSearch: (value: string) => void
+  divisions: readonly string[]
+  division: string
+  onDivision: (value: string) => void
+  tags: readonly string[]
+  tag: string
+  onTag: (value: string) => void
+  onlyMarkdown: boolean
+  onOnlyMarkdown: (value: boolean) => void
+  cleared: number
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <label className="relative block">
+        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+        <Input
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+          placeholder="Style or code…"
+          aria-label="Search styles"
+          className="h-8 w-full pl-7 text-xs"
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={() => onOnlyMarkdown(!onlyMarkdown)}
+        className={cn(
+          "flex items-center justify-between rounded-md border px-2.5 py-1.5 text-left text-[11.5px] transition-colors",
+          onlyMarkdown
+            ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400"
+            : "hover:bg-muted",
+        )}
+      >
+        <span>On markdown somewhere</span>
+        <span className="font-mono tabular-nums">{units(cleared)}</span>
+      </button>
+
+      {divisions.length > 0 && (
+        <Chips
+          label="Division"
+          values={divisions}
+          chosen={division}
+          onChoose={onDivision}
+        />
+      )}
+      {tags.length > 0 && <Chips label="Tag" values={tags} chosen={tag} onChoose={onTag} />}
+    </div>
+  )
+}
+
+/// One value at a time, and clicking the chosen one lets it go.
+function Chips({
+  label,
+  values,
+  chosen,
+  onChoose,
+}: {
+  label: string
+  values: readonly string[]
+  chosen: string
+  onChoose: (value: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-muted-foreground text-[11px] font-medium">{label}</span>
+      <div className="flex flex-wrap gap-1">
+        {values.map((value) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onChoose(chosen === value ? "" : value)}
+            className={cn(
+              "rounded px-1.5 py-0.5 text-[10.5px] transition-colors",
+              chosen === value
+                ? "bg-foreground text-background"
+                : "bg-muted text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {value}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 

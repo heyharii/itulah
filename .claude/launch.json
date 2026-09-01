@@ -85,6 +85,23 @@
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8110"
       }
+    },
+    {
+      "name": "people-verify",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5177",
+        "--strictPort"
+      ],
+      "port": 5177,
+      "cwd": "frontend-cloud",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8177"
+      }
     }
   ]
 }

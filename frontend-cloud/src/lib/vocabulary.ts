@@ -52,6 +52,9 @@ export function useVocabulary() {
       /// The order the business thinks in, for a facet that should not be
       /// alphabetical.
       divisionOrder: query.data?.divisions.map((t) => t.code) ?? [],
+      /// Every tag the catalogue may use, for a screen offering a choice
+      /// rather than describing one.
+      tagCodes: query.data?.tags.map((t) => t.code) ?? [],
     }
   }, [query.data])
 }
