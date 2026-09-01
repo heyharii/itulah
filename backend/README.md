@@ -227,11 +227,29 @@ curl -X POST http://127.0.0.1:8082/api/v1/store/sales \
   -H 'content-type: application/json' \
   -d '{
     "epcs":["EPC-0001"],
-    "cash_minor":200000,
+    "tenders":[{"method":"CASH","amount_minor":200000}],
     "actor_id":"cashier-07",
     "idempotency_key":"store-sale-0001"
   }'
 ```
+
+Sale dibayar dengan daftar tender, bukan satu angka. Setengah kartu setengah tunai adalah basket biasa, dan `reference` diisi untuk rekonsiliasi bank — nama acquirer atau approval code, tidak pernah nomor kartu (dua belas digit atau lebih ditolak di pintu masuk):
+
+```zsh
+curl -X POST http://127.0.0.1:8082/api/v1/store/sales \
+  -H 'content-type: application/json' \
+  -d '{
+    "epcs":["EPC-0002"],
+    "tenders":[
+      {"method":"CARD","amount_minor":150000,"reference":"BCA auth 4471"},
+      {"method":"CASH","amount_minor":100000}
+    ],
+    "actor_id":"cashier-07",
+    "idempotency_key":"store-sale-0002"
+  }'
+```
+
+Hanya `CASH` yang boleh melebihi total, karena hanya tunai yang memberi kembalian. Kartu yang ditagih di atas nilai basket ditolak, bukan diterima sebagai kembalian.
 
 Semua command mutasi memerlukan idempotency key. Gunakan key baru untuk command baru dan ulangi key yang sama hanya untuk retry request yang sama.
 ## Authentication dan RFID offline
