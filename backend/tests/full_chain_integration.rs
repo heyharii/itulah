@@ -1147,7 +1147,11 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
             "/api/v1/store/sales",
             json!({
                 "epcs": basket,
-                "cash_minor": expected,
+                // Over the wire as a list, the way a till with a card reader
+                // sends it. Half on a card is covered end to end in
+                // `sales_money_sync_integration`; this chain wants the ordinary
+                // basket.
+                "tenders": [{"method": "CASH", "amount_minor": expected}],
                 "actor_id": "kasir-1",
                 "idempotency_key": "sale-1"
             }),

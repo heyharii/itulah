@@ -158,6 +158,18 @@ pub(crate) const CATALOG_MERCHANDISE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0019_catalog_merchandise_facts.sql"
 ));
 
+/// How a sale was paid for, and not only how much.
+pub(crate) const SALE_TENDER_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0020_sale_tenders.sql"
+));
+
+/// The colourway and size a hang tag has to carry to be shoppable.
+pub(crate) const PRINT_ITEM_COLOUR_SIZE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0020_print_item_colour_and_size.sql"
+));
+
 #[derive(Clone)]
 pub struct SqliteEdge {
     connection: Arc<Mutex<Connection>>,
@@ -423,6 +435,33 @@ impl SqliteEdge {
         if catalogue_knows_its_styles == 0 {
             connection
                 .execute_batch(CATALOG_MERCHANDISE_SCHEMA)
+                .map_err(db)?;
+        }
+        let records_how_it_was_paid: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type='table' AND name='sale_tender'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if records_how_it_was_paid == 0 {
+            connection.execute_batch(SALE_TENDER_SCHEMA).map_err(db)?;
+        }
+        // Asks after the size, because that is the line a rail is shopped by.
+        // A tag without it prices the garment correctly and never says whether
+        // it fits.
+        let label_knows_its_size: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('print_item')
+                  WHERE name='size_label'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if label_knows_its_size == 0 {
+            connection
+                .execute_batch(PRINT_ITEM_COLOUR_SIZE_SCHEMA)
                 .map_err(db)?;
         }
         let has_count_movement_groups: i64 = connection
@@ -3270,7 +3309,11 @@ impl EdgeInventory for SqliteEdge {
                         .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))
                 })?,
         };
-        let payment = validate_tender(total_minor, request.cash_minor, 0)
+        // Every tender, checked together: only cash may exceed the total,
+        // because only cash can produce change. A card charged for more than
+        // the basket is not generosity, it is a mistake nobody notices until a
+        // statement arrives.
+        let payment = crate::tender::validate_tenders(total_minor, &request.tenders)
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
         let from = Place::Operational {
             pool: OperationalPool::StoreFloor {
@@ -3313,6 +3356,22 @@ impl EdgeInventory for SqliteEdge {
             ],
         )
         .map_err(db)?;
+        // Keyed by position, so a retry of this whole sale writes the same rows
+        // rather than a second copy of each payment.
+        for (seq, tender) in request.tenders.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO sale_tender(sale_id,tender_seq,method,amount_minor,reference)
+                 VALUES(?1,?2,?3,?4,?5)",
+                params![
+                    sale_id.to_string(),
+                    i64::try_from(seq).unwrap_or(i64::MAX),
+                    tender.method.as_str(),
+                    tender.amount_minor,
+                    tender.reference,
+                ],
+            )
+            .map_err(db)?;
+        }
         for (subject, (unit_price_minor, price_source, publication_version)) in
             subjects.iter().zip(priced.iter())
         {
@@ -3392,6 +3451,15 @@ impl EdgeInventory for SqliteEdge {
                 // Who bought it. Points travel without this and there is
                 // nobody to credit them to.
                 "customer_id": request.customer_id,
+                // How it was settled. Only the amount travelled before, so the
+                // centre could say what a shop took and never how — and a bank
+                // reconciliation needs the how.
+                "tenders": request.tenders.iter().enumerate().map(|(seq, tender)| serde_json::json!({
+                    "tender_seq": seq,
+                    "method": tender.method.as_str(),
+                    "amount_minor": tender.amount_minor,
+                    "reference": tender.reference,
+                })).collect::<Vec<_>>(),
                 // Which promotions actually came off, and what each was worth.
                 // Only the total travelled before, so "what did the Lebaran
                 // promo cost us" had no answer — and a coupon marked
@@ -3461,6 +3529,25 @@ impl EdgeInventory for SqliteEdge {
             self.node.site_id.as_str(),
             pricing::STORE_CHANNEL,
             Utc::now(),
+        )
+    }
+
+    fn store_catalog_page(
+        &self,
+        query: pricing::CatalogQuery,
+    ) -> Result<pricing::CatalogPage, EdgeError> {
+        if self.node.role != EdgeRole::Store {
+            return Err(EdgeError::Forbidden(
+                "a catalogue is priced for a shop, and a DC does not sell".into(),
+            ));
+        }
+        let connection = self.lock()?;
+        pricing::store_catalog_page(
+            &connection,
+            self.node.site_id.as_str(),
+            pricing::STORE_CHANNEL,
+            Utc::now(),
+            query,
         )
     }
 
@@ -3783,7 +3870,11 @@ mod tests {
                 coupon_codes: Vec::new(),
                 customer_id: None,
                 epcs: vec!["EPC-OFFLINE-001".into()],
-                cash_minor: 200_000,
+                tenders: vec![crate::tender::SaleTender {
+                    method: crate::tender::PaymentMethod::Cash,
+                    amount_minor: 200_000,
+                    reference: None,
+                }],
                 actor_id: "cashier-07".into(),
                 idempotency_key: "store-sale-001".into(),
             })

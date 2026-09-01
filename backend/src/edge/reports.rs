@@ -9,10 +9,6 @@
 //! Deliberately thinner than the centre's, because the edge records less and
 //! pretending otherwise would be worse than saying so:
 //!
-//!   - **No tenders.** `SaleRequest` carries `cash_minor` and nothing else,
-//!     and there is no `sale_payment` table in the edge schema at all. Every
-//!     sale here is cash by construction, so a cash/card/QRIS split would be
-//!     an invention. The centre has the split for shops that report one.
 //!   - **No tax split.** The edge `sale` row has `total_minor`, `paid_minor`
 //!     and `change_minor`; there is no `net_minor` or `tax_minor` to divide.
 //!   - **No returns and no voids.** `sale.status` is `CHECK (status =
@@ -83,6 +79,22 @@ pub struct SalesReceipt {
     pub completed_at: String,
 }
 
+/// What was taken in one form of payment.
+///
+/// This used to be a line in the module docs saying the edge could not answer
+/// the question: the till took cash and nothing else, so a split would have
+/// been an invention. It takes cards now, and the split stopped being an
+/// invention and started being the point — a drawer is counted in cash, and a
+/// card settlement is chased through an acquirer.
+#[derive(Clone, Debug, Serialize)]
+pub struct TenderTotal {
+    /// `CASH` · `CARD` · `QRIS` · `OTHER`, as the schema constrains it.
+    pub method: String,
+    pub amount_minor: i64,
+    /// How many tenders, not how many sales: one split payment is two.
+    pub count: i64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct SalesTotals {
     pub count: i64,
@@ -102,8 +114,16 @@ pub struct SalesWindow {
     pub to: NaiveDate,
     pub utc_offset_minutes: i32,
     pub sales: SalesTotals,
-    /// What is expected in the drawer. Every sale here is cash, so this is the
-    /// whole of it rather than one tender among several.
+    /// What each form of payment took, in descending order, so the largest is
+    /// first and a manager reading it at close does not have to scan.
+    pub tenders: Vec<TenderTotal>,
+    /// What is expected in the drawer: cash taken, less the change given out
+    /// of it.
+    ///
+    /// Only cash. `paid_minor - change_minor` was this figure while the till
+    /// was cash-only and became wrong the moment it was not — it would count a
+    /// card settlement as banknotes and report a drawer short by exactly the
+    /// day's card takings, every day, with the arithmetic looking perfect.
     pub cash_expected_minor: i64,
     pub receipts: Vec<SalesReceipt>,
     /// Said plainly rather than left to be inferred from a length: a list that
@@ -263,6 +283,34 @@ pub fn sales_window(
         )
         .map_err(db)?;
 
+    // Keyed by method rather than summed into columns, so adding a tender to
+    // the schema's CHECK constraint is the only edit a new one needs.
+    let tenders = {
+        let mut statement = connection
+            .prepare(
+                "SELECT t.method,SUM(t.amount_minor),COUNT(*) FROM sale_tender t \
+                 JOIN sale s ON s.id=t.sale_id \
+                 WHERE s.completed_at >= ?1 AND s.completed_at < ?2 \
+                 GROUP BY t.method ORDER BY SUM(t.amount_minor) DESC",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map(rusqlite::params![stamp(start), stamp(end)], |row| {
+                Ok(TenderTotal {
+                    method: row.get(0)?,
+                    amount_minor: row.get(1)?,
+                    count: row.get(2)?,
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    let cash_taken: i64 = tenders
+        .iter()
+        .filter(|tender| tender.method == "CASH")
+        .map(|tender| tender.amount_minor)
+        .sum();
+
     let receipts = {
         let mut statement = connection
             .prepare(
@@ -304,9 +352,11 @@ pub fn sales_window(
             // Integer money stays integer money: rounded once, here.
             average_minor: if count == 0 { 0 } else { gross / count },
         },
-        // Cash taken minus change given. There is no other tender on an edge
-        // and no refunds table, so this is the drawer, not one line of it.
-        cash_expected_minor: paid - change,
+        // Cash taken, less change given. Change comes out of the drawer
+        // whatever paid for the sale — the domain refuses a non-cash tender
+        // above the total precisely so that this subtraction is safe.
+        cash_expected_minor: cash_taken - change,
+        tenders,
         receipts_truncated: (receipts.len() as i64) >= limit && count > limit,
         receipts,
         receipts_limit: limit,

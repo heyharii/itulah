@@ -187,7 +187,18 @@ const fn normal_move() -> MovementCause {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SaleRequest {
     pub epcs: Vec<String>,
-    pub cash_minor: i64,
+    /// How the shopper paid, in the order it was taken.
+    ///
+    /// A list rather than one cash figure. Half on a card and half in cash is
+    /// an ordinary basket, and a till that could record only one of them either
+    /// refuses the sale or misreports how it settled — and the misreport is the
+    /// one that reaches the bank reconciliation, weeks later, as a difference
+    /// nobody can trace.
+    ///
+    /// Order matters only as identity: a tender has no natural id, so its
+    /// position keys it, and a fact delivered twice overwrites rather than
+    /// records the payment again.
+    pub tenders: Vec<crate::tender::SaleTender>,
     pub actor_id: String,
     pub idempotency_key: String,
     /// Codes the shopper presented. A promotion gated by a coupon stays shut
@@ -562,6 +573,10 @@ pub trait EdgeInventory: Send + Sync {
     /// Answered from the same evaluator the till uses, so the catalogue screen
     /// and the receipt cannot disagree.
     fn store_catalog(&self) -> Result<Vec<super::pricing::CatalogRow>, EdgeError>;
+    fn store_catalog_page(
+        &self,
+        query: super::pricing::CatalogQuery,
+    ) -> Result<super::pricing::CatalogPage, EdgeError>;
     /// This shop's own takings over a span, bucketed by day, week or month.
     ///
     /// Answered from the shop's own SQLite so it keeps working when the link

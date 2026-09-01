@@ -30,3 +30,6 @@ pub mod sync;
 /// What a line comes to once tax has had its say — one implementation for
 /// both nodes, because it was two.
 pub mod tax;
+/// How a sale is paid for — one implementation for both nodes, because it
+/// was two.
+pub mod tender;

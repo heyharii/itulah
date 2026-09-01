@@ -127,6 +127,20 @@ const MATRIX: &[Authority] = &[
         reason: "as edge_sale",
     },
     Authority {
+        table: "edge_sale_tender",
+        writers: &["src/cloud/postgres/sync.rs"],
+        reason: "as edge_sale, and it matters more here than anywhere: a tender \
+                 the centre invented is money claimed from a bank that never \
+                 sent it",
+    },
+    Authority {
+        table: "sale_tender",
+        writers: &["src/edge/sqlite.rs"],
+        reason: "the till that took the money writes how it was taken, in the \
+                 transaction that completes the sale. Anything writing this \
+                 later would be editing a settlement after the customer left",
+    },
+    Authority {
         table: "edge_sale_promotion",
         writers: &["src/cloud/postgres/sync.rs"],
         reason: "written beside the counts, from the same fact and inside the \

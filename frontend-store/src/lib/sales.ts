@@ -8,10 +8,6 @@ import type { SalesRange } from "@itulah/contract/reporting"
 /// a shop genuinely answers a smaller question than head office does. See
 /// `backend/src/edge/reports.rs` for why:
 ///
-///   - **No tenders.** The till is cash-only — `SaleRequest` carries
-///     `cash_minor` and nothing else, and the edge schema has no
-///     `sale_payment` table at all. A cash/card/QRIS split here would be an
-///     invention, so there isn't one.
 ///   - **No tax split.** The edge `sale` row has `total_minor`, `paid_minor`
 ///     and `change_minor`, and no net/tax to divide them into.
 ///   - **No returns, no voids.** `status` is `CHECK (status = 'COMPLETED')`.
@@ -52,6 +48,14 @@ export interface StoreReceipt {
   readonly completed_at: string
 }
 
+export interface StoreTenderTotal {
+  /// `CASH` · `CARD` · `QRIS` · `OTHER`, as the node's schema constrains it.
+  readonly method: string
+  readonly amount_minor: number
+  /// Tenders, not sales: one basket settled half on a card is two.
+  readonly count: number
+}
+
 export interface StoreSalesWindow {
   readonly site_id: string
   readonly from: string
@@ -67,8 +71,11 @@ export interface StoreSalesWindow {
     /// be divided by a count from somewhere else.
     readonly average_minor: number
   }
-  /// Cash taken minus change given. Every sale here is cash, so this is the
-  /// whole drawer rather than one tender in it.
+  /// What each form of payment took, largest first.
+  readonly tenders: readonly StoreTenderTotal[]
+  /// Cash taken, less the change given out of it — the drawer, and only the
+  /// drawer. Card and QRIS takings are in `tenders` and are chased somewhere
+  /// else entirely.
   readonly cash_expected_minor: number
   readonly receipts: readonly StoreReceipt[]
   readonly receipts_truncated: boolean

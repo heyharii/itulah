@@ -21,6 +21,7 @@ use inventory_backend::edge::{
     SiteId, SqliteEdge, SqliteSyncStore,
 };
 use inventory_backend::sync::port::SyncStore;
+use inventory_backend::tender::{PaymentMethod, SaleTender};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -208,6 +209,17 @@ fn rule(sku_code: &str, site_id: Option<&str>, minor: i64) -> serde_json::Value 
     })
 }
 
+/// A sale settled the ordinary way, so the tests below read as sales rather
+/// than as payment plumbing. The interesting tenders are spelled out where they
+/// are the point.
+fn cash(amount_minor: i64) -> Vec<SaleTender> {
+    vec![SaleTender {
+        method: PaymentMethod::Cash,
+        amount_minor,
+        reference: None,
+    }]
+}
+
 #[tokio::test]
 async fn a_published_price_is_what_the_shop_charges() {
     let mut shop = Shop::open();
@@ -239,7 +251,7 @@ async fn a_published_price_is_what_the_shop_charges() {
             idempotency_key: "sale-1".into(),
             actor_id: "kasir".into(),
             epcs: vec!["EPC00000001".into()],
-            cash_minor: 149_000,
+            tenders: cash(149_000),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
 
@@ -285,7 +297,7 @@ async fn a_shop_specific_price_beats_the_company_one_at_the_counter() {
             idempotency_key: "sale-2".into(),
             actor_id: "kasir".into(),
             epcs: vec!["EPC00000002".into()],
-            cash_minor: 119_000,
+            tenders: cash(119_000),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(sale.total_minor, 119_000);
@@ -324,7 +336,7 @@ async fn a_second_price_book_changes_the_price_the_till_takes() {
             idempotency_key: "sale-3".into(),
             actor_id: "kasir".into(),
             epcs: vec!["EPC00000003".into()],
-            cash_minor: 99_000,
+            tenders: cash(99_000),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(
@@ -348,7 +360,7 @@ async fn a_shop_that_has_never_received_a_price_book_can_still_sell() {
             idempotency_key: "sale-4".into(),
             actor_id: "kasir".into(),
             epcs: vec!["EPC00000004".into()],
-            cash_minor: INTAKE_PRICE,
+            tenders: cash(INTAKE_PRICE),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(sale.total_minor, INTAKE_PRICE);
@@ -378,7 +390,7 @@ async fn an_item_missing_from_a_live_price_book_is_refused_not_guessed() {
         idempotency_key: "sale-5".into(),
         actor_id: "kasir".into(),
         epcs: vec!["EPC00000005".into()],
-        cash_minor: INTAKE_PRICE,
+        tenders: cash(INTAKE_PRICE),
     });
     assert!(
         refused.is_err(),
@@ -487,7 +499,7 @@ impl Shop {
         .collect()
     }
 
-    fn sell(&self, epc: &str, cash: i64, coupons: &[&str]) -> inventory_backend::edge::SaleResult {
+    fn sell(&self, epc: &str, handed_over: i64, coupons: &[&str]) -> inventory_backend::edge::SaleResult {
         self.edge
             .complete_sale(SaleRequest {
                 coupon_codes: coupons.iter().map(|c| (*c).to_string()).collect(),
@@ -495,7 +507,7 @@ impl Shop {
                 idempotency_key: format!("{epc}-sale"),
                 actor_id: "kasir".into(),
                 epcs: vec![epc.into()],
-                cash_minor: cash,
+                tenders: cash(handed_over),
             })
             .unwrap_or_else(|e| panic!("sale: {e}"))
     }
@@ -856,7 +868,7 @@ async fn the_centre_accepts_the_sale_it_is_told_about() {
             idempotency_key: "sale-two-lines".into(),
             actor_id: "kasir".into(),
             epcs: vec!["EPC20000002".into(), "EPC20000003".into()],
-            cash_minor: 405_000,
+            tenders: cash(405_000),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     // 150,000 + 300,000 = 450,000, less ten per cent = 405,000.
@@ -1149,7 +1161,7 @@ async fn a_sale_tells_the_centre_which_promotion_came_off_and_who_bought_it() {
             idempotency_key: "sale-counted".into(),
             actor_id: "kasir".into(),
             epcs: vec!["EPC40000001".into()],
-            cash_minor: 160_000,
+            tenders: cash(160_000),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(sale.total_minor, 160_000);

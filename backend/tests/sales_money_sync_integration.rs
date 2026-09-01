@@ -13,6 +13,7 @@ use inventory_backend::edge::{
     EdgeInventory, EdgeRole, MoveRequest, MovementCause, NodeContext, ReceiveRequest, SaleRequest,
     SiteId, SqliteEdge,
 };
+use inventory_backend::tender::{PaymentMethod, SaleTender};
 use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -75,6 +76,17 @@ fn queued_facts(edge: &SqliteEdge) -> Vec<(String, serde_json::Value)> {
     .collect()
 }
 
+/// A sale settled the ordinary way, so the tests below read as sales rather
+/// than as payment plumbing. The interesting tenders are spelled out where they
+/// are the point.
+fn cash(amount_minor: i64) -> Vec<SaleTender> {
+    vec![SaleTender {
+        method: PaymentMethod::Cash,
+        amount_minor,
+        reference: None,
+    }]
+}
+
 #[test]
 fn a_sale_queues_its_money_alongside_its_stock_movement() {
     let edge = shop();
@@ -87,7 +99,7 @@ fn a_sale_queues_its_money_alongside_its_stock_movement() {
             idempotency_key: "sale-1".into(),
             actor_id: "kasir-1".into(),
             epcs: vec!["EPC90000001".into()],
-            cash_minor: 50_000,
+            tenders: cash(50_000),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
 
@@ -123,7 +135,7 @@ fn an_idempotent_replay_of_a_sale_queues_no_second_money_fact() {
         idempotency_key: "sale-2".into(),
         actor_id: "kasir-1".into(),
         epcs: vec!["EPC90000002".into()],
-        cash_minor: 15_000,
+        tenders: cash(15_000),
     };
     let first = edge
         .complete_sale(request.clone())
@@ -272,4 +284,200 @@ async fn a_till_whose_arithmetic_is_wrong_is_refused_not_believed(pool: PgPool) 
         .await
         .unwrap_or_else(|e| panic!("count: {e}"));
     assert_eq!(rows, 0, "nothing from a sale that does not add up");
+}
+
+// ---- Split payments ------------------------------------------------------
+
+/// A basket settled half on a card and half in cash, followed end to end.
+///
+/// This is the ordinary Indonesian basket — a card until the limit, the rest
+/// from a wallet — and until now the till could not record it. What it exists
+/// to protect is the drawer figure: cash and card are two different debts owed
+/// to the shop, counted tonight and settled by an acquirer next week
+/// respectively, and a report that adds them together is only ever right by
+/// accident.
+#[test]
+fn a_basket_paid_half_on_a_card_records_both_halves() {
+    let edge = shop();
+    stock_one(&edge, "EPC90000010", "KEMEJA", 200_000, "split");
+
+    let sale = edge
+        .complete_sale(SaleRequest {
+            coupon_codes: Vec::new(),
+            customer_id: None,
+            idempotency_key: "sale-split".into(),
+            actor_id: "kasir-1".into(),
+            epcs: vec!["EPC90000010".into()],
+            tenders: vec![
+                SaleTender {
+                    method: PaymentMethod::Card,
+                    amount_minor: 150_000,
+                    reference: Some("BCA auth 4471".into()),
+                },
+                SaleTender {
+                    method: PaymentMethod::Cash,
+                    amount_minor: 100_000,
+                    reference: None,
+                },
+            ],
+        })
+        .unwrap_or_else(|e| panic!("split sale: {e}"));
+
+    // 200,000 owed, 250,000 handed over, 50,000 back — and the change came out
+    // of the drawer, because it always does.
+    assert_eq!(sale.total_minor, 200_000);
+    assert_eq!(sale.paid_minor, 250_000);
+    assert_eq!(sale.change_minor, 50_000);
+
+    let facts = queued_facts(&edge);
+    let money = facts
+        .iter()
+        .find(|(kind, _)| kind == FACT_SALES_COMPLETED)
+        .unwrap_or_else(|| panic!("the sale must queue its money"));
+    let parsed = parse_sales_completed(&money.1)
+        .unwrap_or_else(|e| panic!("a split sale must still be a valid fact: {e}"));
+    assert_eq!(parsed.tenders.len(), 2, "both halves travel to the centre");
+    assert_eq!(parsed.tenders[0].method, "CARD");
+    assert_eq!(parsed.tenders[0].tender_seq, 0);
+    assert_eq!(parsed.tenders[1].method, "CASH");
+    assert_eq!(
+        parsed.tenders.iter().map(|t| t.amount_minor).sum::<i64>(),
+        parsed.paid_minor,
+        "what was tendered has to equal what the sale says was paid"
+    );
+
+    // The shop's own close-of-day report, which is the number a manager counts
+    // the drawer against. The card half must not be in it.
+    let window = edge
+        .sales_window(inventory_backend::edge::reports::SalesWindowQuery {
+            from: chrono::Utc::now().date_naive(),
+            to: chrono::Utc::now().date_naive(),
+            utc_offset_minutes: Some(0),
+            limit: None,
+        })
+        .unwrap_or_else(|e| panic!("window: {e}"));
+    assert_eq!(
+        window.cash_expected_minor, 50_000,
+        "100,000 in, 50,000 out; the card settles somewhere else entirely"
+    );
+    let card = window
+        .tenders
+        .iter()
+        .find(|tender| tender.method == "CARD")
+        .unwrap_or_else(|| panic!("the card takings must be reported, not hidden"));
+    assert_eq!(card.amount_minor, 150_000);
+}
+
+/// A card charged for more than the basket is a mistake, not generosity.
+///
+/// Neither reference implementation checks this: both store a list of payments
+/// beside a paid figure and trust whatever wrote them. The cost is a customer
+/// overcharged on a card with the till showing change owed in a drawer that
+/// never received it.
+#[test]
+fn a_card_cannot_be_charged_above_the_basket() {
+    let edge = shop();
+    stock_one(&edge, "EPC90000011", "CELANA", 100_000, "over");
+    let refusal = edge.complete_sale(SaleRequest {
+        coupon_codes: Vec::new(),
+        customer_id: None,
+        idempotency_key: "sale-over".into(),
+        actor_id: "kasir-1".into(),
+        epcs: vec!["EPC90000011".into()],
+        tenders: vec![SaleTender {
+            method: PaymentMethod::Card,
+            amount_minor: 150_000,
+            reference: None,
+        }],
+    });
+    assert!(
+        refusal.is_err(),
+        "there is no such thing as change from a card"
+    );
+}
+
+/// A reference is for reconciling, never for the instrument itself.
+#[test]
+fn a_reference_that_looks_like_a_card_number_is_refused() {
+    let edge = shop();
+    stock_one(&edge, "EPC90000012", "TOPI", 50_000, "pan");
+    let refusal = edge.complete_sale(SaleRequest {
+        coupon_codes: Vec::new(),
+        customer_id: None,
+        idempotency_key: "sale-pan".into(),
+        actor_id: "kasir-1".into(),
+        epcs: vec!["EPC90000012".into()],
+        tenders: vec![SaleTender {
+            method: PaymentMethod::Card,
+            amount_minor: 50_000,
+            reference: Some("4571 2234 9981 0043".into()),
+        }],
+    });
+    assert!(
+        refusal.is_err(),
+        "a card number that reaches the database has to be erased from every backup of it"
+    );
+}
+
+/// The centre's copy of a split sale, and what a resend does to it.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_centre_keeps_both_halves_and_a_resend_does_not_double_them(pool: PgPool) {
+    let sale_id = Uuid::new_v4();
+    let mut payload = sale_payload(sale_id, 30_000, 50_000, 20_000, 30_000);
+    payload["tenders"] = json!([
+        {"tender_seq": 0, "method": "CARD", "amount_minor": 30_000, "reference": "BCA"},
+        {"tender_seq": 1, "method": "CASH", "amount_minor": 20_000, "reference": null},
+    ]);
+    ingest(&pool, 1, payload.clone()).await;
+    let report = cloud::apply_pending(&pool, 200)
+        .await
+        .unwrap_or_else(|e| panic!("apply: {e}"));
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+
+    // Delivery is at-least-once by design, so the same fact arrives again.
+    ingest(&pool, 2, payload).await;
+    let report = cloud::apply_pending(&pool, 200)
+        .await
+        .unwrap_or_else(|e| panic!("apply 2: {e}"));
+    assert!(report.blocked.is_empty());
+
+    let rows: Vec<(i32, String, i64)> = sqlx::query_as(
+        "SELECT tender_seq, method, amount_minor FROM edge_sale_tender \
+         WHERE sale_id = $1 ORDER BY tender_seq",
+    )
+    .bind(sale_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("tenders: {e}"));
+    assert_eq!(
+        rows.len(),
+        2,
+        "the ordinal keys the tender, so a resend overwrites rather than doubles"
+    );
+    assert_eq!(rows[0], (0, "CARD".into(), 30_000));
+    assert_eq!(rows[1], (1, "CASH".into(), 20_000));
+}
+
+/// Tenders that do not add up to the paid figure are refused at the boundary.
+///
+/// The centre already re-checks a till's arithmetic rather than believing it.
+/// This is the same rule applied to settlement: a sale saying 50,000 was paid
+/// with 40,000 of tenders behind it is money on the books that no payment
+/// accounts for — the hardest kind of difference to chase, because both numbers
+/// look reasonable on their own.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn tenders_that_do_not_add_up_are_refused_not_believed(pool: PgPool) {
+    let mut payload = sale_payload(Uuid::new_v4(), 30_000, 50_000, 20_000, 30_000);
+    payload["tenders"] = json!([
+        {"tender_seq": 0, "method": "CASH", "amount_minor": 40_000, "reference": null},
+    ]);
+    ingest(&pool, 1, payload).await;
+    let report = cloud::apply_pending(&pool, 200)
+        .await
+        .unwrap_or_else(|e| panic!("apply: {e}"));
+    assert_eq!(
+        report.blocked.len(),
+        1,
+        "10,000 with no payment behind it must be refused loudly, not stored quietly"
+    );
 }

@@ -617,6 +617,27 @@ pub async fn get_shop_sale(pool: &PgPool, sale_id: Uuid) -> Result<Value, AppErr
     })
     .collect();
 
+    // How it settled. On a disputed receipt this is usually the first question
+    // asked and the one `paid_minor` alone cannot answer: a refund goes back
+    // the way the money came, and "we paid by card" is checkable here.
+    let tenders: Vec<Value> = sqlx::query(
+        "SELECT tender_seq, method, amount_minor, reference
+           FROM edge_sale_tender WHERE sale_id = $1 ORDER BY tender_seq",
+    )
+    .bind(sale_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "tender_seq": row.get::<i32, _>("tender_seq"),
+            "method": row.get::<String, _>("method"),
+            "amount_minor": row.get::<i64, _>("amount_minor"),
+            "reference": row.get::<Option<String>, _>("reference"),
+        })
+    })
+    .collect();
+
     Ok(json!({
         "sale_id": sale.get::<Uuid, _>("sale_id"),
         "site_id": sale.get::<String, _>("site_id"),
@@ -637,5 +658,6 @@ pub async fn get_shop_sale(pool: &PgPool, sale_id: Uuid) -> Result<Value, AppErr
         "customer_id": sale.get::<Option<String>, _>("customer_id"),
         "lines": lines,
         "promotions": promotions,
+        "tenders": tenders,
     }))
 }

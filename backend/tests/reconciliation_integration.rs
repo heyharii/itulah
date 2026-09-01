@@ -13,6 +13,7 @@
 //! projection would, and asserts the centre NOTICES. A cross-check that never
 //! fires when it should is worse than no cross-check, because it is trusted.
 
+use inventory_backend::tender::{PaymentMethod, SaleTender};
 use async_trait::async_trait;
 use inventory_backend::cloud::domain::{
     BreakerPolicy, IngestBatch, IngestResponse, FACT_SALES_COMPLETED,
@@ -146,6 +147,17 @@ async fn fact_kinds(pool: &PgPool) -> Vec<(String, i64)> {
     .unwrap_or_else(|e| panic!("kinds: {e}"))
 }
 
+/// A sale settled the ordinary way, so the tests below read as sales rather
+/// than as payment plumbing. The interesting tenders are spelled out where they
+/// are the point.
+fn cash(amount_minor: i64) -> Vec<SaleTender> {
+    vec![SaleTender {
+        method: PaymentMethod::Cash,
+        amount_minor,
+        reference: None,
+    }]
+}
+
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_trading_day_reaches_the_centre_and_reconciles(pool: PgPool) {
     enrol(&pool).await;
@@ -161,7 +173,7 @@ async fn a_trading_day_reaches_the_centre_and_reconciles(pool: PgPool) {
         idempotency_key: "sale-1".into(),
         actor_id: "kasir-1".into(),
         epcs: vec!["EPC70000001".into()],
-        cash_minor: 50_000,
+        tenders: cash(50_000),
     })
     .unwrap_or_else(|e| panic!("sale: {e}"));
 

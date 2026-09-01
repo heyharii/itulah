@@ -5243,6 +5243,29 @@ async fn apply_sale(
     // so a promotion is never counted twice for one basket. This is the only
     // place a running total is written, and it is written from a fact that has
     // already been accepted.
+    // How it was settled. Keyed by the position the till captured, so a resent
+    // fact overwrites the same rows rather than recording each payment twice.
+    for tender in &sale.tenders {
+        sqlx::query(
+            "INSERT INTO edge_sale_tender
+                 (sale_id, tender_seq, method, amount_minor, reference)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (sale_id, tender_seq) DO NOTHING",
+        )
+        .bind(sale.sale_id)
+        .bind(tender.tender_seq)
+        .bind(tender.method.trim().to_ascii_uppercase())
+        .bind(tender.amount_minor)
+        .bind(
+            tender
+                .reference
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
     for promotion in &sale.promotions {
         // The detail, kept beside the count. Both are written from this one
         // accepted fact and behind the same idempotency guard, so the totals on
@@ -5413,7 +5436,43 @@ pub async fn sales_by_site(
         .iter()
         .map(|i| i["gross_minor"].as_i64().unwrap_or(0))
         .sum();
-    Ok(json!({ "from": from, "to": to, "gross_minor": gross, "sites": items }))
+
+    // The same window split by how the money arrived. Treasury asks this every
+    // Monday and it is a different question from "what did we take": cash is
+    // counted at thirty counters and banked locally, card settlements land from
+    // an acquirer days later net of fees. A single takings figure cannot be
+    // reconciled against either.
+    let tenders: Vec<Value> = sqlx::query(
+        "SELECT t.method,
+                sum(t.amount_minor)::bigint AS amount_minor,
+                count(*)::bigint            AS count
+         FROM edge_sale_tender t
+         JOIN edge_sale s ON s.sale_id = t.sale_id
+         WHERE s.occurred_at >= $1 AND s.occurred_at < $2
+         GROUP BY t.method ORDER BY sum(t.amount_minor) DESC",
+    )
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|r| {
+        json!({
+            "method": r.get::<String, _>("method"),
+            "amount_minor": r.get::<i64, _>("amount_minor"),
+            // Tenders, not sales: one basket split across two cards is two.
+            "count": r.get::<i64, _>("count"),
+        })
+    })
+    .collect();
+
+    Ok(json!({
+        "from": from,
+        "to": to,
+        "gross_minor": gross,
+        "sites": items,
+        "tenders": tenders,
+    }))
 }
 
 // ---- Reconciliation: computed position vs observed position ---------------

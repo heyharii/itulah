@@ -1575,6 +1575,26 @@ pub struct SalesCompletedPayload {
     /// because no single shop can know what the others have spent.
     #[serde(default)]
     pub promotions: Vec<SaleFactPromotion>,
+    /// How the sale was paid for. `default` because sales recorded before the
+    /// till could take anything but cash carry none, and a shop on an older
+    /// build still sells — an empty list means "not recorded", which is not the
+    /// same as "paid nothing" and must not be read as it.
+    #[serde(default)]
+    pub tenders: Vec<SaleFactTender>,
+}
+
+/// How one sale was settled, as the shop recorded it.
+///
+/// `tender_seq` is the identity: a tender has no natural id, and its position
+/// in the list the till captured is stable, so a fact delivered twice
+/// overwrites the same row rather than recording one payment twice.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SaleFactTender {
+    pub tender_seq: i32,
+    pub method: String,
+    pub amount_minor: i64,
+    #[serde(default)]
+    pub reference: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1656,6 +1676,60 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
             "change {} does not reconcile tender {} against total {}",
             sale.change_minor, sale.paid_minor, sale.total_minor
         ));
+    }
+    // And the tenders must add up to what was paid.
+    //
+    // Neither reference implementation checks this: both store a list of
+    // payments beside a paid figure and trust whatever wrote them. The two then
+    // disagree silently, and the disagreement surfaces at a bank
+    // reconciliation as money with no transaction behind it — the single
+    // hardest number in retail to chase, because by then the receipt, the
+    // statement and the ledger have all been read by different people.
+    //
+    // An empty list is not a failure. Sales recorded before the till could take
+    // anything but cash carry none, and a shop on an older build still sells:
+    // "not recorded" is not "paid nothing", and only the first is legal here.
+    if !sale.tenders.is_empty() {
+        let mut settled: i64 = 0;
+        let mut seen = std::collections::BTreeSet::new();
+        for tender in &sale.tenders {
+            if tender.amount_minor <= 0 {
+                return Err(format!(
+                    "tender {} on this sale is not a positive amount",
+                    tender.tender_seq
+                ));
+            }
+            if <crate::tender::PaymentMethod as std::str::FromStr>::from_str(&tender.method)
+                .is_err()
+            {
+                return Err(format!("unknown tender method {}", tender.method));
+            }
+            if tender
+                .reference
+                .as_deref()
+                .is_some_and(|reference| crate::tender::screen_reference(reference).is_err())
+            {
+                // Refused at the door rather than stored and regretted: a card
+                // number that reaches a database has to be erased from every
+                // backup of it.
+                return Err("a payment reference must not look like a card number".into());
+            }
+            if !seen.insert(tender.tender_seq) {
+                return Err(format!(
+                    "two tenders on this sale share position {}",
+                    tender.tender_seq
+                ));
+            }
+            settled = settled
+                .checked_add(tender.amount_minor)
+                .ok_or_else(|| "the tenders add up to more than can be counted".to_string())?;
+        }
+        if settled != sale.paid_minor {
+            return Err(format!(
+                "the tenders add up to {settled} but the sale says {} was paid",
+                sale.paid_minor
+            ));
+        }
     }
     Ok(sale)
 }
