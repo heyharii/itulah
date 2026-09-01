@@ -32,6 +32,7 @@ use http::Request;
 use inventory_backend::cloud::application::RegisterRfidDeviceRequest;
 use inventory_backend::cloud::domain::{BreakerPolicy, IngestBatch, IngestResponse};
 use inventory_backend::cloud::{http as cloud_http, postgres as cloud, AppConfig, AppState};
+use inventory_backend::edge::pricing as edge_pricing;
 use inventory_backend::edge::rfid::{derive_rfid_signing_key, sign_rfid_request};
 use inventory_backend::edge::{
     dc_router_with_auth, store_router_with_auth, EdgeAuth, EdgeAuthConfig, EdgeInventory, EdgeRole,
@@ -827,6 +828,69 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
         on_shelf(&other_sku_code)["price_source"],
         "head office and the shop must say the same word for where a price came from"
     );
+
+    // And they agree on a whole BASKET, to the fingerprint.
+    //
+    // The catalogue check above compares one number at a time, which is the
+    // easy half: two readers can quote the same shelf price and still part
+    // company the moment a basket has two items and a promotion in it. The
+    // engine answers with a `trace_id` — a hash of the decision it made — so
+    // the same basket priced against the same book at the same instant gives
+    // the same id on any machine. Comparing those compares everything: which
+    // price won, which markdown replaced it, which rules applied, in what order,
+    // and what each was worth.
+    //
+    // This is the invariant the architecture states first, and until now
+    // nothing checked it. Every divergence this system has had would have
+    // failed here: a price source spelled two ways, a budget counted in one
+    // place and read from another, an article-wide clearance that matched at
+    // neither end, a sale path that resolved with SQL of its own.
+    let at = chrono::Utc::now();
+    let basket = [
+        pricing_engine::CartLine::new(sku_code.clone(), 2),
+        pricing_engine::CartLine::new(other_sku_code.clone(), 1),
+    ];
+    let context = pricing_engine::PricingContext::new(STORE_SITE, "STORE", at);
+
+    let mut tx = fleet
+        .cloud
+        .db
+        .begin()
+        .await
+        .unwrap_or_else(|e| panic!("centre transaction: {e}"));
+    let centre = cloud::load_site_pricing(&mut tx, STORE_SITE, "STORE", at)
+        .await
+        .unwrap_or_else(|e| panic!("the centre's price book: {e}"));
+    let merchandise = cloud::load_merchandise(&mut tx)
+        .await
+        .unwrap_or_else(|e| panic!("what the products are: {e}"));
+    tx.commit().await.unwrap_or_else(|e| panic!("commit: {e}"));
+    // The centre is told what a product IS the same way a shop is; a basket
+    // built without it would compare two different questions.
+    let centre_basket: Vec<pricing_engine::CartLine> = basket
+        .iter()
+        .map(|line| cloud::cart_line(&line.sku_code, line.quantity, &merchandise))
+        .collect();
+    let centre_answer = pricing_engine::price_cart(&centre.snapshot, &context, &centre_basket)
+        .unwrap_or_else(|e| panic!("the centre could not price the basket: {e}"));
+
+    let shop_snapshot = {
+        let connection = fleet.store.connection();
+        let guard = connection
+            .lock()
+            .unwrap_or_else(|error| panic!("the shop's connection: {error}"));
+        edge_pricing::load_snapshot(&guard, STORE_SITE, "STORE")
+            .unwrap_or_else(|e| panic!("the shop's price book: {e}"))
+    };
+    let shop_answer = pricing_engine::price_cart(&shop_snapshot, &context, &centre_basket)
+        .unwrap_or_else(|e| panic!("the shop could not price the basket: {e}"));
+
+    assert_eq!(
+        centre_answer.trace_id, shop_answer.trace_id,
+        "the centre and the shop priced one basket two ways.\n  centre: {:?}\n  shop:   {:?}",
+        centre_answer, shop_answer
+    );
+    assert_eq!(centre_answer.total, shop_answer.total);
 
     // =====================================================================
     // 07 · The centre sends some of it to the shop

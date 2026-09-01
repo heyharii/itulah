@@ -2195,3 +2195,126 @@ async fn a_cloud_sale_sells_what_an_older_book_still_prices(pool: PgPool) {
         "and it is charged what that book says: {line}"
     );
 }
+
+/// A promotion that ended and a promotion that never arrived read differently.
+///
+/// The engine draws that line hard: a rule whose campaign is absent from the
+/// snapshot is refused as `CAMPAIGN_UNKNOWN` — "this shop has not received that
+/// promotion", which is a thing somebody drives to a shop about — while a
+/// campaign that has simply run its course is `EXPIRED`.
+///
+/// Narrowing the campaign read by validity, which looks like free work, erases
+/// exactly that distinction: every finished promotion starts reporting as a
+/// delivery failure. This holds the two apart so the saving cannot be taken
+/// again by someone reading only the query plan.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_ended_promotion_does_not_read_as_one_that_never_arrived(pool: PgPool) {
+    let sku: Uuid = sqlx::query_scalar("SELECT id FROM sku WHERE active ORDER BY sku_code LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("a seeded SKU: {e}"));
+    let sku_code: String = sqlx::query_scalar("SELECT sku_code FROM sku WHERE id = $1")
+        .bind(sku)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("its code: {e}"));
+
+    let rule = serde_json::json!({
+        "rule_id": "R-ENDED",
+        "campaign_id": "C-ENDED",
+        "name": "Promo lewat",
+        "status": "ACTIVE",
+        "effect": {"kind": "PERCENT", "bps": 1_000},
+        "stacking": "ALONE",
+        "priority": 0,
+    });
+    let created = infrastructure::create_commercial_publication(
+        &pool,
+        CreateCommercialPublicationRequest {
+            version: 830,
+            name: "Kampanye yang sudah lewat".into(),
+            effective_from: Utc::now() - Duration::days(30),
+            effective_to: None,
+            tax_rules: vec![CommercialTaxRuleInput {
+                tax_category: "STANDARD".into(),
+                rate_bps: 0,
+                tax_inclusive: true,
+            }],
+            offer_rules: vec![CommercialOfferRuleInput {
+                sku_id: sku,
+                site_id: None,
+                site_ids: None,
+                tier: None,
+                channel: CommercialChannel::Store,
+                sellable: true,
+                currency: "IDR".into(),
+                unit_price_minor: 100_000,
+                tax_category: "STANDARD".into(),
+            }],
+            markdowns: Vec::new(),
+            rules: vec![serde_json::from_value(rule)
+                .unwrap_or_else(|e| panic!("the rule is not a rule: {e}"))],
+            coupons: Vec::new(),
+            // Ran for a fortnight, a fortnight ago.
+            campaigns: vec![inventory_backend::cloud::application::CommercialCampaignInput {
+                campaign_id: "C-ENDED".into(),
+                name: "Kampanye lewat".into(),
+                status: "ACTIVE".into(),
+                valid_from: Some(Utc::now() - Duration::days(28)),
+                valid_to: Some(Utc::now() - Duration::days(14)),
+                budget_minor: None,
+                max_uses: None,
+                max_uses_per_customer: None,
+            }],
+            actor_id: "merchandiser".into(),
+            idempotency_key: "ended-draft".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("draft: {e}"));
+    let publication_id: Uuid = created["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no id: {created}"))
+        .parse()
+        .unwrap_or_else(|e| panic!("id: {e}"));
+    infrastructure::publish_commercial_publication(
+        &pool,
+        publication_id,
+        CommandRequest {
+            actor_id: "merchandiser".into(),
+            idempotency_key: "ended-publish".into(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("publish: {e}"));
+
+    let priced = infrastructure::simulate(
+        &pool,
+        inventory_backend::cloud::application::SimulateRequest {
+            site_id: "store-07".into(),
+            channel: CommercialChannel::Store,
+            at: None,
+            lines: vec![inventory_backend::cloud::application::SimulateLineInput {
+                sku_code,
+                quantity: 1,
+                manual_unit_price_minor: None,
+            }],
+            coupon_codes: Vec::new(),
+            customer_id: None,
+            customer_tier: None,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("simulate: {e}"));
+
+    let refused = priced["rejected_rules"]
+        .as_array()
+        .and_then(|rules| rules.first())
+        .cloned()
+        .unwrap_or_else(|| panic!("the ended promotion should be reported: {priced}"));
+    assert_eq!(
+        refused["reason"], "EXPIRED",
+        "an ended promotion has ended; it did not fail to arrive: {priced}"
+    );
+    assert_eq!(refused["explanation"], "the promotion has ended");
+}

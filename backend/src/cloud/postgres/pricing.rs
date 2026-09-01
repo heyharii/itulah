@@ -286,6 +286,13 @@ async fn load_rules(
 }
 
 /// The codes that unlock those promotions.
+///
+/// Deliberately NOT narrowed by validity, unlike the prices and markdowns above.
+/// To the engine a coupon that is absent and a coupon that has lapsed are
+/// different answers — `CouponUnknown` against `CouponExpired`, "no such code"
+/// against "that one expired on Friday" — and dropping the lapsed ones here
+/// would make the centre give the first answer where a till gives the second.
+/// The saving is not worth changing an explanation.
 async fn load_coupons(
     tx: &mut Transaction<'_, Postgres>,
     usage: &UsageCounts,
@@ -295,8 +302,7 @@ async fn load_coupons(
                 c.max_uses, c.used
            FROM commercial_coupon c
            JOIN commercial_publication p ON p.id = c.publication_id
-          WHERE p.status = 'PUBLISHED'
-            AND (c.valid_to IS NULL OR c.valid_to > now())",
+          WHERE p.status = 'PUBLISHED'",
     )
     .fetch_all(&mut **tx)
     .await?
@@ -324,6 +330,13 @@ async fn load_coupons(
 }
 
 /// The envelopes those promotions sit in.
+///
+/// Not narrowed by validity either, and for a sharper reason than the coupons.
+/// A rule whose campaign is missing is refused as `CampaignUnknown` — the
+/// engine treats an absent envelope as "this shop never received that
+/// promotion", which is a thing somebody drives to a shop about. A campaign
+/// that has simply ended is `Expired`. Dropping the ended ones here would turn
+/// every finished promotion into an apparent delivery failure.
 async fn load_campaigns(
     tx: &mut Transaction<'_, Postgres>,
     usage: &UsageCounts,
@@ -333,9 +346,7 @@ async fn load_campaigns(
                 c.budget_minor, c.spent_minor, c.max_uses, c.used, c.max_uses_per_customer
            FROM commercial_campaign c
            JOIN commercial_publication p ON p.id = c.publication_id
-          WHERE p.status = 'PUBLISHED'
-            AND (c.valid_to IS NULL OR c.valid_to > now())
-          ORDER BY c.campaign_id",
+          WHERE p.status = 'PUBLISHED' ORDER BY c.campaign_id",
     )
     .fetch_all(&mut **tx)
     .await?
