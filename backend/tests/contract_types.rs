@@ -91,6 +91,17 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::edge::pricing::Quote::export_all(&config)
         .unwrap_or_else(|e| panic!("Quote: {e}"));
 
+    // The promotion document itself, exported from the engine that reads it.
+    //
+    // `CreateCommercialPublicationRequest.rules` is `Vec<pricing_engine::Rule>`,
+    // so a book's promotions are deserialised straight into the engine's own
+    // type — `Money` and all, which is `{minor}` and not a bare number. The
+    // Cloud composer transcribed these by hand and got that wrong, and because
+    // the mismatch is caught by axum's JSON extractor rather than by any
+    // validator, every promotion a merchandiser wrote came back as a serde
+    // error naming a Rust type. Generated from the struct, that cannot recur.
+    pricing_engine::Rule::export_all(&config).unwrap_or_else(|e| panic!("Rule: {e}"));
+
     // What a warehouse screen is handed.
     inventory_backend::edge::PurchaseWorkLine::export_all(&config)
         .unwrap_or_else(|e| panic!("PurchaseWorkLine: {e}"));
@@ -322,6 +333,10 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("Notification: {e}"));
     inventory_backend::cloud::postgres::NotificationPage::export_all(&config)
         .unwrap_or_else(|e| panic!("NotificationPage: {e}"));
+    // One line of the activity log. Read by every record sheet, so the browser
+    // must not be transcribing its shape.
+    inventory_backend::cloud::postgres::AuditEntry::export_all(&config)
+        .unwrap_or_else(|e| panic!("AuditEntry: {e}"));
 
     inventory_backend::cloud::postgres::StoredFile::export_all(&config)
         .unwrap_or_else(|e| panic!("StoredFile: {e}"));

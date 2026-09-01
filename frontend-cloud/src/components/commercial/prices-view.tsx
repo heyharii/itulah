@@ -183,7 +183,7 @@ export function PricesView() {
       </ScreenHeader>
 
       {capped && (
-        <div className="text-muted-foreground border-b px-3.5 py-1.5 text-[11.5px]">
+        <div className="text-muted-foreground border-b px-3.5 py-1.5 text-[0.71875rem]">
           Pricing the first {units(all.length)} of {units(total)} styles. The work is
           styles times shops, so the rest wait — narrow the range to reach them.
         </div>
@@ -193,7 +193,7 @@ export function PricesView() {
         /* A price screen showing a moment other than now is the one thing on it
            that can be misread as fact, so it says so rather than leaving the
            reader to notice a date box they filled in earlier. */
-        <div className="flex items-center gap-2 border-b bg-[var(--os-info-bg,#ddebfa)] px-3.5 py-1.5 text-[11.5px] text-[var(--os-info,#2f86d8)]">
+        <div className="flex items-center gap-2 border-b bg-[var(--os-info-bg,#ddebfa)] px-3.5 py-1.5 text-[0.71875rem] text-[var(--os-info,#2f86d8)]">
           <Clock className="size-3.5 shrink-0" />
           <span>
             Priced as of {new Date(at).toLocaleString("id-ID")} — not what the tills are
@@ -253,7 +253,7 @@ export function PricesView() {
             </table>
             {items.length > drawn && (
               <div className="flex items-center justify-center gap-3 border-t p-3">
-                <span className="text-muted-foreground text-[11.5px]">
+                <span className="text-muted-foreground text-[0.71875rem]">
                   {units(items.length - drawn)} more not drawn
                 </span>
                 <Button size="sm" variant="outline" onClick={() => setDrawn(drawn + DRAWN * 4)}>
@@ -308,7 +308,7 @@ function Facets({
           onChange={(event) => onSearch(event.target.value)}
           placeholder="Style or code…"
           aria-label="Search styles"
-          className="h-8 w-full pl-7 text-xs"
+          className="w-full pl-7"
         />
       </label>
 
@@ -316,9 +316,9 @@ function Facets({
         type="button"
         onClick={() => onOnlyMarkdown(!onlyMarkdown)}
         className={cn(
-          "flex items-center justify-between rounded-[var(--os-r-inner,9px)] border px-2.5 py-1.5 text-left text-[11.5px] transition-colors",
+          "flex items-center justify-between rounded-[var(--os-r-inner,0.5625rem)] border px-2.5 py-1.5 text-left text-[0.71875rem] transition-colors",
           onlyMarkdown
-            ? "border-[var(--os-warn,#b7791f)] bg-[var(--os-warn-bg,#f8f1de)] text-[var(--os-warn,#b7791f)]"
+            ? "border-[var(--os-warn,#c9892e)] bg-[var(--os-warn-bg,#faeacd)] text-[var(--os-warn,#c9892e)]"
             : "hover:bg-[var(--os-soft-2,#f3f3f5)]",
         )}
       >
@@ -353,7 +353,7 @@ function Chips({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-muted-foreground text-[11px] font-medium">{label}</span>
+      <span className="text-muted-foreground text-[0.6875rem] font-medium">{label}</span>
       <div className="flex flex-wrap gap-1">
         {values.map((value) => (
           <button
@@ -361,9 +361,9 @@ function Chips({
             type="button"
             onClick={() => onChoose(chosen === value ? "" : value)}
             className={cn(
-              "rounded-full px-1.5 py-0.5 text-[10.5px] font-medium transition-colors",
+              "rounded-full px-1.5 py-0.5 text-[0.65625rem] font-medium transition-colors",
               chosen === value
-                ? "bg-[var(--os-accent-bg,#ebedfd)] text-[var(--os-accent,#3c52f0)]"
+                ? "bg-[var(--os-accent-bg,#e9ebfc)] text-[var(--os-accent,#3c52f0)]"
                 : "bg-[var(--os-soft-2,#f3f3f5)] text-[var(--os-body,#74747b)] hover:text-[var(--os-ink,#1d1d1f)]",
             )}
           >
@@ -399,7 +399,7 @@ function ArticleGroup({ article }: { article: ArticlePrices }) {
           <Td className="align-top">
             <Style article={article} />
           </Td>
-          <Td colSpan={3} className="text-muted-foreground text-[11.5px]">
+          <Td colSpan={3} className="text-muted-foreground text-[0.71875rem]">
             No shop has a published price for this style on this channel.
           </Td>
         </tr>
@@ -418,7 +418,7 @@ function ArticleGroup({ article }: { article: ArticlePrices }) {
             rung.in_force_for === 0 && "text-muted-foreground bg-muted/20",
             rung.source === "MARKDOWN" &&
               rung.in_force_for > 0 &&
-              "bg-[var(--os-warn-bg,#f8f1de)]/50",
+              "bg-[var(--os-warn-bg,#faeacd)]/50",
           )}
         >
           {index === 0 && (
@@ -452,7 +452,7 @@ function Style({ article }: { article: ArticlePrices }) {
       {article.image_url === null ? (
         <span
           aria-label={`${article.article_name} has no photo`}
-          className="bg-muted text-muted-foreground grid size-11 shrink-0 place-items-center rounded-md text-[9px]"
+          className="bg-muted text-muted-foreground grid size-11 shrink-0 place-items-center rounded-md text-[0.625rem]"
         >
           no photo
         </span>
@@ -466,20 +466,20 @@ function Style({ article }: { article: ArticlePrices }) {
       )}
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="truncate text-xs font-medium">{article.article_name}</span>
-        <span className="text-muted-foreground font-mono text-[10px]">
+        <span className="text-muted-foreground font-mono text-[0.625rem]">
           {article.article_code} · {units(article.sku_count)} SKU
         </span>
         {(article.tags.length > 0 || article.division_code !== null) && (
           <div className="flex flex-wrap gap-1 pt-0.5">
             {article.division_code !== null && (
-              <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[9.5px]">
+              <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[0.625rem]">
                 {article.division_code}
               </span>
             )}
             {article.tags.map((code) => (
               <span
                 key={code}
-                className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[9.5px]"
+                className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[0.625rem]"
               >
                 {code}
               </span>
@@ -505,7 +505,7 @@ function Price({ rung }: { rung: PriceRung }) {
     <span
       className={cn(
         "font-mono text-xs tabular-nums whitespace-nowrap",
-        rung.source === "MARKDOWN" && !superseded && "font-medium text-[var(--os-warn,#b45309)]",
+        rung.source === "MARKDOWN" && !superseded && "font-medium text-[var(--os-warn,#c9892e)]",
         superseded && "line-through",
       )}
     >
@@ -535,7 +535,7 @@ function Price({ rung }: { rung: PriceRung }) {
           covers. When a shop price takes one size, the company rung under it
           reads "2 of 3 sizes" — the number that would be a lie as a boolean. */}
       {rung.sku_count > 1 && (
-        <span className="text-muted-foreground text-[10px]">
+        <span className="text-muted-foreground text-[0.625rem]">
           {superseded
             ? `${units(rung.sku_count)} sizes`
             : rung.in_force_for === rung.sku_count
@@ -558,12 +558,12 @@ function Price({ rung }: { rung: PriceRung }) {
                 key={point.unit_price_minor}
                 className="flex w-full items-baseline justify-end gap-2"
               >
-                <span className="text-muted-foreground truncate font-mono text-[10px]">
+                <span className="text-muted-foreground truncate font-mono text-[0.625rem]">
                   {point.sku_codes.join(", ")}
                 </span>
                 <span
                   className={cn(
-                    "font-mono text-[10.5px] tabular-nums",
+                    "font-mono text-[0.65625rem] tabular-nums",
                     taken && "text-muted-foreground line-through",
                   )}
                 >
@@ -602,16 +602,16 @@ function WhichPrice({ rung }: { rung: PriceRung }) {
             ? `price for ${scope}`
             : `price for ${scope}`
   return (
-    <div className="flex flex-wrap items-baseline gap-x-1.5 text-[11px]">
-      <span className={cn(!superseded && rung.source === "MARKDOWN" && "text-[var(--os-warn,#b45309)]")}>
+    <div className="flex flex-wrap items-baseline gap-x-1.5 text-[0.6875rem]">
+      <span className={cn(!superseded && rung.source === "MARKDOWN" && "text-[var(--os-warn,#c9892e)]")}>
         {what}
       </span>
       {rung.markdown_id !== null && (
-        <span className="text-muted-foreground font-mono text-[10px]">{rung.markdown_id}</span>
+        <span className="text-muted-foreground font-mono text-[0.625rem]">{rung.markdown_id}</span>
       )}
       {/* The book that decided it, kept as a footnote rather than a column: it
           is what you follow when a price is wrong, and not what you scan for. */}
-      <span className="text-muted-foreground font-mono text-[10px]">
+      <span className="text-muted-foreground font-mono text-[0.625rem]">
         v{rung.publication_version}
       </span>
     </div>
@@ -662,7 +662,7 @@ function AsOf({ value, onChange }: { value: string; onChange: (value: string) =>
         value={value}
         onChange={(event) => onChange(event.target.value)}
         aria-label="Price as of"
-        className="h-8 w-44 text-xs"
+        className="w-44"
       />
       {value !== "" && (
         <Button size="sm" variant="ghost" onClick={() => onChange("")} aria-label="Price as of now">

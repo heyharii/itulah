@@ -183,7 +183,7 @@ export function BookComposer() {
       </ScreenHeader>
 
       {save.isError && (
-        <div className="text-destructive border-b px-3.5 py-2 text-[11.5px]">
+        <div className="text-destructive border-b px-3.5 py-2 text-[0.71875rem]">
           {save.error instanceof ApiError
             ? save.error.message
             : "The book could not be saved."}
@@ -197,7 +197,7 @@ export function BookComposer() {
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Harga Lebaran, Turun harga kemeja…"
-              className="h-8 text-[12px]"
+              className="text-[0.75rem]"
             />
           </Labelled>
           <Labelled label="In force from" hint="Blank means immediately">
@@ -205,7 +205,7 @@ export function BookComposer() {
               type="datetime-local"
               value={from}
               onChange={(event) => setFrom(event.target.value)}
-              className="h-8 w-52 text-[12px]"
+              className="w-52 text-[0.75rem]"
             />
           </Labelled>
           <Labelled label="Until" hint="Blank means until replaced">
@@ -213,7 +213,7 @@ export function BookComposer() {
               type="datetime-local"
               value={to}
               onChange={(event) => setTo(event.target.value)}
-              className="h-8 w-52 text-[12px]"
+              className="w-52 text-[0.75rem]"
             />
           </Labelled>
         </div>
@@ -226,7 +226,7 @@ export function BookComposer() {
               aria-pressed={section === entry.id}
               onClick={() => setSection(entry.id)}
               className={cn(
-                "rounded-full px-3 py-1 text-[11.5px] font-medium",
+                "rounded-full px-3 py-1 text-[0.71875rem] font-medium",
                 section === entry.id
                   ? "bg-[var(--os-soft-2,#f3f3f5)] text-[var(--os-ink,#1d1d1f)]"
                   : "text-[var(--os-body,#74747b)] hover:bg-[var(--os-soft-2,#f3f3f5)]",
@@ -279,7 +279,7 @@ export function BookComposer() {
         </div>
       </ScreenBody>
 
-      <div className="text-muted-foreground flex shrink-0 items-center justify-between gap-4 border-t px-3.5 py-2 text-[11.5px]">
+      <div className="text-muted-foreground flex shrink-0 items-center justify-between gap-4 border-t px-3.5 py-2 text-[0.71875rem]">
         <span>
           {changes === 0
             ? "A book has to change something before it can be saved."
@@ -339,12 +339,12 @@ function Labelled({
 }) {
   return (
     <label className="grid gap-1">
-      <span className="text-muted-foreground text-[10.5px] font-medium tracking-wide uppercase">
+      <span className="text-muted-foreground text-[0.65625rem] font-medium tracking-wide uppercase">
         {label}
       </span>
       {children}
       {hint !== undefined && (
-        <span className="text-muted-foreground text-[10.5px]">{hint}</span>
+        <span className="text-muted-foreground text-[0.65625rem]">{hint}</span>
       )}
     </label>
   )
@@ -354,7 +354,7 @@ function Labelled({
 function Nothing({ children, onAdd, add }: { children: React.ReactNode; onAdd: () => void; add: string }) {
   return (
     <div className="rounded-lg border border-dashed p-6 text-center">
-      <p className="text-muted-foreground mx-auto max-w-lg text-[12px]">{children}</p>
+      <p className="text-muted-foreground mx-auto max-w-lg text-[0.75rem]">{children}</p>
       <Button size="sm" variant="outline" className="mt-3" onClick={onAdd}>
         <Plus className="size-3.5" />
         {add}
@@ -409,7 +409,7 @@ function Level({
     <>
       <Labelled label="Applies to">
         <Select value={level} onValueChange={(value) => onLevel(value as PriceLevel)}>
-          <SelectTrigger size="sm" className="w-36 text-[12px]">
+          <SelectTrigger className="w-36">
             <SelectValue>
               {level === "COMPANY"
                 ? "Every shop"
@@ -428,7 +428,7 @@ function Level({
       {level === "SITE" && (
         <Labelled label="Shop">
           <Select value={siteId} onValueChange={(value) => onSite(String(value))}>
-            <SelectTrigger size="sm" className="w-44 text-[12px]">
+            <SelectTrigger className="w-44">
               <SelectValue>
                 {shops.find((shop) => shop.site_id === siteId)?.label ?? "Choose"}
               </SelectValue>
@@ -461,7 +461,7 @@ function Level({
                     )
                   }
                   className={cn(
-                    "rounded-full border px-2 py-0.5 text-[11px]",
+                    "rounded-full border px-2 py-0.5 text-[0.6875rem]",
                     on ? "border-[var(--os-ink,#1d1d1f)] bg-[var(--os-ink,#1d1d1f)] text-white" : "hover:bg-[var(--os-soft-2,#f3f3f5)]",
                   )}
                 >
@@ -554,7 +554,7 @@ function Prices({
                 value={row.price}
                 onChange={(event) => edit(row.key, { price: event.target.value })}
                 placeholder="200000"
-                className="h-8 w-32 text-right font-mono text-[12px] tabular-nums"
+                className="w-32 text-right font-mono tabular-nums"
               />
             </Labelled>
             <Level
@@ -573,7 +573,7 @@ function Prices({
                   edit(row.key, { channel: value as PriceDraft["channel"] })
                 }
               >
-                <SelectTrigger size="sm" className="w-32 text-[12px]">
+                <SelectTrigger className="w-32">
                   <SelectValue>{row.channel}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -657,7 +657,7 @@ function Markdowns({
                   edit(row.key, { target: value as MarkdownDraft["target"] })
                 }
               >
-                <SelectTrigger size="sm" className="w-24 text-[12px]">
+                <SelectTrigger className="w-24">
                   <SelectValue>{row.target === "SKU" ? "Product" : "Style"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -701,7 +701,7 @@ function Markdowns({
               value={row.price}
               onChange={(event) => edit(row.key, { price: event.target.value })}
               placeholder="149000"
-              className="h-8 w-32 text-right font-mono text-[12px] tabular-nums"
+              className="w-32 text-right font-mono tabular-nums"
             />
           </Labelled>
           <Level
@@ -719,7 +719,7 @@ function Markdowns({
                 type="datetime-local"
                 value={row.from}
                 onChange={(event) => edit(row.key, { from: event.target.value })}
-                className="h-8 w-48 text-[12px]"
+                className="w-48 text-[0.75rem]"
               />
             </Labelled>
             <Labelled label="Until" hint="Blank never ends">
@@ -727,7 +727,7 @@ function Markdowns({
                 type="datetime-local"
                 value={row.to}
                 onChange={(event) => edit(row.key, { to: event.target.value })}
-                className="h-8 w-48 text-[12px]"
+                className="w-48 text-[0.75rem]"
               />
             </Labelled>
           </div>
@@ -818,7 +818,7 @@ function Promotions({
                 value={row.name}
                 onChange={(event) => edit(row.key, { name: event.target.value })}
                 placeholder="Diskon akhir pekan"
-                className="h-8 flex-1 text-[12px]"
+                className="flex-1 text-[0.75rem]"
               />
               {/* The id, editable but never recomputed. Usage is counted per id
                   across every book ever published, so this is the handle a
@@ -830,7 +830,7 @@ function Promotions({
                   edit(row.key, { rule_id: event.target.value.toUpperCase() })
                 }
                 aria-label="Promotion code"
-                className="h-8 w-32 shrink-0 font-mono text-[11.5px]"
+                className="w-32 shrink-0 font-mono text-[0.71875rem]"
               />
               <Button
                 size="icon"
@@ -859,7 +859,7 @@ function Promotions({
                       edit(row.key, { matches: value as PromotionDraft["matches"] })
                     }
                   >
-                    <SelectTrigger size="sm" className="w-32 text-[12px]">
+                    <SelectTrigger className="w-32">
                       <SelectValue>{MATCH_LABELS[row.matches]}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
@@ -875,7 +875,7 @@ function Promotions({
                       value={row.targets}
                       onChange={(event) => edit(row.key, { targets: event.target.value })}
                       placeholder={MATCH_PLACEHOLDERS[row.matches]}
-                      className="h-8 flex-1 font-mono text-[12px]"
+                      className="flex-1 font-mono text-[0.75rem]"
                     />
                   )}
                 </div>
@@ -889,7 +889,7 @@ function Promotions({
                       edit(row.key, { effect: value as PromotionDraft["effect"] })
                     }
                   >
-                    <SelectTrigger size="sm" className="w-40 text-[12px]">
+                    <SelectTrigger className="w-40">
                       <SelectValue>{EFFECT_LABELS[row.effect]}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
@@ -906,7 +906,7 @@ function Promotions({
                       value={row.percent}
                       onChange={(event) => edit(row.key, { percent: event.target.value })}
                       placeholder="20"
-                      className="h-8 w-24 text-right font-mono text-[12px] tabular-nums"
+                      className="w-24 text-right font-mono tabular-nums"
                     />
                   )}
                   {(row.effect === "AMOUNT" || row.effect === "FIXED_UNIT_PRICE") && (
@@ -915,26 +915,8 @@ function Promotions({
                       value={row.amount}
                       onChange={(event) => edit(row.key, { amount: event.target.value })}
                       placeholder="50000"
-                      className="h-8 w-32 text-right font-mono text-[12px] tabular-nums"
+                      className="w-32 text-right font-mono tabular-nums"
                     />
-                  )}
-                  {row.effect === "FREE_ITEM" && (
-                    <>
-                      <Input
-                        value={row.freeSku}
-                        onChange={(event) => edit(row.key, { freeSku: event.target.value })}
-                        placeholder="same product"
-                        className="h-8 flex-1 font-mono text-[12px]"
-                      />
-                      <Input
-                        inputMode="numeric"
-                        value={row.freeQuantity}
-                        onChange={(event) =>
-                          edit(row.key, { freeQuantity: event.target.value })
-                        }
-                        className="h-8 w-16 text-right font-mono text-[12px] tabular-nums"
-                      />
-                    </>
                   )}
                   {row.effect === "EARN_POINTS" && (
                     <>
@@ -946,7 +928,7 @@ function Promotions({
                           })
                         }
                       >
-                        <SelectTrigger size="sm" className="w-36 text-[12px]">
+                        <SelectTrigger className="w-36">
                           <SelectValue>{POINT_LABELS[row.pointsMode]}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -963,7 +945,7 @@ function Promotions({
                         onChange={(event) =>
                           edit(row.key, { pointsValue: event.target.value })
                         }
-                        className="h-8 w-24 text-right font-mono text-[12px] tabular-nums"
+                        className="w-24 text-right font-mono tabular-nums"
                       />
                     </>
                   )}
@@ -977,14 +959,14 @@ function Promotions({
                     value={row.minQuantity}
                     onChange={(event) => edit(row.key, { minQuantity: event.target.value })}
                     placeholder="2 pcs"
-                    className="h-8 w-24 font-mono text-[12px]"
+                    className="w-24 font-mono text-[0.75rem]"
                   />
                   <Input
                     inputMode="numeric"
                     value={row.minAmount}
                     onChange={(event) => edit(row.key, { minAmount: event.target.value })}
                     placeholder="500000"
-                    className="h-8 flex-1 font-mono text-[12px]"
+                    className="flex-1 font-mono text-[0.75rem]"
                   />
                 </div>
               </Labelled>
@@ -996,7 +978,7 @@ function Promotions({
                     edit(row.key, { couponCode: event.target.value.toUpperCase() })
                   }
                   placeholder="LEBARAN"
-                  className="h-8 font-mono text-[12px]"
+                  className="font-mono text-[0.75rem]"
                 />
               </Labelled>
 
@@ -1017,7 +999,7 @@ function Promotions({
                           })
                         }
                         className={cn(
-                          "rounded-full border px-2 py-0.5 text-[11px]",
+                          "rounded-full border px-2 py-0.5 text-[0.6875rem]",
                           on
                             ? "border-[var(--os-ink,#1d1d1f)] bg-[var(--os-ink,#1d1d1f)] text-white"
                             : "hover:bg-[var(--os-soft-2,#f3f3f5)]",
@@ -1039,7 +1021,7 @@ function Promotions({
                   value={row.budget}
                   onChange={(event) => edit(row.key, { budget: event.target.value })}
                   placeholder="unlimited"
-                  className="h-8 font-mono text-[12px]"
+                  className="font-mono text-[0.75rem]"
                 />
               </Labelled>
 
@@ -1051,7 +1033,7 @@ function Promotions({
                       edit(row.key, { campaign_id: value === NONE ? "" : String(value) })
                     }
                   >
-                    <SelectTrigger size="sm" className="w-56 text-[12px]">
+                    <SelectTrigger className="w-56">
                       <SelectValue>
                         {campaigns.find((c) => c.campaign_id === row.campaign_id)?.name ??
                           "On its own"}
@@ -1081,7 +1063,7 @@ function Promotions({
                     edit(row.key, { stacking: value as PromotionDraft["stacking"] })
                   }
                 >
-                  <SelectTrigger size="sm" className="w-40 text-[12px]">
+                  <SelectTrigger className="w-40">
                     <SelectValue>
                       {row.stacking === "STACKABLE" ? "Stacks with others" : "On its own"}
                     </SelectValue>
@@ -1095,7 +1077,7 @@ function Promotions({
             </div>
 
             {problems.length > 0 && (
-              <p className="text-muted-foreground border-t px-2.5 py-1.5 text-[11px]">
+              <p className="text-muted-foreground border-t px-2.5 py-1.5 text-[0.6875rem]">
                 Not saved yet: {problems.join(" ")}
               </p>
             )}
@@ -1134,7 +1116,6 @@ const EFFECT_LABELS: Record<PromotionDraft["effect"], string> = {
   PERCENT: "A percentage",
   AMOUNT: "A flat amount",
   FIXED_UNIT_PRICE: "A fixed price",
-  FREE_ITEM: "A free item",
   EARN_POINTS: "Loyalty points",
 }
 
@@ -1176,7 +1157,7 @@ function Coupons({
   if (promotions.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-6 text-center">
-        <p className="text-muted-foreground mx-auto max-w-lg text-[12px]">
+        <p className="text-muted-foreground mx-auto max-w-lg text-[0.75rem]">
           A coupon is a gate on a promotion and never a discount of its own —
           keeping it that way means there is exactly one place a benefit is
           calculated, so a code cannot disagree with the offer it opens.
@@ -1207,7 +1188,7 @@ function Coupons({
               value={row.code}
               onChange={(event) => edit(row.key, { code: event.target.value.toUpperCase() })}
               placeholder="LEBARAN2026"
-              className="h-8 font-mono text-[12px]"
+              className="font-mono text-[0.75rem]"
             />
           </Labelled>
           <Labelled label="Unlocks">
@@ -1215,7 +1196,7 @@ function Coupons({
               value={row.rule_id}
               onValueChange={(value) => edit(row.key, { rule_id: String(value) })}
             >
-              <SelectTrigger size="sm" className="w-56 text-[12px]">
+              <SelectTrigger className="w-56">
                 <SelectValue>
                   {promotions.find((rule) => rule.rule_id === row.rule_id)?.name ??
                     "Choose a promotion"}
@@ -1236,7 +1217,7 @@ function Coupons({
               value={row.maxUses}
               onChange={(event) => edit(row.key, { maxUses: event.target.value })}
               placeholder="unlimited"
-              className="h-8 w-32 font-mono text-[12px]"
+              className="w-32 font-mono text-[0.75rem]"
             />
           </Labelled>
           <Labelled label="Until" hint="Blank never expires">
@@ -1244,7 +1225,7 @@ function Coupons({
               type="datetime-local"
               value={row.to}
               onChange={(event) => edit(row.key, { to: event.target.value })}
-              className="h-8 w-48 text-[12px]"
+              className="w-48 text-[0.75rem]"
             />
           </Labelled>
         </Row>
@@ -1304,13 +1285,13 @@ function Campaigns({
                   edit(row.key, { campaign_id: event.target.value.toUpperCase() })
                 }
                 placeholder="LEBARAN26"
-                className="h-8 w-36 font-mono text-[12px]"
+                className="w-36 font-mono text-[0.75rem]"
               />
               <Input
                 value={row.name}
                 onChange={(event) => edit(row.key, { name: event.target.value })}
                 placeholder="Lebaran 2026"
-                className="h-8 flex-1 text-[12px]"
+                className="flex-1 text-[0.75rem]"
               />
             </div>
           </Labelled>
@@ -1323,7 +1304,7 @@ function Campaigns({
               value={row.budget}
               onChange={(event) => edit(row.key, { budget: event.target.value })}
               placeholder="unlimited"
-              className="h-8 w-36 font-mono text-[12px]"
+              className="w-36 font-mono text-[0.75rem]"
             />
           </Labelled>
           <div className="flex gap-2">
@@ -1332,7 +1313,7 @@ function Campaigns({
                 type="datetime-local"
                 value={row.from}
                 onChange={(event) => edit(row.key, { from: event.target.value })}
-                className="h-8 w-48 text-[12px]"
+                className="w-48 text-[0.75rem]"
               />
             </Labelled>
             <Labelled label="Until">
@@ -1340,7 +1321,7 @@ function Campaigns({
                 type="datetime-local"
                 value={row.to}
                 onChange={(event) => edit(row.key, { to: event.target.value })}
-                className="h-8 w-48 text-[12px]"
+                className="w-48 text-[0.75rem]"
               />
             </Labelled>
           </div>

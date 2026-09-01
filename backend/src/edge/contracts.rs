@@ -185,6 +185,20 @@ const fn normal_move() -> MovementCause {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct QuoteRequest {
+    /// The tags on the counter. Scanned, so the same input the sale takes.
+    pub epcs: Vec<String>,
+    /// Codes the shopper has produced. A promotion gated by one stays shut
+    /// until its code appears here — and a code refused is reported with a
+    /// reason, never silently ignored.
+    #[serde(default)]
+    pub coupon_codes: Vec<String>,
+    #[serde(default)]
+    pub customer_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SaleRequest {
     pub epcs: Vec<String>,
     /// How the shopper paid, in the order it was taken.
@@ -577,6 +591,20 @@ pub trait EdgeInventory: Send + Sync {
         &self,
         query: super::pricing::CatalogQuery,
     ) -> Result<super::pricing::CatalogPage, EdgeError>;
+    /// Price a basket without selling it.
+    ///
+    /// The engine already produces everything a counter needs to talk to a
+    /// customer — which promotions applied, what each was worth, and for the
+    /// ones that did not, a sentence saying why: "that coupon expired on
+    /// Friday", "this promotion needs a coupon code". All of it was reachable
+    /// only in the response to `complete_sale`, which is to say only after the
+    /// money had been taken.
+    ///
+    /// That is why every coupon-gated and members-only promotion in this system
+    /// is unreachable in practice: a cashier has nowhere to try a code, so
+    /// nobody types one. This is the read-only half, and it writes nothing —
+    /// no sale, no movement, no usage count.
+    fn quote_basket(&self, request: QuoteRequest) -> Result<serde_json::Value, EdgeError>;
     /// This shop's own takings over a span, bucketed by day, week or month.
     ///
     /// Answered from the shop's own SQLite so it keeps working when the link

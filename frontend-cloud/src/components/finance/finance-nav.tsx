@@ -94,7 +94,10 @@ interface FinanceItem {
 interface FinanceGroup {
   readonly id: string
   readonly label: string
-  readonly icon: React.ComponentType<{ className?: string }>
+  /// A Lucide glyph. Typed with `strokeWidth` as well as `className` because
+  /// the rail draws these lighter than Lucide's default 2 — a narrower type
+  /// compiled here but rejected the very prop the nav passes.
+  readonly icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
   readonly items: readonly FinanceItem[]
 }
 

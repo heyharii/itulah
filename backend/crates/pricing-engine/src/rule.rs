@@ -31,6 +31,7 @@ use crate::money::Money;
 /// meaningful for any given rule and nothing prevents a percent rule from
 /// carrying a free-item quantity. Here a rule that discounts cannot also be
 /// carrying a half-filled free-item effect, because there is nowhere to put it.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Effect {
@@ -90,6 +91,7 @@ pub enum Effect {
 }
 
 /// How points accrue.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EarnEffect {
@@ -106,6 +108,7 @@ pub enum EarnEffect {
 /// Default is the selling price after any markdown but before discounts: a
 /// shopper who buys a marked-down shirt earns on what the shirt now costs, and
 /// a promotion the shop chose to run does not also cut the points it awards.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EarnBasis {
@@ -118,6 +121,7 @@ pub enum EarnBasis {
 }
 
 /// Who a rule is for.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "who", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CustomerScope {
@@ -131,6 +135,7 @@ pub enum CustomerScope {
 }
 
 /// What a rule matches.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "on", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Applicability {
@@ -154,6 +159,7 @@ pub enum Applicability {
 }
 
 /// Where a rule is allowed to run at all.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuleScope {
     pub applicability: Option<Applicability>,
@@ -181,6 +187,7 @@ pub struct RuleScope {
 }
 
 /// The days a rule runs on. Empty means every day.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DaySet {
     /// Monday is 1, Sunday is 7, matching ISO 8601 — the numbering people
@@ -199,10 +206,26 @@ impl DaySet {
     }
 }
 
+/// The instant as the shop experiences it.
+///
+/// A weekday and an hour are local facts. "Promo Sabtu" means Saturday where
+/// the shop is, and read in UTC in a UTC+7 business it ran from Saturday 07:00
+/// to Sunday 07:00 — right for seventeen hours of the day and wrong for seven,
+/// every week, with nothing on any screen to say so.
+///
+/// The offset arrives on the context rather than being assumed here: the engine
+/// is told everything the answer depends on, and a shop's timezone is a fact
+/// about the shop. An absolute window (`effective_from`/`effective_to`) is NOT
+/// shifted — those are instants, and an instant is the same moment everywhere.
+fn local(at: DateTime<Utc>, offset_minutes: i32) -> DateTime<Utc> {
+    at + chrono::Duration::minutes(i64::from(offset_minutes))
+}
+
 /// The hours a rule runs between, in minutes since midnight.
 ///
 /// `from` greater than `to` means the window crosses midnight — a late-night
 /// promotion is a real thing and wrapping is not an error.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimeWindow {
     pub from_minute: u32,
@@ -221,6 +244,7 @@ impl TimeWindow {
 }
 
 /// Everything that must hold before a rule may apply.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Conditions {
     /// How many matched units the cart must hold.
@@ -253,17 +277,22 @@ pub struct Conditions {
 
 impl Conditions {
     /// The checks that do not depend on what is in the basket.
-    pub(crate) fn window_allows(&self, at: DateTime<Utc>) -> Option<RejectionReason> {
+    pub(crate) fn window_allows(
+        &self,
+        at: DateTime<Utc>,
+        offset_minutes: i32,
+    ) -> Option<RejectionReason> {
+        let here = local(at, offset_minutes);
         if self.effective_from.is_some_and(|from| at < from) {
             return Some(RejectionReason::NotStarted);
         }
         if self.effective_to.is_some_and(|to| at >= to) {
             return Some(RejectionReason::Expired);
         }
-        if !self.days.allows(at) {
+        if !self.days.allows(here) {
             return Some(RejectionReason::DayNotAllowed);
         }
-        if self.time_window.is_some_and(|window| !window.allows(at)) {
+        if self.time_window.is_some_and(|window| !window.allows(here)) {
             return Some(RejectionReason::TimeNotAllowed);
         }
         None
@@ -280,6 +309,7 @@ impl Conditions {
 /// last sync. An offline till cannot know what other shops have spent this
 /// morning, so a budget is a brake, not a gate. Anything that must not be
 /// exceeded has to be checked where the counting happens.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Caps {
     /// Total discount this rule may give. `None` is unlimited.
@@ -330,6 +360,7 @@ impl Caps {
 /// Three states, and only three. The shape this was ported from spells them
 /// with two independent booleans, which can express a fourth combination that
 /// means nothing — "exclusive, but also stacks with others".
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Stacking {
@@ -343,6 +374,7 @@ pub enum Stacking {
 }
 
 /// Whether a rule is live.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RuleStatus {
@@ -401,6 +433,7 @@ pub struct CumulativeHistory {
 }
 
 /// One promotion.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
     pub rule_id: String,

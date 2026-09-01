@@ -2,10 +2,11 @@ import { useCallback, useState } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
 
+import { PullToRefresh } from "@/components/motion/pull-to-refresh"
 import { EmptyState, ErrorState, LoadingRows } from "@/components/states"
 import { TransactionRow } from "@/components/transaction-row"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { cacheKey, customerTransactions, type HistoryCursor } from "@/lib/api"
 import { dayKey, dayLabel } from "@/lib/dates"
 import { useMemberId } from "@/lib/member"
@@ -36,6 +37,8 @@ export function HistoryView() {
             before_sale_id: page.next_before_sale_id,
           },
   })
+
+  const refresh = useCallback(() => history.refetch(), [history])
 
   const transactions = (history.data?.pages ?? []).flatMap(
     (page) => page.transactions,
@@ -71,97 +74,82 @@ export function HistoryView() {
   })
 
   if (history.isPending) {
-    return (
-      <div className="flex flex-col gap-4">
-        <Heading />
-        <LoadingRows rows={6} />
-      </div>
-    )
+    return <LoadingRows rows={6} />
   }
 
   if (history.isError) {
     return (
-      <div className="flex flex-col gap-4">
-        <Heading />
-        <ErrorState error={history.error} onRetry={() => void history.refetch()} />
-      </div>
+      <ErrorState
+        error={history.error}
+        onRetry={() => void history.refetch()}
+      />
     )
   }
 
   if (transactions.length === 0) {
     return (
-      <div className="flex flex-col gap-4">
-        <Heading />
-        <EmptyState
-          title="Riwayat masih kosong"
-          description="Setiap belanja yang kamu daftarkan dengan nomor member akan tercatat di sini, lengkap dengan poinnya."
-        />
-      </div>
+      <EmptyState
+        title="Riwayat masih kosong"
+        description="Setiap belanja yang kamu daftarkan dengan nomor member akan tercatat di sini, lengkap dengan poinnya."
+      />
     )
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Heading />
-
-      <div
-        ref={measureTop}
-        className="relative w-full"
-        style={{ height: virtualizer.getTotalSize() }}
-      >
-        {virtualizer.getVirtualItems().map((item) => {
-          const day = days[item.index]
-          return (
-            <section
-              key={day.key}
-              data-index={item.index}
-              ref={virtualizer.measureElement}
-              className="absolute top-0 left-0 flex w-full flex-col gap-2 pb-4"
-              style={{
-                transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
-              }}
-            >
-              {/* The heading sticks under the phone's header so the reader can
-                  always see which day they have scrolled into. */}
-              <div className="bg-background/90 sticky top-13 z-[5] flex items-baseline justify-between gap-3 px-1 py-1 backdrop-blur md:top-0">
-                <h2 className="text-sm font-medium">{dayLabel(day.at)}</h2>
-                <p className="text-muted-foreground text-xs tabular-nums">
-                  {money(day.total_minor, day.currency)}
-                  {day.points > 0 && <> · +{units(day.points)} poin</>}
-                </p>
-              </div>
-              <Card size="sm" className="py-2">
-                <CardContent className="flex flex-col px-2">
+    <PullToRefresh onRefresh={refresh} busy={history.isRefetching}>
+      <div className="flex flex-col gap-4">
+        <div
+          ref={measureTop}
+          className="relative w-full"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualizer.getVirtualItems().map((item) => {
+            const day = days[item.index]
+            return (
+              <section
+                key={day.key}
+                data-index={item.index}
+                ref={virtualizer.measureElement}
+                className="absolute top-0 left-0 flex w-full flex-col gap-2 pb-4"
+                style={{
+                  transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
+                }}
+              >
+                {/* The heading sticks under the app-bar so the reader can
+                    always see which day they have scrolled into. */}
+                <div className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-[5] flex items-baseline justify-between gap-3 bg-canvas/90 px-1 py-1.5 backdrop-blur md:top-0">
+                  <h2 className="text-section font-medium text-text">
+                    {dayLabel(day.at)}
+                  </h2>
+                  <p className="num text-meta text-body">
+                    {money(day.total_minor, day.currency)}
+                    {day.points > 0 && <> · +{units(day.points)} poin</>}
+                  </p>
+                </div>
+                <Card className="divide-y divide-hairline p-1.5">
                   {day.transactions.map((transaction) => (
                     <TransactionRow
                       key={transaction.sale_id}
                       transaction={transaction}
                     />
                   ))}
-                </CardContent>
-              </Card>
-            </section>
-          )
-        })}
+                </Card>
+              </section>
+            )
+          })}
+        </div>
+
+        {history.hasNextPage && (
+          <Button
+            className="self-center"
+            disabled={history.isFetchingNextPage}
+            onClick={() => void history.fetchNextPage()}
+          >
+            {history.isFetchingNextPage ? "Memuat…" : "Muat lebih banyak"}
+          </Button>
+        )}
       </div>
-
-      {history.hasNextPage && (
-        <Button
-          variant="outline"
-          className="self-center"
-          disabled={history.isFetchingNextPage}
-          onClick={() => void history.fetchNextPage()}
-        >
-          {history.isFetchingNextPage ? "Memuat…" : "Muat lebih banyak"}
-        </Button>
-      )}
-    </div>
-  )
-}
-
-function Heading() {
-  return (
-    <h1 className="font-heading px-1 text-lg font-medium">Riwayat belanja</h1>
+    </PullToRefresh>
   )
 }
 

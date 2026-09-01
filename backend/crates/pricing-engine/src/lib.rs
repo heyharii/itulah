@@ -106,6 +106,23 @@ pub struct PricingContext {
     /// node knows.
     #[serde(default)]
     pub customer_rule_uses: std::collections::BTreeMap<String, i64>,
+    /// How far ahead of UTC the shop is, in minutes.
+    ///
+    /// Read only by the day-of-week and time-of-day conditions, which are the
+    /// only local facts in pricing: an absolute window is an instant and means
+    /// the same moment everywhere. Zero here is UTC, which is right for a shop
+    /// in London and wrong by seven hours for one in Jakarta — so the callers
+    /// that know where the shop is set it, and the engine assumes nothing.
+    #[serde(default)]
+    pub utc_offset_minutes: i32,
+    /// The same, per campaign.
+    ///
+    /// Separate from the rule counts rather than derived from them: a campaign
+    /// of five offers is one thing to the business, so "used it twice" means
+    /// two baskets that took any of the five — not two uses of one offer, and
+    /// not the sum of five counts.
+    #[serde(default)]
+    pub customer_campaign_uses: std::collections::BTreeMap<String, i64>,
     /// What this shopper has already bought toward each cumulative rule, keyed
     /// by rule id. Supplied by the caller; the engine keeps no history.
     #[serde(default)]
@@ -121,7 +138,9 @@ impl PricingContext {
             coupon_codes: Vec::new(),
             customer_id: None,
             customer_tier: None,
+            utc_offset_minutes: 0,
             customer_rule_uses: std::collections::BTreeMap::new(),
+            customer_campaign_uses: std::collections::BTreeMap::new(),
             customer_cumulative: std::collections::BTreeMap::new(),
         }
     }

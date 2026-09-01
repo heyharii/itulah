@@ -117,6 +117,27 @@ pub fn window_of(
     Ok((start, end))
 }
 
+/// A pricing context that knows where the shop is.
+///
+/// `PricingContext::new` leaves the offset at zero, deliberately: the engine is
+/// a pure kernel and assumes nothing about where it runs. This is the seam
+/// where the business fact gets attached, and it is here rather than in eight
+/// call sites because that is exactly how many there are — and a weekday rule
+/// that read UTC in seven of them and WIB in the eighth would be the worst of
+/// all the available outcomes.
+///
+/// It reaches only the day-of-week and time-of-day conditions. An absolute
+/// window is an instant, and an instant is the same moment everywhere.
+pub fn pricing_context(
+    site_id: &str,
+    channel: &str,
+    at: chrono::DateTime<Utc>,
+) -> pricing_engine::PricingContext {
+    let mut context = pricing_engine::PricingContext::new(site_id, channel, at);
+    context.utc_offset_minutes = DEFAULT_UTC_OFFSET_MINUTES;
+    context
+}
+
 /// A caller's offset, or WIB, clamped to somewhere on Earth.
 pub fn offset_of(minutes: Option<i32>) -> i32 {
     minutes

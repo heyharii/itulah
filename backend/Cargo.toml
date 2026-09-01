@@ -42,7 +42,7 @@ workspace = true
 # Behind a feature so the shipping binary never carries a code generator, and
 # so the generated files are refreshed by a deliberate act (`make contract`)
 # rather than as a side effect of an ordinary build.
-ts = ["dep:ts-rs"]
+ts = ["dep:ts-rs", "pricing-engine/ts"]
 
 [dependencies]
 inventory-time-machine = { path = "crates/inventory-time-machine" }

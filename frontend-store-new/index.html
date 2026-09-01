@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/mark.svg" />
+    <!-- `viewport-fit=cover` is what makes `env(safe-area-inset-*)` report a
+         real number, and the whole bottom of this app — the floating tab bar,
+         the payment bar — is positioned clear of the home indicator with it.
+         `user-scalable=no` because a till is tapped fast with a thumb and a
+         double-tap that zooms the screen mid-basket is a fault, not a feature. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Till</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

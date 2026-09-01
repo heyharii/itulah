@@ -1534,6 +1534,20 @@ pub struct SaleFactLine {
     /// reconstruction of the old meaning, not a guess at the new one.
     #[serde(default)]
     pub line_total_minor: Option<i64>,
+    /// What one unit would have cost before a clearance replaced the price.
+    ///
+    /// `price_source` already says a markdown applied; this says what it was
+    /// worth. Without it the centre can report every rupiah a PROMOTION gave
+    /// away — `edge_sale_promotion` carries that per rule — and nothing at all
+    /// about what CLEARANCE cost, which for a fashion retailer is usually the
+    /// larger of the two.
+    ///
+    /// Absent from a shop with no book in force, and from any build older than
+    /// this field. Absent rather than equal to the charged price: "nothing was
+    /// marked down" and "we do not know" are different, and only one of them
+    /// belongs in a margin report.
+    #[serde(default)]
+    pub base_unit_price_minor: Option<i64>,
     /// Which authority set the price: the published book, a branch price, a
     /// clearance, a cashier's override, or the price stamped at intake.
     #[serde(default)]

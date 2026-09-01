@@ -9,8 +9,20 @@ description = "Deterministic retail pricing: base-price cascade, markdown, promo
 # no randomness. Everything the answer depends on arrives as an argument, so
 # the same inputs give the same answer in the centre and on the shop floor —
 # which is the only way the two can be proven to agree.
+# One optional feature, and it adds no behaviour: `ts` derives TypeScript
+# definitions for the documents this crate owns, so a screen that AUTHORS a
+# promotion is typed from the same struct the engine reads it back into.
+#
+# It exists because the alternative was tried and failed silently: the Cloud
+# composer's rule types were transcribed by hand, `Money` is `{minor}` and the
+# hand-written copy said `number`, and every promotion a merchandiser wrote was
+# refused by the JSON extractor before a single validation message could run.
+[features]
+ts = ["dep:ts-rs"]
+
 [dependencies]
 chrono = { version = "=0.4.41", features = ["serde"] }
+ts-rs = { version = "=12.0.1", optional = true, features = ["chrono-impl"] }
 hex = "=0.4.3"
 serde = { version = "=1.0.219", features = ["derive"] }
 sha2 = "=0.10.9"

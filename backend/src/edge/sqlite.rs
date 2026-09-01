@@ -2100,6 +2100,22 @@ impl SqliteEdge {
     }
 }
 
+/// One priced line, on its way from the engine into the ledger and the fact.
+///
+/// A named struct rather than a tuple because it is destructured three lines
+/// apart from where it is built, and a tuple whose second element changed
+/// meaning between the two branches is how `line_total_minor` came to be stored
+/// in a column called `unit_price_minor` without anybody noticing.
+struct PricedLine {
+    /// What this unit was actually charged, after markdown and promotions.
+    charged_minor: i64,
+    /// What it would have been before a clearance replaced the price, when a
+    /// book was in force to say so.
+    base_minor: Option<i64>,
+    price_source: String,
+    publication_version: Option<i64>,
+}
+
 impl EdgeInventory for SqliteEdge {
     fn open_print_session(
         &self,
@@ -3279,21 +3295,40 @@ impl EdgeInventory for SqliteEdge {
         // A promotion acts on a line, not on a unit, so what a line comes to is
         // not always a whole number of unit prices. The line total is what is
         // charged and what is recorded.
-        let priced: Vec<(i64, String, Option<i64>)> = match &quoted {
+        //
+        // Line total and unit price are the same number here, and only because
+        // a till builds one line per scanned EPC with a quantity of one. That
+        // is what makes it safe to put this in a column called
+        // `unit_price_minor` — and it is the invariant to check first if a
+        // till ever learns to ring "three of these" as one line, because on
+        // that day this silently starts storing three shirts' money against
+        // one shirt.
+        //
+        // `base` is what the line would have cost before any clearance
+        // replaced the price. The centre cannot derive it: it receives the
+        // charged price and the source that set it, so without this it can say
+        // a markdown applied and never what the markdown cost.
+        let priced: Vec<PricedLine> = match &quoted {
             Some(quote) => quote
                 .lines
                 .iter()
-                .map(|line| {
-                    (
-                        line.line_total_minor,
-                        line.price_source.clone(),
-                        Some(line.publication_version),
-                    )
+                .map(|line| PricedLine {
+                    charged_minor: line.line_total_minor,
+                    base_minor: Some(line.base_unit_price_minor),
+                    price_source: line.price_source.clone(),
+                    publication_version: Some(line.publication_version),
                 })
                 .collect(),
             None => subjects
                 .iter()
-                .map(|subject| (subject.unit_price_minor, "INTAKE_PRICE".to_string(), None))
+                .map(|subject| PricedLine {
+                    charged_minor: subject.unit_price_minor,
+                    // No book, so no list price was ever quoted — the intake
+                    // price is not one, it is what the shop paid.
+                    base_minor: None,
+                    price_source: "INTAKE_PRICE".to_string(),
+                    publication_version: None,
+                })
                 .collect(),
         };
         let total_minor = match &quoted {
@@ -3303,9 +3338,9 @@ impl EdgeInventory for SqliteEdge {
             Some(quote) => quote.total_minor,
             None => priced
                 .iter()
-                .try_fold(0_i64, |total, (line_total_minor, ..)| {
+                .try_fold(0_i64, |total, line| {
                     total
-                        .checked_add(*line_total_minor)
+                        .checked_add(line.charged_minor)
                         .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))
                 })?,
         };
@@ -3343,7 +3378,13 @@ impl EdgeInventory for SqliteEdge {
         };
         let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
         tx.execute(
-            "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8)",
+            // `pricing_trace_id` is written here, and it was not before: the
+            // column existed, the engine produced the value, the fact carried
+            // it to the centre, and the shop's own copy stayed null. So the one
+            // node that can be asked "why was I charged this" with the customer
+            // still at the counter — and offline, which is when it matters —
+            // was the node that had thrown the answer away.
+            "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at,pricing_trace_id) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8,?9)",
             params![
                 sale_id.to_string(),
                 request.idempotency_key,
@@ -3352,7 +3393,8 @@ impl EdgeInventory for SqliteEdge {
                 payment.change_minor,
                 movement.movement_group_id.to_string(),
                 request.actor_id,
-                time_text(occurred_at)
+                time_text(occurred_at),
+                quoted.as_ref().map(|quote| quote.trace_id.clone())
             ],
         )
         .map_err(db)?;
@@ -3372,9 +3414,13 @@ impl EdgeInventory for SqliteEdge {
             )
             .map_err(db)?;
         }
-        for (subject, (unit_price_minor, price_source, publication_version)) in
-            subjects.iter().zip(priced.iter())
-        {
+        for (subject, line) in subjects.iter().zip(priced.iter()) {
+            let PricedLine {
+                charged_minor,
+                price_source,
+                publication_version,
+                ..
+            } = line;
             tx.execute(
                 "INSERT INTO sale_line
                      (sale_id,subject_id,epc,sku_code,unit_price_minor,quantity,
@@ -3385,7 +3431,7 @@ impl EdgeInventory for SqliteEdge {
                     subject.id.to_string(),
                     subject.epc,
                     subject.sku_code,
-                    unit_price_minor,
+                    charged_minor,
                     price_source,
                     publication_version
                 ],
@@ -3421,7 +3467,7 @@ impl EdgeInventory for SqliteEdge {
                 "lines": subjects
                     .iter()
                     .zip(priced.iter())
-                    .map(|(subject, (line_total_minor, price_source, publication_version))| {
+                    .map(|(subject, line)| {
                         serde_json::json!({
                             "subject_id": subject.id,
                             "epc": subject.epc,
@@ -3433,13 +3479,23 @@ impl EdgeInventory for SqliteEdge {
                                     quote
                                         .lines
                                         .iter()
-                                        .find(|line| line.sku_code == subject.sku_code)
-                                        .map(|line| line.unit_price_minor)
+                                        .find(|q| q.sku_code == subject.sku_code)
+                                        .map(|q| q.unit_price_minor)
                                 })
                                 .unwrap_or(subject.unit_price_minor),
-                            "line_total_minor": line_total_minor,
-                            "price_source": price_source,
-                            "publication_version": publication_version,
+                            "line_total_minor": line.charged_minor,
+                            // What it cost before a clearance replaced the
+                            // price. The centre keeps `price_source` and so can
+                            // say a markdown applied; without this it cannot say
+                            // what the markdown COST, and "what did the
+                            // end-of-season take out of margin" has no answer
+                            // while "what did the Lebaran rule cost" has one.
+                            //
+                            // Absent when no book was in force: the intake price
+                            // is what the shop paid, not a price it ever asked.
+                            "base_unit_price_minor": line.base_minor,
+                            "price_source": line.price_source,
+                            "publication_version": line.publication_version,
                         })
                     })
                     .collect::<Vec<_>>(),
@@ -3530,6 +3586,71 @@ impl EdgeInventory for SqliteEdge {
             pricing::STORE_CHANNEL,
             Utc::now(),
         )
+    }
+
+    fn quote_basket(
+        &self,
+        request: super::contracts::QuoteRequest,
+    ) -> Result<serde_json::Value, EdgeError> {
+        if self.node.role != EdgeRole::Store {
+            return Err(EdgeError::Forbidden(
+                "a basket is priced for a shop, and a DC does not sell".into(),
+            ));
+        }
+        // Screened the way a sale screens them, because a preview that accepted
+        // a basket the till will refuse is worse than no preview.
+        let mut seen = HashSet::new();
+        let epcs = request
+            .epcs
+            .iter()
+            .map(|epc| Self::normalized_epc(epc))
+            .collect::<Result<Vec<_>, _>>()?;
+        if epcs.iter().any(|epc| !seen.insert(epc.clone())) {
+            return Err(EdgeError::Validation(
+                "a basket cannot contain duplicate EPCs".into(),
+            ));
+        }
+        let mut connection = self.lock()?;
+        // A read-only transaction, so the basket is priced against one
+        // consistent state: a price book landing mid-quote must not show a
+        // shopper two books' answers in one total.
+        let tx = connection.transaction().map_err(db)?;
+        let subjects = epcs
+            .iter()
+            .map(|epc| Self::subject_by_epc(&tx, epc))
+            .collect::<Result<Vec<_>, _>>()?;
+        let sku_codes: Vec<String> = subjects
+            .iter()
+            .map(|subject| subject.sku_code.clone())
+            .collect();
+        // The same call `complete_sale` makes, at the same instant resolution,
+        // against the same resident book. If these two ever answer differently
+        // the counter is quoting a price the till will not honour, which is the
+        // one thing a preview must never do.
+        let quoted = pricing::quote(
+            &tx,
+            self.node.site_id.as_str(),
+            pricing::STORE_CHANNEL,
+            Utc::now(),
+            &sku_codes,
+            &request.coupon_codes,
+            request.customer_id.as_deref(),
+        )?;
+        Ok(match quoted {
+            Some(quote) => serde_json::to_value(quote)
+                .map_err(|error| EdgeError::Persistence(error.to_string()))?,
+            // No book, or no price for these goods. Said plainly rather than
+            // returned as an empty basket worth nothing: the till falls back to
+            // the intake price in that case, and a preview that showed zero
+            // would be the only screen in the shop that disagreed with the
+            // drawer.
+            None => serde_json::json!({
+                "has_price_book": false,
+                "lines": [],
+                "promotions": [],
+                "total_minor": null,
+            }),
+        })
     }
 
     fn store_catalog_page(

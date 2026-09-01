@@ -39,13 +39,13 @@ export function BookPanel({ book }: { book: PriceBookDetail }) {
   })
   return (
     <div className="flex flex-col">
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b px-3.5 py-2.5 text-[11.5px]">
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b px-3.5 py-2.5 text-[0.71875rem]">
         <span className="inline-flex items-center gap-1.5">
           <span
             aria-hidden
             className={cn(
               "size-2 shrink-0 rounded-full",
-              draft ? "bg-[var(--os-warn,#f59e0b)]" : "bg-[var(--os-ok,#10b981)]"
+              draft ? "bg-[var(--os-warn,#c9892e)]" : "bg-[var(--os-ok,#36b827)]"
             )}
           />
           {draft ? "Draft" : "Published"}
@@ -88,16 +88,16 @@ export function BookPanel({ book }: { book: PriceBookDetail }) {
             <TableBody>
               {book.activated_by.map((row) => (
                 <TableRow key={row.origin_id}>
-                  <TableCell className="font-mono text-[11px]">
+                  <TableCell className="font-mono text-[0.6875rem]">
                     {row.site_id ?? row.origin_id}
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs tabular-nums">
                     {units(row.price_rule_count)}
                   </TableCell>
-                  <TableCell className="font-mono text-[10.5px] text-muted-foreground">
+                  <TableCell className="font-mono text-[0.65625rem] text-muted-foreground">
                     {new Date(row.activated_at).toLocaleString("id-ID")}
                   </TableCell>
-                  <TableCell className="font-mono text-[10.5px] text-muted-foreground">
+                  <TableCell className="font-mono text-[0.65625rem] text-muted-foreground">
                     {new Date(row.reported_at).toLocaleString("id-ID")}
                   </TableCell>
                 </TableRow>
@@ -136,10 +136,10 @@ export function BookPanel({ book }: { book: PriceBookDetail }) {
             <TableBody>
               {book.markdowns.map((row) => (
                 <TableRow key={row.markdown_id}>
-                  <TableCell className="font-mono text-[11px]">
+                  <TableCell className="font-mono text-[0.6875rem]">
                     {row.markdown_id}
                   </TableCell>
-                  <TableCell className="text-[11px]">
+                  <TableCell className="text-[0.6875rem]">
                     {row.sku_code !== null ? (
                       <span className="font-mono">{row.sku_code}</span>
                     ) : row.article_code !== null ? (
@@ -154,11 +154,11 @@ export function BookPanel({ book }: { book: PriceBookDetail }) {
                       "—"
                     )}
                   </TableCell>
-                  <TableCell className="text-[11px]">{scope(row)}</TableCell>
-                  <TableCell className="text-right font-mono text-xs text-[var(--os-warn,#b45309)] tabular-nums">
+                  <TableCell className="text-[0.6875rem]">{scope(row)}</TableCell>
+                  <TableCell className="text-right font-mono text-xs text-[var(--os-warn,#c9892e)] tabular-nums">
                     {money(row.replacement_unit_price_minor)}
                   </TableCell>
-                  <TableCell className="font-mono text-[10.5px] whitespace-nowrap text-muted-foreground">
+                  <TableCell className="font-mono text-[0.65625rem] whitespace-nowrap text-muted-foreground">
                     {new Date(row.effective_from).toLocaleDateString("id-ID")}
                     {row.effective_to === null
                       ? " →"
@@ -184,11 +184,11 @@ export function BookPanel({ book }: { book: PriceBookDetail }) {
               >
                 <span className="text-xs">
                   {campaign.name}{" "}
-                  <span className="font-mono text-[10.5px] text-muted-foreground">
+                  <span className="font-mono text-[0.65625rem] text-muted-foreground">
                     {campaign.campaign_id} · {campaign.status}
                   </span>
                 </span>
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[0.6875rem] text-muted-foreground">
                   {campaign.budget_minor === null
                     ? "No budget"
                     : `Budget ${money(campaign.budget_minor)}`}
@@ -216,11 +216,11 @@ export function BookPanel({ book }: { book: PriceBookDetail }) {
               >
                 <span className="text-xs">
                   {rule.name}{" "}
-                  <span className="font-mono text-[10.5px] text-muted-foreground">
+                  <span className="font-mono text-[0.65625rem] text-muted-foreground">
                     {rule.rule_id} · {rule.status}
                   </span>
                 </span>
-                <pre className="overflow-x-auto rounded bg-muted/50 p-2 font-mono text-[10.5px] leading-relaxed">
+                <pre className="overflow-x-auto rounded bg-muted/50 p-2 font-mono text-[0.65625rem] leading-relaxed">
                   {JSON.stringify(rule.definition, null, 2)}
                 </pre>
               </li>
@@ -240,8 +240,8 @@ export function BookPanel({ book }: { book: PriceBookDetail }) {
                 key={coupon.code}
                 className="flex items-baseline justify-between gap-3 px-3.5 py-1.5"
               >
-                <span className="font-mono text-[11px]">{coupon.code}</span>
-                <span className="text-[11px] text-muted-foreground">
+                <span className="font-mono text-[0.6875rem]">{coupon.code}</span>
+                <span className="text-[0.6875rem] text-muted-foreground">
                   unlocks {coupon.rule_id}
                   {coupon.customer_id === null
                     ? " · bearer"
@@ -279,7 +279,7 @@ function Section({
       <div className="px-3.5 pt-2 pb-1">
         <h2 className="text-xs font-semibold">{title}</h2>
         {note !== undefined && (
-          <p className="text-[11px] text-muted-foreground">{note}</p>
+          <p className="text-[0.6875rem] text-muted-foreground">{note}</p>
         )}
       </div>
       {children}

@@ -199,7 +199,7 @@ pub async fn add_sale_line(
         .get(&sku_id)
         .cloned()
         .ok_or_else(|| AppError::NotFound("a published price for this SKU".into()))?;
-    let context = pricing_engine::PricingContext::new(&site_id, channel.as_str(), sale_created_at);
+    let context = crate::reporting::pricing_context(&site_id, channel.as_str(), sale_created_at);
     // The catalogue reading, not the basket one: a promotion is a statement
     // about a whole basket, and this path prices a line as it is added. What it
     // does now honour is the markdown, which IS this product's price.

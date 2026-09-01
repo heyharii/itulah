@@ -215,6 +215,110 @@
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8082"
       }
+    },
+    {
+      "name": "hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5273
+    },
+    {
+      "name": "customer-verify",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5306",
+        "--strictPort"
+      ],
+      "port": 5306,
+      "cwd": "frontend-customer",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8124"
+      }
+    },
+    {
+      "name": "dc-new",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "frontend-dc-new",
+      "port": 5274,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8082"
+      }
+    },
+    {
+      "name": "store-new",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "frontend-store-new",
+      "port": 5275,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8081"
+      }
+    },
+    {
+      "name": "hub-local",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5279",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5279,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8099"
+      }
+    },
+    {
+      "name": "hub-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5280",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5280,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8080"
+      }
+    },
+    {
+      "name": "hub-filters",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5281",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5281,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8080"
+      }
     }
   ]
 }

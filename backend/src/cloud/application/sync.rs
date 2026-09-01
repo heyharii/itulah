@@ -181,6 +181,21 @@ pub async fn run_sync_agent(state: AppState, transport: Arc<dyn SyncTransport>) 
     }
 }
 
+/// How often the fleet is told what promotions have cost so far.
+///
+/// A budget at a shop is a brake and never a gate: an offline till cannot know
+/// what thirty other shops have spent this morning, so the counts it holds are
+/// as fresh as its last broadcast and no fresher. That is by design — but until
+/// this loop existed the broadcast happened only when somebody pressed a button
+/// on a screen, so "as fresh as the last broadcast" meant "as fresh as the last
+/// time a human thought of it", and a budget nobody refreshed is not a slow
+/// brake, it is a brake with nobody standing on it.
+///
+/// Fifteen minutes because the cost of being late is bounded by how much one
+/// shop can give away in that time, and the cost of being early is one command
+/// per shop carrying a few hundred rows.
+const USAGE_BROADCAST_EVERY: Duration = Duration::from_secs(15 * 60);
+
 /// Facts a stream applies per pass — bounds one pass's work, not throughput:
 /// the next pass continues where this one stopped.
 const APPLY_PER_STREAM: i64 = 200;
@@ -191,6 +206,7 @@ const APPLY_PER_STREAM: i64 = 200;
 pub async fn run_apply_agent(state: AppState) {
     let interval = Duration::from_secs(state.config.sync_interval_seconds.clamp(1, 3600) as u64);
     let mut last_purge = Instant::now();
+    let mut last_usage_broadcast = Instant::now();
     info!(
         interval_seconds = interval.as_secs(),
         per_stream = APPLY_PER_STREAM,
@@ -219,6 +235,17 @@ pub async fn run_apply_agent(state: AppState) {
                 }
             }
             Err(error) => warn!(%error, "sync apply cycle errored"),
+        }
+        // What promotions have cost, out to the fleet. It runs here rather
+        // than in a loop of its own because it must not overtake the applier:
+        // usage is built from sale facts, so broadcasting counts that have not
+        // been applied yet would send every shop a figure lower than the truth.
+        if last_usage_broadcast.elapsed() >= USAGE_BROADCAST_EVERY {
+            last_usage_broadcast = Instant::now();
+            match infrastructure::publish_commercial_usage_to_fleet(&state.db, "system").await {
+                Ok(report) => info!(?report, "commercial usage broadcast"),
+                Err(error) => warn!(%error, "commercial usage broadcast failed"),
+            }
         }
         if last_purge.elapsed() >= PURGE_EVERY {
             last_purge = Instant::now();

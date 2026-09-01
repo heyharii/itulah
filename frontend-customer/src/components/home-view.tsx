@@ -1,16 +1,27 @@
+import { useCallback } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { ArrowRight, Sparkles } from "lucide-react"
+import {
+  ArrowRight,
+  CalendarDays,
+  Receipt,
+  ShoppingBag,
+  TicketPercent,
+} from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 
+import { AnimatedNumber } from "@/components/motion/animated-number"
+import { NumberTicker } from "@/components/motion/number-ticker"
+import { PullToRefresh } from "@/components/motion/pull-to-refresh"
 import { EmptyState, ErrorState, LoadingRows } from "@/components/states"
 import { TransactionRow } from "@/components/transaction-row"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cacheKey, customerSummary, customerTransactions } from "@/lib/api"
 import { shortDate } from "@/lib/dates"
 import { useMemberId } from "@/lib/member"
-import { money, units } from "@/lib/money"
+import { money, moneyShort, units } from "@/lib/money"
 
 const RECENT = 5
 
@@ -34,121 +45,128 @@ export function HomeView() {
       customerTransactions(memberId, { limit: RECENT, signal }),
   })
 
+  // Both, together. A member pulling down after a purchase wants the points
+  // and the receipt that produced them, and refreshing one of the two would
+  // leave the screen disagreeing with itself.
+  const refresh = useCallback(
+    () => Promise.all([summary.refetch(), recent.refetch()]),
+    [summary, recent],
+  )
+
   return (
-    <div className="flex flex-col gap-6">
-      <section aria-labelledby="poin">
-        <h1 id="poin" className="sr-only">
-          Poin saya
-        </h1>
-        <Card className="bg-primary text-primary-foreground ring-0">
-          <CardContent className="flex flex-col gap-1">
-            <p className="text-primary-foreground/70 flex items-center gap-1.5 text-xs">
-              <Sparkles className="size-3.5" />
-              Poin terkumpul
-            </p>
-            {summary.isPending ? (
-              <Skeleton className="bg-primary-foreground/20 h-11 w-40" />
-            ) : summary.isError ? (
-              <p className="text-primary-foreground/80 py-2 text-sm">
-                Poin belum bisa ditampilkan.
-              </p>
-            ) : (
-              <p className="text-4xl font-semibold tabular-nums md:text-5xl">
-                {units(summary.data.points_earned_total)}
-              </p>
-            )}
-            <p className="text-primary-foreground/70 text-xs">
-              {/* Named for what it is. Nothing in this system records points
-                  being spent yet, so calling this a balance would be a number
-                  that quietly stops being true the first time somebody
-                  redeems at a counter. */}
-              Total poin yang pernah kamu kumpulkan
-              {summary.data?.last_purchase_at != null && (
-                <>
-                  {" · "}
-                  belanja terakhir {shortDate(summary.data.last_purchase_at)}
-                </>
-              )}
-            </p>
-          </CardContent>
-        </Card>
-      </section>
-
-      {summary.isError && (
-        <ErrorState error={summary.error} onRetry={() => void summary.refetch()} />
-      )}
-
-      {/* Stacked rows on a phone, three tiles from `sm` up. A three-column
-          grid at 375px puts "Rp 3.085.000" in an 80px box, where it breaks
-          mid-number — and a price broken across two lines is a price nobody
-          can read at a glance. */}
-      <section
-        aria-labelledby="ringkasan"
-        className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3"
-      >
-        <h2 id="ringkasan" className="sr-only">
-          Ringkasan belanja
-        </h2>
-        <Stat
-          label="Transaksi"
-          value={
-            summary.data === undefined
-              ? undefined
-              : units(summary.data.transaction_count)
-          }
+    <PullToRefresh
+      onRefresh={refresh}
+      busy={summary.isRefetching || recent.isRefetching}
+    >
+      <div className="flex flex-col gap-5">
+        <PointsCard
+          points={summary.data?.points_earned_total}
+          lastPurchaseAt={summary.data?.last_purchase_at ?? null}
+          failed={summary.isError}
         />
-        <Stat
-          label="Belanja"
-          value={
-            summary.data === undefined
-              ? undefined
-              : money(
-                  summary.data.spent_minor,
-                  summary.data.currency ?? "IDR",
-                )
-          }
-        />
-        <Stat
-          label="Hemat"
-          value={
-            summary.data === undefined
-              ? undefined
-              : money(
-                  summary.data.saved_minor,
-                  summary.data.currency ?? "IDR",
-                )
-          }
-        />
-      </section>
 
-      <section aria-labelledby="terakhir" className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-3 px-1">
-          <h2 id="terakhir" className="font-heading text-sm font-medium">
-            Transaksi terakhir
-          </h2>
-          <Button
-            render={<Link to="/riwayat" />}
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground"
-          >
-            Lihat semua
-            <ArrowRight data-icon="inline-end" />
-          </Button>
-        </div>
-
-        {recent.isPending ? (
-          <LoadingRows rows={3} />
-        ) : recent.isError ? (
-          <ErrorState error={recent.error} onRetry={() => void recent.refetch()} />
-        ) : recent.data.transactions.length === 0 ? (
-          <EmptyState
-            title="Belum ada transaksi"
-            description="Sebutkan nomor member kamu di kasir, dan belanjanya akan muncul di sini."
+        {summary.isError && (
+          <ErrorState
+            error={summary.error}
+            notFound="Nomor member ini belum dikenali. Periksa lagi nomornya di Profil."
+            onRetry={() => void summary.refetch()}
           />
-        ) : (
-          <Card size="sm" className="py-2">
-            <CardContent className="flex flex-col px-2">
+        )}
+
+        {/* DESIGN.md's KPI icon-tile — a solid coloured squircle, the label,
+            then the figure — 2×2 on a phone and four across from `sm`, which
+            is the one responsive rule it states for these. */}
+        <section
+          aria-labelledby="ringkasan"
+          className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+        >
+          <h2 id="ringkasan" className="sr-only">
+            Ringkasan belanja
+          </h2>
+          <Kpi
+            icon={Receipt}
+            fill="var(--a-blue)"
+            label="Transaksi"
+            value={summary.data?.transaction_count}
+            format={units}
+          />
+          <Kpi
+            icon={ShoppingBag}
+            fill="var(--fill-orange)"
+            label="Belanja"
+            value={summary.data?.spent_minor}
+            format={(value) =>
+              moneyShort(value, summary.data?.currency ?? "IDR")
+            }
+            exact={
+              summary.data === undefined
+                ? undefined
+                : money(
+                    summary.data.spent_minor,
+                    summary.data.currency ?? "IDR",
+                  )
+            }
+          />
+          <Kpi
+            icon={TicketPercent}
+            fill="var(--fill-green)"
+            label="Hemat"
+            value={summary.data?.saved_minor}
+            format={(value) =>
+              moneyShort(value, summary.data?.currency ?? "IDR")
+            }
+            exact={
+              summary.data === undefined
+                ? undefined
+                : money(
+                    summary.data.saved_minor,
+                    summary.data.currency ?? "IDR",
+                  )
+            }
+          />
+          <StaticKpi
+            icon={CalendarDays}
+            fill="var(--a-violet)"
+            label="Member sejak"
+            value={
+              summary.data === undefined
+                ? undefined
+                : summary.data.first_purchase_at === null
+                  ? "—"
+                  : shortDate(summary.data.first_purchase_at)
+            }
+          />
+        </section>
+
+        <section aria-labelledby="terakhir" className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <h2 id="terakhir" className="text-section font-medium text-text">
+              Transaksi terakhir
+            </h2>
+            <Button
+              render={<Link to="/riwayat" />}
+              variant="quiet"
+              size="inline"
+            >
+              Lihat semua
+              <ArrowRight />
+            </Button>
+          </div>
+
+          {recent.isPending ? (
+            <LoadingRows rows={3} />
+          ) : recent.isError ? (
+            <ErrorState
+              error={recent.error}
+              onRetry={() => void recent.refetch()}
+            />
+          ) : recent.data.transactions.length === 0 ? (
+            <EmptyState
+              title="Belum ada transaksi"
+              description="Sebutkan nomor member kamu di kasir, dan belanjanya akan muncul di sini."
+            />
+          ) : (
+            <Card className="divide-y divide-hairline p-1.5">
               {recent.data.transactions.map((transaction) => (
                 <TransactionRow
                   key={transaction.sale_id}
@@ -158,25 +176,154 @@ export function HomeView() {
                   when="date"
                 />
               ))}
-            </CardContent>
-          </Card>
-        )}
-      </section>
-    </div>
+            </Card>
+          )}
+        </section>
+      </div>
+    </PullToRefresh>
   )
 }
 
-function Stat({ label, value }: { label: string; value: string | undefined }) {
+/// The one soft gradient this language allows, spent on the one figure this
+/// app exists to show.
+///
+/// DESIGN.md permits the blue→lavender→peach card for "a big stat + a dark
+/// CTA", used sparingly — which is exactly this screen, once. The figure rolls
+/// on a slot reel rather than counting up because a member opening the app
+/// after a purchase is checking one thing: whether it went up.
+function PointsCard({
+  points,
+  lastPurchaseAt,
+  failed,
+}: {
+  points: number | undefined
+  lastPurchaseAt: string | null
+  failed: boolean
+}) {
   return (
-    <Card size="sm">
-      <CardContent className="flex items-baseline justify-between gap-3 sm:flex-col sm:items-start sm:gap-1">
-        <p className="text-muted-foreground text-xs">{label}</p>
-        {value === undefined ? (
-          <Skeleton className="h-5 w-24 sm:w-full" />
+    <section
+      aria-labelledby="poin"
+      className="overflow-hidden rounded-card border border-hairline bg-[linear-gradient(135deg,var(--promo-from)_0%,var(--promo-via)_52%,var(--promo-to)_100%)] px-5 py-5 shadow-soft"
+    >
+      <h2 id="poin" className="text-eyebrow font-semibold uppercase text-mute">
+        Poin terkumpul
+      </h2>
+
+      <div className="mt-2 flex min-h-[3.25rem] items-center">
+        {failed ? (
+          <p className="text-body">Poin belum bisa ditampilkan.</p>
+        ) : points === undefined ? (
+          <Skeleton className="h-11 w-44 bg-canvas/50" />
         ) : (
-          <p className="text-sm font-medium tabular-nums">{value}</p>
+          <NumberTicker
+            value={points}
+            format={units}
+            className="text-points font-semibold text-ink"
+          />
         )}
-      </CardContent>
+      </div>
+
+      {/* Named for what it is. Nothing in this system records points being
+          spent yet, so calling this a balance would be a number that quietly
+          stops being true the first time somebody redeems at a counter. */}
+      <p className="mt-1.5 text-meta text-body">
+        Total poin yang pernah kamu kumpulkan
+        {lastPurchaseAt !== null && (
+          <> · belanja terakhir {shortDate(lastPurchaseAt)}</>
+        )}
+      </p>
+
+      <Button
+        render={<Link to="/riwayat" />}
+        variant="dark"
+        size="sm"
+        className="mt-4"
+      >
+        Lihat riwayat
+        <ArrowRight />
+      </Button>
+    </section>
+  )
+}
+
+/// A figure that counts up to itself when it changes.
+function Kpi({
+  icon: Icon,
+  fill,
+  label,
+  value,
+  format,
+  exact,
+}: {
+  icon: LucideIcon
+  fill: string
+  label: string
+  value: number | undefined
+  format: (value: number) => string
+  /// The unrounded figure, for a screen reader, when the tile shows a
+  /// shortened one.
+  exact?: string
+}) {
+  return (
+    <Card className="flex flex-col gap-2.5 px-3.5 py-3.5">
+      <Squircle icon={Icon} fill={fill} />
+      <p className="text-meta text-body">{label}</p>
+      {value === undefined ? (
+        <Skeleton className="h-5 w-20" />
+      ) : exact === undefined ? (
+        <AnimatedNumber
+          value={value}
+          format={format}
+          className="text-kpi font-semibold text-ink"
+        />
+      ) : (
+        <p className="text-kpi font-semibold text-ink">
+          <span aria-hidden>
+            <AnimatedNumber value={value} format={format} />
+          </span>
+          <span className="sr-only">{exact}</span>
+        </p>
+      )}
     </Card>
+  )
+}
+
+/// The same tile, for a fact that is a date rather than a quantity — nothing
+/// to count up to.
+function StaticKpi({
+  icon: Icon,
+  fill,
+  label,
+  value,
+}: {
+  icon: LucideIcon
+  fill: string
+  label: string
+  value: string | undefined
+}) {
+  return (
+    <Card className="flex flex-col gap-2.5 px-3.5 py-3.5">
+      <Squircle icon={Icon} fill={fill} />
+      <p className="text-meta text-body">{label}</p>
+      {value === undefined ? (
+        <Skeleton className="h-5 w-20" />
+      ) : (
+        <p className="text-metric font-semibold text-ink">{value}</p>
+      )}
+    </Card>
+  )
+}
+
+/// The KPI hallmark: a solid coloured squircle with a white glyph. The one
+/// place in this app where the categorical accents appear at all.
+function Squircle({ icon: Icon, fill }: { icon: LucideIcon; fill: string }) {
+  return (
+    <span
+      aria-hidden
+      className="flex size-[1.875rem] items-center justify-center rounded-inner"
+      style={{ background: fill }}
+    >
+      <Icon className="size-[1rem] text-on-dark" />
+    </span>
   )
 }

@@ -6,6 +6,12 @@
     <!-- A phone in a shop queue is the ordinary case for this surface, so the
          viewport is declared before anything else renders. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Cloud Hub is always light: the browser is told so explicitly rather
+         than left to guess from the system, which would otherwise paint form
+         controls and the address bar from a dark palette this app does not
+         have. -->
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#ffffff" />
     <title>Itulah Member</title>
   </head>
   <body>

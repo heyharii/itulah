@@ -46,15 +46,15 @@ export default function App() {
 
   if (identity.isPending) {
     return (
-      <main className="flex min-h-svh items-center justify-center p-6">
-        <p className="text-muted-foreground text-sm">Memeriksa sesi…</p>
+      <main className="flex min-h-svh items-center justify-center bg-backdrop p-6">
+        <p className="text-body">Memeriksa sesi…</p>
       </main>
     )
   }
 
   if (identity.data === null || identity.data === undefined) {
     return (
-      <main className="flex min-h-svh items-center justify-center p-6">
+      <main className="flex min-h-svh items-center justify-center bg-backdrop p-6">
         <div className="flex w-full max-w-sm flex-col gap-4">
           <LoginForm
             onSignedIn={(session) => {
@@ -65,12 +65,12 @@ export default function App() {
             }}
           />
           {problem !== null && (
-            <p role="alert" className="text-destructive text-center text-sm">
+            <p role="alert" className="text-center text-bad-fg">
               {problem}
             </p>
           )}
           {here !== null && (
-            <p className="text-muted-foreground text-center text-xs">
+            <p className="text-center text-meta text-mute">
               {here.node_id} · {here.node_role}
             </p>
           )}

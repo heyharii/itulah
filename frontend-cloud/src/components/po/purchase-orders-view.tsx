@@ -46,12 +46,17 @@ export function PurchaseOrdersView() {
     id: "purchase-orders",
   })
 
+  /// The columns are a factory now, because the trailing `⋯` row action has to
+  /// be able to open the record and the row menu is the one cell that needs to
+  /// reach the screen around it.
+  const columns = useMemo(() => orderColumns({ onOpen: open }), [open])
+
   const table = useTable(
     useMemo(
       () => ({
         features: dataTableFeatures,
         data: rows,
-        columns: orderColumns,
+        columns,
         getRowId: (row: (typeof rows)[number]) => row.purchase_order_id,
         state: {
           columnFilters,
@@ -87,7 +92,7 @@ export function PurchaseOrdersView() {
     <DataTableStoreProvider adapter={adapter}>
       <DataTableProvider
         table={table}
-        columns={orderColumns}
+        columns={columns}
         filterFields={filterFields}
         columnFilters={columnFilters}
         sorting={sorting}

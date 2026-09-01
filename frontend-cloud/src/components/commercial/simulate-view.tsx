@@ -145,7 +145,7 @@ export function SimulateView() {
               value={site}
               onChange={(event) => field.handleChange(event.target.value)}
               aria-label="Shop"
-              className="border-input bg-background h-8 max-w-40 rounded-[var(--os-r-inner,9px)] border px-2 text-xs"
+              className="border-input bg-background max-w-40 rounded-[var(--os-r-inner,0.5625rem)] border px-2"
             >
               {shops.length === 0 && <option value="">No shops</option>}
               {shops.map((shop) => (
@@ -188,7 +188,7 @@ export function SimulateView() {
                       onBlur={field.handleBlur}
                       onChange={(event) => field.handleChange(event.target.value)}
                       aria-label="Product"
-                      className="border-input bg-background h-8 min-w-0 flex-1 rounded-[var(--os-r-inner,9px)] border px-2 text-xs"
+                      className="border-input bg-background min-w-0 flex-1 rounded-[var(--os-r-inner,0.5625rem)] border px-2"
                     >
                       <option value="">Pick a product…</option>
                       {products.map((product) => (
@@ -211,7 +211,7 @@ export function SimulateView() {
                       // write, and the engine would price it as nothing at all.
                       onChange={(event) => field.handleChange(Number(event.target.value) || 1)}
                       aria-label="Quantity"
-                      className="h-8 w-16 text-xs"
+                      className="w-16"
                     />
                   )}
                 </form.Field>
@@ -253,7 +253,7 @@ export function SimulateView() {
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
                     placeholder="none"
-                    className="h-8 text-xs"
+                    className="text-xs"
                   />
                 </Ask>
               )}
@@ -266,7 +266,7 @@ export function SimulateView() {
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
                     placeholder="walk-in"
-                    className="h-8 text-xs"
+                    className="text-xs"
                   />
                 </Ask>
               )}
@@ -279,7 +279,7 @@ export function SimulateView() {
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
-                    className="h-8 text-xs"
+                    className="text-xs"
                   />
                 </Ask>
               )}
@@ -294,7 +294,7 @@ export function SimulateView() {
             <Play className="size-3.5" />
             {run.isPending ? "Pricing…" : "Price it"}
           </Button>
-          <p className="text-muted-foreground mt-2 text-[10.5px]">
+          <p className="text-muted-foreground mt-2 text-[0.65625rem]">
             Nothing is sold and nothing is counted. A promotion that would exhaust its
             budget is reported as applying, because it would.
           </p>
@@ -325,7 +325,7 @@ export function SimulateView() {
 function Ask({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-muted-foreground text-[11px]">{label}</span>
+      <span className="text-muted-foreground text-[0.6875rem]">{label}</span>
       {children}
     </label>
   )
@@ -339,16 +339,16 @@ function Answer({ result }: { result: SimulateResult }) {
           {money(result.total_minor, result.currency)}
         </span>
         {result.discount_total_minor > 0 && (
-          <span className="text-[11.5px] text-[var(--os-warn,#b45309)]">
+          <span className="text-[0.71875rem] text-[var(--os-warn,#c9892e)]">
             {money(result.discount_total_minor, result.currency)} off
           </span>
         )}
         {result.points_earned > 0 && (
-          <span className="text-muted-foreground text-[11.5px]">
+          <span className="text-muted-foreground text-[0.71875rem]">
             {units(result.points_earned)} points
           </span>
         )}
-        <span className="text-muted-foreground ml-auto font-mono text-[10.5px]">
+        <span className="text-muted-foreground ml-auto font-mono text-[0.65625rem]">
           book v{result.publication_version}
         </span>
       </div>
@@ -366,12 +366,12 @@ function Answer({ result }: { result: SimulateResult }) {
         <TableBody>
           {result.lines.map((line) => (
             <TableRow key={line.sku_code}>
-              <TableCell className="font-mono text-[11px]">{line.sku_code}</TableCell>
+              <TableCell className="font-mono text-[0.6875rem]">{line.sku_code}</TableCell>
               <TableCell className="text-right font-mono text-xs tabular-nums">
                 {units(line.quantity)}
               </TableCell>
               <TableCell>
-                <span className="text-muted-foreground text-[10.5px]">
+                <span className="text-muted-foreground text-[0.65625rem]">
                   {describeSource(priceSource(line.price_source))}
                 </span>
               </TableCell>
@@ -395,12 +395,12 @@ function Answer({ result }: { result: SimulateResult }) {
         <Section title="Given away">
           {result.free_lines.map((line) => (
             <li key={`${line.granted_by_rule_id}:${line.sku_code}`} className="px-3.5 py-1.5">
-              <span className="font-mono text-[11px]">{line.sku_code}</span>{" "}
-              <span className="text-muted-foreground text-[11px]">
+              <span className="font-mono text-[0.6875rem]">{line.sku_code}</span>{" "}
+              <span className="text-muted-foreground text-[0.6875rem]">
                 ×{units(line.quantity)} by {line.granted_by_rule_id}, worth{" "}
                 {money(line.value_minor, result.currency)}
               </span>
-              <span className="text-muted-foreground block text-[10.5px]">
+              <span className="text-muted-foreground block text-[0.65625rem]">
                 Append this to the sale as a real line, or the shirt walks out and the
                 stock still says it is on the shelf.
               </span>
@@ -418,12 +418,12 @@ function Answer({ result }: { result: SimulateResult }) {
             >
               <span className="min-w-0">
                 <span className="text-xs">{rule.name}</span>{" "}
-                <span className="text-muted-foreground font-mono text-[10.5px]">
+                <span className="text-muted-foreground font-mono text-[0.65625rem]">
                   {rule.rule_id}
                   {rule.coupon_code !== null && ` · ${rule.coupon_code}`}
                 </span>
               </span>
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-[var(--os-ok,#047857)]">
+              <span className="shrink-0 font-mono text-[0.6875rem] tabular-nums text-[var(--os-ok,#36b827)]">
                 −{money(rule.benefit_minor, result.currency)}
               </span>
             </li>
@@ -441,17 +441,17 @@ function Answer({ result }: { result: SimulateResult }) {
               <div className="flex items-baseline justify-between gap-3">
                 <span className="min-w-0">
                   <span className="text-xs">{rule.name}</span>{" "}
-                  <span className="text-muted-foreground font-mono text-[10.5px]">
+                  <span className="text-muted-foreground font-mono text-[0.65625rem]">
                     {rule.rule_id}
                   </span>
                 </span>
                 {rule.would_have_saved_minor !== null && (
-                  <span className="text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums">
+                  <span className="text-muted-foreground shrink-0 font-mono text-[0.6875rem] tabular-nums">
                     would have been {money(rule.would_have_saved_minor, result.currency)}
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-[var(--os-warn,#b45309)]">
+              <p className="text-[0.6875rem] text-[var(--os-warn,#c9892e)]">
                 {rule.explanation}
               </p>
             </li>
@@ -459,7 +459,7 @@ function Answer({ result }: { result: SimulateResult }) {
         </Section>
       )}
 
-      <div className="text-muted-foreground border-t px-3.5 py-2 font-mono text-[10.5px]">
+      <div className="text-muted-foreground border-t px-3.5 py-2 font-mono text-[0.65625rem]">
         trace {result.trace_id}
       </div>
     </div>
@@ -469,7 +469,7 @@ function Answer({ result }: { result: SimulateResult }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="border-t">
-      <h3 className="text-muted-foreground px-3.5 pt-2 pb-1 text-[11px] font-semibold">
+      <h3 className="text-muted-foreground px-3.5 pt-2 pb-1 text-[0.6875rem] font-semibold">
         {title}
       </h3>
       <ul className="divide-y">{children}</ul>

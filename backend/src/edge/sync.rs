@@ -317,6 +317,40 @@ fn apply_activation(
     if resident.is_some() {
         return Ok(());
     }
+    // Anti-rollback, the same rule `apply_catalog_chunk` applies to the
+    // catalogue and for a sharper reason here.
+    //
+    // The four promotion tables below are keyed on their id and replaced on
+    // apply, so "the newest book wins" is true only while books arrive in
+    // version order. They do not always: publishing checks the number is still
+    // the highest, but a book already dispatched cannot be recalled, and a
+    // node that reconnects after a long outage drains its queue in issue order.
+    // An older book applied last would then overwrite a newer one's markdowns,
+    // rules, coupons and campaigns — reviving a paused campaign at the counter
+    // with nothing on any screen to say it had happened.
+    //
+    // Ignoring it is the right outcome rather than an error: an old book
+    // arriving after a new one is ordinary, and blocking the command stream
+    // over it would stop every price change behind it.
+    let highest: Option<i64> = tx
+        .query_row(
+            "SELECT MAX(version) FROM commercial_publication",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?
+        .flatten();
+    if let Some(highest) = highest {
+        if payload.version < highest {
+            tracing::info!(
+                resident = highest,
+                offered = payload.version,
+                "ignoring a price book older than the one this shop already holds"
+            );
+            return Ok(());
+        }
+    }
     tx.execute(
         "INSERT INTO commercial_publication
              (id, version, name, effective_from, effective_to, activated_at)
@@ -383,8 +417,10 @@ fn apply_activation(
     // every publication for the same reason — a promotion run twice is one
     // promotion, amended, not two.
     //
-    // A book already applied is never re-applied: commands carry a sequence and
-    // a watermark, so an older book cannot arrive after a newer one and undo it.
+    // A book already applied is never re-applied — the resident check above is
+    // the idempotency key — and an older book arriving late is ignored by the
+    // anti-rollback check beside it. Both are needed: replacing by id is only
+    // "the newest book wins" if nothing older can land afterwards.
     for markdown in &payload.markdowns {
         tx.execute(
             "INSERT OR REPLACE INTO commercial_markdown

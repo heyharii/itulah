@@ -199,7 +199,26 @@ pub async fn load_site_price_book(
     }
 
     let markdowns = sqlx::query(
-        "SELECT m.markdown_id, m.sku_code, m.article_code, m.site_id, m.site_ids, m.tier,
+        // DISTINCT ON, and the three loaders below say the same thing for the
+        // same reason.
+        //
+        // A shop keys `commercial_markdown` on `markdown_id` alone and replaces
+        // on apply, so it holds exactly one row per id: the newest book's. The
+        // centre scopes per publication and held every version at once — so a
+        // clearance extended into a later book at a deeper cut existed twice
+        // here and once there.
+        //
+        // That is not a tie the ranking can break. `PriceIndex::markdown` ranks
+        // on (priority, effective_from, markdown_id) and never on version, so
+        // two copies of one markdown tie on all three keys and the winner is
+        // whichever row Postgres happened to return first. The centre's shelf
+        // list and the counter then quote different prices, non-deterministically,
+        // and the answer can change between two page loads.
+        //
+        // So the centre reproduces the shop's model explicitly rather than
+        // relying on a comparator that was never given a version to compare.
+        "SELECT DISTINCT ON (m.markdown_id)
+                m.markdown_id, m.sku_code, m.article_code, m.site_id, m.site_ids, m.tier,
                 m.replacement_unit_price_minor, m.priority, p.version,
                 m.effective_from, m.effective_to
            FROM commercial_markdown m
@@ -208,7 +227,8 @@ pub async fn load_site_price_book(
             AND m.effective_from <= $2
             AND (m.effective_to IS NULL OR m.effective_to > $2)
             AND (m.site_id IS NULL OR m.site_id = $1)
-            AND (m.site_ids IS NULL OR $1 = ANY(m.site_ids))",
+            AND (m.site_ids IS NULL OR $1 = ANY(m.site_ids))
+          ORDER BY m.markdown_id, p.version DESC",
     )
     .bind(site_id)
     .bind(at)
@@ -259,9 +279,20 @@ async fn load_rules(
 ) -> Result<Vec<Rule>, AppError> {
     let mut rules = Vec::new();
     for row in sqlx::query(
-        "SELECT r.definition FROM commercial_rule r
+        // One row per rule_id, newest book wins — the shop's model, which is
+        // also how usage is counted (`commercial_usage` is keyed per rule id
+        // across every publication, because a promotion run twice is one
+        // promotion amended, not two).
+        //
+        // Without this, a promotion repeated in a later book was loaded twice
+        // and — the composer's default being STACKABLE — applied twice. The
+        // simulator, which is the screen built to explain a price, reported
+        // 20% + 25% off where the till charged 25%.
+        "SELECT DISTINCT ON (r.rule_id) r.definition
+           FROM commercial_rule r
            JOIN commercial_publication p ON p.id = r.publication_id
-          WHERE p.status = 'PUBLISHED' ORDER BY r.rule_id",
+          WHERE p.status = 'PUBLISHED'
+          ORDER BY r.rule_id, p.version DESC",
     )
     .fetch_all(&mut **tx)
     .await?
@@ -298,11 +329,13 @@ async fn load_coupons(
     usage: &UsageCounts,
 ) -> Result<Vec<Coupon>, AppError> {
     Ok(sqlx::query(
-        "SELECT c.code, c.rule_id, c.active, c.customer_id, c.valid_from, c.valid_to,
+        "SELECT DISTINCT ON (c.code)
+                c.code, c.rule_id, c.active, c.customer_id, c.valid_from, c.valid_to,
                 c.max_uses, c.used
            FROM commercial_coupon c
            JOIN commercial_publication p ON p.id = c.publication_id
-          WHERE p.status = 'PUBLISHED'",
+          WHERE p.status = 'PUBLISHED'
+          ORDER BY c.code, p.version DESC",
     )
     .fetch_all(&mut **tx)
     .await?
@@ -342,11 +375,18 @@ async fn load_campaigns(
     usage: &UsageCounts,
 ) -> Result<Vec<Campaign>, AppError> {
     Ok(sqlx::query(
-        "SELECT c.campaign_id, c.name, c.status, c.valid_from, c.valid_to,
+        // Newest book wins, as above — and here it decides a switch rather than
+        // a number. `gate` picks a campaign with `.find()`, so two rows for one
+        // campaign_id meant a campaign paused by republishing it PAUSED could
+        // still be found ACTIVE from the older book: stopped at thirty tills
+        // and running at head office.
+        "SELECT DISTINCT ON (c.campaign_id)
+                c.campaign_id, c.name, c.status, c.valid_from, c.valid_to,
                 c.budget_minor, c.spent_minor, c.max_uses, c.used, c.max_uses_per_customer
            FROM commercial_campaign c
            JOIN commercial_publication p ON p.id = c.publication_id
-          WHERE p.status = 'PUBLISHED' ORDER BY c.campaign_id",
+          WHERE p.status = 'PUBLISHED'
+          ORDER BY c.campaign_id, p.version DESC",
     )
     .fetch_all(&mut **tx)
     .await?

@@ -261,6 +261,41 @@ fn refuse_what_the_fleet_cannot_honour(
                 rule.rule_id
             )));
         }
+        // A free item is a physical unit, and this system sells physical units
+        // by EPC.
+        //
+        // The engine grants one correctly: it emits a `FreeLine` and says, in
+        // its own doc-comment, that the caller must append it to the sale "or
+        // the shirt walks out of the shop and the stock still says it is on the
+        // shelf". No caller does. `complete_sale` builds its movement, its sale
+        // lines and its fact from the scanned EPCs alone, so the granted line
+        // is returned to the till and dropped — while `commercial_usage` is
+        // charged the full value of a shirt that never left the ledger.
+        //
+        // Refused rather than half-implemented, because granting an
+        // *unidentified* unit is not expressible here: the till would have to
+        // be handed a specific EPC to give away, and nothing chooses one. When
+        // that exists this check comes out.
+        if matches!(rule.effect, pricing_engine::Effect::FreeItem { .. }) {
+            return Err(AppError::Validation(format!(
+                "promotion {} gives an item away, and a shop sells by EPC — nothing \
+                 chooses which unit is given, so the goods would leave the shop \
+                 while the stock still said they were on the shelf. Use a fixed \
+                 price or a percentage.",
+                rule.rule_id
+            )));
+        }
+        // Authored everywhere, enforced nowhere: nothing populates
+        // `PricingContext::customer_rule_uses`, so `Caps::allows` always reads
+        // zero and a per-customer limit never bites. It is stored, dispatched,
+        // and honoured by no till.
+        if rule.caps.max_uses_per_customer.is_some() {
+            return Err(AppError::Validation(format!(
+                "promotion {} limits uses per customer, and nothing counts a \
+                 customer's own history yet — the limit would never bite.",
+                rule.rule_id
+            )));
+        }
     }
     Ok(())
 }
@@ -378,6 +413,13 @@ fn validate_publication_request(
 
     let mut campaign_ids = HashSet::new();
     for campaign in &request.campaigns {
+        if campaign.max_uses_per_customer.is_some() {
+            return Err(AppError::Validation(format!(
+                "campaign {} limits uses per customer, and nothing counts a \
+                 customer's own history yet — the limit would never bite.",
+                campaign.campaign_id
+            )));
+        }
         if campaign.campaign_id.trim().is_empty() || campaign.name.trim().is_empty() {
             return Err(AppError::Validation(
                 "a campaign needs an id and a name".into(),
@@ -516,6 +558,29 @@ pub async fn publish_commercial_publication(
             "publication must be DRAFT, currently {status}"
         )));
     }
+    // The number has to still be the highest, not just have been when it was
+    // allocated.
+    //
+    // Writing a book checks that; publishing one used to check only the status.
+    // Between the two, an article setup publishes at MAX+1 and dispatches
+    // immediately, so a draft that sat for a week goes out AFTER the books that
+    // overtook it. A shop replaces these four by id, so the older book then
+    // walks the newer one backwards — a paused campaign resumes, an ended
+    // clearance comes back — and the activation screen reports the shop as
+    // behind rather than as rolled back, which reads like sync lag.
+    let version: i64 = publication.get("version");
+    let highest_published: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(version), 0) FROM commercial_publication WHERE status = 'PUBLISHED'",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if version <= highest_published {
+        return Err(AppError::Conflict(format!(
+            "this book is numbered {version} and {highest_published} is already published. \
+             The newest book wins, so publishing this one would take the fleet backwards — \
+             write it again at the next number."
+        )));
+    }
     let invalid = sqlx::query("SELECT count(*)::bigint count FROM commercial_price_rule pr LEFT JOIN commercial_tax_rule tr ON tr.publication_id=pr.publication_id AND tr.tax_category=pr.tax_category LEFT JOIN commercial_assortment_rule ar ON ar.publication_id=pr.publication_id AND ar.sku_id=pr.sku_id AND ar.site_id IS NOT DISTINCT FROM pr.site_id AND ar.channel=pr.channel WHERE pr.publication_id=$1 AND (tr.id IS NULL OR ar.id IS NULL)")
         .bind(publication_id)
         .fetch_one(&mut *tx)
@@ -566,7 +631,34 @@ WHERE NOT EXISTS(
     .fetch_one(&mut *tx)
     .await?
     .get::<i64, _>("count");
-    if invalid > 0 || offer_count == 0 || incomplete_base > 0 {
+    // What else this book carries, so a promotion-only one is not judged by a
+    // rule about prices.
+    //
+    // Authoring already allows a book with no prices in it — restating a base
+    // price to attach a discount is how a book meant to add twenty per cent off
+    // silently reprices the range — but publishing still demanded one, so such
+    // a book could be written, saved and never sent, and the refusal spoke
+    // about prices to an author who had deliberately set none.
+    let other_changes: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM commercial_markdown WHERE publication_id=$1)
+              + (SELECT count(*) FROM commercial_rule     WHERE publication_id=$1)
+              + (SELECT count(*) FROM commercial_coupon   WHERE publication_id=$1)
+              + (SELECT count(*) FROM commercial_campaign WHERE publication_id=$1)",
+    )
+    .bind(publication_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if offer_count == 0 && other_changes == 0 {
+        return Err(AppError::Conflict(
+            "this book changes nothing: no price, markdown, promotion, coupon or \
+             campaign. Publishing it would reach every shop and leave all of them \
+             exactly as they were."
+                .into(),
+        ));
+    }
+    // The completeness checks are about prices, so they only apply to a book
+    // that sets some.
+    if invalid > 0 || (offer_count > 0 && incomplete_base > 0) {
         return Err(AppError::Conflict(
             "a publication needs coherent rules, and every active SKU in each \
              channel it touches must have a company-wide price — in this book or \
@@ -579,7 +671,6 @@ WHERE NOT EXISTS(
         .bind(request.actor_id.trim())
         .execute(&mut *tx)
         .await?;
-    let version: i64 = publication.get("version");
     let delivered_to =
         dispatch_publication(&mut tx, publication_id, request.actor_id.trim()).await?;
     let response = json!({"id":publication_id,"version":version,"status":"PUBLISHED","offer_rule_count":offer_count,"published_at":Utc::now(),"delivered_to":delivered_to});
@@ -747,13 +838,6 @@ pub(super) async fn dispatch_publication(
         })
         .collect();
 
-        // A shop with nothing to sell is not sent an empty book: the receiving
-        // validator rejects one, and rightly — it cannot tell an empty
-        // publication from a truncated one.
-        if rules.is_empty() {
-            continue;
-        }
-
         // Clearance, scoped the same way prices are: the company-wide ones and
         // this shop's own. A branch has no business holding another branch's.
         let markdowns: Vec<Value> = sqlx::query(
@@ -785,6 +869,25 @@ pub(super) async fn dispatch_publication(
             })
         })
         .collect();
+
+        // A shop is not sent a book that says nothing to it: the receiving
+        // validator rejects an empty one, and rightly — it cannot tell an empty
+        // publication from a truncated one.
+        //
+        // "Nothing" is the whole book and not the prices alone. This used to
+        // test `rules` — the price rules — so a book carrying only a promotion
+        // or only a clearance was skipped for every shop in the fleet: it
+        // published, reported delivery to nobody, and changed nothing. That is
+        // the same publish-and-change-nothing fault the version guard exists to
+        // stop, arriving from the other direction.
+        if rules.is_empty()
+            && markdowns.is_empty()
+            && promotion_rules.is_empty()
+            && coupons.is_empty()
+            && campaigns.is_empty()
+        {
+            continue;
+        }
 
         let payload = json!({
             "publication_id": publication_id,
@@ -888,7 +991,7 @@ pub async fn resolve_offer(pool: &PgPool, query: ResolveOfferQuery) -> Result<Va
             "an effective offer for that SKU at that store and channel".into(),
         ));
     };
-    let context = PricingContext::new(&query.site_id, query.channel.as_str(), at);
+    let context = crate::reporting::pricing_context(&query.site_id, query.channel.as_str(), at);
     let priced = price_catalog(
         &pricing.snapshot,
         &context,
@@ -967,7 +1070,7 @@ pub async fn list_resolved_offers(
     let merchandise = super::pricing::load_merchandise(&mut tx).await?;
     tx.commit().await?;
 
-    let context = PricingContext::new(site_id, channel.as_str(), at);
+    let context = crate::reporting::pricing_context(site_id, channel.as_str(), at);
     let products: Vec<CartLine> = pricing
         .sku_id_by_code
         .keys()
@@ -1430,7 +1533,7 @@ pub async fn simulate(
     let merchandise = super::pricing::load_merchandise(&mut tx).await?;
     tx.commit().await?;
 
-    let mut context = PricingContext::new(&request.site_id, request.channel.as_str(), at);
+    let mut context = crate::reporting::pricing_context(&request.site_id, request.channel.as_str(), at);
     context.coupon_codes = request.coupon_codes.clone();
     context.customer_id = request.customer_id.clone();
     context.customer_tier = request.customer_tier.clone();
@@ -1687,7 +1790,7 @@ pub async fn article_prices(
         let pricing =
             super::pricing::load_site_price_book(&mut tx, &site_id, channel.as_str(), at).await?;
         tx.commit().await?;
-        let context = PricingContext::new(&site_id, channel.as_str(), at);
+        let context = crate::reporting::pricing_context(&site_id, channel.as_str(), at);
 
         for style in &styles {
             let products: Vec<CartLine> = style

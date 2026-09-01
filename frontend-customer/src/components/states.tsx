@@ -1,7 +1,9 @@
+import { RefreshCw } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError } from "@itulah/contract/client"
-import { RefreshCw } from "lucide-react"
 
 /// The four states every screen here has, in one place.
 ///
@@ -11,11 +13,17 @@ import { RefreshCw } from "lucide-react"
 
 export function LoadingRows({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="flex flex-col gap-2" aria-hidden>
+    <Card className="divide-y divide-hairline p-1.5">
       {Array.from({ length: rows }, (_, index) => (
-        <Skeleton key={index} className="h-16 w-full" />
+        <div key={index} className="flex items-center gap-3 px-3 py-3.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <Skeleton className="h-3.5 w-28" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <Skeleton className="h-3.5 w-20" />
+        </div>
       ))}
-    </div>
+    </Card>
   )
 }
 
@@ -27,10 +35,10 @@ export function EmptyState({
   description: string
 }) {
   return (
-    <div className="border-border/60 flex flex-col items-center gap-1 rounded-2xl border border-dashed px-6 py-10 text-center">
-      <p className="font-medium">{title}</p>
-      <p className="text-muted-foreground max-w-sm text-sm">{description}</p>
-    </div>
+    <Card className="flex flex-col items-center gap-1.5 border-dashed bg-soft px-6 py-10 text-center shadow-none">
+      <p className="text-card-title font-semibold text-ink">{title}</p>
+      <p className="max-w-sm text-meta text-body">{description}</p>
+    </Card>
   )
 }
 
@@ -72,11 +80,11 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className="border-destructive/30 bg-destructive/5 flex flex-col items-start gap-3 rounded-2xl border px-4 py-4"
+      className="flex flex-col items-start gap-3 rounded-card border border-hairline bg-bad-bg px-4 py-4"
     >
-      <p className="text-sm">{message}</p>
+      <p className="text-bad-fg">{message}</p>
       {onRetry !== undefined && worthRetrying && (
-        <Button size="sm" variant="outline" onClick={onRetry}>
+        <Button size="sm" onClick={onRetry}>
           <RefreshCw />
           Coba lagi
         </Button>

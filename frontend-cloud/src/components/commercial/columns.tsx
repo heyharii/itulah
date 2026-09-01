@@ -91,7 +91,7 @@ export function priceBookColumns({
       accessorKey: "effective_from",
       header: ({ column }) => <DataTableColumnHeader column={column} title="In force" />,
       cell: ({ row }) => (
-        <span className="text-muted-foreground font-mono text-[11px] whitespace-nowrap">
+        <span className="text-muted-foreground font-mono text-[0.6875rem] whitespace-nowrap">
           {on(row.original.effective_from)}
           {row.original.effective_to === null ? " →" : ` → ${on(row.original.effective_to)}`}
         </span>
@@ -101,11 +101,11 @@ export function priceBookColumns({
       accessorKey: "created_by",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Written by" />,
       cell: ({ row }) => (
-        <div className="text-muted-foreground flex flex-col text-[11px]">
+        <div className="text-muted-foreground flex flex-col text-[0.6875rem]">
           <span>{row.original.created_by}</span>
           {row.original.published_by !== null &&
             row.original.published_by !== row.original.created_by && (
-              <span className="text-[10.5px]">published by {row.original.published_by}</span>
+              <span className="text-[0.65625rem]">published by {row.original.published_by}</span>
             )}
         </div>
       ),
@@ -151,7 +151,7 @@ export const fleetColumns: ColumnDef<DataTableFeatures, ShopActivation>[] = [
     cell: ({ row }) => (
       <div className="flex flex-col">
         <span className="text-xs">{row.original.label ?? row.original.origin_id}</span>
-        <span className="text-muted-foreground font-mono text-[10.5px]">
+        <span className="text-muted-foreground font-mono text-[0.65625rem]">
           {row.original.site_id ?? row.original.origin_id}
         </span>
       </div>
@@ -167,7 +167,7 @@ export const fleetColumns: ColumnDef<DataTableFeatures, ShopActivation>[] = [
         <div className="flex flex-col">
           <span className="font-mono text-xs">v{row.original.version}</span>
           {row.original.book_name !== null && (
-            <span className="text-muted-foreground max-w-48 truncate text-[10.5px]">
+            <span className="text-muted-foreground max-w-48 truncate text-[0.65625rem]">
               {row.original.book_name}
             </span>
           )}
@@ -192,10 +192,10 @@ export const fleetColumns: ColumnDef<DataTableFeatures, ShopActivation>[] = [
     ),
     cell: ({ row }) => {
       const behind = row.original.behind_by
-      if (behind === null) return <span className="text-muted-foreground text-[11px]">—</span>
-      if (behind === 0) return <span className="text-[11px] text-[var(--os-ok,#059669)]">up to date</span>
+      if (behind === null) return <span className="text-muted-foreground text-[0.6875rem]">—</span>
+      if (behind === 0) return <span className="text-[0.6875rem] text-[var(--os-ok,#36b827)]">up to date</span>
       return (
-        <span className="font-mono text-xs tabular-nums text-[var(--os-warn,#b45309)]">
+        <span className="font-mono text-xs tabular-nums text-[var(--os-warn,#c9892e)]">
           {units(behind)} book{behind === 1 ? "" : "s"}
         </span>
       )
@@ -222,14 +222,14 @@ export const fleetColumns: ColumnDef<DataTableFeatures, ShopActivation>[] = [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Since" />,
     cell: ({ row }) =>
       row.original.activated_at === null ? "—" : at(row.original.activated_at),
-    meta: { cellClassName: "text-muted-foreground font-mono text-[10.5px] whitespace-nowrap" },
+    meta: { cellClassName: "text-muted-foreground font-mono text-[0.65625rem] whitespace-nowrap" },
   },
   {
     accessorKey: "reported_at",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Centre heard" />,
     // The gap between this and the column before it is the number to watch.
     cell: ({ row }) => (row.original.reported_at === null ? "—" : at(row.original.reported_at)),
-    meta: { cellClassName: "text-muted-foreground font-mono text-[10.5px] whitespace-nowrap" },
+    meta: { cellClassName: "text-muted-foreground font-mono text-[0.65625rem] whitespace-nowrap" },
   },
 ]
 
@@ -243,7 +243,7 @@ export const usageColumns: ColumnDef<DataTableFeatures, PromotionUsage>[] = [
     cell: ({ row }) => (
       <div className="flex flex-col">
         <span className="text-xs">{row.original.name ?? row.original.key}</span>
-        <span className="text-muted-foreground font-mono text-[10.5px]">{row.original.key}</span>
+        <span className="text-muted-foreground font-mono text-[0.65625rem]">{row.original.key}</span>
       </div>
     ),
   },
@@ -251,7 +251,7 @@ export const usageColumns: ColumnDef<DataTableFeatures, PromotionUsage>[] = [
     accessorKey: "kind",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Kind" />,
     cell: ({ row }) => (
-      <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10.5px]">
+      <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[0.65625rem]">
         {row.original.kind === "RULE"
           ? "Rule"
           : row.original.kind === "CAMPAIGN"
@@ -271,7 +271,7 @@ export const usageColumns: ColumnDef<DataTableFeatures, PromotionUsage>[] = [
         <>
           {units(row.original.uses)}
           {row.original.max_uses !== null && (
-            <span className={cn("text-muted-foreground", usedUp && "text-[var(--os-warn,#b45309)]")}>
+            <span className={cn("text-muted-foreground", usedUp && "text-[var(--os-warn,#c9892e)]")}>
               {" / "}
               {units(row.original.max_uses)}
             </span>
@@ -301,7 +301,7 @@ export const usageColumns: ColumnDef<DataTableFeatures, PromotionUsage>[] = [
     accessorKey: "last_used_at",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Last used" />,
     cell: ({ row }) => at(row.original.last_used_at),
-    meta: { cellClassName: "text-muted-foreground font-mono text-[10.5px] whitespace-nowrap" },
+    meta: { cellClassName: "text-muted-foreground font-mono text-[0.65625rem] whitespace-nowrap" },
   },
 ]
 
@@ -318,7 +318,7 @@ export function Spend({ row }: { row: PromotionUsage }) {
       <span
         className={cn(
           "font-mono text-xs tabular-nums",
-          spentOut && "font-medium text-[var(--os-warn,#b45309)]",
+          spentOut && "font-medium text-[var(--os-warn,#c9892e)]",
         )}
       >
         {money(row.spent_minor)}
@@ -332,7 +332,7 @@ export function Spend({ row }: { row: PromotionUsage }) {
       {share !== null && (
         <div className="bg-muted h-1 w-20 overflow-hidden rounded-full">
           <div
-            className={cn("h-full", spentOut ? "bg-[var(--os-warn,#b7791f)]" : "bg-[var(--os-accent,#3c52f0)]")}
+            className={cn("h-full", spentOut ? "bg-[var(--os-warn,#c9892e)]" : "bg-[var(--os-accent,#3c52f0)]")}
             style={{ width: `${share * 100}%` }}
           />
         </div>
@@ -381,7 +381,7 @@ export const bookPriceColumns: ColumnDef<DataTableFeatures, BookPriceRule>[] = [
     accessorKey: "sku_code",
     enableHiding: false,
     header: ({ column }) => <DataTableColumnHeader column={column} title="SKU" />,
-    cell: ({ row }) => <span className="font-mono text-[11px]">{row.original.sku_code}</span>,
+    cell: ({ row }) => <span className="font-mono text-[0.6875rem]">{row.original.sku_code}</span>,
   },
   {
     accessorKey: "article_name",
@@ -393,13 +393,13 @@ export const bookPriceColumns: ColumnDef<DataTableFeatures, BookPriceRule>[] = [
     id: "applies_to",
     header: "Applies to",
     enableSorting: false,
-    cell: ({ row }) => <span className="text-[11px]">{scope(row.original)}</span>,
+    cell: ({ row }) => <span className="text-[0.6875rem]">{scope(row.original)}</span>,
   },
   {
     accessorKey: "channel",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Channel" />,
     cell: ({ row }) => row.original.channel,
-    meta: { cellClassName: "text-muted-foreground text-[10.5px]" },
+    meta: { cellClassName: "text-muted-foreground text-[0.65625rem]" },
   },
   {
     accessorKey: "unit_price_minor",
@@ -413,6 +413,6 @@ export const bookPriceColumns: ColumnDef<DataTableFeatures, BookPriceRule>[] = [
     accessorKey: "tax_category",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Tax class" />,
     cell: ({ row }) => row.original.tax_category,
-    meta: { cellClassName: "text-muted-foreground font-mono text-[10.5px]" },
+    meta: { cellClassName: "text-muted-foreground font-mono text-[0.65625rem]" },
   },
 ]

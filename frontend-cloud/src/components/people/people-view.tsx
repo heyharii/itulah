@@ -171,7 +171,7 @@ export function PeopleView() {
           </ScreenState>
         ) : (
           <Table>
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id} className="hover:bg-transparent">
                   {headerGroup.headers.map((header) => (

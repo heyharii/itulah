@@ -1,4 +1,12 @@
 import { node } from "@/lib/api"
+import type {
+  Applicability as ApplicabilityInput,
+  Caps,
+  Conditions,
+  Effect as EffectInput,
+  Money,
+  Rule as RuleInput,
+} from "@itulah/contract"
 import type { CommercialChannel } from "@/lib/commercial"
 import { parseMoneyToMinor } from "@/lib/money"
 
@@ -43,7 +51,12 @@ export interface OfferRuleInput {
   readonly currency: string
   readonly unit_price_minor: number
   readonly tax_category: string
-  readonly posting_class?: string | null
+  /// Whether the shop may sell it at all.
+  ///
+  /// Required, and it is a second decision rather than a detail of the price:
+  /// the assortment rule it writes is what makes a product appear in a shop's
+  /// range. A price with no assortment row beside it fails the publish check.
+  readonly sellable: boolean
 }
 
 export interface TaxRuleInput {
@@ -90,82 +103,20 @@ export interface CampaignInput {
   readonly max_uses_per_customer?: number | null
 }
 
-/// What a promotion matches.
+/// The promotion document, generated from the engine that reads it.
 ///
-/// The engine is never told how a SKU code is built — it is handed the article
-/// and the division on the cart line by the caller who owns that format. A
-/// pricing engine that parses SKU codes is one that breaks when they change.
-export type ApplicabilityInput =
-  | { readonly on: "SKU"; readonly sku_codes: readonly string[] }
-  | { readonly on: "ARTICLE"; readonly article_codes: readonly string[] }
-  | { readonly on: "DIVISION"; readonly divisions: readonly string[] }
-  | { readonly on: "TAG"; readonly tags: readonly string[] }
-  | { readonly on: "WHOLE_CART" }
-
-/// What a promotion does.
+/// `CreateCommercialPublicationRequest.rules` is `Vec<pricing_engine::Rule>`,
+/// so what this screen sends is deserialised straight into the engine's own
+/// type. These used to be transcribed by hand and the transcription was wrong
+/// in the one way nothing catches: `Money` is `{ minor }`, the copy said
+/// `number`, and axum's JSON extractor refused the whole book before any of the
+/// careful validation messages in `validate_publication_request` could run — so
+/// every promotion a merchandiser wrote came back as a serde error naming a
+/// Rust type.
 ///
-/// A closed set rather than a bag of optional fields, matching
-/// `pricing_engine::Effect`: a rule that takes a percentage off cannot also be
-/// carrying half a free-item effect, because there is nowhere to put one.
-///
-/// `MARGIN` is absent for the same reason `TIER` is: no cart line carries a
-/// cost, so a margin rule would never fire.
-export type EffectInput =
-  | { readonly kind: "PERCENT"; readonly bps: number; readonly compound: boolean }
-  | { readonly kind: "AMOUNT"; readonly amount: number }
-  | { readonly kind: "FIXED_UNIT_PRICE"; readonly unit_price: number }
-  | {
-      readonly kind: "FREE_ITEM"
-      readonly sku_code: string | null
-      readonly quantity: number
-      readonly every_matched_quantity: number | null
-      readonly after_matched_quantity: number
-      readonly unit_price: number
-    }
-  | {
-      readonly kind: "EARN_POINTS"
-      readonly mode: "SPEND_RATE" | "FIXED_POINTS" | "POINTS_PER_QUANTITY"
-      readonly spend_per_point?: number
-      readonly points?: number
-    }
-
-export interface RuleInput {
-  readonly rule_id: string
-  readonly campaign_id?: string | null
-  readonly name: string
-  readonly status: "ACTIVE" | "PAUSED" | "ARCHIVED"
-  readonly scope: {
-    readonly applicability: ApplicabilityInput | null
-    readonly excluded_sku_codes: readonly string[]
-    readonly site_ids: readonly string[]
-    readonly channels: readonly string[]
-    readonly customers: { readonly who: "EVERYONE" | "MEMBERS" }
-    readonly effect_on?: ApplicabilityInput | null
-  }
-  readonly conditions: {
-    readonly min_quantity: number
-    readonly max_quantity?: number | null
-    readonly min_amount: number
-    readonly max_amount?: number | null
-    readonly effective_from?: string | null
-    readonly effective_to?: string | null
-    readonly days: { readonly iso_weekdays: readonly number[] }
-    readonly time_window?: { readonly from_minute: number; readonly to_minute: number } | null
-  }
-  readonly effect: EffectInput
-  readonly coupon_code?: string | null
-  readonly max_discount?: number | null
-  readonly caps: {
-    readonly budget?: number | null
-    readonly max_uses?: number | null
-    readonly max_uses_per_customer?: number | null
-  }
-  readonly priority: number
-  readonly stacking: "STACKABLE" | "EXCLUSIVE"
-  readonly advisory: boolean
-  readonly earn_basis?: "POST_MARKDOWN_PRE_DISCOUNT" | "POST_DISCOUNT_NET" | "ORIGINAL"
-  readonly max_points?: number | null
-}
+/// Generated, that cannot happen again, and `make contract-check` fails if the
+/// struct moves.
+export type { ApplicabilityInput, Caps, Conditions, EffectInput, Money, RuleInput }
 
 export interface CreatePriceBookRequest {
   readonly version: number
@@ -276,7 +227,7 @@ export interface PromotionDraft {
   /// Comma-separated as typed. Split on save, because a person pasting a list
   /// of codes should not have to press Add between each one.
   targets: string
-  effect: "PERCENT" | "AMOUNT" | "FIXED_UNIT_PRICE" | "FREE_ITEM" | "EARN_POINTS"
+  effect: "PERCENT" | "AMOUNT" | "FIXED_UNIT_PRICE" | "EARN_POINTS"
   percent: string
   amount: string
   freeSku: string
@@ -330,6 +281,23 @@ export interface CouponDraft {
 /// thousand rupiah for two hundred.
 export function minorOf(text: string): number | null {
   return parseMoneyToMinor(text)
+}
+
+/// An amount as the engine reads it.
+///
+/// `Money` is a struct with one field, not a bare integer, and that is
+/// deliberate: an amount and a count are both `i64` and confusing them is how a
+/// quantity gets charged as rupiah. Every amount leaving this file goes through
+/// here so the wrapping is done once rather than remembered fourteen times.
+function money(minor: number): Money {
+  return { minor }
+}
+
+/// The same, for a field that may be absent. `null` is "no limit", which is a
+/// different fact from "no limit typed yet" and the caller has already decided
+/// which it is.
+function optionalMoney(minor: number | null): Money | null {
+  return minor === null ? null : money(minor)
 }
 
 /// A promotion's id, assigned when the promotion is created and never
@@ -386,6 +354,10 @@ export function toOfferRules(drafts: readonly PriceDraft[]): OfferRuleInput[] {
         sku_code: draft.sku_code,
         ...scopeSites(draft.level, draft.site_id, draft.site_ids),
         channel: draft.channel,
+        // Every price this screen writes is for something the shop may sell.
+        // Withdrawing a product from a range is a different act and does not
+        // belong on a form whose whole subject is what things cost.
+        sellable: true,
         currency: "IDR",
         unit_price_minor: minor,
         tax_category: NO_TAX.tax_category,
@@ -447,30 +419,24 @@ function effectOf(draft: PromotionDraft): EffectInput | null {
     }
     case "AMOUNT": {
       const minor = minorOf(draft.amount)
-      return minor === null ? null : { kind: "AMOUNT", amount: minor }
+      return minor === null ? null : { kind: "AMOUNT", amount: money(minor) }
     }
     case "FIXED_UNIT_PRICE": {
       const minor = minorOf(draft.amount)
-      return minor === null ? null : { kind: "FIXED_UNIT_PRICE", unit_price: minor }
-    }
-    case "FREE_ITEM": {
-      const quantity = count(draft.freeQuantity)
-      if (quantity === null) return null
-      return {
-        kind: "FREE_ITEM",
-        sku_code: draft.freeSku.trim() === "" ? null : draft.freeSku.trim(),
-        quantity,
-        every_matched_quantity: count(draft.freeEveryMatched),
-        after_matched_quantity: 0,
-        unit_price: 0,
-      }
+      return minor === null
+        ? null
+        : { kind: "FIXED_UNIT_PRICE", unit_price: money(minor) }
     }
     case "EARN_POINTS": {
       if (draft.pointsMode === "SPEND_RATE") {
         const minor = minorOf(draft.pointsValue)
         return minor === null
           ? null
-          : { kind: "EARN_POINTS", mode: "SPEND_RATE", spend_per_point: minor }
+          : {
+              kind: "EARN_POINTS",
+              mode: "SPEND_RATE",
+              spend_per_point: money(minor),
+            }
       }
       const points = count(draft.pointsValue)
       return points === null
@@ -520,10 +486,14 @@ export function toRules(drafts: readonly PromotionDraft[]): RuleInput[] {
           site_ids: draft.siteIds,
           channels: [],
           customers: { who: draft.membersOnly ? "MEMBERS" : "EVERYONE" },
+          effect_on: null,
         },
         conditions: {
           min_quantity: count(draft.minQuantity) ?? 0,
-          min_amount: minorOf(draft.minAmount) ?? 0,
+          max_quantity: null,
+          min_amount: money(minorOf(draft.minAmount) ?? 0),
+          max_amount: null,
+          cumulative: false,
           effective_from: instantOf(draft.from),
           effective_to: instantOf(draft.to),
           days: { iso_weekdays: draft.weekdays },
@@ -531,15 +501,25 @@ export function toRules(drafts: readonly PromotionDraft[]): RuleInput[] {
         },
         effect,
         coupon_code: draft.couponCode.trim() === "" ? null : draft.couponCode.trim(),
-        max_discount: minorOf(draft.maxDiscount),
+        max_discount: optionalMoney(minorOf(draft.maxDiscount)),
         caps: {
-          budget: minorOf(draft.budget),
+          budget: optionalMoney(minorOf(draft.budget)),
+          // What it has given so far. Authored as zero and never read from
+          // here: the live figure comes from `commercial_usage`, which is
+          // outside the publication precisely because a limit is a decision
+          // and a count is an observation.
+          spent: money(0),
           max_uses: count(draft.maxUses),
+          used: 0,
           max_uses_per_customer: null,
         },
         priority: Number(draft.priority) || 0,
         stacking: draft.stacking,
         advisory: false,
+        // The default the engine documents: a shopper who buys a marked-down
+        // shirt earns on what the shirt now costs.
+        earn_basis: "POST_MARKDOWN_PRE_DISCOUNT",
+        max_points: null,
       },
     ]
   })

@@ -17,7 +17,25 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// The tables that decide what something costs.
-const PRICE_TABLES: [&str; 2] = ["commercial_price_rule", "commercial_markdown"];
+///
+/// All six, not the two it started with. A promotion, the code that unlocks one
+/// and the campaign that funds one decide a price exactly as directly as the
+/// price list does — and `commercial_usage` decides whether a promotion may
+/// still apply at all, which is the same power expressed as a count. Guarding
+/// the price list while leaving the discounts open protected the smaller half.
+/// `commercial_usage` is deliberately NOT here, though it does decide whether a
+/// promotion may still apply. This guard matches bare mentions, and "usage" is
+/// also a route path and a handler name — so adding it would flag
+/// `/api/v1/commercial/usage` as a second pricing evaluator. It is an
+/// observation rather than a decision, and `write_authority.rs` already names
+/// its two writers.
+const PRICE_TABLES: [&str; 5] = [
+    "commercial_price_rule",
+    "commercial_markdown",
+    "commercial_rule",
+    "commercial_coupon",
+    "commercial_campaign",
+];
 
 /// Who may name them, and why.
 ///

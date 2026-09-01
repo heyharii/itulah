@@ -615,7 +615,7 @@ pub fn store_catalog(
     at: DateTime<Utc>,
 ) -> Result<Vec<CatalogRow>, EdgeError> {
     let snapshot = load_snapshot(connection, site_id, channel)?;
-    let context = PricingContext::new(site_id, channel, at);
+    let context = crate::reporting::pricing_context(site_id, channel, at);
 
     let mut statement = connection
         .prepare(
@@ -721,7 +721,7 @@ pub fn store_catalog_page(
     let sku_codes: Vec<String> = scanned.iter().map(|(code, ..)| code.clone()).collect();
     let next_cursor = has_more.then(|| sku_codes.last().cloned()).flatten();
     let snapshot = load_snapshot_for(connection, site_id, channel, Some(&sku_codes))?;
-    let context = PricingContext::new(site_id, channel, at);
+    let context = crate::reporting::pricing_context(site_id, channel, at);
     let facts = merchandise(connection, Some(&sku_codes))?;
     let products: Vec<CartLine> = sku_codes
         .iter()
@@ -861,7 +861,7 @@ pub fn quote(
             return Ok(None);
         }
     }
-    let mut context = PricingContext::new(site_id, channel, at);
+    let mut context = crate::reporting::pricing_context(site_id, channel, at);
     context.coupon_codes = coupon_codes.to_vec();
     context.customer_id = customer_id.map(str::to_string);
     // Only the products in the basket. The same narrowing the snapshot already

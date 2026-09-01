@@ -55,14 +55,66 @@ that way until a redemption ledger exists to subtract from it.
 
 ## Shape
 
-- **Phone**: bottom bar of three tabs, content column with room beneath it for
-  the bar and the home indicator.
-- **Desktop**: the same three destinations as a side rail, same content column.
+- **Phone**: full-bleed. A borderless 3-zone app-bar on top (chip · centred
+  title · chip), and a floating row of three squircles at the bottom with no
+  containing bar — the active one solid indigo. A pushed receipt hides the
+  tabs and turns the left chip into a back arrow.
+- **Desktop** (`md` and up): the floating app-card on the neutral backdrop,
+  with the same three destinations as a sidebar down its left.
 
-One layout that fits its window, not a mobile app with a desktop variant bolted
-on. The theme is the shared shadcn `base-maia` style with the neutral base
-colour, the same as the other surfaces — `src/index.css` is the sibling apps'
-file unchanged.
+One layout that fits its window, not a mobile app with a desktop variant
+bolted on.
+
+## Design
+
+The **Cloud Hub / ollama** language, authored rather than remapped:
+`src/styles/index.css` holds the tokens and Tailwind's utilities are generated
+from them, so `bg-soft` and `text-ink` are the only spellings that exist.
+Source of truth is `~/Documents/retail/cloud-app/ollama/DESIGN.md` (v0.5), and
+`frontend-hub` is the sibling implementation to stay in step with. This app
+used to speak shadcn's slots (`--primary`, `--muted`, a `.dark` block); that is
+the two-vocabulary problem `CLOUDHUB-BRIEF.md` catalogues, and it is gone
+rather than mapped.
+
+Two deliberate departures from `frontend-hub`, both because the reader here is
+a shopper holding a phone rather than an operator at a desk:
+
+- **Root stays 16px.** The workbench bakes the prototypes' `zoom:0.9` into
+  14.4px; DESIGN.md scopes that 0.9 to the *shell*, and applying it here would
+  set body copy at 12.6px on a 375px screen. Sizes are DESIGN.md's declared
+  values, unscaled.
+- **Buttons are 44px, not 32px.** DESIGN.md's phone rule is "touch targets
+  ≥ 44px"; the console's pill is a mouse target.
+
+**There is no dark mode, and the theme toggle that used to sit in Profil is
+gone.** "Always light. Nothing ever darkens" — every veil in this system is
+white. `npm run design-lint` fails on a `dark:` variant, a raw px type size, a
+hex colour, a fourth font weight, or a dark overlay, because prose in a
+markdown file is not a gate.
+
+### Motion
+
+`motion` is a dependency here and deliberately is not one in `frontend-hub` —
+for the reason the hub's own note gives. The two cases it names as genuinely
+needing JS are both on this surface: a shared-layout indicator travelling
+between elements (the indigo tab squircle) and a drag gesture
+(pull-to-refresh). Everything else is CSS, on the `--ease-*` and `--t-*` tokens
+the two apps share.
+
+The curves, springs and the components adapted from them are
+[beUI](https://beui.dev)'s, credited in each file:
+
+| Where | What | Why here |
+| --- | --- | --- |
+| `motion/number-ticker.tsx` | slot-machine digits | the points total — the one number the app exists to show |
+| `motion/animated-number.tsx` | spring count-up | the KPI tiles, so a refetch shows the difference |
+| `motion/pressable.tsx` | press spring + ripple from the touch point | DESIGN.md's one piece of motion guidance |
+| `motion/pull-to-refresh.tsx` | resistance, threshold, settle | a member picks the phone back up wanting one number |
+| `app-shell.tsx` | `layoutId` glide on the tab squircle | one tile moving says the selection moved |
+
+Both number components take their value whole when `document.hidden` — a
+`requestAnimationFrame` animation frozen by a background tab leaves a *wrong*
+points total on screen looking like a fact.
 
 ## Copy
 

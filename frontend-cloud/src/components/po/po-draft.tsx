@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { money, units } from "@/lib/money"
-import { useBasket, useBasketActions } from "@/lib/basket"
+import { useBasket, useBasketActions, useDestinations } from "@/lib/basket"
 import { createCatalogPurchaseOrder } from "@/lib/purchase-orders"
 import { searchSourcedItems } from "@/lib/sourcing"
 import { cn } from "@/lib/utils"
@@ -79,6 +79,18 @@ export function PoDraftPanel({
   })
   const { remove: removeFromBasket } = useBasketActions()
 
+  /// Where the lorry is going.
+  ///
+  /// Asked rather than assumed. The server does fall back to a configured
+  /// default site when the order names none, but that default is one string in
+  /// one node's environment: the moment a second warehouse is registered — or
+  /// the first one is registered under a name the default does not spell — an
+  /// order raised here is refused with "no registered DC owns site 'dc'", which
+  /// is a sentence about deployment configuration shown to a buyer who was
+  /// buying tights. The list is the same one the server validates against, so
+  /// what is offered here is exactly what it will accept.
+  const destinations = useDestinations()
+
   const rows = useMemo<SourcingRow[]>(
     () => (catalogue.data?.items ?? []).map(toSourcingRow),
     [catalogue.data],
@@ -113,6 +125,9 @@ export function PoDraftPanel({
   const form = useForm({
     defaultValues: {
       poNumber: suggested,
+      /// Empty until the buyer picks, and read as "the first warehouse on the
+      /// list" until then — see `destination` below.
+      destination: "",
       promisedDate: "",
       notes: "",
       /// One discount on the order, in whole rupiah. Not per line: it is
@@ -146,6 +161,19 @@ export function PoDraftPanel({
   const lineQuantities = values.quantities ?? seedQuantities
   const lineOrder = values.order ?? Object.keys(seedQuantities)
 
+  /// The site this order is bound for.
+  ///
+  /// Falls back to the first entry rather than to nothing: `purchase_destinations`
+  /// sorts warehouses before shops, so a company with one DC never has to make
+  /// this choice, and a company with several finds it already made in the
+  /// likeliest way. The chosen value is re-checked against the list on every
+  /// render, so a site that disappears while the sheet is open cannot be sent.
+  const destinationOptions = destinations.data ?? []
+  const destination =
+    destinationOptions.find((option) => option.site_id === values.destination)?.site_id ??
+    destinationOptions[0]?.site_id ??
+    ""
+
   // One key per attempt at THIS order, held across retries: the server stores
   // it with a digest of the request and replays its first answer, so a retry
   // after a timeout cannot raise a second order. It is only rotated once an
@@ -173,6 +201,10 @@ export function PoDraftPanel({
   if (lines.some((line) => line.quantity < 1))
     problems.push("Every line needs a quantity of at least one.")
   if (poNumber.trim() === "") problems.push("The order needs a PO number.")
+  if (destinations.isSuccess && destinationOptions.length === 0)
+    problems.push(
+      "No warehouse or shop is registered to take a delivery, so this order has nowhere to go. Register the receiving node before ordering to it.",
+    )
   if (discountMinor > grossMinor)
     problems.push(
       "The discount is more than the order is worth. A reduction larger than the order is a credit, which this is not.",
@@ -188,10 +220,10 @@ export function PoDraftPanel({
         {
           po_number: poNumber.trim(),
           supplier_id: supplierId,
-          // Not asked for. The company runs one DC, and the node names it —
-          // a required choice between a single option is a question with no
-          // information in it and one more thing to get wrong on every order.
-          destination_site_id: null,
+          // Named rather than left to the server's default: the fallback is a
+          // configured string, and an order that relies on it is refused the
+          // moment the site is registered under any other name.
+          destination_site_id: destination === "" ? null : destination,
           notes: notes.trim() === "" ? null : notes.trim(),
           discount_minor: discountMinor === 0 ? null : discountMinor,
           // The new optional fields — an agreed price, a corrected name — are
@@ -323,7 +355,7 @@ export function PoDraftPanel({
       )}
 
       <ScreenBody>
-        <div className="grid gap-3 border-b border-[var(--os-hairline,#eeeef1)] p-3.5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 border-b border-[var(--os-hairline,#eeeef1)] p-3.5 sm:grid-cols-2 lg:grid-cols-5">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="po-number" className="text-xs">
               PO number
@@ -343,6 +375,41 @@ export function PoDraftPanel({
                 here, and two people typing the same one is a conflict the
                 server will report rather than prevent. */}
             <p className="text-muted-foreground text-[10.5px]">Chosen here, not issued centrally.</p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="po-destination" className="text-xs">
+              Deliver to
+            </Label>
+            <form.Field name="destination">
+              {(field) => (
+                <select
+                  id="po-destination"
+                  value={destination}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  disabled={destinationOptions.length === 0}
+                  className="border-input bg-background h-8 rounded-md border px-2 text-xs disabled:opacity-60"
+                >
+                  {destinationOptions.length === 0 && (
+                    <option value="">
+                      {destinations.isPending ? "Reading the fleet…" : "Nowhere registered"}
+                    </option>
+                  )}
+                  {destinationOptions.map((option) => (
+                    <option key={option.site_id} value={option.site_id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </form.Field>
+            {/* The site, not the label, is what the order carries — a node
+                registered as `dc-01` can be standing in a warehouse everybody
+                calls Jakarta, and the order has to name the first. */}
+            <p className="text-muted-foreground font-mono text-[10.5px]">
+              {destination === "" ? "—" : destination}
+            </p>
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -421,7 +488,7 @@ export function PoDraftPanel({
           // quantity shifted the table and the header above it sideways
           // mid-keystroke.
           <Table className="table-fixed">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Item</TableHead>
                 <TableHead className="text-right">Unit</TableHead>

@@ -234,7 +234,7 @@ fn gate(
     if rule.status != RuleStatus::Active {
         return Err(RejectionReason::NotActive);
     }
-    if let Some(reason) = rule.conditions.window_allows(context.at) {
+    if let Some(reason) = rule.conditions.window_allows(context.at, context.utc_offset_minutes) {
         return Err(reason);
     }
     // A rule is live only when its campaign is. Both must say yes, so pausing
@@ -308,8 +308,25 @@ fn gate(
     }
     // The campaign's shared caps, checked after the rule's own. Five offers
     // that are one promotion to the business spend one budget between them.
+    //
+    // Counted against the CAMPAIGN's own key, not the rule's. Passing the
+    // rule's count here would have read "this shopper has used this offer
+    // twice" as "this shopper has used the whole Lebaran campaign twice" — so a
+    // campaign limited to one use per customer would lock out anyone who had
+    // taken one of its five offers twice, and let through anyone who had taken
+    // all five once. Neither is the limit anybody set.
     if let Some(campaign) = campaign {
-        if let Some(reason) = campaign.caps.allows(customer_uses) {
+        let campaign_uses = context
+            .customer_id
+            .as_deref()
+            .and_then(|_| {
+                context
+                    .customer_campaign_uses
+                    .get(&campaign.campaign_id)
+                    .copied()
+            })
+            .unwrap_or(0);
+        if let Some(reason) = campaign.caps.allows(campaign_uses) {
             return Err(reason);
         }
     }
@@ -1029,7 +1046,14 @@ fn fingerprint(context: &PricingContext, result: &PricingResult) -> String {
         absorb(&line.quantity.to_string());
         absorb(&line.unit_price.minor.to_string());
         absorb(&line.line_total.minor.to_string());
-        absorb(&format!("{:?}", line.source));
+        // `as_str`, never `Debug`. The wire spelling and the debug spelling of
+        // a `PriceSource` differ — `COMPANY_PRICE` against `CompanyPrice` —
+        // and this codebase has already paid once for a screen reading one
+        // node's spelling against another's. A fingerprint built from `Debug`
+        // is a fingerprint that changes if anyone ever reorders or renames a
+        // variant for readability, which is the one edit nobody would think to
+        // check a trace against.
+        absorb(line.source.as_str());
         absorb(line.markdown_id.as_deref().unwrap_or(""));
     }
     for free in &result.free_lines {

@@ -1,3 +1,4 @@
+mod audit;
 mod allotments;
 mod assets;
 mod attendance;
@@ -34,6 +35,7 @@ mod time_machine;
 mod users;
 
 pub use allotments::*;
+pub use audit::*;
 pub use assets::*;
 pub use attendance::*;
 pub use auth_policy::*;

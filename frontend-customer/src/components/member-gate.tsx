@@ -33,7 +33,7 @@ export function MemberGate() {
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center p-6">
+    <main className="flex min-h-svh items-center justify-center bg-backdrop p-6">
       <div className="w-full max-w-sm">
         <Card>
           <CardHeader>
@@ -64,11 +64,14 @@ export function MemberGate() {
                     Nomor yang sama dengan yang kamu sebutkan di kasir.
                   </FieldDescription>
                 </Field>
-                <Field>
-                  <Button type="submit" disabled={value.trim() === ""}>
-                    Lihat poin saya
-                  </Button>
-                </Field>
+                <Button
+                  type="submit"
+                  variant="dark"
+                  block
+                  disabled={value.trim() === ""}
+                >
+                  Lihat poin saya
+                </Button>
               </FieldGroup>
             </form>
           </CardContent>

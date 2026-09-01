@@ -1,25 +1,14 @@
-"use client"
-
-import { Separator as SeparatorPrimitive } from "@base-ui/react/separator"
-
 import { cn } from "@/lib/utils"
 
-function Separator({
+/// One hairline. Whitespace separates; this divides.
+export function Separator({
   className,
-  orientation = "horizontal",
   ...props
-}: SeparatorPrimitive.Props) {
+}: React.HTMLAttributes<HTMLHRElement>) {
   return (
-    <SeparatorPrimitive
-      data-slot="separator"
-      orientation={orientation}
-      className={cn(
-        "shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch",
-        className
-      )}
+    <hr
+      className={cn("h-px w-full border-0 bg-hairline", className)}
       {...props}
     />
   )
 }
-
-export { Separator }

@@ -676,7 +676,7 @@ function Grid<TData extends RowData>({
 }) {
   return (
     <Table>
-      <TableHeader className="bg-muted/50">
+      <TableHeader>
         {table.getHeaderGroups().map((headerGroup) => (
           <TableRow key={headerGroup.id} className="hover:bg-transparent">
             {headerGroup.headers.map((header) => (

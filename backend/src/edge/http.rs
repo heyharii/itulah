@@ -269,6 +269,9 @@ pub fn store_router_with_sync(
         .route("/api/v1/store/receive", post(store_receive))
         .route("/api/v1/store/movements", post(move_stock))
         .route("/api/v1/store/sales", post(store_sale))
+        // Price a basket without selling it. POST because a basket is a body,
+        // not because anything is written: no sale, no movement, no usage.
+        .route("/api/v1/store/quote", post(store_quote))
         .route("/api/v1/store/catalog", get(store_catalog))
         .route(
             "/api/v1/store/reports/sales/series",
@@ -1105,6 +1108,28 @@ async fn move_stock(
     }
     let result = run_blocking(move || state.inventory.move_stock(request)).await?;
     Ok(Json(serde_json::to_value(result)?))
+}
+
+/// What this basket would come to, and why.
+///
+/// The engine has always produced the sentence a cashier needs — "that coupon
+/// expired on Friday", "this promotion needs a coupon code" — and until now it
+/// was reachable only in the response to a completed sale, which is to say
+/// after the money had been taken. That is why every coupon-gated and
+/// members-only promotion in this system was unreachable in practice: there was
+/// nowhere to try a code, so nobody typed one.
+///
+/// `InventoryRead` rather than `StoreSale`: asking what something costs is not
+/// selling it, and a shop assistant on the floor should be able to answer a
+/// customer without holding the till's permission.
+async fn store_quote(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<crate::edge::contracts::QuoteRequest>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let quote = run_blocking(move || state.inventory.quote_basket(request)).await?;
+    Ok(Json(quote))
 }
 
 async fn store_sale(

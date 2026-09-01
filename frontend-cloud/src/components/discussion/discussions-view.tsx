@@ -281,7 +281,7 @@ export function DiscussionsView() {
                     <Link
                       to="/discussions/$threadId"
                       params={{ threadId: thread.thread_id }}
-                      className="hover:bg-muted/50 flex w-full items-start gap-3 border-b px-3.5 py-3 text-left transition-colors"
+                      className="hover:bg-[var(--os-soft,#f7f7f8)] flex w-full items-start gap-3 border-b px-3.5 py-3 text-left transition-colors"
                     >
                       <span className="min-w-0 flex-1">
                         <span className="mb-1 flex flex-wrap items-baseline gap-2">
@@ -346,7 +346,7 @@ export function DiscussionsView() {
 function Facet({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h2 className="text-muted-foreground mb-1 px-2 text-[11px] font-medium tracking-wide uppercase">
+      <h2 className="mb-1 px-2 text-[0.78125rem] font-medium text-[var(--os-mute,#a6a6ad)]">
         {title}
       </h2>
       <div className="flex flex-col">{children}</div>
@@ -373,8 +373,8 @@ function FacetRow({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "hover:bg-muted flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors",
-        active && "bg-muted font-medium",
+        "hover:bg-muted flex items-center gap-2 rounded-[8px] px-2 py-1.5 text-left text-[0.8125rem] transition-colors",
+        active && "bg-[var(--os-soft-2,#f3f3f5)] text-[var(--os-ink,#1d1d1f)]",
       )}
     >
       {icon}

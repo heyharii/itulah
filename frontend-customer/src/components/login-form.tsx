@@ -114,15 +114,17 @@ export function LoginForm({
                 )}
               </form.Field>
               {problem !== null && (
-                <FieldDescription
-                  role="alert"
-                  className="text-destructive font-medium"
-                >
+                <FieldDescription role="alert" className="font-medium text-bad-fg">
                   {problem}
                 </FieldDescription>
               )}
               <Field>
-                <Button type="submit" disabled={signIn.isPending}>
+                <Button
+                  type="submit"
+                  variant="dark"
+                  block
+                  disabled={signIn.isPending}
+                >
                   {signIn.isPending ? "Memproses…" : "Masuk"}
                 </Button>
                 <FieldDescription className="text-center">

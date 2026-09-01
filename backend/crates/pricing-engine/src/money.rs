@@ -9,6 +9,7 @@ use crate::PricingError;
 /// Integer, never floating point. A price is a count of the smallest coin, and
 /// binary fractions cannot represent a tenth — the error is small enough to
 /// pass every test and large enough to make a day's takings not reconcile.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Money {
     pub minor: i64,

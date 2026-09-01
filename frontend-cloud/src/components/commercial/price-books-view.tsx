@@ -137,7 +137,7 @@ export function PriceBooksView() {
       )}
 
       {publish.isError && (
-        <div className="border-b px-3.5 py-2 text-[11.5px] text-destructive">
+        <div className="border-b px-3.5 py-2 text-[0.71875rem] text-destructive">
           {publish.error instanceof ApiError
             ? publish.error.message
             : "The book could not be published."}
@@ -175,7 +175,7 @@ export function PriceBooksView() {
             onRowClick={(row) => sheet.open(row.original.id)}
             rowClassName={(row) =>
               row.original.status === "DRAFT"
-                ? "bg-[var(--os-warn-bg,#f8f1de)]/40"
+                ? "bg-[var(--os-warn-bg,#faeacd)]/40"
                 : undefined
             }
           />
@@ -211,10 +211,10 @@ function Delivery({
   return (
     <div
       className={cn(
-        "flex items-start gap-2 border-b px-3.5 py-2 text-[11.5px]",
+        "flex items-start gap-2 border-b px-3.5 py-2 text-[0.71875rem]",
         nobody
-          ? "bg-[var(--os-warn-bg,#f8f1de)] text-[var(--os-warn,#b7791f)]"
-          : "bg-[var(--os-ok-bg,#eaf5ee)] text-[var(--os-ok,#2e9e5b)]"
+          ? "bg-[var(--os-warn-bg,#faeacd)] text-[var(--os-warn,#c9892e)]"
+          : "bg-[var(--os-ok-bg,#d9f4d2)] text-[var(--os-ok,#36b827)]"
       )}
       role="status"
     >
@@ -233,7 +233,7 @@ function Delivery({
             : ` and queued for ${units(reached)} shop${reached === 1 ? "" : "s"}.`}
         </p>
         {!nobody && (
-          <p className="mt-0.5 font-mono text-[10.5px] opacity-80">
+          <p className="mt-0.5 font-mono text-[0.65625rem] opacity-80">
             {receipt.delivered_to.join(" · ")}
           </p>
         )}

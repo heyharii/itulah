@@ -2,6 +2,7 @@ import { createContext, useContext } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { auth, node } from "@/lib/api"
+import { useBenchActor } from "@/lib/bench"
 import { keys } from "@/lib/queries"
 import {
   ApiError,
@@ -45,8 +46,18 @@ export function useSession(): Session {
 /// The node overwrites this from the authenticated principal whenever auth is
 /// on, so this is not a claim the browser gets to make — it is what a node
 /// running with auth disabled (a bench, a recovery) writes instead of nothing.
+///
+/// On such a node the bench may name the person at it, and that name wins. Not
+/// a convenience: receiving is two people by database constraint, so a node
+/// where every write carries one principal cannot complete a delivery at all.
+/// See `lib/bench.ts`.
 export function useActor(): string {
-  return useSession().identity.username
+  const { identity, node } = useSession()
+  const bench = useBenchActor()
+  if (node?.auth === "DISABLED" && bench !== null) {
+    return bench
+  }
+  return identity.username
 }
 
 /// Who is signed in, asked of the server rather than tracked by hand.

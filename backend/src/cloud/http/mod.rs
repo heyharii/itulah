@@ -21,6 +21,7 @@ pub mod employment;
 pub mod documents;
 pub mod files;
 pub mod finance;
+pub mod audit;
 pub mod notifications;
 pub mod suppliers;
 
@@ -567,11 +568,19 @@ pub fn router(state: AppState) -> Router {
                     infrastructure::MAX_ATTACHMENT_BYTES + 64 * 1024,
                 )),
         )
+        .route("/api/v1/audit", get(audit::list))
         .route("/metrics", get(metrics))
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->
         // body limit -> auth -> handler, so even a 401 carries CORS headers
         // and no unauthenticated body larger than the limit is ever buffered.
+        // Inside auth, so the actor is already resolved and truthful: an
+        // audit row that trusted an `actor_id` from the request body would be
+        // a log of what people claimed rather than of what they did.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            audit::audit_actions,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::require_auth,

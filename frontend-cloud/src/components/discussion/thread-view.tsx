@@ -143,7 +143,7 @@ export function ThreadView() {
             )}
 
             {record.status === "locked" ? (
-              <div className="text-muted-foreground flex items-start gap-2 rounded-xl border border-dashed p-3 text-xs">
+              <div className="text-[var(--os-body,#74747b)] flex items-start gap-2 rounded-[var(--os-r-card,16px)] border border-dashed border-[var(--os-hairline-2,#e4e4e8)] p-3 text-[0.78125rem]">
                 <Lock className="mt-0.5 size-4 shrink-0" />
                 <span>
                   This discussion is locked, so it takes no new replies. Whatever
@@ -180,8 +180,8 @@ function ThreadHeader({
   // offering a refusal.
   const mine = thread.created_by === me
   return (
-    <div className="bg-card rounded-xl border p-4">
-      <h2 className="mb-2 text-lg leading-snug font-semibold tracking-tight">
+    <div className="os-card p-4">
+      <h2 className="mb-2 text-[0.9375rem] leading-snug font-semibold tracking-[-0.015em]">
         {thread.title}
       </h2>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -260,7 +260,7 @@ function Post({
   return (
     <article
       className={cn(
-        "bg-card overflow-hidden rounded-xl border",
+        "os-card overflow-hidden",
         post.is_solution && "border-emerald-500/50",
       )}
     >
@@ -332,7 +332,7 @@ function ReplyBox({
   })
 
   return (
-    <div className="bg-card flex gap-3 rounded-xl border p-3.5">
+    <div className="os-card flex gap-3 p-3.5">
       {me !== undefined && <PersonAvatar username={me} />}
       <div className="min-w-0 flex-1">
         <Textarea

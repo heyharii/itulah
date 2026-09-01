@@ -5346,8 +5346,9 @@ async fn apply_sale(
         sqlx::query(
             "INSERT INTO edge_sale_line
                  (sale_id, subject_id, epc, sku_code, quantity, unit_price_minor,
-                  line_total_minor, price_source, publication_version)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                  line_total_minor, price_source, publication_version,
+                  base_unit_price_minor)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
         )
         .bind(sale.sale_id)
         .bind(line.subject_id)
@@ -5360,6 +5361,7 @@ async fn apply_sale(
         .bind(line.charged().map_err(AppError::Validation)?)
         .bind(line.price_source.as_deref())
         .bind(line.publication_version)
+        .bind(line.base_unit_price_minor)
         .execute(&mut **tx)
         .await?;
     }

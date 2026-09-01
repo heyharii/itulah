@@ -1,56 +1,72 @@
-import { Button as ButtonPrimitive } from "@base-ui/react/button"
+import { cloneElement, isValidElement } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-4xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/// Pills, for everything interactive.
+///
+/// There is no radius between a pill and a 16px card in this language, so a
+/// button never gets `rounded-lg`. `dark` is the one black CTA and there is at
+/// most one per screen — the black is deliberately not an accent, so the CTA
+/// and the indigo never come to mean the same thing.
+///
+/// The heights are the one place this parts company with the workbench's
+/// buttons. DESIGN.md's phone rule is "touch targets ≥ 44px", and the console's
+/// 32px pill is a mouse target; a thumb aiming at it is the usual reason a
+/// button gets pressed twice.
+const button = cva(
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full font-medium whitespace-nowrap transition-colors select-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
-        outline:
-          "border-border bg-input/30 hover:bg-input/50 hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        dark: "bg-ink text-on-dark hover:bg-black active:bg-black",
         ghost:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
-        destructive:
-          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
-        link: "text-primary underline-offset-4 hover:underline",
+          "border border-hairline-2 bg-canvas text-text hover:bg-soft-2 active:bg-soft-2 [&_svg]:text-line-ico",
+        soft: "bg-soft-2 text-text hover:bg-hairline active:bg-hairline [&_svg]:text-line-ico",
+        quiet:
+          "text-body hover:bg-soft-2 hover:text-ink active:bg-soft-2 [&_svg]:text-line-ico",
       },
       size: {
-        default:
-          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
-        xs: "h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        lg: "h-10 gap-1.5 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
-        icon: "size-9",
-        "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
+        default: "h-11 px-5 text-nav [&_svg]:size-4",
+        sm: "h-9 px-4 text-meta [&_svg]:size-3.5",
+        /// Only for a control sitting inside a line of running text, where a
+        /// 44px pill would push the line apart.
+        inline: "h-7 px-2.5 text-meta [&_svg]:size-3.5",
+        icon: "size-11 [&_svg]:size-5",
       },
+      block: { true: "w-full", false: "" },
     },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  }
+    defaultVariants: { variant: "ghost", size: "default", block: false },
+  },
 )
 
-function Button({
-  className,
-  variant = "default",
-  size = "default",
-  ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
-  return (
-    <ButtonPrimitive
-      data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
-  )
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof button> {
+  /// Wear the button, but be something else — a router `<Link>`, usually.
+  ///
+  /// The same escape hatch base-ui's button offered, kept because the
+  /// alternative is a `<button>` whose click handler navigates, and that costs
+  /// the reader a long-press menu and an address they can copy.
+  render?: React.ReactElement<{ className?: string }>
 }
 
-export { Button, buttonVariants }
+export function Button({
+  className,
+  variant,
+  size,
+  block,
+  render,
+  ...props
+}: ButtonProps) {
+  const classes = cn(button({ variant, size, block }), className)
+
+  if (render !== undefined && isValidElement(render)) {
+    return cloneElement(render, {
+      ...props,
+      className: cn(classes, render.props.className),
+    } as never)
+  }
+
+  return <button type="button" className={classes} {...props} />
+}

@@ -80,7 +80,7 @@ export function FleetView() {
       </ScreenHeader>
 
       {(behind > 0 || never > 0) && (
-        <div className="flex items-start gap-2 border-b bg-[var(--os-warn-bg,#f8f1de)] px-3.5 py-2 text-[11.5px] text-[var(--os-warn,#b7791f)]">
+        <div className="flex items-start gap-2 border-b bg-[var(--os-warn-bg,#faeacd)] px-3.5 py-2 text-[0.71875rem] text-[var(--os-warn,#c9892e)]">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           <span>
             {never > 0 && (
@@ -132,7 +132,7 @@ export function FleetView() {
                   !row.original.has_ever_activated && "bg-destructive/5",
                   row.original.has_ever_activated &&
                     (row.original.behind_by ?? 0) > 0 &&
-                    "bg-[var(--os-warn-bg,#f8f1de)]/40",
+                    "bg-[var(--os-warn-bg,#faeacd)]/40",
                 )
               }
             />
@@ -196,7 +196,7 @@ function UsagePanel({
       <div className="flex items-center justify-between gap-3 px-3.5 py-2">
         <div className="min-w-0">
           <h2 className="text-xs font-semibold">What promotions have cost</h2>
-          <p className="text-muted-foreground text-[11px]">
+          <p className="text-muted-foreground text-[0.6875rem]">
             Counted from sales the centre has accepted. A shop enforces a budget from the
             last count it received, so what a till knows is always a little behind — the
             figure that must not be exceeded is this one.
@@ -214,30 +214,30 @@ function UsagePanel({
       </div>
 
       {send.isError && (
-        <p className="text-destructive px-3.5 pb-2 text-[11.5px]">
+        <p className="text-destructive px-3.5 pb-2 text-[0.71875rem]">
           {send.error instanceof ApiError
             ? send.error.message
             : "The counts could not be sent."}
         </p>
       )}
       {sent !== null && !send.isError && (
-        <p className="px-3.5 pb-2 text-[11.5px] text-[var(--os-ok,#047857)]">
+        <p className="px-3.5 pb-2 text-[0.71875rem] text-[var(--os-ok,#36b827)]">
           Queued for {units(sent)} shop{sent === 1 ? "" : "s"}. Each applies it when it next
           syncs.
         </p>
       )}
 
       {loading ? (
-        <p className="text-muted-foreground px-3.5 pb-3 text-[11.5px]">Counting…</p>
+        <p className="text-muted-foreground px-3.5 pb-3 text-[0.71875rem]">Counting…</p>
       ) : rows.length === 0 ? (
-        <p className="text-muted-foreground px-3.5 pb-3 text-[11.5px]">
+        <p className="text-muted-foreground px-3.5 pb-3 text-[0.71875rem]">
           No promotion has been used yet. This fills in from sales as they arrive.
         </p>
       ) : (
         <CommercialTable
           table={usage}
           rowClassName={(row) =>
-            exhausted(row.original) ? "bg-[var(--os-warn-bg,#f8f1de)]/40" : undefined
+            exhausted(row.original) ? "bg-[var(--os-warn-bg,#faeacd)]/40" : undefined
           }
         />
       )}

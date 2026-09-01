@@ -1330,12 +1330,17 @@ async fn the_products_a_price_book_can_name_come_back_with_what_they_cost(pool: 
     );
 
     // Two books name it. The newer one is what it costs.
-    for (version, price) in [(1_i64, 200_000_i64), (2, 180_000)] {
+    // Numbers nobody else in this fixture has taken: the schema seeds a book at
+    // v1, and a version is unique across the whole table.
+    for (version, price) in [(901_i64, 200_000_i64), (902, 180_000)] {
         let publication = Uuid::new_v4();
+        // Written as a DRAFT and published afterwards, which is the order the
+        // real thing uses and the only order migration 0073 permits: a
+        // published book is frozen, so a price cannot be added to one.
         sqlx::query(
             "INSERT INTO commercial_publication
                  (id, version, name, status, effective_from, created_by)
-             VALUES ($1,$2,$3,'PUBLISHED',now(),'test')",
+             VALUES ($1,$2,$3,'DRAFT',now(),'test')",
         )
         .bind(publication)
         .bind(version)
@@ -1356,6 +1361,15 @@ async fn the_products_a_price_book_can_name_come_back_with_what_they_cost(pool: 
         .execute(&pool)
         .await
         .unwrap_or_else(|e| panic!("price rule: {e}"));
+        sqlx::query(
+            "UPDATE commercial_publication
+                SET status='PUBLISHED', published_by='test', published_at=now()
+              WHERE id=$1",
+        )
+        .bind(publication)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("publish: {e}"));
     }
 
     let found = cloud::commercial_products(&pool, Some("KEMEJA-PUTIH"), 20)

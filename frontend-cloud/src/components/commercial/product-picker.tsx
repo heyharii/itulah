@@ -44,7 +44,7 @@ export function ProductPicker({
           <button
             type="button"
             className={cn(
-              "flex h-8 w-full items-center gap-1.5 rounded-md border px-2 text-left text-[12px]",
+              "flex h-8 w-full items-center gap-1.5 rounded-md border px-2 text-left text-[0.75rem]",
               "hover:bg-accent/50",
               value === "" && "text-muted-foreground",
             )}
@@ -61,16 +61,16 @@ export function ProductPicker({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Code, style or description"
-            className="h-8 text-[12px]"
+            className="text-[0.75rem]"
           />
         </div>
         <div className="max-h-72 overflow-y-auto py-1">
           {products.isPending ? (
-            <p className="text-muted-foreground px-3 py-4 text-center text-[11.5px]">
+            <p className="text-muted-foreground px-3 py-4 text-center text-[0.71875rem]">
               Looking…
             </p>
           ) : (products.data?.length ?? 0) === 0 ? (
-            <p className="text-muted-foreground px-3 py-4 text-center text-[11.5px]">
+            <p className="text-muted-foreground px-3 py-4 text-center text-[0.71875rem]">
               Nothing matches that.
             </p>
           ) : (
@@ -85,7 +85,7 @@ export function ProductPicker({
                 }}
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12px]">
+                  <span className="block truncate text-[0.75rem]">
                     {product.article_name}
                     {product.color !== null && (
                       <span className="text-muted-foreground"> · {product.color}</span>
@@ -94,13 +94,13 @@ export function ProductPicker({
                       <span className="text-muted-foreground"> · {product.size}</span>
                     )}
                   </span>
-                  <span className="text-muted-foreground block truncate font-mono text-[10.5px]">
+                  <span className="text-muted-foreground block truncate font-mono text-[0.65625rem]">
                     {product.sku_code}
                   </span>
                 </span>
                 {/* Never a zero. A product no book has priced shows as "not
                     priced", because "no price" and "free" are different facts. */}
-                <span className="shrink-0 font-mono text-[11px] tabular-nums">
+                <span className="shrink-0 font-mono text-[0.6875rem] tabular-nums">
                   {product.unit_price_minor === null ? (
                     <span className="text-muted-foreground">not priced</span>
                   ) : (

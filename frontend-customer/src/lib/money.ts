@@ -37,3 +37,26 @@ export function money(minor: number, currency = "IDR"): string {
 export function units(value: number): string {
   return value.toLocaleString("id-ID")
 }
+
+/// A price shortened to a headline.
+///
+/// For the KPI tiles only. A lifetime spend written in full is eleven glyphs
+/// ("Rp 3.085.000"); at the 23px a KPI value is set in, two of those side by
+/// side on a 375px screen wrap mid-number, and a price broken across two lines
+/// is a price nobody can read at a glance. The exact figure is never far — it
+/// is the sum of the receipts on the next screen — and every tile carries it
+/// in full for a screen reader.
+export function moneyShort(minor: number, currency = "IDR"): string {
+  const code = currency.toUpperCase()
+  const divisor = minorPerMajor(code)
+  try {
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: code,
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(minor / divisor)
+  } catch {
+    return money(minor, currency)
+  }
+}

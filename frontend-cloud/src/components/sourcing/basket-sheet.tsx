@@ -1,5 +1,6 @@
 import {
   Sheet,
+  SheetBody,
   SheetContent,
   SheetDescription,
   SheetTitle,
@@ -25,11 +26,24 @@ import { BasketPanel } from "./basket-view"
 /// It keeps the raw sheet rather than `SheetShell` because `BasketPanel`
 /// brings its own header — the same panel is the whole of the `/basket` route,
 /// where that header is the screen's.
+///
+/// # Why this used to render as a bare list on white
+///
+/// Three things were missing and they compounded. The sheet portals to
+/// `document.body`, outside every `data-cloudhub` subtree, so it resolved none
+/// of the `--os-*` properties and none of the `[data-cloudhub]` rules —
+/// `.os-card` stopped being a card, and what painted instead were the stale
+/// `var(--os-…, #fallback)` second arguments. `SheetContent` now sets the
+/// attribute itself, which fixes that for every sheet at once. On top of it
+/// this was the deprecated flush square-cornered column rather than the
+/// floating panel, and `BasketPanel` passes `card={false}` to `ScreenBody`, so
+/// the supplier groups sat at `x=0` against the edge. Hence `float` and the
+/// measured 20/18 gutters here.
 export function BasketSheet() {
   const sheet = useBasketSheet()
   return (
     <Sheet open={sheet.isOpen} onOpenChange={(open) => !open && sheet.close()}>
-      <SheetContent side="right" className="sm:max-w-xl">
+      <SheetContent side="right" float>
         {/* The panel brings its own header; these name the sheet for a screen
             reader, which the visible heading alone does not do. */}
         <SheetTitle className="sr-only">Basket</SheetTitle>
@@ -37,7 +51,13 @@ export function BasketSheet() {
           What you have picked out, grouped by the supplier each order will go
           to.
         </SheetDescription>
-        <BasketPanel />
+        {/* `.drawer-b` — the panel has no gutter of its own, so the sheet
+            supplies it. `BasketPanel` is a fragment, so its `ScreenHeader` is
+            the first child here: the extra right pad on it is the lane the
+            close circle sits in, which is what "Empty basket" collided with. */}
+        <SheetBody className="flex flex-col pt-[0.875rem] [&>*:first-child]:pr-8">
+          <BasketPanel />
+        </SheetBody>
       </SheetContent>
     </Sheet>
   )
