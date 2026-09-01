@@ -182,6 +182,65 @@ export function salesWindow(
   return node.get<SalesWindow>(`/api/v1/reports/sales/window?${query}`, { signal })
 }
 
+/// One line of a receipt: what was actually sold.
+///
+/// `epc` is the tag on the individual garment. A sale line is one physical
+/// item here rather than a quantity of a SKU — `sale_line` is unique on
+/// (sale, subject), because the till scanned a tag and not a barcode.
+export interface SaleLine {
+  readonly id: string
+  readonly subject_id: string
+  readonly epc: string
+  readonly sku_id: string
+  readonly sku_code: string
+  readonly quantity: number
+  readonly unit_price_minor: number
+  readonly net_minor: number
+  readonly tax_minor: number
+  readonly total_minor: number
+  readonly currency: string
+  readonly tax_category: string
+  readonly tax_rate_bps: number
+  readonly tax_inclusive: boolean
+  readonly added_at: string
+}
+
+export interface SalePayment {
+  readonly id: string
+  readonly method: string
+  readonly amount_minor: number
+  readonly reference: string | null
+  readonly actor_id: string
+  readonly recorded_at: string
+}
+
+/// One receipt, whole.
+export interface SaleDetail {
+  readonly id: string
+  readonly sale_number: string
+  readonly site_id: string
+  readonly channel: string
+  readonly status: string
+  readonly currency: string
+  readonly net_minor: number
+  readonly tax_minor: number
+  readonly total_minor: number
+  readonly paid_minor: number
+  readonly change_minor: number
+  readonly actor_id: string
+  readonly created_at: string
+  readonly completed_at: string | null
+  readonly voided_at: string | null
+  readonly lines: readonly SaleLine[]
+  readonly payments: readonly SalePayment[]
+}
+
+export const saleDetailKey = (saleId: string) => ["sales", "receipt", saleId] as const
+
+export function saleDetail(saleId: string, signal?: AbortSignal): Promise<SaleDetail> {
+  return node.get<SaleDetail>(`/api/v1/sales/${saleId}`, { signal })
+}
+
 // ---- Dates -------------------------------------------------------------
 
 /// A local date as the server wants it, `YYYY-MM-DD`.
@@ -232,6 +291,69 @@ export function spanOf(bucket: SalesBucket, buckets: number): SalesRange {
     start.setMonth(start.getMonth() - (buckets - 1))
   }
   return { from: isoDate(start), to, bucket }
+}
+
+/// The span of the same shape immediately before this one.
+///
+/// Shifted by its own length in its own unit rather than by a count of days:
+/// "the twelve months before these twelve" is twelve calendar months, and
+/// subtracting 365 days would compare February against a piece of March.
+///
+/// This is what "up 12%" is measured against, so it has to be a span somebody
+/// would actually name — last month, the previous four weeks — and not an
+/// arbitrary window of equal length.
+export function previousSpanOf(bucket: SalesBucket, buckets: number): SalesRange {
+  const current = spanOf(bucket, buckets)
+  const from = new Date(`${current.from}T12:00:00`)
+  const to = new Date(from)
+  to.setDate(to.getDate() - 1)
+  const start = new Date(from)
+  if (bucket === "day") {
+    start.setDate(start.getDate() - buckets)
+  } else if (bucket === "week") {
+    start.setDate(start.getDate() - 7 * buckets)
+  } else {
+    start.setMonth(start.getMonth() - buckets)
+  }
+  return { from: isoDate(start), to: isoDate(to), bucket }
+}
+
+/// The window of equal length immediately before an arbitrary one.
+///
+/// Used by the sheet, whose span is whatever cell was clicked rather than one
+/// of the picker's spans — a Tuesday compares against the Monday, a week
+/// against the week before it.
+export function previousWindow(from: string, to: string): { from: string; to: string } {
+  const start = new Date(`${from}T12:00:00`)
+  const end = new Date(`${to}T12:00:00`)
+  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1
+  const before = new Date(start)
+  before.setDate(before.getDate() - 1)
+  const beforeStart = new Date(before)
+  beforeStart.setDate(beforeStart.getDate() - (days - 1))
+  return { from: isoDate(beforeStart), to: isoDate(before) }
+}
+
+/// How much bigger this period is than the one before it, as a fraction.
+///
+/// `null` when there is nothing to compare against. A shop that took nothing
+/// last month and something this month has not grown by infinity, and printing
+/// a percentage there would be arithmetic rather than information — the caller
+/// says "new" instead.
+export function growth(now: number, before: number): number | null {
+  if (before === 0) {
+    return null
+  }
+  return (now - before) / before
+}
+
+/// A growth fraction as a person reads it. Always signed, so the direction is
+/// in the text and not only in the colour.
+export function growthLabel(fraction: number): string {
+  const percent = fraction * 100
+  const sign = percent > 0 ? "+" : percent < 0 ? "−" : ""
+  const magnitude = Math.abs(percent)
+  return `${sign}${magnitude >= 100 ? Math.round(magnitude) : magnitude.toFixed(magnitude < 10 ? 1 : 0)}%`
 }
 
 /// A bucket's name on an axis: short, because there are up to ninety of them.

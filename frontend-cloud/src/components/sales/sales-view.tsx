@@ -17,7 +17,14 @@ import {
 } from "@/components/ui/select"
 import { compactMoney } from "@/lib/money"
 import type { SalesBucket } from "@/lib/sales"
-import { SALES_BUCKETS, SALES_SPANS, salesSeries, salesSeriesKey, spanOf } from "@/lib/sales"
+import {
+  previousSpanOf,
+  SALES_BUCKETS,
+  SALES_SPANS,
+  salesSeries,
+  salesSeriesKey,
+  spanOf,
+} from "@/lib/sales"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 import { useQuery } from "@tanstack/react-query"
@@ -78,6 +85,23 @@ export function SalesView() {
   const matrix = useMemo(() => buildMatrix(series.data, shop), [series.data, shop])
   const fleet = useMemo(() => buildMatrix(series.data), [series.data])
   const config = useMemo(() => chartConfig(fleet), [fleet])
+
+  // The span of the same shape immediately before this one, so every figure
+  // can say which way it is moving. A separate request rather than a wider
+  // response: a comparison is worth nothing if it delays the number it
+  // qualifies, so the screen paints on the first and fills in the arrows when
+  // the second lands.
+  const priorRange = useMemo(() => previousSpanOf(bucket, span), [bucket, span])
+  const prior = useQuery({
+    queryKey: salesSeriesKey(priorRange),
+    queryFn: ({ signal }) => salesSeries(priorRange, signal),
+    // Nothing is still being written into a period that has already closed.
+    staleTime: 5 * 60_000,
+  })
+  const before = useMemo(
+    () => (prior.data === undefined ? undefined : buildMatrix(prior.data, shop)),
+    [prior.data, shop],
+  )
 
   const go = (next: Partial<SalesSearch>) =>
     void navigate({
@@ -193,9 +217,16 @@ export function SalesView() {
       ) : (
         <div data-chart={CHART_ID} className="flex min-h-0 flex-1 flex-col">
           <ChartStyle id={CHART_ID} config={config} />
-          <SalesChart matrix={matrix} bucket={bucket} kind={kind} onKindChange={setKind} />
+          <SalesChart
+            matrix={matrix}
+            before={before}
+            bucket={bucket}
+            kind={kind}
+            onKindChange={setKind}
+          />
           <SalesTable
             matrix={matrix}
+            before={before}
             bucket={bucket}
             kind={kind}
             onOpen={setScope}

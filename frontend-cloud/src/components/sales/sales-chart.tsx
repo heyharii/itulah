@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import type { SalesMatrix, SalesSeriesKind } from "@/components/sales/matrix"
 import { chartConfig, SERIES_KINDS } from "@/components/sales/matrix"
+import { Delta } from "@/components/sales/delta"
 
 /// What the fleet took, stacked by shop.
 ///
@@ -20,11 +21,16 @@ import { chartConfig, SERIES_KINDS } from "@/components/sales/matrix"
 /// a click, not side by side; three charts would be three axes to re-read.
 export function SalesChart({
   matrix,
+  before,
   bucket,
   kind,
   onKindChange,
 }: {
   matrix: SalesMatrix
+  /// The same shops over the span immediately before this one, or undefined
+  /// while it is still being fetched. The figures render either way — a
+  /// comparison that has not arrived must not hold up the number itself.
+  before?: SalesMatrix
   bucket: SalesBucket
   kind: SalesSeriesKind
   onKindChange: (kind: SalesSeriesKind) => void
@@ -89,6 +95,12 @@ export function SalesChart({
                   ? compactMoney(matrix.grandTotal(option.kind))
                   : units(matrix.grandTotal(option.kind))}
               </span>
+              {before !== undefined && (
+                <Delta
+                  now={matrix.grandTotal(option.kind)}
+                  before={before.grandTotal(option.kind)}
+                />
+              )}
             </button>
           ))}
         </div>

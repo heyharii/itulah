@@ -1,3 +1,4 @@
+import { Delta } from "@/components/sales/delta"
 import type { SalesMatrix, SalesSeriesKind } from "@/components/sales/matrix"
 import { compactMoney, money, units } from "@/lib/money"
 import type { SalesBucket } from "@/lib/sales"
@@ -10,6 +11,10 @@ import { bucketEnd, bucketLabel, bucketTitle } from "@/lib/sales"
 /// against the font would leave a seam that moves as you scroll.
 const SHOP_COLUMN = 184
 const TOTAL_COLUMN = 116
+/// The comparison column. Pinned with the other two: "which branch is having a
+/// bad month" is the question this table gets opened for, and an answer that
+/// scrolls out of sight is not one.
+const DELTA_COLUMN = 74
 
 /// Every shop against every period, with the periods scrolling under a shop
 /// column that stays.
@@ -21,12 +26,15 @@ const TOTAL_COLUMN = 116
 /// the figure here instead of guessing at the band.
 export function SalesTable({
   matrix,
+  before,
   bucket,
   kind,
   onOpen,
   onFocus,
 }: {
   matrix: SalesMatrix
+  /// The same shops over the span immediately before this one.
+  before?: SalesMatrix
   bucket: SalesBucket
   kind: SalesSeriesKind
   /// A shop and a span — one period, or the whole range from the total column.
@@ -69,6 +77,20 @@ export function SalesTable({
             >
               Total
             </th>
+            {before !== undefined && (
+              <th
+                scope="col"
+                title="Against the span immediately before this one"
+                className="bg-card text-muted-foreground sticky top-0 z-30 h-9 border-r border-b px-2 text-right font-medium"
+                style={{
+                  left: SHOP_COLUMN + TOTAL_COLUMN,
+                  width: DELTA_COLUMN,
+                  minWidth: DELTA_COLUMN,
+                }}
+              >
+                vs prev
+              </th>
+            )}
             {matrix.buckets.map((start) => (
               <th
                 key={start}
@@ -136,6 +158,18 @@ export function SalesTable({
                     {show(total, true)}
                   </button>
                 </td>
+                {before !== undefined && (
+                  <td
+                    className="bg-card group-hover:bg-muted sticky z-10 border-r border-b px-2 py-1.5 text-right transition-colors"
+                    style={{
+                      left: SHOP_COLUMN + TOTAL_COLUMN,
+                      width: DELTA_COLUMN,
+                      minWidth: DELTA_COLUMN,
+                    }}
+                  >
+                    <Delta now={total} before={before.siteTotal(site.site_id, kind)} />
+                  </td>
+                )}
                 {matrix.buckets.map((start) => {
                   const value = matrix.siteValue(site.site_id, start, kind)
                   return (
@@ -192,6 +226,18 @@ export function SalesTable({
             >
               {show(matrix.grandTotal(kind), true)}
             </td>
+            {before !== undefined && (
+              <td
+                className="bg-secondary sticky bottom-0 z-30 border-t border-r px-2 py-1.5 text-right"
+                style={{
+                  left: SHOP_COLUMN + TOTAL_COLUMN,
+                  width: DELTA_COLUMN,
+                  minWidth: DELTA_COLUMN,
+                }}
+              >
+                <Delta now={matrix.grandTotal(kind)} before={before.grandTotal(kind)} />
+              </td>
+            )}
             {matrix.buckets.map((start) => (
               <td
                 key={start}
