@@ -20,7 +20,7 @@ use ts_rs::TS;
 fn the_wire_types_are_written_for_the_browser() {
     // Where the browser's package expects them.
     let config = ts_rs::Config::new()
-        .with_out_dir("../frontend/packages/contract/src")
+        .with_out_dir("../frontend-contract/src")
         // 64-bit integers as `number`, not `bigint`.
         //
         // `bigint` is the technically faithful mapping and it would be a lie
@@ -35,6 +35,20 @@ fn the_wire_types_are_written_for_the_browser() {
         // is more rupiah than exists. Anything that could genuinely exceed it
         // would have to be modelled as a string on the wire, deliberately.
         .with_large_int("number");
+
+    // Signing in. Every node speaks this, and it is the one exchange whose
+    // types being wrong is invisible until nobody can log in.
+    inventory_backend::contract::LoginRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("LoginRequest: {e}"));
+    inventory_backend::contract::LoginResponse::export_all(&config)
+        .unwrap_or_else(|e| panic!("LoginResponse: {e}"));
+    inventory_backend::contract::SessionUser::export_all(&config)
+        .unwrap_or_else(|e| panic!("SessionUser: {e}"));
+    inventory_backend::contract::CloudMe::export_all(&config)
+        .unwrap_or_else(|e| panic!("CloudMe: {e}"));
+    inventory_backend::contract::EdgeMe::export_all(&config)
+        .unwrap_or_else(|e| panic!("EdgeMe: {e}"));
+    inventory_backend::contract::Role::export_all(&config).unwrap_or_else(|e| panic!("Role: {e}"));
 
     // Each of these is something a browser is handed by an HTTP route. The
     // list is the contract; anything not on it is server-side only.

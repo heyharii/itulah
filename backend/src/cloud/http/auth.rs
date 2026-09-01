@@ -11,13 +11,14 @@
 
 use crate::cloud::{
     application::{
-        AppError, AppState, ChangePasswordRequest, CreateUserRequest, LoginRequest,
-        RegisterRfidDeviceRequest, SetEdgeAssignmentActiveRequest, SetRfidDeviceActiveRequest,
-        SetUserActiveRequest, UpsertEdgeAssignmentRequest,
+        AppError, AppState, ChangePasswordRequest, CreateUserRequest, RegisterRfidDeviceRequest,
+        ResetPasswordRequest, SetEdgeAssignmentActiveRequest, SetRfidDeviceActiveRequest,
+        SetUserActiveRequest, SetUserRoleRequest, UpsertEdgeAssignmentRequest,
     },
     domain::{required_role, role_allows, Role},
     postgres as infrastructure,
 };
+use crate::contract::{CloudMe, LoginRequest, LoginResponse, SessionUser};
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
 use axum::{
     body::{to_bytes, Body},
@@ -182,50 +183,49 @@ pub async fn login(
         infrastructure::create_session(&state.db, &user, state.config.auth_token_ttl_minutes)
             .await?;
     let max_age = state.config.auth_token_ttl_minutes.max(1) * 60;
-    let mut response = Json(json!({
+    // Both cookies are formatted before the body takes ownership of the token.
+    let session_cookie = security::set_cookie(
+        SESSION_COOKIE,
+        &issued.token,
+        max_age,
+        state.config.auth_cookie_secure,
+        true,
+    );
+    let csrf_cookie = security::set_cookie(
+        CSRF_COOKIE,
+        &issued.csrf_token,
+        max_age,
+        state.config.auth_cookie_secure,
+        false,
+    );
+    let mut response = Json(LoginResponse {
         // Native/CLI clients may use the same opaque value as a Bearer token.
         // The browser ignores it and relies on the HttpOnly cookie below.
-        "token": issued.token,
-        "token_type": "Bearer",
-        "expires_at_epoch": issued.expires_at.timestamp(),
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "display_name": user.display_name,
-            "role": user.role.as_str(),
-        }
-    }))
+        token: issued.token,
+        token_type: "Bearer".to_owned(),
+        expires_at_epoch: issued.expires_at.timestamp(),
+        user: SessionUser {
+            id: user.id,
+            username: user.username,
+            display_name: user.display_name,
+            role: user.role.into(),
+            // Cloud has one identity store, so there is nothing to name.
+            source: None,
+        },
+    })
     .into_response();
     prevent_auth_caching(&mut response);
-    append_cookie(
-        &mut response,
-        security::set_cookie(
-            SESSION_COOKIE,
-            &issued.token,
-            max_age,
-            state.config.auth_cookie_secure,
-            true,
-        ),
-    )?;
-    append_cookie(
-        &mut response,
-        security::set_cookie(
-            CSRF_COOKIE,
-            &issued.csrf_token,
-            max_age,
-            state.config.auth_cookie_secure,
-            false,
-        ),
-    )?;
+    append_cookie(&mut response, session_cookie)?;
+    append_cookie(&mut response, csrf_cookie)?;
     Ok(response)
 }
 
-pub async fn me(Extension(principal): Extension<Principal>) -> Json<Value> {
-    Json(json!({
-        "username": principal.username,
-        "display_name": principal.display_name,
-        "role": principal.role.as_str(),
-    }))
+pub async fn me(Extension(principal): Extension<Principal>) -> Json<CloudMe> {
+    Json(CloudMe {
+        username: principal.username,
+        display_name: principal.display_name,
+        role: principal.role.into(),
+    })
 }
 
 pub async fn logout(
@@ -243,6 +243,33 @@ pub async fn change_password(
 ) -> Result<Response, AppError> {
     let value = infrastructure::change_password(&state.db, &principal.username, request).await?;
     cleared_session_response(&state, value)
+}
+
+/// Administrator-only: set a password for a user who cannot supply their old
+/// one. Reachable only by an Admin — `required_role` puts every
+/// `/api/v1/auth/users` path behind that role.
+pub async fn reset_password(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(request): Json<ResetPasswordRequest>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::admin_reset_password(&state.db, id, request, &principal.username).await?,
+    ))
+}
+
+/// Administrator-only: promote or demote somebody at Cloud. Does not touch
+/// their role at any Edge — that lives on the Edge assignment.
+pub async fn set_user_role(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(request): Json<SetUserRoleRequest>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::set_user_role(&state.db, id, request, &principal.username).await?,
+    ))
 }
 
 pub async fn list_users(State(state): State<AppState>) -> Result<Json<Value>, AppError> {

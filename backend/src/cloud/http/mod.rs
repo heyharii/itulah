@@ -179,6 +179,11 @@ pub fn router(state: AppState) -> Router {
             post(auth::set_user_active),
         )
         .route(
+            "/api/v1/auth/users/{id}/password",
+            post(auth::reset_password),
+        )
+        .route("/api/v1/auth/users/{id}/role", post(auth::set_user_role))
+        .route(
             "/api/v1/auth/edge-assignments",
             get(auth::edge_assignments).post(auth::upsert_edge_assignment),
         )

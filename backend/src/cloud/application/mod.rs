@@ -603,12 +603,6 @@ pub struct DeadLetterQuery {
 // ---- Authentication ------------------------------------------------------
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct LoginRequest {
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
 pub struct CreateUserRequest {
     pub username: String,
     pub display_name: String,
@@ -619,6 +613,27 @@ pub struct CreateUserRequest {
 #[derive(Clone, Debug, Deserialize)]
 pub struct ChangePasswordRequest {
     pub current_password: String,
+    pub new_password: String,
+}
+
+/// Promotion or demotion at Cloud.
+///
+/// This is the head-office role only. An operator's role AT an Edge lives on
+/// their `edge_identity_assignment` and is set by upserting that assignment —
+/// deliberately separate, because the same person can be a supervisor at head
+/// office and an ordinary cashier at the till.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SetUserRoleRequest {
+    pub role: Role,
+}
+
+/// An administrator setting a password for somebody else.
+///
+/// Deliberately carries no `current_password`: the whole point is that nobody
+/// knows it. `ChangePasswordRequest` remains the self-service path and still
+/// demands the old password.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ResetPasswordRequest {
     pub new_password: String,
 }
 

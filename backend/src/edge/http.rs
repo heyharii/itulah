@@ -1,3 +1,4 @@
+use crate::contract::{EdgeMe, LoginRequest, LoginResponse, SessionUser};
 use crate::edge::{
     AdvanceKoliRequest, CreateKoliShipmentRequest, DeviceProof, EdgeAuth, EdgeAuthConfig,
     EdgeError, EdgeInventory, EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole, IntakeRequest,
@@ -1089,12 +1090,6 @@ impl IntoResponse for ApiError {
 }
 
 #[derive(Deserialize)]
-struct LoginRequest {
-    username: String,
-    password: String,
-}
-
-#[derive(Deserialize)]
 struct ChangePasswordRequest {
     current_password: String,
     new_password: String,
@@ -1107,52 +1102,51 @@ async fn login(
     let auth = state.auth.clone();
     let issued = run_blocking(move || auth.login(&request.username, &request.password)).await?;
     let max_age = state.auth.config().session_ttl_minutes * 60;
-    let mut response = Json(json!({
-        "token":issued.token,
-        "token_type":"Bearer",
-        "expires_at_epoch":issued.expires_at.timestamp(),
-        "user":{
-            "id":issued.principal.user_id,
-            "username":issued.principal.username,
-            "display_name":issued.principal.display_name,
-            "role":issued.principal.role.as_str(),
-            "source":issued.principal.source,
-        }
-    }))
+    // Both cookies are formatted before the body takes ownership of the token.
+    let session_cookie = security::set_cookie(
+        SESSION_COOKIE,
+        &issued.token,
+        max_age,
+        state.auth.config().cookie_secure,
+        true,
+    );
+    let csrf_cookie = security::set_cookie(
+        CSRF_COOKIE,
+        &issued.csrf_token,
+        max_age,
+        state.auth.config().cookie_secure,
+        false,
+    );
+    let mut response = Json(LoginResponse {
+        token: issued.token,
+        token_type: "Bearer".to_owned(),
+        expires_at_epoch: issued.expires_at.timestamp(),
+        user: SessionUser {
+            id: issued.principal.user_id,
+            username: issued.principal.username,
+            display_name: issued.principal.display_name,
+            role: issued.principal.role.into(),
+            // Which identity store this session came from: an Edge-local
+            // break-glass account, or a Cloud projection.
+            source: Some(issued.principal.source),
+        },
+    })
     .into_response();
     prevent_auth_caching(&mut response);
-    append_cookie(
-        &mut response,
-        security::set_cookie(
-            SESSION_COOKIE,
-            &issued.token,
-            max_age,
-            state.auth.config().cookie_secure,
-            true,
-        ),
-    )?;
-    append_cookie(
-        &mut response,
-        security::set_cookie(
-            CSRF_COOKIE,
-            &issued.csrf_token,
-            max_age,
-            state.auth.config().cookie_secure,
-            false,
-        ),
-    )?;
+    append_cookie(&mut response, session_cookie)?;
+    append_cookie(&mut response, csrf_cookie)?;
     Ok(response)
 }
 
-async fn me(Extension(principal): Extension<EdgePrincipal>) -> Json<Value> {
-    Json(json!({
-        "id":principal.user_id,
-        "username":principal.username,
-        "display_name":principal.display_name,
-        "role":principal.role.as_str(),
-        "source":principal.source,
-        "site_id":Value::Null,
-    }))
+async fn me(Extension(principal): Extension<EdgePrincipal>) -> Json<EdgeMe> {
+    Json(EdgeMe {
+        id: principal.user_id,
+        username: principal.username,
+        display_name: principal.display_name,
+        role: principal.role.into(),
+        source: principal.source,
+        site_id: None,
+    })
 }
 
 async fn logout(

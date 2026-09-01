@@ -1,0 +1,13 @@
+{
+  "name": "@itulah/contract",
+  "private": true,
+  "type": "module",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client/index.ts"
+  },
+  "scripts": {
+    "barrel": "node generate-index.mjs"
+  }
+}

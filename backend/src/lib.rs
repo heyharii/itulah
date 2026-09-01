@@ -22,6 +22,7 @@ pub fn bind_addr(default_port: u16) -> Result<std::net::SocketAddr, String> {
 }
 
 pub mod cloud;
+pub mod contract;
 pub mod edge;
 pub mod security;
 pub mod sync;

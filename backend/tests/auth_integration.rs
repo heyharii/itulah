@@ -1076,3 +1076,331 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         "privileged 24-hour leases need a twelve-hour renewal safety margin"
     );
 }
+
+/// Two account-administration behaviours that had no way to be true before.
+///
+/// A forgotten password used to retire an account permanently: the self-service
+/// change demands the old password, usernames are never released, and there is
+/// no delete. And rotating somebody's Edge PIN used to readmit them if they had
+/// been suspended, because the upsert forced `active=true` — so the fix for one
+/// problem quietly undid an unrelated decision.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn admin_reset_recovers_a_forgotten_password_and_pin_rotation_keeps_a_suspension(
+    pool: PgPool,
+) {
+    let origin_id = "store-11-edge";
+    cloud::register_origin_credential_binding(
+        &pool,
+        origin_id,
+        "store-11-integration-sync-key-00000001",
+        Some("Store 11"),
+        Some("store-11"),
+        Some("STORE"),
+        Some(1),
+        Some(true),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("register Store: {error}"));
+    cloud::bootstrap_admin(&pool, Some("admin-password-1"), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), cloud_config()));
+
+    let bearer = |token: &str| vec![("authorization".to_owned(), format!("Bearer {token}"))];
+    let sign_in = |username: &'static str, password: &'static str| {
+        let app = app.clone();
+        async move {
+            send(
+                app,
+                "POST",
+                "/api/v1/auth/login",
+                vec![],
+                json_body(json!({"username": username, "password": password})),
+            )
+            .await
+        }
+    };
+
+    let admin_token = sign_in("admin", "admin-password-1").await.body["token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("admin token"))
+        .to_string();
+
+    let created = send(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/users",
+        bearer(&admin_token),
+        json_body(json!({
+            "username": "forgetful.01",
+            "display_name": "Forgetful Cashier",
+            "password": "first-password-1",
+            "role": "CASHIER"
+        })),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::OK);
+    let user_id = created.body["id"]
+        .as_str()
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .unwrap_or_else(|| panic!("created user id"));
+
+    // They sign in, and that session is live.
+    let theirs = sign_in("forgetful.01", "first-password-1").await;
+    assert_eq!(theirs.status, StatusCode::OK);
+    let their_token = theirs.body["token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("cashier token"))
+        .to_string();
+    assert_eq!(
+        send(
+            app.clone(),
+            "GET",
+            "/api/v1/auth/me",
+            bearer(&their_token),
+            None
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+
+    // A cashier cannot reset anybody's password, including their own this way.
+    assert_eq!(
+        send(
+            app.clone(),
+            "POST",
+            &format!("/api/v1/auth/users/{user_id}/password"),
+            bearer(&their_token),
+            json_body(json!({"new_password": "self-service-nope-1"})),
+        )
+        .await
+        .status,
+        StatusCode::FORBIDDEN
+    );
+
+    let reset = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/auth/users/{user_id}/password"),
+        bearer(&admin_token),
+        json_body(json!({"new_password": "second-password-2"})),
+    )
+    .await;
+    assert_eq!(reset.status, StatusCode::OK);
+    assert_eq!(reset.body["reset"], json!(true));
+
+    assert_eq!(
+        sign_in("forgetful.01", "first-password-1").await.status,
+        StatusCode::UNAUTHORIZED,
+        "the forgotten password must stop working"
+    );
+    assert_eq!(
+        sign_in("forgetful.01", "second-password-2").await.status,
+        StatusCode::OK,
+        "the password the administrator set must work"
+    );
+    assert_eq!(
+        send(
+            app.clone(),
+            "GET",
+            "/api/v1/auth/me",
+            bearer(&their_token),
+            None
+        )
+        .await
+        .status,
+        StatusCode::UNAUTHORIZED,
+        "a session standing on a password that may have leaked must not survive"
+    );
+
+    // Now the Edge assignment: suspend, then rotate the PIN.
+    let assign = |password: &'static str| {
+        let app = app.clone();
+        let token = admin_token.clone();
+        async move {
+            send(
+                app,
+                "POST",
+                "/api/v1/auth/edge-assignments",
+                vec![("authorization".to_owned(), format!("Bearer {token}"))],
+                json_body(json!({
+                    "origin_id": origin_id,
+                    "user_id": user_id,
+                    "role": "CASHIER",
+                    "edge_password": password,
+                    "offline_ttl_seconds": 7 * 24 * 60 * 60
+                })),
+            )
+            .await
+        }
+    };
+    assert_eq!(assign("edge-pin-00000001").await.status, StatusCode::OK);
+    assert_eq!(
+        send(
+            app.clone(),
+            "POST",
+            &format!("/api/v1/auth/edge-assignments/{origin_id}/{user_id}/active"),
+            bearer(&admin_token),
+            json_body(json!({"active": false})),
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+    assert_eq!(assign("edge-pin-00000002").await.status, StatusCode::OK);
+
+    let still_suspended: bool = sqlx::query_scalar(
+        "SELECT active FROM edge_identity_assignment WHERE origin_id=$1 AND user_id=$2",
+    )
+    .bind(origin_id)
+    .bind(user_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("read assignment: {error}"));
+    assert!(
+        !still_suspended,
+        "rotating an Edge PIN must not readmit a suspended operator"
+    );
+}
+
+/// Promotion without abandoning the account.
+///
+/// Before this there was no way to change a role: a cashier made supervisor
+/// needed a second account, which spent their username forever and split their
+/// history across two identities.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_administrator_can_promote_somebody_but_never_themselves(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some("admin-password-1"), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), cloud_config()));
+    let bearer = |token: &str| vec![("authorization".to_owned(), format!("Bearer {token}"))];
+    let sign_in = |username: &'static str, password: &'static str| {
+        let app = app.clone();
+        async move {
+            send(
+                app,
+                "POST",
+                "/api/v1/auth/login",
+                vec![],
+                json_body(json!({"username": username, "password": password})),
+            )
+            .await
+        }
+    };
+
+    let admin_login = sign_in("admin", "admin-password-1").await;
+    let admin_token = admin_login.body["token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("admin token"))
+        .to_string();
+    let admin_id = send(
+        app.clone(),
+        "GET",
+        "/api/v1/auth/users",
+        bearer(&admin_token),
+        None,
+    )
+    .await
+    .body["items"][0]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("admin id"))
+        .to_string();
+
+    let created = send(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/users",
+        bearer(&admin_token),
+        json_body(json!({
+            "username": "rising.star",
+            "display_name": "Rising Star",
+            "password": "cashier-password-1",
+            "role": "CASHIER"
+        })),
+    )
+    .await;
+    let user_id = created.body["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("user id"))
+        .to_string();
+
+    // A cashier holds a session and cannot reach an Admin-only route.
+    let their_token = sign_in("rising.star", "cashier-password-1").await.body["token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("cashier token"))
+        .to_string();
+    assert_eq!(
+        send(
+            app.clone(),
+            "GET",
+            "/api/v1/auth/users",
+            bearer(&their_token),
+            None
+        )
+        .await
+        .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            app.clone(),
+            "POST",
+            &format!("/api/v1/auth/users/{user_id}/role"),
+            bearer(&their_token),
+            json_body(json!({"role": "ADMIN"})),
+        )
+        .await
+        .status,
+        StatusCode::FORBIDDEN,
+        "a cashier must not be able to promote themselves"
+    );
+
+    // An administrator must not be able to demote themselves into a node with
+    // no administrator left.
+    assert_eq!(
+        send(
+            app.clone(),
+            "POST",
+            &format!("/api/v1/auth/users/{admin_id}/role"),
+            bearer(&admin_token),
+            json_body(json!({"role": "CASHIER"})),
+        )
+        .await
+        .status,
+        StatusCode::CONFLICT
+    );
+
+    let promoted = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/auth/users/{user_id}/role"),
+        bearer(&admin_token),
+        json_body(json!({"role": "SUPERVISOR"})),
+    )
+    .await;
+    assert_eq!(promoted.status, StatusCode::OK);
+    assert_eq!(promoted.body["previous_role"], json!("CASHIER"));
+    assert_eq!(promoted.body["role"], json!("SUPERVISOR"));
+
+    // The session issued before the change does not carry the new authority,
+    // and is not left running with the old one either.
+    assert_eq!(
+        send(
+            app.clone(),
+            "GET",
+            "/api/v1/auth/me",
+            bearer(&their_token),
+            None
+        )
+        .await
+        .status,
+        StatusCode::UNAUTHORIZED,
+        "a role change must not leave an older session standing"
+    );
+
+    let after = sign_in("rising.star", "cashier-password-1").await;
+    assert_eq!(after.status, StatusCode::OK);
+    assert_eq!(after.body["user"]["role"], json!("SUPERVISOR"));
+}

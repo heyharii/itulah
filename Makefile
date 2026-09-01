@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgresql:///inventory_edge_dev
 
-.PHONY: db run run-cloud run-dc run-store check test test-unit test-integration rfid-demo contract contract-check skin skin-check front front-check
+.PHONY: db run run-cloud run-dc run-store check test test-unit test-integration rfid-demo contract contract-check front front-check
 
 db:
 	docker compose up -d postgres
@@ -44,42 +44,44 @@ contract:
 # The whole point of generating these is that nobody hand-edits them into
 # agreement. This is what notices when somebody changes a field and forgets —
 # the failure names the drift instead of leaving it to a runtime surprise.
+#
+# The path matters more than it looks. `git status --porcelain` on a directory
+# that does not exist prints nothing, which reads here as "no drift" — so a
+# stale path does not break this check, it silently disarms it. That is what
+# happened when the contract moved out of the old frontend monorepo.
 contract-check: contract
-	@if [ -n "$$(git status --porcelain frontend/packages/contract/src)" ]; then \
+	@if [ ! -d frontend-contract/src/contract ]; then \
+		echo "frontend-contract/src/contract is missing; 'make contract' writes it."; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git status --porcelain frontend-contract/src)" ]; then \
 		echo "The generated contract is stale. Run 'make contract' and commit the result:"; \
-		git --no-pager diff --stat frontend/packages/contract/src; \
+		git --no-pager diff --stat frontend-contract/src; \
 		exit 1; \
 	fi
 	@echo "contract is current"
 
-# Build all three consoles. Each binary serves its own:
-#
-#   cloud  FRONTEND_DIR=frontend/apps/console/dist
-#   dc     FRONTEND_DIR=frontend/apps/dc/dist
-#   store  FRONTEND_DIR=frontend/apps/pos/dist
+# Build all three surfaces.
 #
 # Three builds rather than one, because the three are different products: a
 # till on a touch screen at arm's length, a warehouse console, and head
-# office. What they share is the API client, not the interface.
-# The skin is copied, not maintained twice.
+# office. What they share is `frontend-contract` — the wire types generated
+# from Rust and the one browser transport — not the interface.
 #
-# `dasbor/retail.css` is where the look is decided and where its enforcer runs.
-# The apps use a derived copy for the same reason the browser's types are
-# derived from Rust structs: two hand-kept copies of one truth is the drift
-# this repository keeps paying for.
-skin:
-	cp dasbor/retail.css frontend/packages/skin/retail.css
-	cd dasbor && node check-retail-css.mjs
+# Each is deployed as its own static site that rewrites /api/* to its own node
+# (see render.yaml), so a browser sees one origin and the SameSite=Strict
+# session cookie is actually sent.
+FRONTENDS := frontend-cloud frontend-dc frontend-store
 
-skin-check: skin
-	@if [ -n "$$(git status --porcelain frontend/packages/skin/retail.css)" ]; then \
-		echo "The app skin is stale. Run 'make skin' and commit the result."; \
-		exit 1; \
-	fi
-	@echo "skin is current"
+front:
+	@for app in $(FRONTENDS); do \
+		echo "--- $$app"; \
+		( cd $$app && npm install --no-audit --no-fund && npm run build ) || exit 1; \
+	done
 
-front: skin
-	cd frontend && npm install && npm run build
-
-front-check:
-	cd frontend && npm run typecheck
+# `npm run build` is `tsc -b && vite build`, and `tsc -b` is the real gate:
+# the root tsconfig is solution-style (only `references`), so a bare
+# `tsc --noEmit` against it checks nothing at all and reports success while
+# the build is broken. Do not "simplify" this to a typecheck-only target.
+front-check: front
+	@echo "all three surfaces typechecked and built"

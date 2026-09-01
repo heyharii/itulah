@@ -104,7 +104,14 @@ pub async fn upsert_edge_assignment(
          VALUES($1,$2,$3,$4,true,1,$5,$6)
          ON CONFLICT(origin_id,user_id) DO UPDATE SET
              edge_role=EXCLUDED.edge_role,credential_hash=EXCLUDED.credential_hash,
-             active=true,auth_version=edge_identity_assignment.auth_version+1,
+             -- Deliberately NOT active=true. Rotating somebody's Edge PIN and
+             -- restoring their access are two different decisions, and this
+             -- upsert is how a PIN gets rotated. Forcing active here meant an
+             -- administrator handing out a new PIN silently readmitted a
+             -- suspended operator. Restoring access is
+             -- POST /auth/edge-assignments/{origin}/{user}/active, which says
+             -- so out loud. A brand-new row still starts active, from VALUES.
+             auth_version=edge_identity_assignment.auth_version+1,
              offline_ttl_seconds=EXCLUDED.offline_ttl_seconds,updated_at=now()",
     )
     .bind(&origin_id)

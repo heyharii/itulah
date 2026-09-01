@@ -1,10 +1,13 @@
-# Render Blueprint for the central Cloud API and its separate frontend.
+# Render Blueprint for the central Cloud API and the three browser surfaces.
 #
-# The DC and Store binaries are intentionally deployed to their edge hosts,
-# not as public Render services: their SQLite files and RFID/physical-device
-# boundary belong at the site. The root Dockerfile still carries all three
-# binaries and can be reused by a private container host with APP_BIN=dc or
-# APP_BIN=store.
+# NOTE: itulah-dc and itulah-store are running as public Render web services
+# (dc-br5g / store-mhpy), created outside this blueprint and managed from the
+# dashboard. That contradicts the original intent recorded here — that the edge
+# binaries belong on hardware at the site, next to their SQLite files and their
+# RFID boundary — but it is what is deployed, and the three static sites below
+# rewrite to those URLs. Either bring them into this file or move them back to
+# site hardware; leaving the intent and the deployment disagreeing is how the
+# next person gets it wrong.
 
 services:
   - type: web
@@ -48,20 +51,55 @@ services:
           name: itulah-postgres
           property: connectionString
 
+  # Three surfaces, three static sites, one rule each.
+  #
+  # Each site rewrites /api/* to its OWN node and nothing else. That is not a
+  # tidiness preference: the session cookie is SameSite=Strict, so a browser
+  # will not send it to a different site than the one it is looking at. Serving
+  # the front end on one origin and its API on another silently drops the
+  # cookie and every request arrives unauthenticated. The rewrite makes the
+  # node same-origin from the browser's point of view, which is also why none
+  # of these needs INVENTORY_CORS_ALLOWED_ORIGINS set.
+  #
+  # The previous single site tried to reach all three nodes from one origin
+  # via /api, /edge and /store-api. One surface talking to three nodes is not
+  # what these products are: a till, a warehouse console and head office are
+  # three different jobs, deployed and signed into separately.
+
   - type: web
     runtime: static
-    name: itulah-frontend-new
-    buildCommand: cd frontend-new && npm install --legacy-peer-deps --no-audit --no-fund && npm run build
-    staticPublishPath: ./frontend-new/dist
+    name: itulah-frontend-cloud
+    buildCommand: cd frontend-cloud && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: ./frontend-cloud/dist
     routes:
       - type: rewrite
         source: /api/*
         destination: https://itulah-cloud.onrender.com/api/*
       - type: rewrite
-        source: /edge/*
+        source: /*
+        destination: /index.html
+
+  - type: web
+    runtime: static
+    name: itulah-frontend-dc
+    buildCommand: cd frontend-dc && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: ./frontend-dc/dist
+    routes:
+      - type: rewrite
+        source: /api/*
         destination: https://dc-br5g.onrender.com/api/*
       - type: rewrite
-        source: /store-api/*
+        source: /*
+        destination: /index.html
+
+  - type: web
+    runtime: static
+    name: itulah-frontend-store
+    buildCommand: cd frontend-store && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: ./frontend-store/dist
+    routes:
+      - type: rewrite
+        source: /api/*
         destination: https://store-mhpy.onrender.com/api/*
       - type: rewrite
         source: /*

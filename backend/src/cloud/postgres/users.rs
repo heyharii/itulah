@@ -4,7 +4,9 @@
 //! When a cloud identity downlink exists, this table becomes its projection
 //! target; nothing here assumes the credentials were minted locally.
 
-use crate::cloud::application::{AppError, ChangePasswordRequest, CreateUserRequest};
+use crate::cloud::application::{
+    AppError, ChangePasswordRequest, CreateUserRequest, ResetPasswordRequest, SetUserRoleRequest,
+};
 use crate::cloud::domain::Role;
 use crate::security;
 use chrono::{DateTime, Duration, Utc};
@@ -346,6 +348,65 @@ pub async fn list_users(pool: &PgPool) -> Result<Value, AppError> {
     Ok(json!({ "items": items }))
 }
 
+/// Promote or demote somebody at Cloud.
+///
+/// Without this a promotion meant abandoning the account and making a new one,
+/// which — since usernames are never released and there is no delete — spent
+/// the person's name permanently and split their history in two.
+///
+/// The role change revokes their live sessions rather than letting them run on.
+/// A session is the thing that carries authority around, and one issued before
+/// a demotion would otherwise keep the authority the demotion just removed.
+pub async fn set_user_role(
+    pool: &PgPool,
+    user_id: Uuid,
+    request: SetUserRoleRequest,
+    actor_username: &str,
+) -> Result<Value, AppError> {
+    let row = sqlx::query("SELECT username,role FROM app_user WHERE id=$1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("user".into()))?;
+    let username: String = row.get("username");
+    // Same reason an administrator cannot deactivate themselves: the node must
+    // always keep at least one usable administrator, and demoting yourself is
+    // the other way to end up with none.
+    if username == actor_username {
+        return Err(AppError::Conflict("cannot change your own role".into()));
+    }
+    let previous: String = row.get("role");
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "UPDATE app_user SET role=$2,auth_version=auth_version+1,updated_at=now() WHERE id=$1",
+    )
+    .bind(user_id)
+    .bind(request.role.as_str())
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE auth_session SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    tracing::info!(
+        actor = actor_username,
+        subject = username.as_str(),
+        from = previous.as_str(),
+        to = request.role.as_str(),
+        "administrator changed a role"
+    );
+    Ok(json!({
+        "username": username,
+        "role": request.role.as_str(),
+        "previous_role": previous,
+        // Says plainly that this did not touch any Edge. Somebody promoted at
+        // head office is still whatever they were at the till until their
+        // assignment is upserted too.
+        "edge_roles_unchanged": true,
+    }))
+}
+
 pub async fn set_user_active(
     pool: &PgPool,
     user_id: Uuid,
@@ -415,4 +476,58 @@ pub async fn change_password(
         .await?;
     tx.commit().await?;
     Ok(json!({ "username": username, "changed": true }))
+}
+
+/// An administrator sets a new password for somebody who cannot supply the old
+/// one. This is the only way out of a forgotten password: usernames are never
+/// released and there is no delete, so without it a forgotten password retires
+/// the account and burns its name permanently.
+///
+/// Everything a self-service change does, this does too — the auth_version
+/// bump, the lockout reset, and the revocation of every live session for that
+/// user. A password nobody knew is a password that may have been learned, so
+/// the sessions standing on it do not survive the reset.
+pub async fn admin_reset_password(
+    pool: &PgPool,
+    user_id: Uuid,
+    request: ResetPasswordRequest,
+    actor_username: &str,
+) -> Result<Value, AppError> {
+    let row = sqlx::query("SELECT username,active FROM app_user WHERE id=$1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("user".into()))?;
+    let username: String = row.get("username");
+    let new_hash = hash_password(&request.new_password).await?;
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "UPDATE app_user
+         SET password_hash=$2,auth_version=auth_version+1,updated_at=now(),
+             failed_login_count=0,failed_login_window_started_at=NULL,
+             login_blocked_until=NULL
+         WHERE id=$1",
+    )
+    .bind(user_id)
+    .bind(new_hash)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE auth_session SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    tracing::info!(
+        actor = actor_username,
+        subject = username.as_str(),
+        "administrator reset a password"
+    );
+    Ok(json!({
+        "username": username,
+        "reset": true,
+        // Says plainly that the account is still suspended, so an administrator
+        // who resets a password and expects the person to get back in is told
+        // that a second decision is outstanding.
+        "active": row.get::<bool, _>("active"),
+    }))
 }

@@ -6,11 +6,15 @@
 **/*.sqlite3-shm
 **/*.sqlite3-wal
 backend/target
-frontend/node_modules
-frontend-new/node_modules
-frontend-new/dist
-frontend-new/.tanstack
-frontend-new/.env.local*
 docs/*.png
 semantic-review
-frontend/packages/*/node_modules
+
+# Patterns, not paths. These used to name frontend/ and frontend-new/ one by
+# one, so when the surfaces were renamed the entries silently stopped matching
+# anything and three node_modules trees — about 440 packages each — started
+# riding along in the build context. A glob cannot go stale that way.
+**/node_modules
+**/dist
+**/.vite
+**/.tanstack
+**/.env.local*
