@@ -7,7 +7,7 @@ use crate::cloud::{
         SupplierItem, SupplierStatus, COMMAND_PURCHASE_ORDER_ACTIVATE,
     },
 };
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{postgres::PgRow, PgPool, Postgres, Row, Transaction};
@@ -516,6 +516,29 @@ pub async fn set_supplier_status(
     Ok(supplier)
 }
 
+/// What this business has already committed to buying of one item.
+///
+/// Counted from the order lines, which keep `supplier_item_id`, so this needs
+/// no article and no receipt: "have we bought this before, and how much" is
+/// answerable about a supplier's own item even when it has never been given an
+/// identity of ours.
+///
+/// Deliberately ORDERED rather than received. Received is derived from the
+/// DC's goods receipts on every read and is a different question — "did it
+/// turn up" — which belongs on the order, not in a catalogue a buyer is
+/// browsing.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseHistory {
+    /// How many separate orders named this item.
+    pub orders: i64,
+    /// Ordered minus cancelled, across all of them.
+    pub units: i64,
+    /// When it was last put on an order that was actually raised. `None` when
+    /// every order naming it is still a draft.
+    pub last_ordered_at: Option<DateTime<Utc>>,
+}
+
 /// One supplier's item, with the supplier attached.
 ///
 /// Sourcing asks a question no single supplier can answer — "who sells this,
@@ -525,6 +548,12 @@ pub async fn set_supplier_status(
 pub struct SourcedItem {
     pub item: SupplierItem,
     pub supplier: Supplier,
+    /// Absent when nobody asked. The basket reads this same row shape and has
+    /// no use for the history, so `None` means "not looked up" and never
+    /// "never bought" — a zero and an unknown are different answers and a
+    /// buyer must not read one as the other.
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub bought: Option<PurchaseHistory>,
 }
 
 /// How many items carry one value of a facet, across the whole catalogue.
@@ -566,17 +595,129 @@ pub struct SourcingPage {
     pub facets: SourcingFacets,
 }
 
+/// How the catalogue is ordered.
+///
+/// The sort and the cursor are one decision, not two: keyset pagination walks
+/// the sort's own key, so a page taken under one order cannot be continued
+/// under another. Changing the sort starts again from the top — which is also
+/// what a person expects when they press it.
+///
+/// There is deliberately no "popular" and no "best selling". Popular would be
+/// a ranking with no signal behind it — this system records no views, no
+/// per-item order counts a shopper generated, and no ratings — and best
+/// selling needs a sold figure, which needs every supplier item to carry our
+/// own article code. None do yet.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourcingSort {
+    /// What the search matched best, then by supplier and name. Retired items
+    /// sink. The only order that means anything when nobody has typed
+    /// anything, which is why it is the default.
+    #[default]
+    Relevance,
+    /// Newest into the catalogue first, by when the row was created.
+    Newest,
+    PriceLow,
+    PriceHigh,
+}
+
+impl SourcingSort {
+    pub fn parse(raw: Option<&str>) -> Self {
+        match raw {
+            Some("newest") => Self::Newest,
+            Some("price_low") => Self::PriceLow,
+            Some("price_high") => Self::PriceHigh,
+            _ => Self::Relevance,
+        }
+    }
+
+    /// The keyset predicate and the ordering, which must always agree: a
+    /// `WHERE` that walks one order under an `ORDER BY` of another silently
+    /// skips rows and repeats others, and the reader only notices when a buyer
+    /// says an item they saw yesterday has gone.
+    ///
+    /// Every branch uses the SAME parameter slots — `$6`–`$9` — and no branch
+    /// introduces one of its own. That is not tidiness: Postgres takes a
+    /// statement's parameter count from the highest `$n` it actually mentions,
+    /// so a sort whose fragment stopped at `$12` while the caller bound
+    /// fourteen values would be refused outright with a bind-count error. One
+    /// fixed set of slots means one bind list for all four orders.
+    ///
+    /// `$7` therefore carries whichever leading key this sort walks, always as
+    /// text, cast here. A timestamp and a price both survive that round trip;
+    /// a bind list that changed shape per sort would not survive review.
+    fn sql(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Relevance => (
+                "($6::int IS NULL OR
+                  (CASE i.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, s.name, i.name, i.supplier_item_id)
+                  > ($6::int, $7::text, $8::text, $9::uuid))",
+                "rank, s.name, i.name, i.supplier_item_id",
+            ),
+            // `$6` is the rank, and it is non-null exactly when there is a
+            // cursor, so it doubles as the "is this a first page" guard in
+            // every order. `$8` is the item name, which every order uses to
+            // break ties — better than falling straight to the uuid, because
+            // two items at the same price then read alphabetically instead of
+            // arbitrarily.
+            //
+            // A row-value comparison must run one way, so a descending order
+            // compares with `<` and orders every component `DESC`.
+            Self::Newest => (
+                "($6::int IS NULL OR
+                  (i.created_at, i.name, i.supplier_item_id)
+                  < ($7::timestamptz, $8::text, $9::uuid))",
+                "i.created_at DESC, i.name DESC, i.supplier_item_id DESC",
+            ),
+            Self::PriceLow => (
+                "($6::int IS NULL OR
+                  (i.unit_price_minor, i.name, i.supplier_item_id)
+                  > ($7::bigint, $8::text, $9::uuid))",
+                "i.unit_price_minor, i.name, i.supplier_item_id",
+            ),
+            Self::PriceHigh => (
+                "($6::int IS NULL OR
+                  (i.unit_price_minor, i.name, i.supplier_item_id)
+                  < ($7::bigint, $8::text, $9::uuid))",
+                "i.unit_price_minor DESC, i.name DESC, i.supplier_item_id DESC",
+            ),
+        }
+    }
+
+    /// What goes in `$7` for this sort: the leading key of the row the last
+    /// page stopped on, as text.
+    fn leading_key(self, cursor: &SourcingCursor) -> Option<String> {
+        match self {
+            Self::Relevance => Some(cursor.supplier_name.clone()),
+            Self::Newest => cursor.created_at.map(|at| at.to_rfc3339()),
+            Self::PriceLow | Self::PriceHigh => {
+                cursor.unit_price_minor.map(|minor| minor.to_string())
+            }
+        }
+    }
+}
+
 /// Where the previous page stopped, in the sort's own terms.
 ///
 /// Every component of the sort is here, ending in the id — the sort is not
 /// unique without it, and a keyset that stops at a non-unique key loses or
 /// repeats the rows that tie.
-#[derive(Serialize, Deserialize)]
+///
+/// Every key any sort might need is carried, and each sort reads its own. The
+/// sort itself travels with it so a cursor issued under one order cannot be
+/// silently continued under another — it is checked on the way in.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct SourcingCursor {
+    #[serde(default)]
+    sort: SourcingSort,
     rank: i32,
     supplier_name: String,
     item_name: String,
     id: Uuid,
+    #[serde(default)]
+    created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    unit_price_minor: Option<i64>,
 }
 
 impl SourcingCursor {
@@ -598,6 +739,7 @@ impl SourcingCursor {
 /// What a caller is asking the catalogue for.
 #[derive(Clone, Debug, Default)]
 pub struct SourcingScope {
+    pub sort: SourcingSort,
     pub needle: Option<String>,
     pub status: Option<SupplierStatus>,
     pub supplier_ids: Vec<Uuid>,
@@ -646,19 +788,29 @@ pub async fn search_supplier_items(
         .cursor
         .as_deref()
         .map(SourcingCursor::decode)
-        .transpose()?;
+        .transpose()?
+        // A cursor is a position in ONE order. Continuing it under another
+        // would skip rows and repeat others, and nothing downstream could
+        // tell. Dropping it restarts the list, which is what changing the
+        // sort means anyway.
+        .filter(|c| c.sort == scope.sort);
+    let (keyset, ordering) = scope.sort.sql();
     // A page, not the catalogue. The browser asks for the next one when the
     // buyer reaches the bottom, which is the only way a 2806-item range can be
     // shown without handing a laptop 2806 photographs at once.
     let limit = scope.limit.clamp(1, 200);
 
     let rows = sqlx::query(
-        "SELECT i.*,
+        &format!(
+            "SELECT i.*,
                 COALESCE(
                     (SELECT array_agg(t.tag_code ORDER BY t.tag_code)
                        FROM supplier_item_tag t
                       WHERE t.supplier_item_id = i.supplier_item_id),
-                    '{}'
+                    -- Doubled because this string is a `format!` template now
+                    -- (the sort splices its own ORDER BY in); `{{}}` is how an
+                    -- empty Postgres array literal survives that.
+                    '{{}}'
                 ) AS tags,
                 CASE i.status WHEN 'ACTIVE' THEN 0 ELSE 1 END AS rank,
                 s.supplier_id AS s_supplier_id, s.supplier_code AS s_supplier_code,
@@ -666,9 +818,25 @@ pub async fn search_supplier_items(
                 s.contact_name AS s_contact_name, s.phone AS s_phone, s.email AS s_email,
                 s.address AS s_address, s.status AS s_status, s.version AS s_version,
                 s.created_by AS s_created_by, s.created_at AS s_created_at,
-                s.updated_by AS s_updated_by, s.updated_at AS s_updated_at
+                s.updated_by AS s_updated_by, s.updated_at AS s_updated_at,
+                bought.orders AS bought_orders, bought.units AS bought_units,
+                bought.last_ordered_at AS bought_last_ordered_at
            FROM supplier_item i
            JOIN supplier s ON s.supplier_id = i.supplier_id
+           -- What we have already ordered of this item. A LATERAL rather than
+           -- three correlated subqueries so the planner reads the line index
+           -- once per row instead of three times.
+           LEFT JOIN LATERAL (
+               SELECT count(DISTINCT l.purchase_order_id) AS orders,
+                      -- `::bigint` because SUM over a bigint returns NUMERIC in
+                      -- Postgres, and a numeric will not decode as an i64 — the
+                      -- history silently came back absent rather than wrong.
+                      COALESCE(SUM(l.ordered_quantity - l.cancelled_quantity), 0)::bigint AS units,
+                      max(o.issued_at) AS last_ordered_at
+                 FROM purchase_order_line l
+                 JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+                WHERE l.supplier_item_id = i.supplier_item_id
+           ) bought ON true
           WHERE ($1::text IS NULL OR i.status = $1)
             AND ($2::uuid[] IS NULL OR i.supplier_id = ANY($2))
             AND ($3::text IS NULL
@@ -689,11 +857,13 @@ pub async fn search_supplier_items(
             -- Keyset: strictly after the last row of the previous page, in the
             -- sort's own order. Row-value comparison rather than an unrolled
             -- chain of ORs, so the planner can use the ordering directly.
-            AND ($6::int IS NULL OR
-                 (CASE i.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, s.name, i.name, i.supplier_item_id)
-                 > ($6::int, $7::text, $8::text, $9::uuid))
-          ORDER BY rank, s.name, i.name, i.supplier_item_id
-          LIMIT $10",
+            -- Both fragments come from `SourcingSort::sql`, which is a closed
+            -- match over literals this file wrote — there is no caller input in
+            -- the string, only in the binds.
+            AND {keyset}
+          ORDER BY {ordering}
+          LIMIT $10"
+        ),
     )
     .bind(&status)
     .bind(&suppliers)
@@ -701,7 +871,7 @@ pub async fn search_supplier_items(
     .bind(&divisions)
     .bind(&tags)
     .bind(cursor.as_ref().map(|c| c.rank))
-    .bind(cursor.as_ref().map(|c| c.supplier_name.clone()))
+    .bind(cursor.as_ref().and_then(|c| scope.sort.leading_key(c)))
     .bind(cursor.as_ref().map(|c| c.item_name.clone()))
     .bind(cursor.as_ref().map(|c| c.id))
     .bind(limit)
@@ -719,10 +889,13 @@ pub async fn search_supplier_items(
         match rows.last() {
             Some(row) => Some(
                 SourcingCursor {
+                    sort: scope.sort,
                     rank: row.try_get("rank")?,
                     supplier_name: row.try_get("s_name")?,
                     item_name: row.try_get("name")?,
                     id: row.try_get("supplier_item_id")?,
+                    created_at: row.try_get("created_at")?,
+                    unit_price_minor: row.try_get("unit_price_minor")?,
                 }
                 .encode()?,
             ),
@@ -825,8 +998,26 @@ pub(crate) fn sourced_item_from_row(row: PgRow) -> Result<SourcedItem, AppError>
         updated_by: row.try_get("s_updated_by")?,
         updated_at: row.try_get("s_updated_at")?,
     };
+    // Only the sourcing query selects the history, so its absence is read as
+    // "not asked" rather than as an error. `try_get` on a column that is not
+    // in the result set fails, and that failure is the signal.
+    let bought = match (
+        row.try_get::<i64, _>("bought_orders"),
+        row.try_get::<i64, _>("bought_units"),
+    ) {
+        (Ok(orders), Ok(units)) => Some(PurchaseHistory {
+            orders,
+            units,
+            last_ordered_at: row.try_get("bought_last_ordered_at").ok().flatten(),
+        }),
+        _ => None,
+    };
     let item = supplier_item_from_row(row)?;
-    Ok(SourcedItem { item, supplier })
+    Ok(SourcedItem {
+        item,
+        supplier,
+        bought,
+    })
 }
 
 pub async fn list_supplier_items(

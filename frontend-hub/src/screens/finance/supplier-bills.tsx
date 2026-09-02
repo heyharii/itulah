@@ -7,7 +7,8 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { BarSeries, type ChartSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Textarea } from "@/components/ui/field"
 import { TotalsLadder } from "@/components/ui/rows"
@@ -29,6 +30,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { parseMinor, todayIso } from "@/screens/finance/chart"
+import { LocationSelect, SiteName } from "@/screens/finance/parts"
 import type { SupplierBill, UnbilledReceipt } from "@itulah/contract"
 
 /// What is late, and what has arrived that nobody has been billed for.
@@ -54,6 +56,39 @@ function isLate(bill: SupplierBill): boolean {
   return bill.status.toUpperCase() !== "POSTED" && bill.days_overdue > 0
 }
 
+/// How old the money is, in the buckets an accountant already thinks in.
+///
+/// # Which bills are in it
+///
+/// The ones still open — recorded and not yet posted. That is the same
+/// judgement `isLate()` makes for the Overdue column and the same population
+/// the overview counts as past due: posting is the act of accepting a bill into
+/// the books, so a posted bill is a decision somebody already took and its age
+/// is history rather than exposure. Charting every row the table holds would
+/// have built the tallest bar out of settled business, and an ageing chart
+/// exists to be acted on.
+///
+/// That makes the chart a subset of the table beneath it, so the card says
+/// which subset on the page and not only here.
+///
+/// Nothing new is fetched: this is the `listBills({})` rows the table is
+/// already built from, bucketed in the browser.
+const AGE_BUCKETS = ["Not due", "1–30", "31–60", "61–90", "90+"] as const
+
+/// `days_overdue` is negative until the due date passes, so "not due" is
+/// everything at or below zero — a bill due today is not late today.
+function ageBucket(days: number): (typeof AGE_BUCKETS)[number] {
+  if (days <= 0) return "Not due"
+  if (days <= 30) return "1–30"
+  if (days <= 60) return "31–60"
+  if (days <= 90) return "61–90"
+  return "90+"
+}
+
+const AGE_SERIES: readonly ChartSeries[] = [
+  { key: "total", label: "Recorded, not posted", tone: "accent" },
+]
+
 const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
   {
     accessorKey: "invoice_number",
@@ -78,8 +113,11 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
   },
   {
     accessorKey: "site_id",
-    header: "Site",
-    size: 100,
+    header: "Location",
+    size: 130,
+    // The client's own name for it. The id stays in `title`, because that is
+    // what the account codes carry and what a support call will be about.
+    cell: ({ row }) => <SiteName id={row.original.site_id} />,
   },
   {
     accessorKey: "status",
@@ -155,8 +193,11 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
   },
   {
     accessorKey: "site_id",
-    header: "Site",
-    size: 100,
+    header: "Location",
+    size: 130,
+    // The client's own name for it. The id stays in `title`, because that is
+    // what the account codes carry and what a support call will be about.
+    cell: ({ row }) => <SiteName id={row.original.site_id} />,
   },
   {
     accessorKey: "arrived_at",
@@ -262,6 +303,26 @@ export function SupplierBills() {
     0
   )
 
+  // Five bars, and always all five: a gap at 61–90 is a fact about the
+  // payables, not a reason to close the space up and let the eye read the
+  // remaining bars as if they were adjacent ages.
+  const ageing = useMemo(() => {
+    const open = billRows.filter((row) => row.status.toUpperCase() !== "POSTED")
+    const sums = new Map<string, number>(AGE_BUCKETS.map((name) => [name, 0]))
+    for (const row of open) {
+      const bucket = ageBucket(row.days_overdue)
+      sums.set(bucket, (sums.get(bucket) ?? 0) + row.total_minor)
+    }
+    return {
+      bills: open.length,
+      owed: open.reduce((sum, row) => sum + row.total_minor, 0),
+      rows: AGE_BUCKETS.map((bucket) => ({
+        bucket,
+        total: sums.get(bucket) ?? 0,
+      })),
+    }
+  }, [billRows])
+
   return (
     <PageContent>
       <PageHeader
@@ -298,25 +359,64 @@ export function SupplierBills() {
       />
 
       {tab === "bills" ? (
-        <Card className="overflow-hidden">
-          {queryState(bills, {
-            loading: "Loading the bills…",
-            render: () =>
-              billRows.length === 0 ? (
-                <EmptyState>
-                  No supplier invoice has been recorded yet.
-                </EmptyState>
-              ) : (
-                <DataTable<SupplierBill>
-                  table={billTable}
-                  onRowClick={(row) => bill.open(row.invoice_id)}
-                  isSelected={(row) => row.invoice_id === bill.value}
-                  empty="No bill matches that search."
-                  className="max-h-[calc(100vh-18rem)]"
+        <>
+          {/* Only when there is something open. With every bill posted the
+              chart would be five empty buckets announcing that there is
+              nothing to age, which the table below says on its own. */}
+          {ageing.bills > 0 && (
+            <Card className="mb-3">
+              <CardHeader>
+                <CardTitle>Ageing</CardTitle>
+                <span className="text-[0.71875rem] text-mute">
+                  {count(ageing.bills)} of {count(billRows.length)} bills —
+                  recorded, not yet posted ·{" "}
+                  <span className="font-medium text-ink tabular-nums">
+                    {money(ageing.owed)}
+                  </span>
+                </span>
+              </CardHeader>
+              <div className="px-4 pb-3.5">
+                <BarSeries
+                  rows={ageing.rows}
+                  series={AGE_SERIES}
+                  format={money}
+                  labelOf={(bucket) => bucket}
+                  titleOf={(bucket) =>
+                    bucket === "Not due" ? "Not due yet" : `${bucket} days late`
+                  }
+                  className="h-[9.5rem]"
                 />
-              ),
-          })}
-        </Card>
+              </div>
+            </Card>
+          )}
+
+          <Card className="overflow-hidden">
+            {queryState(bills, {
+              loading: "Loading the bills…",
+              render: () =>
+                billRows.length === 0 ? (
+                  <EmptyState>
+                    No supplier invoice has been recorded yet.
+                  </EmptyState>
+                ) : (
+                  <DataTable<SupplierBill>
+                    table={billTable}
+                    onRowClick={(row) => bill.open(row.invoice_id)}
+                    isSelected={(row) => row.invoice_id === bill.value}
+                    empty="No bill matches that search."
+                    // The chart takes about fourteen rem off the top of the
+                    // page, so the table's own scroll region gives it back
+                    // rather than running off the bottom of the window.
+                    className={
+                      ageing.bills > 0
+                        ? "max-h-[calc(100vh-32rem)]"
+                        : "max-h-[calc(100vh-18rem)]"
+                    }
+                  />
+                ),
+            })}
+          </Card>
+        </>
       ) : (
         <>
           <Banner tone="warn" className="mb-3">
@@ -441,7 +541,9 @@ function BillSheet({
 
               <Facts>
                 <Fact term="Supplier">{bill.supplier_id}</Fact>
-                <Fact term="Site">{bill.site_id}</Fact>
+                <Fact term="Location">
+                  <SiteName id={bill.site_id} />
+                </Fact>
                 <Fact term="Invoice date">{day(bill.invoice_date)}</Fact>
                 <Fact term="Due">{day(bill.due_date)}</Fact>
                 <Fact term="Currency">{bill.currency}</Fact>
@@ -650,12 +752,14 @@ function RecordSheet({
           </form.Field>
           <form.Field name="siteId">
             {(field) => (
-              <Field label="Site">
-                <Input
+              <Field label="Location">
+                {/* Was a text box placeheld "e.g. DC01", which no site id in
+                    the data resembles. The server refuses an unknown one; this
+                    is how nobody has to meet that refusal. */}
+                <LocationSelect
                   value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="e.g. DC01"
+                  onChange={(next) => field.handleChange(next)}
+                  emptyLabel="Choose a location"
                 />
               </Field>
             )}

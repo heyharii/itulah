@@ -31,6 +31,7 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { LinkButton } from "@/screens/procurement/controls"
 import { useActor } from "@/screens/procurement/shared"
+import { ProcurementTabs } from "@/screens/procurement/tabs"
 
 /// Price amendments — the buyer's inbox.
 ///
@@ -77,21 +78,30 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     accessorKey: "ordered_price_minor",
     header: "Agreed",
     size: 130,
-    meta: { align: "right", filter: { kind: "number", scale: 100, unit: "Rp" } },
+    meta: {
+      align: "right",
+      filter: { kind: "number", scale: 100, unit: "Rp" },
+    },
     cell: ({ row }) => money(row.original.ordered_price_minor),
   },
   {
     accessorKey: "invoiced_price_minor",
     header: "Invoiced",
     size: 130,
-    meta: { align: "right", filter: { kind: "number", scale: 100, unit: "Rp" } },
+    meta: {
+      align: "right",
+      filter: { kind: "number", scale: 100, unit: "Rp" },
+    },
     cell: ({ row }) => money(row.original.invoiced_price_minor),
   },
   {
     accessorKey: "difference_minor",
     header: "Difference",
     size: 140,
-    meta: { align: "right", filter: { kind: "number", scale: 100, unit: "Rp" } },
+    meta: {
+      align: "right",
+      filter: { kind: "number", scale: 100, unit: "Rp" },
+    },
     // The decision metric and the default sort: the supplier billing most above
     // what was agreed is the answer somebody should write first. A negative gap
     // is still a disagreement, and it sorts to the other end rather than out of
@@ -182,6 +192,8 @@ export function PriceAmendments() {
           />
         }
       />
+
+      <ProcurementTabs current="/procurement/amendments" />
 
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Waiting on an answer" value={rows.length} />

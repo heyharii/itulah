@@ -30,12 +30,7 @@ import type { TableSetup } from "@/lib/table"
 /// you search. The kind decides which operators are offered and which editor
 /// the value gets.
 export type FilterKind =
-  | "text"
-  | "option"
-  | "multi"
-  | "number"
-  | "date"
-  | "boolean"
+  "text" | "option" | "multi" | "number" | "date" | "boolean"
 
 export type Operator =
   | "is"
@@ -114,7 +109,13 @@ export const OPERATORS: Record<FilterKind, readonly Operator[]> = {
     "isNotEmpty",
   ],
   option: ["is", "isNot", "isAnyOf", "isNoneOf", "isEmpty", "isNotEmpty"],
-  multi: ["includesAnyOf", "includesAllOf", "excludes", "isEmpty", "isNotEmpty"],
+  multi: [
+    "includesAnyOf",
+    "includesAllOf",
+    "excludes",
+    "isEmpty",
+    "isNotEmpty",
+  ],
   number: [
     "is",
     "isNot",
@@ -212,7 +213,10 @@ export interface FilterSpec {
   /// A fixed set, for columns whose data does not contain every possibility.
   /// Left out, the options are the values actually present in the list, with
   /// their counts, which is what people expect from a facet.
-  readonly options?: readonly { readonly value: string; readonly label: string }[]
+  readonly options?: readonly {
+    readonly value: string
+    readonly label: string
+  }[]
   /// What the typed number is multiplied by before comparing. `100` for the
   /// money columns, which hold minor units: somebody filtering for orders over
   /// ten million types 10000000, not 1000000000.
@@ -249,7 +253,9 @@ function isBlank(value: unknown): boolean {
 /// where the browser is standing.
 function day(value: unknown): string | null {
   if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10)
+    return Number.isNaN(value.getTime())
+      ? null
+      : value.toISOString().slice(0, 10)
   }
   if (typeof value === "number") {
     const date = new Date(value)
@@ -424,8 +430,9 @@ const PART = ":"
 const VALUE = ","
 
 function escape(value: string): string {
-  return value.replace(/[~:,%]/g, (char) =>
-    `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`
+  return value.replace(
+    /[~:,%]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`
   )
 }
 
@@ -476,7 +483,7 @@ export function decodeFilters(raw: unknown): Filter[] {
 /// The search key a bar reads and writes.
 ///
 /// Two, because two screens in the app draw two filterable tables side by side
-/// (`system/access.tsx` and `procurement/article-setups.tsx`), and one key
+/// (`system/access.tsx` and `articles/setups.tsx`), and one key
 /// would have them fighting over it.
 export type FilterParam = "f" | "f2"
 
@@ -574,7 +581,11 @@ export function useFilters<TRow extends RowData>(
     () =>
       columns.map((column) =>
         column.meta?.filter
-          ? { ...column, filterFn: "predicate" as const, enableColumnFilter: true }
+          ? {
+              ...column,
+              filterFn: "predicate" as const,
+              enableColumnFilter: true,
+            }
           : column
       ),
     [columns]

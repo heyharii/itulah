@@ -514,6 +514,14 @@ pub trait EdgeInventory: Send + Sync {
         &self,
         job_id: &str,
     ) -> Result<Option<super::printing::PrintSessionSummary>, EdgeError>;
+    /// Draw one of a job's labels without printing it. A read: nothing is
+    /// claimed, no socket is opened, and calling it twice costs a ribbon
+    /// nothing.
+    fn preview_job_label(
+        &self,
+        job_id: &str,
+        request: &super::printing::LabelPreviewRequest,
+    ) -> Result<super::printing::LabelPreview, EdgeError>;
     /// Point a run at the printer in front of whoever picked it up.
     fn repoint_print_session(
         &self,

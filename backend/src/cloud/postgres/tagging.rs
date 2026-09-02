@@ -35,14 +35,19 @@ use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-/// One colourway being declared: which digit it occupies in the SKU, and what
-/// a human calls it.
+/// One colourway being declared: which digit it occupies in the SKU, and which
+/// colour of the company's own list that digit stands for.
+///
+/// This used to be a free-text label with an optional hex, and that is what
+/// `0081` came to fix: three sessions typing "Navy", "navy" and "Biru Navy"
+/// produced three colours nothing could tell apart, so a colour filter over
+/// the catalogue answered a question about spelling. The colour is picked from
+/// `colour` now. The name and the swatch live there, once, and renaming one
+/// renames it everywhere rather than on the article somebody remembered.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NewSetupColour {
     pub colour_digit: String,
-    pub label: String,
-    #[serde(default)]
-    pub hex_code: Option<String>,
+    pub colour_code: String,
 }
 
 /// One (colour, size) actually present in the delivery.
@@ -335,27 +340,43 @@ pub async fn create_setup_session(
 
     for colour in &request.colours {
         let digit = single_digit(&colour.colour_digit, "colour")?;
-        if colour.label.trim().is_empty() {
+        let code = colour.colour_code.trim().to_uppercase();
+        if code.is_empty() {
             return Err(AppError::Validation(format!(
-                "colour {digit} needs a name a human can read on a picking list"
+                "colour {digit} names no colour; colours are picked from the master, not typed"
+            )));
+        }
+        // Refused here rather than left to the foreign key, because "insert or
+        // update violates foreign key constraint" names a constraint and not
+        // the word somebody got wrong. A retired colour is refused too: a
+        // delivery being set up today is new goods, and new goods should not
+        // be filed under a shade merchandising has stopped offering.
+        let offered: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM colour WHERE code = $1 AND active)",
+        )
+        .bind(&code)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !offered {
+            return Err(AppError::Validation(format!(
+                "colour {code:?} is not in the colour master, or has been retired; \
+                 pick one that is on offer"
             )));
         }
         sqlx::query(
-            "INSERT INTO article_setup_colour (session_id, colour_digit, label, hex_code)
-             VALUES ($1,$2,$3,$4)",
+            "INSERT INTO article_setup_colour (session_id, colour_digit, colour_code)
+             VALUES ($1,$2,$3)",
         )
         .bind(session_id)
         .bind(digit.to_string())
-        .bind(colour.label.trim())
-        .bind(&colour.hex_code)
+        .bind(&code)
         .execute(&mut *tx)
         .await
         .map_err(|error| {
             if is_unique_violation(&error) {
                 AppError::Validation(format!(
-                    "colour {:?} is declared twice under different digits; \
-                     two SKUs no picker can tell apart",
-                    colour.label
+                    "colour {code:?} is declared twice under different digits; \
+                     two SKUs no picker can tell apart"
                 ))
             } else {
                 AppError::from(error)
@@ -641,7 +662,7 @@ pub async fn issue_setup_session(
 
     // --- Mint the colourways -----------------------------------------------
     let colours = sqlx::query(
-        "SELECT colour_digit, label, hex_code FROM article_setup_colour
+        "SELECT colour_digit, colour_code FROM article_setup_colour
          WHERE session_id = $1 ORDER BY colour_digit",
     )
     .bind(session_id)
@@ -649,26 +670,26 @@ pub async fn issue_setup_session(
     .await?;
     for colour in &colours {
         let digit: String = colour.get("colour_digit");
-        let label: String = colour.get("label");
-        let hex: Option<String> = colour.get("hex_code");
-        // A digit already in use on this article keeps its existing name: a
-        // second delivery does not get to rename the first one's colour.
+        let code: String = colour.get("colour_code");
+        // A digit already in use on this article keeps the colour it has: a
+        // second delivery does not get to repoint the first one's digit, which
+        // would rename goods already tagged and on a shelf without changing a
+        // single SKU code.
         sqlx::query(
-            "INSERT INTO article_colour (article_id, colour_digit, label, hex_code)
-             VALUES ($1,$2,$3,$4)
+            "INSERT INTO article_colour (article_id, colour_digit, colour_code)
+             VALUES ($1,$2,$3)
              ON CONFLICT (article_id, colour_digit) DO NOTHING",
         )
         .bind(article_id)
         .bind(&digit)
-        .bind(&label)
-        .bind(&hex)
+        .bind(&code)
         .execute(&mut *tx)
         .await
         .map_err(|error| {
             if is_unique_violation(&error) {
                 AppError::Validation(format!(
-                    "article {article_code} already uses the name {label:?} \
-                     for a different colour digit"
+                    "article {article_code} already carries colour {code} \
+                     under a different digit"
                 ))
             } else {
                 AppError::from(error)
@@ -679,10 +700,15 @@ pub async fn issue_setup_session(
     // --- Mint the SKUs and draw their serials ------------------------------
     let variants = sqlx::query(
         "SELECT v.colour_digit, v.size_code, v.target_quantity, v.base_price_minor,
-                c.label AS colour_label, s.label AS size_label
+                m.label AS colour_label, s.label AS size_label
          FROM article_setup_variant v
          JOIN article_setup_colour c
               ON c.session_id = v.session_id AND c.colour_digit = v.colour_digit
+         -- The colour's name comes from the master now, and is copied onto the
+         -- job line below. That copy is deliberate and stays a copy: a printed
+         -- label is a snapshot of the day it was printed, and must not change
+         -- when somebody renames the colour a year later.
+         JOIN colour m ON m.code = c.colour_code
          JOIN size_code s ON s.code = v.size_code
          WHERE v.session_id = $1
          ORDER BY v.colour_digit, v.size_code",

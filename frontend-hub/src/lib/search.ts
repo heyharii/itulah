@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 
+import { articleKeys, searchArticles } from "@/lib/queries/articles"
 import {
   financeKeys,
   listAssets,
@@ -7,11 +8,6 @@ import {
   listJournal,
   searchAccounts,
 } from "@/lib/queries/finance"
-import {
-  commercialKeys,
-  commercialProducts,
-  listPriceBooks,
-} from "@/lib/queries/commercial"
 import { inventoryKeys, listAllotments } from "@/lib/queries/inventory"
 import { listEmployees, peopleKeys } from "@/lib/queries/people"
 import {
@@ -26,17 +22,23 @@ import type { SheetKey } from "@/lib/sheets"
 
 /// Global search, scoped to the module you are standing in.
 ///
-/// The scope is the point. A console covering nine modules and ~147 endpoints
+/// The scope is the point. A console covering ten modules and ~150 endpoints
 /// has thousands of records whose names collide — a supplier, a store and an
 /// employee can all be "Sejahtera" — so an unscoped list of matches is a
 /// disambiguation puzzle rather than an answer. The palette therefore searches
 /// the active module first and offers "Everywhere" as a deliberate second step.
 ///
-/// **There is no search endpoint on the cloud node.** These sources run against
-/// what Query already holds, fetching the module's list if the cache is cold.
-/// That is honest at today's volumes and it is a real limit: a list that grows
-/// past what a screen would sensibly load needs a server-side search, and the
-/// change is confined to the `run` below.
+/// **Most sources run against what Query already holds**, fetching the module's
+/// list if the cache is cold. That is honest at today's volumes and it is a
+/// real limit: a list that grows past what a screen would sensibly load needs a
+/// server-side search instead.
+///
+/// Three have already crossed that line and take a `q` on the server —
+/// finance's accounts, workplace's discussions, and the article master. A chart
+/// of accounts of 7.528 rows and a garment catalogue are simply too large to
+/// hold in a palette, and those endpoints take a `q` precisely so they do not
+/// have to be. The difference is confined to the `run` below, which is why the
+/// two kinds sit side by side here without a caller knowing which is which.
 
 export interface SearchHit {
   readonly id: string
@@ -171,10 +173,10 @@ export const searchSources: readonly SearchSource[] = [
   {
     module: "finance",
     label: "Accounts",
-    /// The exception to the cached-list rule, and the reason `run` takes a
-    /// query rather than being handed a list: the client's chart is 7,528
-    /// accounts and is never loaded whole. This asks the server, which matches
-    /// codes by prefix and names anywhere.
+    /// The first source to break the cached-list rule, and the reason `run`
+    /// takes a query rather than being handed a list: the client's chart is
+    /// 7,528 accounts and is never loaded whole. This asks the server, which
+    /// matches codes by prefix and names anywhere.
     run: async (query, client, signal) => {
       const accounts = await client.fetchQuery({
         queryKey: financeKeys.accountSearch(query, false),
@@ -233,45 +235,52 @@ export const searchSources: readonly SearchSource[] = [
         }))
     },
   },
+  // Commercial has no palette source. A price book stopped being a screen on
+  // 2026-09-02 — it is the envelope a Pricelist publish writes, not a thing
+  // anybody navigates to — and the grid's own search reaches articles, which
+  // is what a merchandiser actually types.
   {
-    module: "commercial",
-    label: "Price books",
+    module: "articles",
+    label: "Articles",
+    /// Server-side, like finance's accounts and workplace's discussions: the
+    /// catalogue is far too large to hold in a palette, and the endpoint takes
+    /// a `q` precisely so it does not have to be.
+    ///
+    /// That `q` matches six things at once — the article code, a SKU code, the
+    /// name, a QR payload, an EPC-96 hex and the supplier's own code for the
+    /// article — which is invisible from this call site and is the whole reason
+    /// this is the one box worth pasting a scanned tag into. Somebody holding a
+    /// garment has a number off its label, its swing tag or a reader, and does
+    /// not know which of the six they are holding; the palette should not make
+    /// them work that out before it will answer.
+    ///
+    /// It searches the master rather than `/commercial/products`, which is a
+    /// price list: that endpoint always carries a company price, cannot see an
+    /// article nobody has priced yet, and landed every hit on the pricing
+    /// screen — so the only way to look a product up was to ask what it costs.
     run: async (query, client, signal) => {
-      const books = await client.fetchQuery({
-        queryKey: commercialKeys.books(),
-        queryFn: () => listPriceBooks(signal),
+      const scope = { q: query, limit: 20 }
+      const page = await client.fetchQuery({
+        queryKey: articleKeys.list(scope),
+        queryFn: () => searchArticles(scope, signal),
       })
-      return books
-        .filter((book) => matches(query, book.name, `v${book.version}`))
-        .slice(0, 8)
-        .map((book) => ({
-          id: book.id,
-          title: book.name,
-          subtitle: `v${book.version}`,
-          to: "/commercial/price-books",
-          sheet: { key: "book" as const, value: book.id },
-        }))
-    },
-  },
-  {
-    module: "commercial",
-    label: "Products",
-    /// Server-side, like finance's accounts and unlike everything else here:
-    /// the catalogue is far too large to hold in a palette, and the endpoint
-    /// takes a `q` precisely so it does not have to be.
-    run: async (query, client, signal) => {
-      const products = await client.fetchQuery({
-        queryKey: commercialKeys.products(query),
-        queryFn: () => commercialProducts(query, 20, signal),
-      })
-      return products.slice(0, 8).map((product) => ({
-        id: product.sku_id,
-        title: product.sku_code,
-        subtitle: [product.article_name, product.color, product.size]
+      return page.items.slice(0, 8).map((article) => ({
+        id: article.article_code,
+        title: article.name,
+        // The code, then what tells two articles with one name apart. A
+        // catalogue repeats names across divisions and seasons — "Kaos Polos"
+        // is not one product — so a bare name is a hit somebody has to open to
+        // identify.
+        subtitle: [
+          article.article_code,
+          article.division_code,
+          `${article.colours.length} colourway${article.colours.length === 1 ? "" : "s"}`,
+          `${article.sku_count} SKU${article.sku_count === 1 ? "" : "s"}`,
+        ]
           .filter(Boolean)
           .join(" · "),
-        to: "/commercial/prices",
-        sheet: { key: "price" as const, value: product.sku_id },
+        to: "/articles",
+        sheet: { key: "article" as const, value: article.article_code },
       }))
     },
   },
@@ -307,7 +316,7 @@ export const searchSources: readonly SearchSource[] = [
   {
     module: "workplace",
     label: "Discussions",
-    /// The one source besides finance's accounts that asks the server: the
+    /// Server-side, like finance's accounts and the article master: the
     /// discussions endpoint takes a `q`, and a thread body is not something a
     /// list response carries for the client to grep.
     run: async (query, client, signal) => {

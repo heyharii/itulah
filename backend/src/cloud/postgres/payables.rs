@@ -53,6 +53,21 @@ pub struct SupplierBill {
     /// Days past due, negative when it is not due yet. Derived on read: a
     /// stored age would be wrong by morning.
     pub days_overdue: i32,
+    /// What has actually left the bank against this bill — allocations from
+    /// POSTED payments only. Summed on read for the same reason every balance
+    /// in this module is: a stored figure and the rows it summarises drift.
+    pub paid_minor: i64,
+    /// Still owed: `total_minor - paid_minor`.
+    pub outstanding_minor: i64,
+    /// What is spoken for, counting DRAFT payments as well as posted ones.
+    ///
+    /// The third figure exists because without it a screen cannot explain
+    /// itself. The database refuses an allocation that would push this past the
+    /// bill's total — a draft reserves, so two drafts cannot both promise the
+    /// same 10,000,000 — and a bill showing 8,000,000 outstanding that will not
+    /// take another allocation looks broken until somebody can see that a draft
+    /// already has it.
+    pub allocated_minor: i64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -101,10 +116,23 @@ const BILL_COLUMNS: &str = "i.invoice_id, i.invoice_number, i.supplier_id, i.sup
      i.discount_minor, i.total_minor, i.status, i.journal_entry_id, i.recorded_by,
      i.recorded_at, i.posted_by, i.note,
      (SELECT e.entry_number FROM journal_entry e WHERE e.entry_id = i.journal_entry_id) AS entry_number,
-     COALESCE((CURRENT_DATE - i.due_date), 0)::int AS days_overdue";
+     COALESCE((CURRENT_DATE - i.due_date), 0)::int AS days_overdue,
+     COALESCE((SELECT SUM(al.amount_minor) FROM supplier_payment_allocation al
+                 JOIN supplier_payment p USING (payment_id)
+                WHERE al.invoice_id = i.invoice_id AND p.status = 'POSTED'), 0)::bigint
+         AS paid_minor,
+     COALESCE((SELECT SUM(al.amount_minor) FROM supplier_payment_allocation al
+                 JOIN supplier_payment p USING (payment_id)
+                WHERE al.invoice_id = i.invoice_id AND p.status IN ('DRAFT','POSTED')), 0)::bigint
+         AS allocated_minor";
 
 fn to_bill(row: &sqlx::postgres::PgRow) -> Result<SupplierBill, AppError> {
+    let total_minor: i64 = row.try_get("total_minor")?;
+    let paid_minor: i64 = row.try_get("paid_minor")?;
     Ok(SupplierBill {
+        paid_minor,
+        outstanding_minor: total_minor - paid_minor,
+        allocated_minor: row.try_get("allocated_minor")?,
         invoice_id: row.try_get("invoice_id")?,
         invoice_number: row.try_get("invoice_number")?,
         supplier_id: row.try_get("supplier_id")?,
@@ -116,7 +144,7 @@ fn to_bill(row: &sqlx::postgres::PgRow) -> Result<SupplierBill, AppError> {
         subtotal_minor: row.try_get("subtotal_minor")?,
         tax_minor: row.try_get("tax_minor")?,
         discount_minor: row.try_get("discount_minor")?,
-        total_minor: row.try_get("total_minor")?,
+        total_minor,
         status: row.try_get("status")?,
         journal_entry_id: row.try_get("journal_entry_id")?,
         entry_number: row.try_get("entry_number")?,
@@ -344,4 +372,150 @@ pub async fn unbilled_receipts(
             })
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Payables ageing
+// ---------------------------------------------------------------------------
+
+/// The five buckets, on one row.
+///
+/// A struct rather than five loose columns, so the same shape serves a supplier
+/// and the grand total and nothing has to invent a supplier id for the footer.
+#[derive(Clone, Debug, Default, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AgingBuckets {
+    /// Not yet due as at the reporting date.
+    pub not_due_minor: i64,
+    pub days_1_30_minor: i64,
+    pub days_31_60_minor: i64,
+    pub days_61_90_minor: i64,
+    pub days_over_90_minor: i64,
+    pub total_minor: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PayablesAgingRow {
+    pub supplier_id: String,
+    pub supplier_name: Option<String>,
+    /// How many bills are behind these figures — the difference between one
+    /// disputed invoice and a supplier nobody has paid for a quarter.
+    pub bill_count: i64,
+    /// The age of the oldest thing still outstanding, in days. Negative when
+    /// nothing this supplier is owed has fallen due yet.
+    pub oldest_days: i32,
+    pub buckets: AgingBuckets,
+}
+
+/// What is owed, to whom, and how late.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PayablesAging {
+    pub as_of: NaiveDate,
+    pub site_id: Option<String>,
+    /// Heaviest first: an ageing report is read to decide who to pay next.
+    pub suppliers: Vec<PayablesAgingRow>,
+    pub total: AgingBuckets,
+}
+
+/// Ageing over the bills, as at a date.
+///
+/// # Why this is not summed from `journal_line`
+///
+/// Every other balance in this module is, and deliberately. This one is not,
+/// because ageing is a question about DOCUMENTS: which bill, dated when, due
+/// when. The ledger carries a supplier on the line and no due date at all, so
+/// a journal-derived ageing would have to guess terms from the posting date.
+/// The two do not disagree — `trade_payable` totals what the outstanding
+/// column below totals, because both move only when a bill or a payment posts.
+///
+/// # What "as at" means
+///
+/// Both sides are wound back: a bill invoiced after the date is not yet a debt,
+/// and a payment made after it has not yet happened. Asking for last month end
+/// therefore gives what last month end actually looked like, not today's
+/// balances bucketed by last month's calendar.
+///
+/// A bill with no due date is aged from its invoice date. That is a guess and a
+/// visible one: the alternative is to call an undated bill "not due" forever,
+/// which hides the oldest debts in the one bucket nobody chases.
+pub async fn payables_aging(
+    pool: &PgPool,
+    as_of: NaiveDate,
+    site_id: Option<&str>,
+) -> Result<PayablesAging, AppError> {
+    let rows = sqlx::query(
+        "WITH open_bill AS (
+             SELECT i.supplier_id,
+                    i.supplier_name,
+                    ($1::date - COALESCE(i.due_date, i.invoice_date))::int AS age_days,
+                    i.total_minor - COALESCE((
+                        SELECT SUM(al.amount_minor)
+                          FROM supplier_payment_allocation al
+                          JOIN supplier_payment p USING (payment_id)
+                         WHERE al.invoice_id = i.invoice_id
+                           AND p.status = 'POSTED'
+                           AND p.payment_date <= $1), 0) AS outstanding_minor
+               FROM supplier_invoice i
+              WHERE i.status = 'POSTED'
+                AND i.invoice_date <= $1
+                AND ($2::text IS NULL OR i.site_id = $2)
+         )
+         SELECT supplier_id,
+                MAX(supplier_name) AS supplier_name,
+                COUNT(*)::bigint AS bill_count,
+                MAX(age_days)::int AS oldest_days,
+                SUM(outstanding_minor) FILTER (WHERE age_days <= 0)::bigint AS not_due,
+                SUM(outstanding_minor) FILTER (WHERE age_days BETWEEN 1 AND 30)::bigint AS d1_30,
+                SUM(outstanding_minor) FILTER (WHERE age_days BETWEEN 31 AND 60)::bigint AS d31_60,
+                SUM(outstanding_minor) FILTER (WHERE age_days BETWEEN 61 AND 90)::bigint AS d61_90,
+                SUM(outstanding_minor) FILTER (WHERE age_days > 90)::bigint AS d90_plus,
+                SUM(outstanding_minor)::bigint AS total
+           FROM open_bill
+          WHERE outstanding_minor > 0
+          GROUP BY supplier_id
+          ORDER BY SUM(outstanding_minor) DESC, supplier_id",
+    )
+    .bind(as_of)
+    .bind(site_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut suppliers = Vec::with_capacity(rows.len());
+    let mut total = AgingBuckets::default();
+    for row in &rows {
+        // A bucket with nothing in it comes back NULL from a FILTER, and a
+        // missing bucket and an empty one are the same thing to a reader of a
+        // report. Zero, not a gap — the same argument `BalanceRow::cells`
+        // makes about a location with nothing posted.
+        let buckets = AgingBuckets {
+            not_due_minor: row.try_get::<Option<i64>, _>("not_due")?.unwrap_or_default(),
+            days_1_30_minor: row.try_get::<Option<i64>, _>("d1_30")?.unwrap_or_default(),
+            days_31_60_minor: row.try_get::<Option<i64>, _>("d31_60")?.unwrap_or_default(),
+            days_61_90_minor: row.try_get::<Option<i64>, _>("d61_90")?.unwrap_or_default(),
+            days_over_90_minor: row.try_get::<Option<i64>, _>("d90_plus")?.unwrap_or_default(),
+            total_minor: row.try_get::<Option<i64>, _>("total")?.unwrap_or_default(),
+        };
+        total.not_due_minor += buckets.not_due_minor;
+        total.days_1_30_minor += buckets.days_1_30_minor;
+        total.days_31_60_minor += buckets.days_31_60_minor;
+        total.days_61_90_minor += buckets.days_61_90_minor;
+        total.days_over_90_minor += buckets.days_over_90_minor;
+        total.total_minor += buckets.total_minor;
+        suppliers.push(PayablesAgingRow {
+            supplier_id: row.try_get("supplier_id")?,
+            supplier_name: row.try_get("supplier_name")?,
+            bill_count: row.try_get("bill_count")?,
+            oldest_days: row.try_get("oldest_days")?,
+            buckets,
+        });
+    }
+
+    Ok(PayablesAging {
+        as_of,
+        site_id: site_id.map(str::to_string),
+        suppliers,
+        total,
+    })
 }

@@ -24,7 +24,7 @@ export type Effect = { "kind": "PERCENT", bps: number,
  * basket — an error small enough to survive every review and large
  * enough to be worth arguing about at the counter.
  */
-compound: boolean, } | { "kind": "AMOUNT", amount: Money, } | { "kind": "FIXED_UNIT_PRICE", unit_price: Money, } | { "kind": "MARGIN", bps: number, } | { "kind": "FREE_ITEM", 
+compound: boolean, } | { "kind": "AMOUNT", amount: Money, } | { "kind": "FIXED_UNIT_PRICE", unit_price: Money, } | { "kind": "FREE_ITEM", 
 /**
  * What is given. `None` means the same product that triggered the
  * rule — "buy two of these, get one of these free", where the shop

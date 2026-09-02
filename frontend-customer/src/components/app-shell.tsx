@@ -4,7 +4,7 @@ import { ArrowLeft, History, Home, User } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 import { Chip } from "@/components/ui/chip"
-import { useMember } from "@/lib/member"
+import { useSession } from "@/lib/session"
 import { SPRING_LAYOUT } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 
@@ -69,7 +69,7 @@ function titleFor(pathname: string): string {
 /// 1400px window is a long way from what the reader is looking at.
 export function AppShell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
-  const { memberId } = useMember()
+  const { member } = useSession()
   const pushed = isPushed(pathname)
 
   return (
@@ -88,7 +88,7 @@ export function AppShell() {
               Itulah Member
             </p>
             <p className="truncate text-meta text-body">
-              {memberId ?? "Belum ada kartu"}
+              {member.display_name ?? member.member_id}
             </p>
           </div>
           {TABS.map((tab) => {

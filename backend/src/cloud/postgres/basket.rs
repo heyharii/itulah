@@ -112,7 +112,7 @@ fn basket_line_from_row(row: sqlx::postgres::PgRow) -> Result<BasketLine, AppErr
     let quantity: i64 = row.try_get("b_quantity")?;
     let added_at: DateTime<Utc> = row.try_get("b_added_at")?;
     let updated_at: DateTime<Utc> = row.try_get("b_updated_at")?;
-    let SourcedItem { item, supplier } = sourced_item_from_row(row)?;
+    let SourcedItem { item, supplier, .. } = sourced_item_from_row(row)?;
     Ok(BasketLine {
         item,
         supplier,

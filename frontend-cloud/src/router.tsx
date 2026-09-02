@@ -788,7 +788,30 @@ const routeTree = rootRoute.addChildren([
   personRoute,
 ])
 
-export const router = createRouter({ routeTree })
+/// Turning a page is a page turn; opening a sheet is not.
+///
+/// `defaultViewTransition` hands every navigation to the browser's own view
+/// transition — it snapshots the screen either side of the router's state
+/// change and cross-fades the two, which is why this costs no library and no
+/// wrapper component. What it looks like is in `index.css`.
+///
+/// The predicate is the whole point of writing it as an object rather than
+/// `true`. Most navigations in this app do not change the pathname: a sheet
+/// opening writes `?order=`, the sales screen writes its span, the ledger
+/// writes an account. Fading the whole screen for those would be wrong twice
+/// over — the sheet has its own animation to fight with, and the other two are
+/// a table refreshing in place, not a new screen. Returning `false` skips the
+/// transition and commits the navigation directly.
+///
+/// Stated once here rather than at each call site because the call sites are
+/// the thing that grows: a search parameter added next month gets the right
+/// behaviour without anybody remembering this file exists.
+export const router = createRouter({
+  routeTree,
+  defaultViewTransition: {
+    types: ({ pathChanged }) => (pathChanged ? ["page"] : false),
+  },
+})
 
 declare module "@tanstack/react-router" {
   interface Register {

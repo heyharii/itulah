@@ -9,7 +9,7 @@ export const analyticsNav: AppModule = {
   id: "analytics",
   label: "Analytics",
   icon: LineChart,
-  mesh: { c1: "#a6dbf5", c2: "#b5caf7", c3: "#369cd5", base: "#45a8dd" },
+  tint: { top: "#77d8f7", bottom: "#1195d2" },
   home: "/analytics",
   sections: [
     {

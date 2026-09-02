@@ -635,6 +635,85 @@ pub async fn account_mappings(
         .collect()
 }
 
+/// What somebody is trying to do with the account, so the refusal can say what
+/// it actually cost them rather than describing the chart at them.
+///
+/// Two verbs, because the same three faults land on two different screens:
+/// choosing an account on the Account Map, and naming one on a journal entry.
+#[derive(Clone, Copy, Debug)]
+pub enum Intent {
+    /// Pointing a semantic key at this account.
+    Map,
+    /// Putting a journal line on this account.
+    Post,
+}
+
+/// Refuse an account that cannot carry a posting, and say which of the three
+/// things is wrong with it.
+///
+/// # Why this exists twice over
+///
+/// `journal_line` pins `is_group = false` and carries it into the composite
+/// foreign key `journal_line_account_code_is_group_fkey`, so a heading is
+/// already impossible. But a foreign-key violation is SQLSTATE 23503, and
+/// `AppError::into_response` translates only P0001 — so the database's perfectly
+/// correct refusal reached a person as "database operation failed", with no clue
+/// whether the code was wrong, a heading, or a typo. Six other refusals in this
+/// module name their reason in plain language; this one did not.
+///
+/// The constraint remains the guarantee. This is only the explanation, checked
+/// first so the sentence is a good one — the same arrangement as
+/// `poster::check_balanced` sitting in front of the deferred balance trigger.
+///
+/// Inactive is checked here and nowhere else: `is_active` is not in the foreign
+/// key, so an account retired after it was mapped would otherwise keep taking
+/// postings quietly, which is the failure that survives a year.
+pub async fn assert_postable(
+    executor: impl sqlx::PgExecutor<'_>,
+    account_code: &str,
+    intent: Intent,
+) -> Result<(), AppError> {
+    let code = account_code.trim();
+    let account =
+        sqlx::query("SELECT name, is_group, is_active FROM ledger_account WHERE account_code = $1")
+            .bind(code)
+            .fetch_optional(executor)
+            .await?
+            .ok_or_else(|| match intent {
+                Intent::Map => AppError::Validation(format!("no account {code} in the chart")),
+                Intent::Post => AppError::Validation(format!(
+                    "no account {code} in the chart; nothing can be posted to a code the \
+                     client does not keep"
+                )),
+            })?;
+    let name: String = account.try_get("name")?;
+    if account.try_get::<bool, _>("is_group")? {
+        return Err(AppError::Validation(match intent {
+            Intent::Map => format!(
+                "{code} {name} is a heading; it has a balance by summation and nothing may be \
+                 posted to it. Map a postable account under it instead."
+            ),
+            Intent::Post => format!(
+                "{code} {name} is a heading; it has a balance by summation and nothing may be \
+                 posted to it. Choose a postable account under it instead."
+            ),
+        }));
+    }
+    if !account.try_get::<bool, _>("is_active")? {
+        return Err(AppError::Validation(match intent {
+            Intent::Map => format!(
+                "{code} {name} is inactive in the client's chart; mapping it would post to an \
+                 account they have retired."
+            ),
+            Intent::Post => format!(
+                "{code} {name} is inactive in the client's chart; it has been retired and \
+                 cannot take new postings."
+            ),
+        }));
+    }
+    Ok(())
+}
+
 /// Point a meaning at an account, or move it.
 ///
 /// Upsert rather than insert: remapping is an ordinary act — a bank changes, a
@@ -652,31 +731,9 @@ pub async fn set_account_mapping(
 
     // Checked here as well as by the composite foreign key below, for the same
     // reason the poster checks balance before the trigger does: the constraint
-    // is the guarantee, this is the explanation. A foreign-key violation is
-    // SQLSTATE 23503, which `into_response` does not recognise, so without this
-    // a person mapping a heading gets "database operation failed" and no idea
-    // which of the two things they chose was wrong.
+    // is the guarantee, this is the explanation.
     let code = request.account_code.trim();
-    let account =
-        sqlx::query("SELECT name, is_group, is_active FROM ledger_account WHERE account_code = $1")
-            .bind(code)
-            .fetch_optional(pool)
-            .await?
-            .ok_or_else(|| AppError::Validation(format!("no account {code} in the chart")))?;
-    if account.try_get::<bool, _>("is_group")? {
-        return Err(AppError::Validation(format!(
-            "{code} {} is a heading; it has a balance by summation and nothing may be \
-             posted to it. Map a postable account under it instead.",
-            account.try_get::<String, _>("name")?
-        )));
-    }
-    if !account.try_get::<bool, _>("is_active")? {
-        return Err(AppError::Validation(format!(
-            "{code} {} is inactive in the client's chart; mapping it would post to an \
-             account they have retired.",
-            account.try_get::<String, _>("name")?
-        )));
-    }
+    assert_postable(pool, code, Intent::Map).await?;
 
     sqlx::query(
         "INSERT INTO account_map (semantic_key, site_id, qualifier, account_code, set_by, note)

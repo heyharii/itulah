@@ -69,7 +69,12 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Uni
                     }
                 }
                 itemsIndexed(lines) { index, line ->
-                    ProductRow(line, first = index == 0, last = index == lines.lastIndex)
+                    ProductRow(
+                        line,
+                        first = index == 0,
+                        last = index == lines.lastIndex,
+                        auth = state.imageAuth,
+                    )
                 }
                 if (foreign > 0) {
                     item(key = "foreign") {
@@ -290,7 +295,7 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
  * scroll, which is the jitter this list used to have.
  */
 @Composable
-private fun ProductRow(line: Grouped, first: Boolean, last: Boolean) {
+private fun ProductRow(line: Grouped, first: Boolean, last: Boolean, auth: String?) {
     // No clip() and no per-row Surface. Every clip is a saved layer, and
     // seventeen of them is seventeen layers to compose on a chip whose own
     // system apps do not reach sixty frames. Corners are drawn by the shaped
@@ -323,7 +328,7 @@ private fun ProductRow(line: Grouped, first: Boolean, last: Boolean) {
                 contentAlignment = Alignment.Center,
             ) {
                 val url = line.identity?.imageUrl
-                if (url != null) RemoteThumb(url)
+                if (url != null) RemoteThumb(url, auth)
             }
             Column(Modifier.weight(1f)) {
                 Text(
@@ -355,11 +360,21 @@ private object Thumbs {
 
     fun cached(url: String) = cache[url]
 
-    suspend fun load(url: String): androidx.compose.ui.graphics.ImageBitmap? {
+    suspend fun load(url: String, auth: String?): androidx.compose.ui.graphics.ImageBitmap? {
         cache[url]?.let { return it }
         val bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                val bytes = java.net.URL(url).openStream().use { it.readBytes() }
+                // The node serves these behind inventory-read, so the operator
+                // token has to travel with the request. Fetching bare worked
+                // only against a node with authentication switched off, and
+                // would have left every tile blank in a real shop.
+                val connection = java.net.URL(url).openConnection()
+                if (!auth.isNullOrBlank()) {
+                    connection.setRequestProperty("Authorization", "Bearer " + auth)
+                }
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 20_000
+                val bytes = connection.getInputStream().use { it.readBytes() }
                 val bounds = android.graphics.BitmapFactory.Options().apply {
                     inJustDecodeBounds = true
                 }
@@ -380,9 +395,9 @@ private object Thumbs {
 }
 
 @Composable
-private fun RemoteThumb(url: String) {
+private fun RemoteThumb(url: String, auth: String?) {
     var bitmap by remember(url) { mutableStateOf(Thumbs.cached(url)) }
-    LaunchedEffect(url) { if (bitmap == null) bitmap = Thumbs.load(url) }
+    LaunchedEffect(url) { if (bitmap == null) bitmap = Thumbs.load(url, auth) }
     bitmap?.let {
         Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop)

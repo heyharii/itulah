@@ -42,7 +42,7 @@ export const financeNav: AppModule = {
   id: "finance",
   label: "Finance",
   icon: Landmark,
-  mesh: { c1: "#aeecbd", c2: "#d3f0a4", c3: "#41ae61", base: "#4fb96e" },
+  tint: { top: "#77e883", bottom: "#1cb13a" },
   home: "/finance",
   sections: [
     {

@@ -14,7 +14,7 @@ export const storeopsNav: AppModule = {
   id: "storeops",
   label: "Store ops",
   icon: Store,
-  mesh: { c1: "#ffdb9a", c2: "#ffc59f", c3: "#eca02e", base: "#f0a93c" },
+  tint: { top: "#ffc65c", bottom: "#f58600" },
   home: "/storeops",
   sections: [
     {

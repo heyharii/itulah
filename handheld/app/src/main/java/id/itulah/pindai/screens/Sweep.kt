@@ -84,6 +84,8 @@ data class SweepState(
     val resolveNote: String? = null,
     val filedCount: Int = 0,
     val filingNote: String? = null,
+    /** Bearer token for node-served images; the proxy needs inventory read. */
+    val imageAuth: String? = null,
     val sessionCode: String = "",
     val shared: SharedSession? = null,
     val sharedNote: String? = null,
@@ -217,12 +219,14 @@ class SweepViewModel(
                 }
             }
             val elapsed = System.currentTimeMillis() - started
+            val token = settings.operatorToken.ifBlank { null }
             result.onSuccess { found ->
                 update {
                     val merged = it.identities + found
                     it.copy(
                         identities = merged,
                         lines = regroup(it.seen, merged),
+                        imageAuth = token,
                         resolving = false,
                         resolveNote = "${found.size}/${wanted.size} named · ${elapsed} ms",
                     )

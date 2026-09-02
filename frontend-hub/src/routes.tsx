@@ -10,6 +10,7 @@ import { allNavItems, modules } from "@/lib/navigation"
 import { validateSheetSearch } from "@/lib/sheets"
 import { Placeholder } from "@/screens/placeholder"
 import { screens as analytics } from "@/screens/analytics"
+import { screens as articles } from "@/screens/articles"
 import { screens as commercial } from "@/screens/commercial"
 import { screens as finance } from "@/screens/finance"
 import { screens as inventory } from "@/screens/inventory"
@@ -47,6 +48,7 @@ const rootRoute = createRootRoute({
 /// below fails the build if one does not.
 const screens: Readonly<Record<string, () => React.ReactNode>> = {
   ...commercial,
+  ...articles,
   ...inventory,
   ...procurement,
   ...storeops,
@@ -93,6 +95,17 @@ export const router = createRouter({
   // The screens read the signed-in user's own data; a stale answer shown for a
   // moment is better than a spinner, and Query owns freshness anyway.
   defaultPreloadStaleTime: 0,
+  // Turning a page is a page turn; opening a sheet is not.
+  //
+  // This hands a navigation to the browser's own view transition, which is why
+  // the page turn costs no library and no wrapper component. What it looks
+  // like is in `styles/index.css`.
+  //
+  // The predicate is the reason this is an object rather than `true`. Most
+  // No page transition. One was tried — the incoming screen faded up over 4px
+  // — and removed once Commercial began navigating itself by tabs: a screen
+  // that changes several times a minute reads as considered on the first click
+  // and as lag on the tenth. The router commits navigations directly.
 })
 
 declare module "@tanstack/react-router" {

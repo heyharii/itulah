@@ -194,20 +194,34 @@ pub struct Statement {
     pub to: NaiveDate,
     pub site_id: Option<String>,
     pub sections: Vec<StatementSection>,
-    /// The period's result, on a balance sheet: income less expenses, classes
-    /// 4 through 8 netted.
+    /// Classes 4 through 8 netted, in the ledger's own signs: debits positive,
+    /// so a net cost is positive and a net profit is negative. The same
+    /// convention `StatementLine::amount_minor` uses, and for the same reason —
+    /// a report that flipped the sign of its own bottom line would be the one
+    /// figure on the page that did not mean what every other figure means.
     ///
-    /// A balance sheet of classes 1, 2 and 3 alone does not balance, and that
-    /// is not a fault — profit earned and not yet closed to equity is sitting
-    /// in the income and expense classes. The client keeps a line for it,
-    /// `3013001003 Laba (Rugi) bulan berjalan`, and this is that figure. Zero
-    /// on a profit and loss, where the result is the report rather than a
-    /// reconciling item.
+    /// **On a balance sheet** it is a reconciling item, measured inception to
+    /// date. A sheet of classes 1, 2 and 3 alone does not balance, and that is
+    /// not a fault: profit earned and not yet closed to equity is sitting in
+    /// the income and expense classes. The client keeps a line for it,
+    /// `3013001003 Laba (Rugi) bulan berjalan`, and this is that figure.
+    ///
+    /// **On a profit and loss** it is the report — the result of the window
+    /// `from`..`to`, and therefore equal to the sum of the sections below.
+    /// Deliberately redundant, in the same spirit as `journal_entry.total_minor`:
+    /// it is computed from `journal_line` rather than by adding up the sections,
+    /// so a bug in the tree-rolling shows up as a disagreement instead of
+    /// hiding inside a figure derived from the very rows it should be checking.
     pub result_minor: i64,
     /// Assets minus liabilities, equity AND the period's result. Zero is the
     /// only correct answer, and it is computed here rather than left to the
     /// browser — a page that subtracted its own visible rows would report
     /// "balanced" about a list it had not finished loading.
+    ///
+    /// Always zero on a profit and loss, and that is not a stub: a P&L is one
+    /// side of an entry, not both, so there is nothing for it to be out of
+    /// balance AGAINST. Income and expenses balance against the assets and
+    /// liabilities that moved with them, which is the balance sheet's question.
     pub out_of_balance_minor: i64,
 }
 
@@ -297,30 +311,49 @@ pub async fn statement(
         }
     }
 
+    // Both statements need the same number and mean different things by it, so
+    // it is one query with one difference: the window.
+    //
+    // A balance sheet asks it inception to date, because the profit sitting
+    // unclosed in the income and expense classes is ALL the profit ever earned
+    // and not yet swept to equity — bounding that by a start date would leave
+    // the sheet out by everything that happened before it. A profit and loss
+    // asks it over the window it reports, because that is the report.
+    //
+    // `from` is already NULL for a balance sheet — `statement` forced it so
+    // above — which is why the same `$4::date IS NULL OR ...` guard serves
+    // both without a branch here.
+    let result: i64 = sqlx::query(
+        "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS result
+           FROM journal_line l JOIN journal_entry e USING (entry_id)
+           JOIN ledger_account a ON a.account_code = l.account_code
+          WHERE a.root_class = ANY($1)
+            AND ($3::text IS NULL OR l.site_id = $3)
+            AND ($4::date IS NULL OR e.posting_date >= $4)
+            AND e.posting_date <= $2",
+    )
+    .bind(&PROFIT_LOSS[..])
+    .bind(to)
+    .bind(site_id)
+    .bind(from)
+    .fetch_one(pool)
+    .await?
+    .try_get("result")?;
+
     // Assets are debit-natured and liabilities and equity are credit-natured,
     // so in the ledger's own signs the three classes sum to zero — once the
     // period's result is counted with them. Without it the sheet is out by
     // exactly the profit, which looks alarming and is simply the year not being
     // closed yet.
-    let (result, out_of_balance) = if kind == "BALANCE_SHEET" {
-        let result: i64 = sqlx::query(
-            "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS result
-               FROM journal_line l JOIN journal_entry e USING (entry_id)
-               JOIN ledger_account a ON a.account_code = l.account_code
-              WHERE a.root_class = ANY($1)
-                AND ($3::text IS NULL OR l.site_id = $3)
-                AND e.posting_date <= $2",
-        )
-        .bind(&PROFIT_LOSS[..])
-        .bind(to)
-        .bind(site_id)
-        .fetch_one(pool)
-        .await?
-        .try_get("result")?;
+    //
+    // A profit and loss has no such check to make: its sections are one side of
+    // every entry that touched them, and the other side is on the balance
+    // sheet. Zero here is the answer, not a placeholder — see the field.
+    let out_of_balance = if kind == "BALANCE_SHEET" {
         let position: i64 = sections.iter().map(|s| s.total_minor).sum();
-        (result, position + result)
+        position + result
     } else {
-        (0, 0)
+        0
     };
 
     Ok(Statement {

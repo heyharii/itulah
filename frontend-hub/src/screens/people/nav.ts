@@ -9,7 +9,7 @@ export const peopleNav: AppModule = {
   id: "people",
   label: "People",
   icon: Users,
-  mesh: { c1: "#ffc2a2", c2: "#ffadad", c3: "#ec7d4d", base: "#f08a5d" },
+  tint: { top: "#ff9a78", bottom: "#ef4a2a" },
   home: "/people",
   sections: [
     {

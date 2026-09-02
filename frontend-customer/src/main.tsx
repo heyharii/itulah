@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 import "./styles/index.css"
 import App from "./App.tsx"
-import { MemberProvider } from "@/components/member-provider"
 
 /// One client for the whole surface.
 ///
@@ -27,9 +26,7 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <MemberProvider>
-        <App />
-      </MemberProvider>
+      <App />
     </QueryClientProvider>
   </StrictMode>,
 )

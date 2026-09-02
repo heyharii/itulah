@@ -89,10 +89,10 @@ function prefixOf(route) {
  * line when you find a route whose path is reached but whose method is not.
  */
 const KNOWN_METHOD_GAPS = [
-  // Nothing opens a setup session, so an accepted delivery cannot be given an
-  // identity and no tagging job is ever issued. The chain from goods-in to
-  // tagging is broken in the browser; the endpoint exists and is unused.
-  // Found by walking sourcing → PO → receipt → tagging on a live pair.
+  // Empty. The one that lived here — nothing called `POST /api/v1/article-setups`,
+  // so an accepted delivery could never be given an identity and the DC's
+  // tagging queue stayed empty for ever — was closed by the "Give this delivery
+  // an identity" sheet on Article setups.
 ]
 
 const missing = []

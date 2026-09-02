@@ -19,6 +19,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { LinkButton } from "@/screens/procurement/controls"
+import { ProcurementTabs } from "@/screens/procurement/tabs"
 
 /// Destinations — where a delivery can actually go, and what is already on its
 /// way there.
@@ -159,6 +160,8 @@ export function Destinations() {
           </LinkButton>
         }
       />
+
+      <ProcurementTabs current="/procurement/destinations" />
 
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Places a delivery can go" value={count(rows.length)} />

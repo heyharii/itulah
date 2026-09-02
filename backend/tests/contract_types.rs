@@ -230,6 +230,10 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PrintSessionSummary: {e}"));
     inventory_backend::edge::printing::RepointPrinterRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("RepointPrinterRequest: {e}"));
+    inventory_backend::edge::printing::LabelPreviewRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("LabelPreviewRequest: {e}"));
+    inventory_backend::edge::printing::LabelPreview::export_all(&config)
+        .unwrap_or_else(|e| panic!("LabelPreview: {e}"));
     inventory_backend::edge::printing::ReprintRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("ReprintRequest: {e}"));
     inventory_backend::edge::printing::PrintChunkReport::export_all(&config)
@@ -283,6 +287,12 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("CustomerTransactionDetail: {e}"));
     inventory_backend::cloud::postgres::CustomerTransactionPage::export_all(&config)
         .unwrap_or_else(|e| panic!("CustomerTransactionPage: {e}"));
+    inventory_backend::cloud::postgres::MemberIdentity::export_all(&config)
+        .unwrap_or_else(|e| panic!("MemberIdentity: {e}"));
+    inventory_backend::cloud::postgres::IssuedPairingCode::export_all(&config)
+        .unwrap_or_else(|e| panic!("IssuedPairingCode: {e}"));
+    inventory_backend::cloud::http::member::MemberSessionResponse::export_all(&config)
+        .unwrap_or_else(|e| panic!("MemberSessionResponse: {e}"));
 
     // Where an order can be delivered — the purchasing question, asked without
     // the administration privilege the sync origin register requires.
@@ -337,6 +347,10 @@ fn the_wire_types_are_written_for_the_browser() {
     // must not be transcribing its shape.
     inventory_backend::cloud::postgres::AuditEntry::export_all(&config)
         .unwrap_or_else(|e| panic!("AuditEntry: {e}"));
+    // What a buyer has already ordered of one supplier item. Carried on every
+    // sourcing row, so the browser must not be transcribing its shape.
+    inventory_backend::cloud::postgres::PurchaseHistory::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseHistory: {e}"));
 
     inventory_backend::cloud::postgres::StoredFile::export_all(&config)
         .unwrap_or_else(|e| panic!("StoredFile: {e}"));
@@ -413,6 +427,27 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("RecordBillRequest: {e}"));
     inventory_backend::cloud::postgres::UnbilledReceipt::export_all(&config)
         .unwrap_or_else(|e| panic!("UnbilledReceipt: {e}"));
+
+    // Supplier payments: the other half of a bill. `SupplierPayment` carries
+    // its allocations inline because a payment without them is meaningless —
+    // the header says only that money left.
+    inventory_backend::cloud::postgres::SupplierPayment::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierPayment: {e}"));
+    inventory_backend::cloud::postgres::PaymentAllocation::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentAllocation: {e}"));
+    inventory_backend::cloud::postgres::RecordPaymentRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordPaymentRequest: {e}"));
+    inventory_backend::cloud::postgres::AllocateToBill::export_all(&config)
+        .unwrap_or_else(|e| panic!("AllocateToBill: {e}"));
+
+    // Payables ageing. `AgingBuckets` is one shape used twice — per supplier
+    // and for the footer — so the total does not have to invent a supplier id.
+    inventory_backend::cloud::postgres::PayablesAging::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayablesAging: {e}"));
+    inventory_backend::cloud::postgres::PayablesAgingRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayablesAgingRow: {e}"));
+    inventory_backend::cloud::postgres::AgingBuckets::export_all(&config)
+        .unwrap_or_else(|e| panic!("AgingBuckets: {e}"));
 
     // Fixed assets. `AssetRow.decision` is an Option on purpose: absent means
     // nobody has assessed the asset, which is an open control gap and must not

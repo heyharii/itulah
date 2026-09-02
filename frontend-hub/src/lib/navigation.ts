@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 
 import { analyticsNav } from "@/screens/analytics/nav"
+import { articlesNav } from "@/screens/articles/nav"
 import { commercialNav } from "@/screens/commercial/nav"
 import { financeNav } from "@/screens/finance/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
@@ -45,6 +46,15 @@ export interface NavItem {
   /// is loading. Return `null` for "not asked yet" — distinct from `0`, which
   /// means asked and answered "nothing", and both draw nothing.
   readonly useCount?: () => number | null | undefined
+  /// Routed, but not a row in the sidebar.
+  ///
+  /// For a screen a module reaches by its own in-page tabs. The path still has
+  /// to be declared here — that is what makes it exist, and what keeps the
+  /// router and the palette from drifting from the screens — but listing it in
+  /// the sidebar as well would say the same thing twice, once as a rail item
+  /// and once as a tab, with two different highlights fighting over which is
+  /// current.
+  readonly hidden?: boolean
 }
 
 export interface NavSection {
@@ -53,21 +63,30 @@ export interface NavSection {
   readonly items: readonly NavItem[]
 }
 
-/// The pastel mesh that paints a rail tile: three soft blobs over a muted base.
-/// Lifted verbatim from `inventory-prototype.html` — a hard two-stop ramp is
-/// what the reference deliberately avoids.
-export interface RailMesh {
-  readonly c1: string
-  readonly c2: string
-  readonly c3: string
-  readonly base: string
+/// The two stops a rail tile is painted between.
+///
+/// A Mac app icon is one hue lit from above: a light tint at the top falling to
+/// a saturated version of the same colour at the bottom, and nothing else. The
+/// earlier tiles here were a three-blob pastel mesh, which is a different
+/// tradition — it reads soft and web-ish beside the Dock, and at 30px the three
+/// blobs muddle into a single washed colour anyway. Two stops of one hue is
+/// what survives being that small.
+///
+/// Both stops are the SAME hue. A ramp that drifts across hues is the "mesh"
+/// look again wearing a linear gradient, and it is the thing that stops a row
+/// of tiles reading as one set.
+export interface RailTint {
+  /// Lit. Roughly the hue at 70% lightness.
+  readonly top: string
+  /// Saturated. The colour the tile is actually remembered as.
+  readonly bottom: string
 }
 
 export interface AppModule {
   readonly id: string
   readonly label: string
   readonly icon: LucideIcon
-  readonly mesh: RailMesh
+  readonly tint: RailTint
   /// Where the rail tile lands. Always the first item of the first section.
   readonly home: string
   readonly sections: readonly NavSection[]
@@ -80,6 +99,7 @@ export interface AppModule {
 /// what is bought, what is held, what is sold, what it cost, who did it.
 export const modules: readonly AppModule[] = [
   commercialNav,
+  articlesNav,
   inventoryNav,
   procurementNav,
   storeopsNav,

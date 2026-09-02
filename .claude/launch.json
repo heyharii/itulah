@@ -300,7 +300,7 @@
       "cwd": "frontend-hub",
       "port": 5280,
       "env": {
-        "VITE_API_TARGET": "http://127.0.0.1:8080"
+        "VITE_API_TARGET": "http://127.0.0.1:8096"
       }
     },
     {
@@ -318,6 +318,41 @@
       "port": 5281,
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8080"
+      }
+    },
+    {
+      "name": "hub-run",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5285",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5285,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8080"
+      }
+    },
+    {
+      "name": "dc-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5276",
+        "--strictPort",
+        "--host"
+      ],
+      "cwd": "frontend-dc-new",
+      "port": 5276,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8092"
       }
     }
   ]

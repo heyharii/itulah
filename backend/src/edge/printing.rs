@@ -21,12 +21,12 @@ use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use chrono::{SecondsFormat, Utc};
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::contracts::EdgeError;
-use super::zpl::{render_label, LabelBrand, LabelData, LabelSize};
+use super::zpl::{preview_label, render_label, LabelBrand, LabelData, LabelSize};
 
 /// The name printed on the top line of every tag.
 ///
@@ -84,6 +84,16 @@ pub struct RepointPrinterRequest {
     #[serde(default = "default_printer_port")]
     pub printer_port: u16,
     pub chunk_size: Option<i64>,
+    /// The stock now in the machine, if it is not the stock the run was opened
+    /// on. Benches do not all hold the same tag, so a run carried to another
+    /// one is exactly when this changes — and until it could be said here, the
+    /// screen offered a tag size that silently stopped meaning anything the
+    /// moment the run existed.
+    ///
+    /// Left out, the run keeps the geometry it has. Repointing to another
+    /// printer is not a reason to redraw the label.
+    pub label_width_mm: Option<i64>,
+    pub label_height_mm: Option<i64>,
 }
 
 /// Which labels to put back in the queue.
@@ -105,6 +115,57 @@ pub struct ReprintRequest {
     pub to_seq: Option<i64>,
 }
 
+/// What to draw, and on what stock.
+#[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LabelPreviewRequest {
+    /// The tag in the machine right now. Left out, the run's own geometry is
+    /// used, or the house default for a job nobody has queued yet.
+    pub label_width_mm: Option<i64>,
+    pub label_height_mm: Option<i64>,
+    /// Which line of the job to draw. One job is one article in several
+    /// colours and sizes, and they do not print alike — the price differs, and
+    /// so does the one line a rail is shopped by. Left out, the first line is
+    /// drawn, which is also the first label the run will produce.
+    pub sku_code: Option<String>,
+}
+
+/// One label, drawn both ways.
+///
+/// Both come out of a single layout pass, so the picture and the job are the
+/// same label described twice rather than two labels that happen to agree.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LabelPreview {
+    pub sku_code: String,
+    pub article_name: String,
+    pub colour_label: String,
+    pub size_label: String,
+    pub barcode_payload: String,
+    pub price_minor: i64,
+    /// The EPC the printer would write. Empty when there is no tag to draw
+    /// from — a job the centre has not sent EPCs for yet.
+    pub epc: String,
+    pub label_width_mm: i64,
+    pub label_height_mm: i64,
+    /// Where the words came from: `SESSION` for a run's own snapshot, `JOB`
+    /// for the job as it stands today.
+    ///
+    /// Worth saying out loud. A run's labels were frozen when it was queued,
+    /// and a garment does not get renamed when the master data does — so a
+    /// preview drawn from a live job is a picture of what WOULD be queued, and
+    /// one drawn from a run is a picture of what WILL come out. Those are
+    /// different claims and the screen should not have to guess which it holds.
+    pub source: String,
+    /// What the printer would be sent, verbatim. On the screen because a
+    /// jammed run is debugged by reading it, and until now the only way to see
+    /// it was to put a packet capture on the label printer.
+    pub zpl: String,
+    /// The same label as a standalone SVG document, sized by its `viewBox` so
+    /// whatever shows it decides how big the picture is.
+    pub svg: String,
+}
+
 /// Where a run has got to. Counts come from the items, never from a tally kept
 /// in parallel with them.
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -124,6 +185,12 @@ pub struct PrintSessionSummary {
     /// How many labels one pass hands over. The run's own value, which is not
     /// necessarily what the device that resumed it has stored.
     pub chunk_size: i64,
+    /// The stock this run is drawn for, on the summary for the same reason the
+    /// printer is: it belongs to the run, not to the device that opened it,
+    /// and whoever picks the run up has to be able to see it before they load
+    /// a reel.
+    pub label_width_mm: i64,
+    pub label_height_mm: i64,
     pub total_items: i64,
     pub printed_count: i64,
     pub failed_count: i64,
@@ -187,6 +254,26 @@ pub struct PrintOutcomeRecord {
     pub error: Option<String>,
 }
 
+/// The stock a tag can be cut from, in millimetres.
+///
+/// Not the printer's limit — a T6204e will take a 104 mm web — but a typo
+/// limit. `0` was already refused, by the database, with a sentence about a
+/// CHECK constraint that means nothing to the person who typed it; `580`
+/// was accepted, and prints one label spread across seven tags.
+const MIN_LABEL_MM: i64 = 10;
+const MAX_LABEL_MM: i64 = 200;
+
+fn validate_label_size(width_mm: i64, height_mm: i64) -> Result<(), EdgeError> {
+    for (axis, value) in [("width", width_mm), ("height", height_mm)] {
+        if !(MIN_LABEL_MM..=MAX_LABEL_MM).contains(&value) {
+            return Err(EdgeError::Validation(format!(
+                "label {axis} must be between {MIN_LABEL_MM} and {MAX_LABEL_MM} mm, not {value}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn db(error: rusqlite::Error) -> EdgeError {
     EdgeError::Configuration(format!("sqlite: {error}"))
 }
@@ -210,6 +297,7 @@ pub fn open_session(
             "chunk size must be between 1 and 1000".into(),
         ));
     }
+    validate_label_size(request.label_width_mm, request.label_height_mm)?;
 
     let transaction = connection.transaction().map_err(db)?;
 
@@ -337,6 +425,179 @@ pub fn open_session(
 
     transaction.commit().map_err(db)?;
     summarise(connection, &session_id)
+}
+
+/// Draw one of this job's labels without printing anything.
+///
+/// Until this existed the first time anybody saw a hang tag was when it came
+/// off the printer, on stock somebody had already loaded — so a tag size was a
+/// number typed into a box and confirmed by walking to the machine. The
+/// picture and the ZPL both come from one layout pass in `zpl.rs`, so what is
+/// shown here is not a second rendering that has to be kept in step; it is the
+/// same label, described twice.
+///
+/// Which label gets drawn follows what the job actually is. A job with a run
+/// is drawn from the run's own snapshot — those words were frozen when it was
+/// queued and a reprint six weeks from now must reproduce them, not today's
+/// catalogue. A job nobody has queued is drawn from the job, mapped exactly
+/// the way `open_session` will snapshot it, barcode payload included.
+pub fn preview_job_label(
+    connection: &Connection,
+    job_id: &str,
+    request: &LabelPreviewRequest,
+) -> Result<LabelPreview, EdgeError> {
+    let run: Option<(String, i64, i64)> = connection
+        .query_row(
+            "SELECT session_id,label_width_mm,label_height_mm
+               FROM print_session WHERE job_id = ?1",
+            params![job_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(db)?;
+
+    // An open run has already been told what stock it is on, so that is what
+    // an unqualified preview draws. Asking for a size is how somebody tries a
+    // different reel before committing a bench to it.
+    let (fallback_width, fallback_height) = run
+        .as_ref()
+        .map(|(_, width, height)| (*width, *height))
+        .unwrap_or_else(|| (default_label_width(), default_label_height()));
+    let width_mm = request.label_width_mm.unwrap_or(fallback_width);
+    let height_mm = request.label_height_mm.unwrap_or(fallback_height);
+    validate_label_size(width_mm, height_mm)?;
+
+    let sku_code = request
+        .sku_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let (item, source) = match run.as_ref() {
+        Some((session_id, _, _)) => (queued_label(connection, session_id, sku_code)?, "SESSION"),
+        None => (job_label(connection, job_id, sku_code)?, "JOB"),
+    };
+
+    let size = LabelSize {
+        width_mm: width_mm as f64,
+        height_mm: height_mm as f64,
+    };
+    let data = LabelData {
+        sku_code: &item.sku_code,
+        article_name: &item.article_name,
+        colour_label: &item.colour_label,
+        size_label: &item.size_label,
+        barcode_payload: &item.barcode_payload,
+        price_minor: item.price_minor,
+        epc: &item.epc,
+        copies: 1,
+    };
+
+    Ok(LabelPreview {
+        zpl: render_label(&data, size, LabelBrand(LABEL_BRAND)),
+        svg: preview_label(&data, size, LabelBrand(LABEL_BRAND)),
+        sku_code: item.sku_code,
+        article_name: item.article_name,
+        colour_label: item.colour_label,
+        size_label: item.size_label,
+        barcode_payload: item.barcode_payload,
+        price_minor: item.price_minor,
+        epc: item.epc,
+        label_width_mm: width_mm,
+        label_height_mm: height_mm,
+        source: source.to_string(),
+    })
+}
+
+/// The next label this run will produce — or, when nothing is left to print,
+/// the first one it produced. A finished run still has to be able to show what
+/// came out of it.
+fn queued_label(
+    connection: &Connection,
+    session_id: &str,
+    sku_code: Option<&str>,
+) -> Result<QueuedItem, EdgeError> {
+    connection
+        .query_row(
+            "SELECT epc,seq,sku_code,article_name,colour_label,size_label,
+                    barcode_payload,price_minor,attempts
+               FROM print_item
+              WHERE session_id = ?1 AND (?2 IS NULL OR sku_code = ?2)
+              ORDER BY CASE WHEN status IN ('PENDING','FAILED') THEN 0 ELSE 1 END, seq
+              LIMIT 1",
+            params![session_id, sku_code],
+            |row| {
+                Ok(QueuedItem {
+                    epc: row.get(0)?,
+                    seq: row.get(1)?,
+                    sku_code: row.get(2)?,
+                    article_name: row.get(3)?,
+                    colour_label: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    size_label: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                    barcode_payload: row.get(6)?,
+                    price_minor: row.get(7)?,
+                    attempts: row.get(8)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(db)?
+        .ok_or_else(|| match sku_code {
+            Some(sku) => EdgeError::NotFound(format!("no label for {sku} in this run")),
+            None => EdgeError::NotFound(format!("print session {session_id} has no labels")),
+        })
+}
+
+/// A label of a job nobody has queued yet.
+///
+/// Mapped exactly the way `open_session` will snapshot it and not merely
+/// similarly: the barcode carries the bare SKU rather than the line's
+/// `barcode_payload`, because that is what the scanners on the shop floor are
+/// calibrated to, and the article name comes from the job rather than the
+/// line. A preview that read either of those differently would be a picture of
+/// a label the run is never going to print.
+fn job_label(
+    connection: &Connection,
+    job_id: &str,
+    sku_code: Option<&str>,
+) -> Result<QueuedItem, EdgeError> {
+    connection
+        .query_row(
+            "SELECT (SELECT e.epc FROM tagging_job_epc e
+                      WHERE e.job_id = l.job_id AND e.sku_code = l.sku_code
+                      ORDER BY e.epc LIMIT 1),
+                    l.sku_code, j.article_name, l.colour_label, l.size_label,
+                    l.base_price_minor
+               FROM tagging_job_line l
+               JOIN tagging_job j ON j.job_id = l.job_id
+              WHERE l.job_id = ?1 AND (?2 IS NULL OR l.sku_code = ?2)
+              ORDER BY l.sku_code
+              LIMIT 1",
+            params![job_id, sku_code],
+            |row| {
+                let sku: String = row.get(1)?;
+                Ok(QueuedItem {
+                    // Blank when the centre has not sent the tags yet. The
+                    // renderer takes that as "no RFID write", which is what a
+                    // job in that state would actually print.
+                    epc: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                    seq: 1,
+                    article_name: row.get(2)?,
+                    colour_label: row.get(3)?,
+                    size_label: row.get(4)?,
+                    barcode_payload: sku.clone(),
+                    sku_code: sku,
+                    price_minor: row.get(5)?,
+                    attempts: 0,
+                })
+            },
+        )
+        .optional()
+        .map_err(db)?
+        .ok_or_else(|| match sku_code {
+            Some(sku) => EdgeError::NotFound(format!("tagging job {job_id} has no line {sku}")),
+            None => EdgeError::NotFound(format!("tagging job {job_id}")),
+        })
 }
 
 /// Hand out the next chunk of labels, already rendered.
@@ -566,6 +827,7 @@ pub fn summarise(
         .query_row(
             "SELECT s.session_id,s.job_id,s.status,
                     s.printer_host,s.printer_port,s.chunk_size,
+                    s.label_width_mm,s.label_height_mm,
                     s.total_items,s.printed_count,s.failed_count,
                     (SELECT COUNT(*) FROM print_item
                       WHERE session_id = s.session_id AND status IN ('PENDING','CLAIMED','FAILED'))
@@ -579,10 +841,12 @@ pub fn summarise(
                     printer_host: row.get(3)?,
                     printer_port: u16::try_from(row.get::<_, i64>(4)?).unwrap_or(9100),
                     chunk_size: row.get(5)?,
-                    total_items: row.get(6)?,
-                    printed_count: row.get(7)?,
-                    failed_count: row.get(8)?,
-                    pending_count: row.get(9)?,
+                    label_width_mm: row.get(6)?,
+                    label_height_mm: row.get(7)?,
+                    total_items: row.get(8)?,
+                    printed_count: row.get(9)?,
+                    failed_count: row.get(10)?,
+                    pending_count: row.get(11)?,
                 })
             },
         )
@@ -645,6 +909,14 @@ pub fn repoint(
             ));
         }
     }
+    // Checked one axis at a time: a bench that changed only its width should
+    // not have to restate its height to be believed.
+    if let Some(width_mm) = request.label_width_mm {
+        validate_label_size(width_mm, MIN_LABEL_MM)?;
+    }
+    if let Some(height_mm) = request.label_height_mm {
+        validate_label_size(MIN_LABEL_MM, height_mm)?;
+    }
 
     let status: String = connection
         .query_row(
@@ -673,13 +945,17 @@ pub fn repoint(
                 SET printer_host = ?2,
                     printer_port = ?3,
                     chunk_size = COALESCE(?4, chunk_size),
-                    updated_at = ?5
+                    label_width_mm = COALESCE(?5, label_width_mm),
+                    label_height_mm = COALESCE(?6, label_height_mm),
+                    updated_at = ?7
               WHERE session_id = ?1",
             params![
                 session_id,
                 host,
                 i64::from(request.printer_port),
                 request.chunk_size,
+                request.label_width_mm,
+                request.label_height_mm,
                 now_text(),
             ],
         )
@@ -1253,6 +1529,8 @@ mod tests {
                 printer_host: "  10.0.0.22  ".into(),
                 printer_port: 9101,
                 chunk_size: Some(2),
+                label_width_mm: None,
+                label_height_mm: None,
             },
         ) {
             Ok(moved) => moved,
@@ -1272,6 +1550,238 @@ mod tests {
     }
 
     #[test]
+    fn a_bench_holding_other_stock_can_say_so_when_it_takes_a_run_over() {
+        let mut connection = job_with(2);
+        let opened = open(&mut connection);
+        assert_eq!(opened.label_width_mm, 58);
+        assert_eq!(opened.label_height_mm, 40);
+
+        let moved = match repoint(
+            &mut connection,
+            &opened.session_id,
+            RepointPrinterRequest {
+                printer_host: "10.0.0.22".into(),
+                printer_port: 9100,
+                chunk_size: None,
+                label_width_mm: Some(40),
+                label_height_mm: Some(30),
+            },
+        ) {
+            Ok(moved) => moved,
+            Err(error) => panic!("repoint: {error}"),
+        };
+        assert_eq!(moved.label_width_mm, 40);
+        assert_eq!(moved.label_height_mm, 30);
+
+        // And the labels that come out afterwards are drawn for it. Before
+        // this, the geometry was frozen at the moment the run was opened and
+        // the number on the screen quietly stopped meaning anything.
+        let labels = claim(&mut connection, &opened.session_id);
+        assert!(labels[0].zpl.contains("^PW320\n"), "{}", labels[0].zpl);
+        assert!(labels[0].zpl.contains("^LL240\n"), "{}", labels[0].zpl);
+    }
+
+    #[test]
+    fn moving_a_run_to_another_printer_does_not_redraw_its_labels() {
+        let mut connection = job_with(2);
+        let opened = open(&mut connection);
+        let moved = match repoint(
+            &mut connection,
+            &opened.session_id,
+            RepointPrinterRequest {
+                printer_host: "10.0.0.22".into(),
+                printer_port: 9100,
+                chunk_size: None,
+                label_width_mm: None,
+                label_height_mm: None,
+            },
+        ) {
+            Ok(moved) => moved,
+            Err(error) => panic!("repoint: {error}"),
+        };
+        assert_eq!(moved.label_width_mm, 58);
+        assert_eq!(moved.label_height_mm, 40);
+    }
+
+    #[test]
+    fn a_tag_size_nobody_could_have_meant_is_refused_with_a_sentence() {
+        let mut connection = job_with(1);
+        let mut opening = request();
+        opening.label_width_mm = 580;
+        match open_session(&mut connection, opening) {
+            Err(EdgeError::Validation(message)) => {
+                assert!(message.contains("580"), "{message}");
+                assert!(message.contains("mm"), "{message}");
+            }
+            other => panic!("expected a validation error, got {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Seeing the label before the ribbon runs
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_preview_of_an_unqueued_job_is_the_label_the_run_will_actually_print() {
+        // The strongest thing this can assert, and the only one worth
+        // asserting: draw the job, then queue it and claim the first label for
+        // real, and require the two to be the same bytes. A preview that is
+        // merely similar is the bug this exists to prevent.
+        let mut connection = job_with(3);
+        let drawn = match preview_job_label(&connection, "job-1", &LabelPreviewRequest::default()) {
+            Ok(drawn) => drawn,
+            Err(error) => panic!("preview: {error}"),
+        };
+        assert_eq!(drawn.source, "JOB");
+
+        let opened = open(&mut connection);
+        let labels = claim(&mut connection, &opened.session_id);
+        assert_eq!(drawn.zpl, labels[0].zpl);
+        assert_eq!(drawn.epc, labels[0].epc);
+    }
+
+    #[test]
+    fn a_preview_draws_the_next_label_a_run_has_left_to_print() {
+        // Nine labels against a chunk of four, so one pass leaves five still
+        // to come. A run that finished in a single pass would prove nothing
+        // here: with nothing pending the preview falls back to the first
+        // label, which is the other half of what this behaviour is.
+        let mut connection = job_with(9);
+        let opened = open(&mut connection);
+        let first = claim(&mut connection, &opened.session_id);
+        let outcomes: Vec<PrintOutcomeRecord> = first.iter().map(ok).collect();
+        if let Err(error) = record_outcomes(&mut connection, &opened.session_id, &outcomes) {
+            panic!("record: {error}");
+        }
+
+        let drawn = match preview_job_label(&connection, "job-1", &LabelPreviewRequest::default()) {
+            Ok(drawn) => drawn,
+            Err(error) => panic!("preview: {error}"),
+        };
+        assert_eq!(drawn.source, "SESSION");
+        // Not one of the labels already on a garment.
+        assert!(
+            !first.iter().any(|label| label.epc == drawn.epc),
+            "preview showed a tag that has already printed: {}",
+            drawn.epc
+        );
+    }
+
+    #[test]
+    fn a_finished_run_can_still_show_what_came_out_of_it() {
+        let mut connection = job_with(3);
+        let opened = open(&mut connection);
+        print_everything(&mut connection, &opened.session_id);
+
+        let drawn = match preview_job_label(&connection, "job-1", &LabelPreviewRequest::default()) {
+            Ok(drawn) => drawn,
+            Err(error) => panic!("preview: {error}"),
+        };
+        // Its first label, not an error. Somebody holding a printed tag and
+        // asking "is this what we sent?" is exactly who needs this.
+        assert_eq!(drawn.source, "SESSION");
+        assert_eq!(drawn.epc, "A0123456781230000000".to_string() + "0000");
+    }
+
+    #[test]
+    fn a_preview_uses_the_stock_the_run_was_opened_on_unless_asked_otherwise() {
+        let mut connection = job_with(2);
+        let mut opening = request();
+        opening.label_width_mm = 40;
+        opening.label_height_mm = 30;
+        if let Err(error) = open_session(&mut connection, opening) {
+            panic!("open: {error}");
+        }
+
+        let drawn = match preview_job_label(&connection, "job-1", &LabelPreviewRequest::default()) {
+            Ok(drawn) => drawn,
+            Err(error) => panic!("preview: {error}"),
+        };
+        assert_eq!((drawn.label_width_mm, drawn.label_height_mm), (40, 30));
+        assert!(drawn.zpl.contains("^PW320\n"), "{}", drawn.zpl);
+
+        // Trying a different reel draws it without touching the run.
+        let tried = match preview_job_label(
+            &connection,
+            "job-1",
+            &LabelPreviewRequest {
+                label_width_mm: Some(58),
+                label_height_mm: Some(40),
+                sku_code: None,
+            },
+        ) {
+            Ok(tried) => tried,
+            Err(error) => panic!("preview: {error}"),
+        };
+        assert!(tried.zpl.contains("^PW464\n"), "{}", tried.zpl);
+        let after = summarise_job(&connection);
+        assert_eq!((after.label_width_mm, after.label_height_mm), (40, 30));
+    }
+
+    /// The run this job has, for a test that only cares that it is unchanged.
+    fn summarise_job(connection: &Connection) -> PrintSessionSummary {
+        match session_for_job(connection, "job-1") {
+            Ok(Some(summary)) => summary,
+            Ok(None) => panic!("job-1 has no run"),
+            Err(error) => panic!("session_for_job: {error}"),
+        }
+    }
+
+    #[test]
+    fn a_preview_can_be_asked_for_one_colourway_of_a_job() {
+        let connection = job_with_two_skus();
+        let red = match preview_job_label(
+            &connection,
+            "job-1",
+            &LabelPreviewRequest {
+                label_width_mm: None,
+                label_height_mm: None,
+                sku_code: Some("  12345678207  ".into()),
+            },
+        ) {
+            Ok(red) => red,
+            Err(error) => panic!("preview: {error}"),
+        };
+        assert_eq!(red.sku_code, "12345678207");
+        assert_eq!(red.colour_label, "Merah");
+        assert_eq!(red.size_label, "XXL");
+        assert_eq!(red.price_minor, 129_000);
+        assert!(red.svg.contains("Merah"), "{}", red.svg);
+    }
+
+    #[test]
+    fn a_preview_of_a_job_this_node_never_received_says_so() {
+        let connection = job_with(1);
+        match preview_job_label(&connection, "job-404", &LabelPreviewRequest::default()) {
+            Err(EdgeError::NotFound(message)) => assert!(message.contains("job-404"), "{message}"),
+            other => panic!("expected a not-found, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_preview_never_opens_a_socket_or_claims_a_label() {
+        // The address is the one `a_printer_address_that_is_really_a_metadata
+        // _endpoint_is_refused` uses, so anything that tried to print would
+        // fail loudly rather than quietly succeed.
+        let mut connection = job_with(2);
+        let opened = open(&mut connection);
+        for _ in 0..3 {
+            if let Err(error) =
+                preview_job_label(&connection, "job-1", &LabelPreviewRequest::default())
+            {
+                panic!("preview: {error}");
+            }
+        }
+        let after = match summarise(&connection, &opened.session_id) {
+            Ok(after) => after,
+            Err(error) => panic!("summarise: {error}"),
+        };
+        assert_eq!(after.pending_count, 2);
+        assert_eq!(after.printed_count, 0);
+        assert_eq!(after.status, "OPEN");
+    }
+
+    #[test]
     fn a_run_cannot_be_moved_nowhere() {
         let mut connection = job_with(1);
         let opened = open(&mut connection);
@@ -1282,6 +1792,8 @@ mod tests {
                 printer_host: "   ".into(),
                 printer_port: 9100,
                 chunk_size: None,
+                label_width_mm: None,
+                label_height_mm: None,
             },
         ) {
             Err(EdgeError::Validation(_)) => {}
@@ -1433,6 +1945,8 @@ mod tests {
                 printer_host: "10.0.0.22".into(),
                 printer_port: 9100,
                 chunk_size: None,
+                label_width_mm: None,
+                label_height_mm: None,
             },
         ) {
             Err(EdgeError::Validation(message)) => {

@@ -249,8 +249,13 @@ fn load_campaigns(
 ) -> Result<Vec<Campaign>, EdgeError> {
     let mut statement = connection
         .prepare(
+            // Not `spent_minor` or `used`: what a campaign has given away is
+            // counted in `commercial_usage` and overlaid below. Reading the
+            // publication's frozen copy as a fallback gave the same number two
+            // sources, and the two agreed only because authoring always writes
+            // nought.
             "SELECT campaign_id, name, status, valid_from, valid_to,
-                    budget_minor, spent_minor, max_uses, used, max_uses_per_customer
+                    budget_minor, max_uses
                FROM commercial_campaign ORDER BY campaign_id",
         )
         .map_err(db)?;
@@ -263,10 +268,7 @@ fn load_campaigns(
                 row.get::<_, Option<String>>(3)?,
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<i64>>(5)?,
-                row.get::<_, i64>(6)?,
-                row.get::<_, Option<i64>>(7)?,
-                row.get::<_, i64>(8)?,
-                row.get::<_, Option<i64>>(9)?,
+                row.get::<_, Option<i64>>(6)?,
             ))
         })
         .map_err(db)?;
@@ -280,10 +282,7 @@ fn load_campaigns(
             valid_from,
             valid_to,
             budget,
-            spent,
             max_uses,
-            used,
-            per_customer,
         ) = row.map_err(db)?;
         let campaign_id_for_usage = campaign_id.clone();
         campaigns.push(Campaign {
@@ -305,10 +304,13 @@ fn load_campaigns(
             caps: with_usage(
                 Caps {
                     budget: budget.map(Money::new),
-                    spent: Money::new(spent),
+                    // Nought until the count says otherwise. No row in
+                    // `commercial_usage` means nothing has been spent against
+                    // this campaign, which is the answer rather than the
+                    // absence of one.
+                    spent: Money::ZERO,
                     max_uses,
-                    used,
-                    max_uses_per_customer: per_customer,
+                    used: 0,
                 },
                 usage.get(&("CAMPAIGN".to_string(), campaign_id_for_usage.clone())),
             ),
@@ -444,7 +446,7 @@ fn load_rules(connection: &Connection, usage: &UsageCounts) -> Result<Vec<Rule>,
 fn load_coupons(connection: &Connection, usage: &UsageCounts) -> Result<Vec<Coupon>, EdgeError> {
     let mut statement = connection
         .prepare(
-            "SELECT code, rule_id, active, customer_id, valid_from, valid_to, max_uses, used
+            "SELECT code, rule_id, active, customer_id, valid_from, valid_to, max_uses
                FROM commercial_coupon",
         )
         .map_err(db)?;
@@ -458,20 +460,31 @@ fn load_coupons(connection: &Connection, usage: &UsageCounts) -> Result<Vec<Coup
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, Option<i64>>(6)?,
-                row.get::<_, i64>(7)?,
             ))
         })
         .map_err(db)?;
 
     let mut coupons = Vec::new();
     for row in rows {
-        let (code, rule_id, active, customer_id, valid_from, valid_to, max_uses, used) =
+        let (code, rule_id, active, customer_id, valid_from, valid_to, max_uses) =
             row.map_err(db)?;
         // A coupon's own limit is a use count, not a budget, so only the first
         // half of the pair means anything here.
+        // Nought when nothing has counted it, never the publication's own
+        // copy.
+        //
+        // A count with two sources is the fault this whole area keeps
+        // producing, and this was one: `commercial_usage` when it had a row,
+        // and a column frozen into the price book when it did not. The two
+        // agree today only because authoring always writes nought — which
+        // means the column was never an answer, only a coincidence that
+        // matched one.
+        //
+        // No row in `commercial_usage` means no sale has redeemed this code.
+        // That is not missing information; it is the information.
         let redeemed = usage
             .get(&("COUPON".to_string(), code.clone()))
-            .map_or(used, |(uses, _)| *uses);
+            .map_or(0, |(uses, _)| *uses);
         coupons.push(Coupon {
             code,
             rule_id,
@@ -805,8 +818,32 @@ pub struct PromotionOutcome {
     pub applied: bool,
     /// What it took off. Zero when it did not apply.
     pub benefit_minor: i64,
+    /// What it took off each line, by that line's position in the basket.
+    ///
+    /// The engine apportions a basket-wide discount before it can apply one, so
+    /// this costs nothing to carry — it was being summed away. Keeping it is
+    /// the difference between "this promotion appeared in a Rp 550,000 basket"
+    /// and "this promotion cost Rp 50,000, of which Rp 20,000 came off the
+    /// shirt". The first is influenced revenue and overstates by whatever the
+    /// offer never touched.
+    ///
+    /// Empty for a rejected promotion, and for one that grants goods rather
+    /// than cutting a price.
+    #[serde(default)]
+    pub line_benefits: Vec<LineBenefitOut>,
     /// Absent when it applied; otherwise the reason, in a cashier's words.
     pub reason: Option<String>,
+}
+
+/// What one promotion took off one line of a basket.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LineBenefitOut {
+    /// Position in the basket as it was scanned, which is also the position in
+    /// `lines`. Position rather than sku code: a basket can hold the same
+    /// product twice and a promotion may have matched only one of them.
+    pub line: usize,
+    pub benefit_minor: i64,
 }
 
 /// Everything the counter needs to ring up a basket.
@@ -888,6 +925,14 @@ pub fn quote(
             name: applied.name.clone(),
             applied: true,
             benefit_minor: applied.benefit.minor,
+            line_benefits: applied
+                .line_benefits
+                .iter()
+                .map(|line| LineBenefitOut {
+                    line: line.line,
+                    benefit_minor: line.benefit.minor,
+                })
+                .collect(),
             reason: None,
         })
         .collect();
@@ -904,6 +949,7 @@ pub fn quote(
                 name: rejected.name.clone(),
                 applied: false,
                 benefit_minor: 0,
+                line_benefits: Vec::new(),
                 reason: Some(rejected.explanation.clone()),
             }),
     );

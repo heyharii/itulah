@@ -1352,75 +1352,6 @@ fn a_members_only_promotion_needs_a_member() {
 }
 
 #[test]
-fn a_tier_benefit_is_an_ordinary_rule_not_a_hidden_multiplier() {
-    let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 100_000)], vec![]);
-    let mut offer = rule("R1", percent(3_000));
-    offer.scope.customers = CustomerScope::Tiers {
-        tier_ids: skus(&["GOLD"]),
-    };
-    snap.rules.push(offer);
-
-    let silver = resolved(
-        &snap,
-        &context().for_customer("m-1").in_tier("SILVER"),
-        &[CartLine::new("SKU1", 1)],
-    );
-    assert_eq!(silver.total, Money::new(100_000));
-
-    let gold = resolved(
-        &snap,
-        &context().for_customer("m-2").in_tier("GOLD"),
-        &[CartLine::new("SKU1", 1)],
-    );
-    assert_eq!(gold.total, Money::new(70_000));
-    // And the shopper can be shown exactly which rule gave them that price.
-    assert_eq!(applied_ids(&gold), vec!["R1"]);
-}
-
-#[test]
-fn a_margin_rule_clears_stock_without_selling_below_cost() {
-    let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 200_000)], vec![]);
-    snap.rules.push(rule("R1", Effect::Margin { bps: 2_000 }));
-
-    let result = resolved(
-        &snap,
-        &context(),
-        &[CartLine::new("SKU1", 1).costing(Money::new(100_000))],
-    );
-    assert_eq!(
-        result.total,
-        Money::new(120_000),
-        "cost plus twenty per cent"
-    );
-}
-
-#[test]
-fn a_margin_rule_leaves_a_line_alone_when_it_has_no_cost() {
-    let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 200_000)], vec![]);
-    snap.rules.push(rule("R1", Effect::Margin { bps: 2_000 }));
-
-    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
-    assert_eq!(
-        result.total,
-        Money::new(200_000),
-        "no cost supplied means no margin to compute, not a price of zero"
-    );
-}
-
-#[test]
-fn a_margin_rule_that_would_raise_the_price_is_not_a_discount() {
-    let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 100_000)], vec![]);
-    snap.rules.push(rule("R1", Effect::Margin { bps: 5_000 }));
-
-    let result = resolved(
-        &snap,
-        &context(),
-        &[CartLine::new("SKU1", 1).costing(Money::new(90_000))],
-    );
-    assert_eq!(result.total, Money::new(100_000));
-}
-
-#[test]
 fn buy_two_get_one_free_of_the_same_thing_needs_no_second_naming() {
     let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 100_000)], vec![]);
     snap.rules.push(rule(
@@ -1561,135 +1492,6 @@ fn one_shop_beats_the_group_it_belongs_to() {
     assert_eq!(found.unit_price, Money::new(79_000));
 }
 
-#[test]
-fn a_tier_price_applies_to_the_shopper_not_the_shop() {
-    let snap = snapshot(
-        vec![
-            levelled("SKU1", PriceLevel::Company, 100_000),
-            levelled(
-                "SKU1",
-                PriceLevel::Tier {
-                    tier: "GOLD".into(),
-                },
-                90_000,
-            ),
-        ],
-        vec![],
-    );
-    let walk_in = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
-    assert_eq!(walk_in.total, Money::new(100_000));
-
-    let gold = resolved(
-        &snap,
-        &context().for_customer("m-1").in_tier("GOLD"),
-        &[CartLine::new("SKU1", 1)],
-    );
-    assert_eq!(gold.total, Money::new(90_000));
-    assert_eq!(gold.lines[0].source, PriceSource::TierPrice);
-}
-
-#[test]
-fn a_shop_price_beats_a_tier_price() {
-    let snap = snapshot(
-        vec![
-            levelled(
-                "SKU1",
-                PriceLevel::Tier {
-                    tier: "GOLD".into(),
-                },
-                90_000,
-            ),
-            levelled(
-                "SKU1",
-                PriceLevel::Site {
-                    site_id: "store-01".into(),
-                },
-                95_000,
-            ),
-        ],
-        vec![],
-    );
-    let gold = resolved(
-        &snap,
-        &context().for_customer("m-1").in_tier("GOLD"),
-        &[CartLine::new("SKU1", 1)],
-    );
-    assert_eq!(
-        gold.total,
-        Money::new(95_000),
-        "where beats who: the shop's own list is the more specific statement"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Manual override and posting class
-// ---------------------------------------------------------------------------
-
-#[test]
-fn a_price_typed_in_by_hand_overrides_the_book_and_says_so() {
-    let snap = snapshot(
-        vec![entry("SKU1", Level::Company, None, 100_000)],
-        vec![markdown("SKU1", 80_000)],
-    );
-    let result = resolved(
-        &snap,
-        &context(),
-        &[CartLine::new("SKU1", 1).priced_by_hand(Money::new(50_000))],
-    );
-    assert_eq!(result.total, Money::new(50_000));
-    assert_eq!(
-        result.lines[0].source,
-        PriceSource::ManualOverride,
-        "an override must never be mistaken for a published price"
-    );
-    assert_eq!(
-        result.lines[0].markdown_id, None,
-        "the clearance it overrode is not credited for it"
-    );
-}
-
-#[test]
-fn an_override_does_not_forfeit_the_promotions() {
-    let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 100_000)], vec![]);
-    snap.rules.push(rule("R1", percent(1_000)));
-
-    let result = resolved(
-        &snap,
-        &context(),
-        &[CartLine::new("SKU1", 1).priced_by_hand(Money::new(50_000))],
-    );
-    assert_eq!(
-        result.total,
-        Money::new(45_000),
-        "an override says what the item costs, not that the shopper loses every offer"
-    );
-}
-
-#[test]
-fn a_carrier_bag_is_not_merchandise() {
-    let snap = snapshot(
-        vec![
-            entry("SKU1", Level::Company, None, 100_000),
-            entry("KANTONG", Level::Company, None, 2_000),
-        ],
-        vec![],
-    );
-    let result = resolved(
-        &snap,
-        &context(),
-        &[
-            CartLine::new("SKU1", 1),
-            CartLine::new("KANTONG", 1).posting(PostingClass::Bag),
-        ],
-    );
-    assert_eq!(result.lines[0].posting_class, PostingClass::Merchandise);
-    assert_eq!(
-        result.lines[1].posting_class,
-        PostingClass::Bag,
-        "a bag must not land in merchandise net sales"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // Campaigns
 // ---------------------------------------------------------------------------
@@ -1766,58 +1568,6 @@ fn a_campaign_that_has_not_started_holds_its_offers_back() {
 
 // ---------------------------------------------------------------------------
 // Running thresholds
-// ---------------------------------------------------------------------------
-
-#[test]
-fn a_month_of_spending_can_reach_a_threshold_one_basket_cannot() {
-    let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 100_000)], vec![]);
-    let mut loyalty = rule("R1", percent(1_000));
-    loyalty.conditions.cumulative = true;
-    loyalty.conditions.effective_from = Some(at(1));
-    loyalty.conditions.effective_to = Some(at(30));
-    loyalty.conditions.min_amount = Money::new(5_000_000);
-    snap.rules.push(loyalty);
-
-    let first_visit = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
-    assert_eq!(first_visit.total, Money::new(100_000));
-    assert_eq!(why(&first_visit, "R1"), RejectionReason::AmountTooLow);
-
-    let mut regular = context();
-    regular.customer_id = Some("m-1".into());
-    regular.customer_cumulative.insert(
-        "R1".to_string(),
-        CumulativeHistory {
-            quantity: 0,
-            amount: Money::new(4_950_000),
-        },
-    );
-    let crosses_the_line = resolved(&snap, &regular, &[CartLine::new("SKU1", 1)]);
-    assert_eq!(
-        crosses_the_line.total,
-        Money::new(90_000),
-        "the basket that finally crosses five million gets the benefit"
-    );
-}
-
-#[test]
-fn a_running_threshold_with_no_window_is_refused_not_quietly_ignored() {
-    let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 100_000)], vec![]);
-    let mut broken = rule("R1", percent(1_000));
-    broken.conditions.cumulative = true;
-    broken.conditions.min_amount = Money::new(5_000_000);
-    snap.rules.push(broken);
-
-    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
-    assert_eq!(result.total, Money::new(100_000));
-    assert_eq!(
-        why(&result, "R1"),
-        RejectionReason::NotStarted,
-        "a rule that would look like it worked and never trigger must be visible"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// The fingerprint
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1977,28 +1727,6 @@ fn a_price_book_need_not_restate_what_an_earlier_one_already_said() {
 /// failed anywhere; a badge just went blank on one screen and a report quietly
 /// counted one price under two names. Renaming a variant now breaks this test
 /// rather than a browser.
-#[test]
-fn a_price_source_is_spelled_the_same_way_everywhere() {
-    for source in [
-        PriceSource::SitePrice,
-        PriceSource::SiteGroupPrice,
-        PriceSource::TierPrice,
-        PriceSource::CompanyPrice,
-        PriceSource::Markdown,
-        PriceSource::ManualOverride,
-    ] {
-        let serialised = serde_json::to_string(&source)
-            .unwrap_or_else(|e| panic!("serialising {source:?}: {e}"));
-        assert_eq!(
-            serialised,
-            format!("\"{}\"", source.as_str()),
-            "as_str and the wire form must agree for {source:?}"
-        );
-    }
-}
-
-/// The stack reports the losers, in the order they lost.
-///
 /// `price_catalog` answers with one number, which is what a shelf edge needs
 /// and less than a merchandiser needs: "why is this 99 and not 200" is answered
 /// by the candidate that was beaten. The order has to be the engine's own — a
@@ -2082,4 +1810,73 @@ fn a_markdown_with_no_price_under_it_charges_nothing() {
         stacks[0].candidates.is_empty(),
         "no price under it means no price at all, not a free-standing 99,000"
     );
+}
+
+// ---------------------------------------------------------------------------
+// What a promotion cost, line by line
+// ---------------------------------------------------------------------------
+
+/// A flat amount off a basket lands on the lines it matched, not on all of them.
+///
+/// The engine has always had to apportion a flat "Rp 50,000 off" before it
+/// could apply it — otherwise fifty thousand would come off every line rather
+/// than off the basket once. It then summed the parts away, and what survived
+/// was one figure per rule per sale. Every report built on that says the whole
+/// basket was promotional: influenced revenue, which is standard in the trade
+/// and overstates by however much of the basket the offer never touched.
+#[test]
+fn a_promotion_says_what_it_took_off_each_line() {
+    let mut snap = snapshot(
+        vec![
+            entry("KEMEJA", Level::Company, None, 200_000),
+            entry("CELANA", Level::Company, None, 300_000),
+            entry("TOPI", Level::Company, None, 50_000),
+        ],
+        vec![],
+    );
+    // Fifty thousand off, but only against the two garments.
+    let mut offer = rule("R1", Effect::Amount {
+        amount: Money::new(50_000),
+    });
+    offer.scope.applicability = Some(Applicability::Sku {
+        sku_codes: ["KEMEJA".to_string(), "CELANA".to_string()]
+            .into_iter()
+            .collect(),
+    });
+    snap.rules.push(offer);
+
+    let result = resolved(
+        &snap,
+        &context(),
+        &[
+            CartLine::new("KEMEJA", 1),
+            CartLine::new("CELANA", 1),
+            CartLine::new("TOPI", 1),
+        ],
+    );
+
+    let applied = &result.applied_rules[0];
+    assert_eq!(applied.benefit, Money::new(50_000));
+    assert_eq!(
+        applied.line_benefits.len(),
+        2,
+        "the hat was never matched, so it carries none of the discount"
+    );
+    assert!(
+        applied.line_benefits.iter().all(|line| line.line != 2),
+        "line 2 is the hat: {:?}",
+        applied.line_benefits
+    );
+    // Apportioned by value: 200k and 300k of a 500k basis take 20k and 30k.
+    assert_eq!(applied.line_benefits[0].benefit, Money::new(20_000));
+    assert_eq!(applied.line_benefits[1].benefit, Money::new(30_000));
+    // And the parts are exactly the whole — the invariant that makes a
+    // per-line report add up to the per-rule one it is meant to explain.
+    let apportioned = applied
+        .line_benefits
+        .iter()
+        .fold(Money::ZERO, |sum, line| {
+            sum.try_add(line.benefit).unwrap_or(Money::ZERO)
+        });
+    assert_eq!(apportioned, applied.benefit);
 }

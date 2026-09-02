@@ -20,3 +20,24 @@ ALTER TABLE edge_sale_line
 COMMENT ON COLUMN edge_sale_line.base_unit_price_minor IS
     'What one unit would have cost before a clearance replaced the price. NULL '
     'means no book was in force, or the shop predates this field — never zero.';
+
+-- And which clearance it was.
+--
+-- `price_source` says a markdown won; `base_unit_price_minor` says what it was
+-- worth; this says which one. Without it, "what did the end-of-season cost us"
+-- means joining a sold line back to `commercial_markdown` by sku, publication
+-- version and date, and hoping exactly one candidate covered that instant. That
+-- is a reconstruction, and it stops being reliable in precisely the case worth
+-- reporting on: two overlapping clearances, where the engine picked one by
+-- priority and the join cannot tell which.
+--
+-- Text and not a foreign key, for the reason `edge_sale_promotion` gives: a
+-- receipt has to stay readable after the promotion it names is gone.
+ALTER TABLE edge_sale_line ADD COLUMN markdown_id text;
+
+CREATE INDEX ix_edge_sale_line_markdown ON edge_sale_line (markdown_id)
+    WHERE markdown_id IS NOT NULL;
+
+COMMENT ON COLUMN edge_sale_line.markdown_id IS
+    'Which clearance set this price. NULL when none did. Text rather than a key '
+    'so a sold line outlives the markdown it names.';

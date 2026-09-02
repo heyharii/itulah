@@ -7,9 +7,8 @@ import { EmptyState, ErrorState, LoadingRows } from "@/components/states"
 import { TransactionRow } from "@/components/transaction-row"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { cacheKey, customerTransactions, type HistoryCursor } from "@/lib/api"
+import { cacheKey, member, type HistoryCursor } from "@/lib/api"
 import { dayKey, dayLabel } from "@/lib/dates"
-import { useMemberId } from "@/lib/member"
 import { money, units } from "@/lib/money"
 import type { CustomerTransaction } from "@itulah/contract"
 
@@ -22,13 +21,11 @@ const PAGE = 25
 /// history would shift every offset by one, and the next page would repeat a
 /// receipt or skip one.
 export function HistoryView() {
-  const memberId = useMemberId()
-
   const history = useInfiniteQuery({
-    queryKey: cacheKey.transactions(memberId),
+    queryKey: cacheKey.transactions(),
     initialPageParam: undefined as HistoryCursor | undefined,
     queryFn: ({ pageParam, signal }) =>
-      customerTransactions(memberId, { limit: PAGE, cursor: pageParam, signal }),
+      member.transactions({ limit: PAGE, cursor: pageParam, signal }),
     getNextPageParam: (page) =>
       page.next_before_occurred_at === null || page.next_before_sale_id === null
         ? undefined

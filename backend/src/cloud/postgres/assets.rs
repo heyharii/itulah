@@ -385,10 +385,24 @@ pub async fn run_depreciation(
                 // The category is the qualifier. `1021504 Machineries` resolves
                 // to the client's `7010212` expense and `1021604` accumulated
                 // accounts through the map, so the run names no account itself.
+                // DEPRECIATION, not MANUAL. A machine wrote this entry, and
+                // calling it manual made 44 of the ledger's 58 "hand-typed"
+                // entries machine-written: an auditor filtering for the ones a
+                // person could have got wrong was handed a list four times too
+                // long, with no way to tell which fourteen were real. The kind
+                // was added to the CHECK in 0083, which also relabelled the
+                // entries the old rule wrote.
+                //
+                // `source_id` is the asset. Every other non-manual kind points
+                // back at the document that caused it — a bill, a sale — and
+                // this one had nothing to point at, so an entry charging
+                // `AST-0007` said so only inside a memo string. It is also what
+                // the schema's own CHECK asks for: a non-MANUAL, non-REVERSAL
+                // entry must carry a source.
                 let intent = PostingIntent {
                     posting_date: period,
-                    source_kind: "MANUAL".into(),
-                    source_id: None,
+                    source_kind: "DEPRECIATION".into(),
+                    source_id: Some(asset_id.to_string()),
                     rule_version: "depreciation/1".into(),
                     currency: "IDR".into(),
                     memo: Some(format!("Penyusutan {period} — {asset_number} {name}")),

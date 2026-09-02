@@ -302,7 +302,18 @@ export interface SupplierItemPage {
 /// What a sourcing screen asks for. Every facet is a set: a buyer looking at
 /// kids and footwear is looking at both, not at the intersection of the two,
 /// which is empty.
+/// How the catalogue is ordered.
+///
+/// Deliberately no "popular" and no "best selling". Popular would be a ranking
+/// with no signal behind it — nothing here records views, per-item order counts
+/// a shopper generated, or ratings — and best selling needs a sold figure,
+/// which needs every supplier item to carry our own article code. None do yet.
+export type SourcingSort = "relevance" | "newest" | "price_low" | "price_high"
+
 export interface SourcingScope {
+  /// Omitted is relevance, which is the only order that means anything before
+  /// anybody has typed a word.
+  readonly sort?: SourcingSort
   readonly q?: string
   readonly status?: SupplierStatus
   readonly supplierIds?: readonly string[]
@@ -616,6 +627,11 @@ export function searchSupplierItems(
   if (scope.q !== undefined && scope.q.trim() !== "")
     params.set("q", scope.q.trim())
   if (scope.status !== undefined) params.set("status", scope.status)
+  // Omitted rather than sent as "relevance": the server's default IS relevance,
+  // and a cursor issued under one order cannot be walked under another, so the
+  // fewer ways the same request can be spelled the better.
+  if (scope.sort !== undefined && scope.sort !== "relevance")
+    params.set("sort", scope.sort)
   // Comma-separated rather than repeated keys: that is what the browser's own
   // filter state serialises to, and a second encoding for the same idea is a
   // second thing to get wrong.
@@ -708,6 +724,50 @@ export function unidentifiedReceipts(signal?: AbortSignal) {
       { signal }
     )
     .then((body) => body.items)
+}
+
+/// One (colour, size) actually present in a delivery.
+export interface NewSetupVariant {
+  readonly colour_digit: string
+  readonly size_code: string
+  readonly quantity: number
+  readonly base_price_minor: number
+}
+
+/// What opening a setup session says about a delivery.
+///
+/// `article_code` absent means a product new to this company and a fresh
+/// eight-digit code is minted for it; present attaches this delivery to an
+/// article we already sell, so a second shipment reuses the SKUs the first one
+/// created instead of quietly becoming a different product. The code on the
+/// purchase order is never it — that one is the supplier's.
+export interface NewSetupSession {
+  readonly receipt_line_id: string
+  readonly article_code?: string
+  readonly article_name: string
+  readonly division_code: string
+  readonly tags: readonly string[]
+  readonly image_url?: string | null
+  readonly currency: string
+  readonly colours: readonly {
+    readonly colour_digit: string
+    readonly colour_code: string
+  }[]
+  readonly variants: readonly NewSetupVariant[]
+  readonly created_by: string
+}
+
+/// Give a delivery its identity.
+///
+/// This is the step everything downstream waits on: until a session exists and
+/// is issued, the goods have no article of ours, so they can have no SKU — and
+/// without a SKU they can never be tagged, priced or sold. The DC's tagging
+/// queue stays empty because head office has not answered this question yet.
+export function openSetupSession(
+  request: NewSetupSession,
+  signal?: AbortSignal
+) {
+  return node.post<SetupSession>("/api/v1/article-setups", request, { signal })
 }
 
 export function setupSessionDetail(id: string, signal?: AbortSignal) {

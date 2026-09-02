@@ -436,6 +436,100 @@
   }
 }
 
+
+/* ── Motion ───────────────────────────────────────────────────────────────
+   Two curves and a band of durations, named once so that nothing down in a
+   component hand-picks a number. Same names and same values as
+   `frontend-hub/src/styles/index.css`, deliberately: the two apps run side by
+   side while the screens move across, and a page that turns in 180ms here and
+   240ms there is a difference an operator feels without being able to name.
+
+   The rule underneath them is written down in `frontend-hub/MOTION.md` and
+   taken from beUI: if you cannot say why it moves, remove the movement.
+   Motion has four jobs — explain space, confirm input, show state, soften a
+   change — and everything stays under 300ms, because past that it stops being
+   a control and starts being a demonstration.                              */
+:root {
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --t-press: 120ms;
+    --t-hover: 120ms;
+    --t-pop: 160ms;
+    --t-panel: 200ms;
+    /* One screen replacing another. Shorter than a sheet on purpose: a sheet
+       arrives from somewhere and has to say where from, while a page is
+       already where it is going and only has to stop being the last one. */
+    --t-page: 180ms;
+    --t-sheet: 280ms;
+}
+
+/* ── The page turn ────────────────────────────────────────────────────────
+   Native view transitions. `router.tsx` decides *when* one runs; this decides
+   what it looks like. No library and no wrapper component: the browser
+   snapshots the old screen and the new one either side of the router's own
+   state change, and the only thing left to author is the pair of animations
+   between the two pictures.
+
+   Two names, so that two different things happen rather than one.
+
+   `.os-rail` lifts the 58px rail out of the page's snapshot. It is the one
+   part of the frame that does not change between screens, and a fade that
+   swept it up with the rest would read as the whole app blinking rather than
+   the page turning. It keeps a cross-fade of its own, which is what carries
+   the active tile from one module to the next instead of snapping it.
+
+   Everything else — the sidebar and the well it sits beside — is the `root`
+   snapshot, and only the NEW screen animates. A true dissolve, both layers
+   fading past each other, shows the backdrop through the gap for a frame on a
+   page this light; here the old snapshot simply holds, opaque, until the new
+   one has finished arriving over the top of it.                            */
+.os-rail {
+    view-transition-name: os-rail;
+}
+
+@keyframes os-page-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+}
+
+::view-transition-old(root) {
+    /* Holds for as long as the new screen takes; see above. */
+    animation: none;
+    mix-blend-mode: normal;
+}
+
+::view-transition-new(root) {
+    animation: os-page-in var(--t-page) var(--ease-out) both;
+    mix-blend-mode: normal;
+}
+
+::view-transition-old(os-rail),
+::view-transition-new(os-rail) {
+    /* The browser's own cross-fade, at our speed rather than its 250ms. Its
+       `plus-lighter` blend is left alone on purpose — that is the thing that
+       lets two near-identical rails dissolve into each other without a bright
+       seam down the middle. */
+    animation-duration: var(--t-page);
+    animation-timing-function: var(--ease-out);
+}
+
+/* Reduced motion is a designed state rather than an off switch: the change
+   still has to be visible, or the screen appears to have been swapped while
+   nobody was looking. Opacity stays and carries it. The 4px of travel goes. */
+@media (prefers-reduced-motion: reduce) {
+    @keyframes os-page-in {
+        from {
+            opacity: 0;
+        }
+    }
+    ::view-transition-new(root),
+    ::view-transition-old(os-rail),
+    ::view-transition-new(os-rail) {
+        animation-duration: 100ms;
+    }
+}
 @layer base {
   * {
     @apply border-border outline-ring/50;

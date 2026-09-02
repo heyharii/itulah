@@ -127,6 +127,10 @@
   --t-hover: 120ms;
   --t-pop: 160ms;
   --t-panel: 200ms;
+  /* One screen replacing another. Shorter than a sheet on purpose: a sheet
+     arrives from somewhere and has to say where from, while a page is already
+     where it is going and only has to stop being the last one. */
+  --t-page: 180ms;
   --t-sheet: 280ms;
 
   --shadow-soft: 0 1px 2px rgba(20, 20, 25, 0.03);

@@ -8,4 +8,15 @@
  * changed, somebody carried the handheld. Without this the labels keep coming
  * out where the run started, which is discovered by walking there.
  */
-export type RepointPrinterRequest = { printer_host: string, printer_port: number, chunk_size: number | null, };
+export type RepointPrinterRequest = { printer_host: string, printer_port: number, chunk_size: number | null, 
+/**
+ * The stock now in the machine, if it is not the stock the run was opened
+ * on. Benches do not all hold the same tag, so a run carried to another
+ * one is exactly when this changes — and until it could be said here, the
+ * screen offered a tag size that silently stopped meaning anything the
+ * moment the run existed.
+ *
+ * Left out, the run keeps the geometry it has. Repointing to another
+ * printer is not a reason to redraw the label.
+ */
+label_width_mm: number | null, label_height_mm: number | null, };

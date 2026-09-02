@@ -353,18 +353,16 @@ export function exhausted(row: PromotionUsage): boolean {
 
 // ── One book's prices ──────────────────────────────────────────────────────
 
-/// Which shops or shoppers a row applies to.
+/// Which shops a row applies to.
 ///
-/// One level only — a row claiming to be both a shop price and a tier price has
-/// no single right reading, and the database refuses it.
+/// One level only — a row claiming to be both a shop price and a group price
+/// has no single right reading, and the server refuses it.
 export function scope(row: {
   readonly site_id: string | null
   readonly site_ids: readonly string[] | null
-  readonly tier: string | null
 }): string {
   if (row.site_id !== null) return row.site_id
   if (row.site_ids !== null && row.site_ids.length > 0) return `${row.site_ids.length} shops`
-  if (row.tier !== null) return `tier ${row.tier}`
   return "every shop"
 }
 

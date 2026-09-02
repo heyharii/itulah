@@ -22,4 +22,10 @@ qr_svg: string,
  * Carried with the manifest so a caller never has to render it twice and
  * risk the two disagreeing.
  */
-label_zpl: string, lines: Array<ManifestLine>, };
+label_zpl: string, 
+/**
+ * The same sticker drawn for a screen, out of the same layout pass. A
+ * carton label is cheap to reprint and expensive to get wrong — it is
+ * read across a loading bay, and the box is already taped.
+ */
+label_svg: string, lines: Array<ManifestLine>, };

@@ -23,13 +23,12 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { ROOT_CLASSES } from "@/screens/finance/chart"
+import { useAsOf, useWindow } from "@/screens/finance/hooks"
 import {
   AccountPicker,
   AsOfControl,
   LocationSelect,
   SiteName,
-  useAsOf,
-  useWindow,
   WindowControl,
 } from "@/screens/finance/parts"
 import type { GeneralLedgerRow, TrialBalanceRow } from "@itulah/contract"

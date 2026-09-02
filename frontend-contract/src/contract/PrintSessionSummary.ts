@@ -18,4 +18,11 @@ printer_host: string, printer_port: number,
  * How many labels one pass hands over. The run's own value, which is not
  * necessarily what the device that resumed it has stored.
  */
-chunk_size: number, total_items: number, printed_count: number, failed_count: number, pending_count: number, };
+chunk_size: number, 
+/**
+ * The stock this run is drawn for, on the summary for the same reason the
+ * printer is: it belongs to the run, not to the device that opened it,
+ * and whoever picks the run up has to be able to see it before they load
+ * a reel.
+ */
+label_width_mm: number, label_height_mm: number, total_items: number, printed_count: number, failed_count: number, pending_count: number, };

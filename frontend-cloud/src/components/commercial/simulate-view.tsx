@@ -45,7 +45,6 @@ interface Draft {
   /// path as asking what it charges at this second.
   at: string
   coupon: string
-  tier: string
   lines: DraftLine[]
 }
 
@@ -92,7 +91,6 @@ export function SimulateView() {
       channel: "STORE",
       at: "",
       coupon: "",
-      tier: "",
       lines: [{ id: crypto.randomUUID(), sku_code: "", quantity: 1 }],
     } as Draft,
     onSubmit: ({ value }) => run.mutateAsync(value),
@@ -126,7 +124,6 @@ export function SimulateView() {
           .filter((line) => line.sku_code !== "" && line.quantity > 0)
           .map((line) => ({ sku_code: line.sku_code, quantity: line.quantity })),
         coupon_codes: value.coupon.trim() === "" ? [] : [value.coupon.trim()],
-        customer_tier: value.tier.trim() === "" ? undefined : value.tier.trim(),
       }),
   })
 
@@ -253,19 +250,6 @@ export function SimulateView() {
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
                     placeholder="none"
-                    className="text-xs"
-                  />
-                </Ask>
-              )}
-            </form.Field>
-            <form.Field name="tier">
-              {(field) => (
-                <Ask label="Member tier">
-                  <Input
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                    placeholder="walk-in"
                     className="text-xs"
                   />
                 </Ask>

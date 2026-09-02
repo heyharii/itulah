@@ -21,11 +21,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import {
-  BarSeries,
-  ChartLegend,
-  type ChartSeries,
-} from "@/screens/analytics/chart"
+import { BarSeries, ChartLegend, type ChartSeries } from "@/components/ui/chart"
 import { usePeriod } from "@/screens/analytics/period"
 import { WindowSheet } from "@/screens/analytics/window-sheet"
 import {

@@ -12,10 +12,10 @@ import { cn } from "@/lib/utils"
 
 /// The bar chart, in this app's grammar.
 ///
-/// Inlined here rather than added to `src/components/ui/` because `components/`
-/// is not this module's to edit. If a second module needs a chart, this is the
-/// file to promote — it is deliberately written to be moved: nothing in it
-/// knows about sales.
+/// Promoted here from `src/screens/analytics/chart.tsx`, where it was inlined
+/// because `components/` was not that module's to edit. Finance is the second
+/// module to need a chart, so it moved — unchanged, because nothing in it knew
+/// about sales and nothing in it knows about finance either.
 ///
 /// DESIGN.md's bar grammar, point by point:
 ///

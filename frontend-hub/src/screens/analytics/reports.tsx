@@ -21,11 +21,7 @@ import {
 } from "@/lib/queries/analytics"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
-import {
-  BarSeries,
-  ChartLegend,
-  type ChartSeries,
-} from "@/screens/analytics/chart"
+import { BarSeries, ChartLegend, type ChartSeries } from "@/components/ui/chart"
 import {
   bucketLabel,
   bucketTitle,

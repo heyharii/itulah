@@ -9,7 +9,7 @@ export const workplaceNav: AppModule = {
   id: "workplace",
   label: "Workplace",
   icon: MessagesSquare,
-  mesh: { c1: "#d1d9e3", c2: "#cbd3df", c3: "#8d97a8", base: "#9aa3b2" },
+  tint: { top: "#c3cad6", bottom: "#868f9f" },
   home: "/workplace",
   sections: [
     {

@@ -514,7 +514,6 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
         .enumerate()
         .map(|(index, row)| CommercialOfferRuleInput {
             site_ids: None,
-            tier: None,
             sku_id: row.get("id"),
             site_id: None,
             channel: CommercialChannel::Store,
@@ -526,7 +525,6 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
         .collect();
     offer_rules.push(CommercialOfferRuleInput {
         site_ids: None,
-        tier: None,
         sku_id: target_sku,
         site_id: Some("store-07".into()),
         channel: CommercialChannel::Store,
@@ -1595,7 +1593,6 @@ async fn a_clearance_on_a_whole_style_clears_every_size_of_it(pool: PgPool) {
                 sku_id: any_sku,
                 site_id: None,
                 site_ids: None,
-                tier: None,
                 channel: CommercialChannel::Store,
                 sellable: true,
                 currency: "IDR".into(),
@@ -1609,7 +1606,6 @@ async fn a_clearance_on_a_whole_style_clears_every_size_of_it(pool: PgPool) {
                 article_code: Some(article.clone()),
                 site_id: None,
                 site_ids: None,
-                tier: None,
                 replacement_unit_price_minor: CLEARANCE,
                 priority: 10,
                 effective_from: Utc::now() - Duration::days(1),
@@ -1704,11 +1700,9 @@ async fn a_what_if_prices_a_basket_and_explains_what_did_not_apply(pool: PgPool)
             lines: vec![inventory_backend::cloud::application::SimulateLineInput {
                 sku_code: sku_code.clone(),
                 quantity: 2,
-                manual_unit_price_minor: None,
             }],
             coupon_codes: Vec::new(),
             customer_id: None,
-            customer_tier: None,
         },
     )
     .await
@@ -1745,11 +1739,9 @@ async fn a_what_if_prices_a_basket_and_explains_what_did_not_apply(pool: PgPool)
             lines: vec![inventory_backend::cloud::application::SimulateLineInput {
                 sku_code,
                 quantity: 1,
-                manual_unit_price_minor: None,
             }],
             coupon_codes: vec!["TIDAK-ADA".into()],
             customer_id: None,
-            customer_tier: None,
         },
     )
     .await
@@ -1851,7 +1843,6 @@ async fn a_budget_spent_in_the_fleet_is_spent_at_the_centre_too(pool: PgPool) {
                 sku_id: sku,
                 site_id: None,
                 site_ids: None,
-                tier: None,
                 channel: CommercialChannel::Store,
                 sellable: true,
                 currency: "IDR".into(),
@@ -1870,7 +1861,6 @@ async fn a_budget_spent_in_the_fleet_is_spent_at_the_centre_too(pool: PgPool) {
                 valid_to: None,
                 budget_minor: Some(50_000),
                 max_uses: None,
-                max_uses_per_customer: None,
             }],
             actor_id: "merchandiser".into(),
             idempotency_key: "budget-draft".into(),
@@ -1901,11 +1891,9 @@ async fn a_budget_spent_in_the_fleet_is_spent_at_the_centre_too(pool: PgPool) {
         lines: vec![inventory_backend::cloud::application::SimulateLineInput {
             sku_code: sku_code.clone(),
             quantity: 1,
-            manual_unit_price_minor: None,
         }],
         coupon_codes: Vec::new(),
         customer_id: None,
-        customer_tier: None,
     };
 
     let before = infrastructure::simulate(&pool, basket())
@@ -1984,7 +1972,6 @@ async fn the_usage_list_reports_the_limit_the_newest_book_declares(pool: PgPool)
                         sku_id: sku,
                         site_id: None,
                         site_ids: None,
-                        tier: None,
                         channel: CommercialChannel::Store,
                         sellable: true,
                         currency: "IDR".into(),
@@ -2003,7 +1990,6 @@ async fn the_usage_list_reports_the_limit_the_newest_book_declares(pool: PgPool)
                             valid_to: None,
                             budget_minor: Some(budget),
                             max_uses: None,
-                            max_uses_per_customer: None,
                         },
                     ],
                     actor_id: "merchandiser".into(),
@@ -2121,7 +2107,6 @@ async fn a_cloud_sale_sells_what_an_older_book_still_prices(pool: PgPool) {
                 sku_id: other_sku,
                 site_id: None,
                 site_ids: None,
-                tier: None,
                 channel: CommercialChannel::Store,
                 sellable: true,
                 currency: "IDR".into(),
@@ -2244,7 +2229,6 @@ async fn an_ended_promotion_does_not_read_as_one_that_never_arrived(pool: PgPool
                 sku_id: sku,
                 site_id: None,
                 site_ids: None,
-                tier: None,
                 channel: CommercialChannel::Store,
                 sellable: true,
                 currency: "IDR".into(),
@@ -2264,7 +2248,6 @@ async fn an_ended_promotion_does_not_read_as_one_that_never_arrived(pool: PgPool
                 valid_to: Some(Utc::now() - Duration::days(14)),
                 budget_minor: None,
                 max_uses: None,
-                max_uses_per_customer: None,
             }],
             actor_id: "merchandiser".into(),
             idempotency_key: "ended-draft".into(),
@@ -2297,11 +2280,9 @@ async fn an_ended_promotion_does_not_read_as_one_that_never_arrived(pool: PgPool
             lines: vec![inventory_backend::cloud::application::SimulateLineInput {
                 sku_code,
                 quantity: 1,
-                manual_unit_price_minor: None,
             }],
             coupon_codes: Vec::new(),
             customer_id: None,
-            customer_tier: None,
         },
     )
     .await
@@ -2350,7 +2331,6 @@ async fn a_book_numbered_below_the_newest_is_refused(pool: PgPool) {
             sku_id: sku,
             site_id: None,
             site_ids: None,
-            tier: None,
             channel: CommercialChannel::Store,
             sellable: true,
             currency: "IDR".into(),

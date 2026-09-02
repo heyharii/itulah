@@ -1,0 +1,962 @@
+//! The master product, read whole for the first time.
+//!
+//! `article` and `sku` have existed since `0001` and been minted by setup
+//! sessions since `0022`, but nothing has ever listed them. Every screen that
+//! needed to know what the company sells reached for the supplier catalogue
+//! instead — which is what somebody OFFERS us, not what we sell — or for a
+//! price book, which only names the articles somebody happened to price. This
+//! module is the missing read.
+//!
+//! # What this module may and may not do
+//!
+//! It edits attributes: a name, a division, tags, a picture, which colours the
+//! colour digits stand for. It never mints an identity. Article codes and SKU
+//! codes come from the centre through an article setup session and nowhere
+//! else (`tagging.rs`), because thirty shops each coining their own code for
+//! one shirt is thirty products in every report and no later cleanup recovers
+//! what the codes were supposed to mean.
+//!
+//! # Why the search takes six shapes of input
+//!
+//! One box, and whatever is in front of the person using it goes into it: the
+//! article code from a spreadsheet, the SKU off a picking list, the name, the
+//! QR under the barcode, an EPC read off a tag by a handheld, or the code the
+//! supplier prints on the carton. Making somebody first classify what they are
+//! holding, and then choose the matching field, is a step that exists only
+//! because the server could not be bothered to try all six.
+
+use super::{begin_idempotent, complete_idempotent, FacetCount, NullablePatch};
+use crate::cloud::{
+    application::AppError,
+    domain::{decode_epc, normalize_tag_codes},
+};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::{postgres::PgRow, PgPool, Postgres, Row, Transaction};
+use uuid::Uuid;
+
+/// One of an article's ten colour slots, resolved through the master.
+///
+/// `colour_digit` is article-scoped and `colour_code` is not: digit 3 is this
+/// article's third colourway, while `NAVY` is navy everywhere in the company.
+/// Both are on the wire because both are needed — the digit is what the SKU
+/// string carries, the code is what a filter can address.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticleColourway {
+    pub colour_digit: String,
+    pub colour_code: String,
+    pub label: String,
+    pub hex_code: Option<String>,
+}
+
+/// An article as a list shows it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticleRow {
+    pub article_code: String,
+    pub name: String,
+    pub active: bool,
+    pub division_code: Option<String>,
+    pub image_url: Option<String>,
+    /// Tag codes, not labels. A screen renders them through the catalogue
+    /// vocabulary; sending labels would put a word in a filter that changes
+    /// the moment somebody edits it.
+    pub tags: Vec<String>,
+    /// At most ten, ordered by digit. The cap is the SKU string's, not a
+    /// policy: colour is one character of eleven.
+    pub colours: Vec<ArticleColourway>,
+    /// Distinct across this article's SKUs, in the order the business reads
+    /// sizes rather than alphabetically — `size_code.display_order` puts XS
+    /// before S before M, which sorting on the code very nearly does and gets
+    /// wrong the moment a size is inserted between two others.
+    pub size_codes: Vec<String>,
+    pub sku_count: i64,
+    /// The spread of the SETUP prices, which is the floor under a SKU rather
+    /// than what a shop is charging today. Commercial publication overrides it
+    /// per site, channel and period, so a list showing these is showing what
+    /// the article was minted at — deliberately, because it is the one price
+    /// that exists for every SKU whether or not a price book mentions it.
+    pub base_price_min_minor: Option<i64>,
+    pub base_price_max_minor: Option<i64>,
+    pub currency: Option<String>,
+    /// What a PATCH must quote in `If-Match`.
+    pub version: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+/// What the whole search contains, beside the page of it being shown.
+///
+/// Counted over everything `q` and `active` match, NOT over the facets already
+/// chosen — the same rule `search_supplier_items` follows and for the same
+/// reason. Picking a division must not make the other divisions read zero: a
+/// facet list is how somebody sees what else is there, and one that only
+/// describes what they have already picked cannot answer "what if I looked at
+/// Kids instead".
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticleFacets {
+    pub divisions: Vec<FacetCount>,
+    pub tags: Vec<FacetCount>,
+    /// Sizes and colours count ARTICLES having at least one SKU that way, not
+    /// SKUs. That is what the matching filter narrows to, and a facet counting
+    /// something the filter does not is a number that shrinks to nothing when
+    /// you click it.
+    pub sizes: Vec<FacetCount>,
+    pub colours: Vec<FacetCount>,
+}
+
+/// One page of the master, and enough about the rest to describe it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticlePage {
+    pub items: Vec<ArticleRow>,
+    /// Opaque. Pass it back for the next page; absent means this was the last.
+    /// Not an offset: articles are minted and retired while somebody scrolls,
+    /// and an offset skips or repeats rows when they are.
+    pub next_cursor: Option<String>,
+    /// Every article the search matches, not just this page.
+    pub total: i64,
+    pub facets: ArticleFacets,
+}
+
+/// One SKU of an article, with its colour resolved through the master.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticleSku {
+    pub sku_id: Uuid,
+    pub sku_code: String,
+    /// Null on the SKUs that predate `0022`, which carried a free-text colour
+    /// and no digit at all. Shown as unknown rather than guessed: those rows
+    /// are real stock and inventing a colourway for them would file goods
+    /// under a colour nobody chose.
+    pub colour_digit: Option<String>,
+    pub colour_code: Option<String>,
+    pub colour_label: Option<String>,
+    pub size_code: Option<String>,
+    pub size_label: Option<String>,
+    pub base_price_minor: Option<i64>,
+    pub currency: Option<String>,
+    pub qr_payload: Option<String>,
+    pub active: bool,
+}
+
+/// Who sells us this article, and for how much.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticleSupplierItem {
+    pub supplier_item_id: Uuid,
+    pub supplier_id: Uuid,
+    pub supplier_name: String,
+    /// The supplier's own string for the goods, from `supplier_item_code`. It
+    /// is never an identity — two suppliers use the same string for different
+    /// things and one supplier changes theirs between shipments — but it is
+    /// what is printed on the carton, so it is what somebody has in front of
+    /// them when they come here looking.
+    pub supplier_article_code: String,
+    pub unit_price_minor: Option<i64>,
+    pub currency: Option<String>,
+}
+
+/// One article, whole.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticleDetail {
+    /// A named field rather than `#[serde(flatten)]`, for the reason
+    /// `JournalEntryDetail` gives: ts-rs does not render a flattened struct
+    /// faithfully, and a wire type the generator cannot describe is exactly
+    /// the hand-mirroring this contract exists to avoid.
+    pub article: ArticleRow,
+    pub skus: Vec<ArticleSku>,
+    /// Which setup session first gave this article an identity, so a reader
+    /// can get from a product back to the delivery that prompted it.
+    pub created_by_session_id: Option<Uuid>,
+    pub supplier_items: Vec<ArticleSupplierItem>,
+}
+
+/// Where the previous page stopped.
+///
+/// The sort is `article_code`, which is unique, so the cursor needs nothing
+/// else to be exact. A keyset on a non-unique key loses or repeats the rows
+/// that tie, which is why `SourcingCursor` next door carries four fields — it
+/// sorts on a name.
+#[derive(Serialize, Deserialize)]
+struct ArticleCursor {
+    article_code: String,
+}
+
+impl ArticleCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// What a caller is asking the master for.
+#[derive(Clone, Debug, Default)]
+pub struct ArticleScope {
+    pub needle: Option<String>,
+    pub division_codes: Vec<String>,
+    pub tag_codes: Vec<String>,
+    /// Both of these filter SKUs while the list is articles, so they mean
+    /// "articles having at least one SKU in this size/colour". They narrow
+    /// which rows appear; they do not hide the other variants inside a row,
+    /// because an article is one product however many ways it was made.
+    pub size_codes: Vec<String>,
+    pub colour_codes: Vec<String>,
+    pub active: Option<bool>,
+    pub cursor: Option<String>,
+    pub limit: i64,
+}
+
+/// The six things `q` is tried against, written once.
+///
+/// Kept as one string constant rather than written into both the page query
+/// and the facet query, because the facets are only honest if they count
+/// exactly what the page matches. Two copies of this clause would agree on
+/// every ordinary day and part company the moment somebody adds a seventh
+/// thing to search.
+const MATCH_CLAUSE: &str = "
+    ($3::bool IS NULL OR a.active = $3)
+    AND ($1::text IS NULL
+         OR a.article_code ILIKE '%' || $1 || '%'
+         OR a.name ILIKE '%' || $1 || '%'
+         OR EXISTS (SELECT 1 FROM sku s
+                     WHERE s.article_id = a.id
+                       AND (s.sku_code ILIKE '%' || $1 || '%'
+                            OR s.qr_payload ILIKE '%' || $1 || '%'
+                            -- The SKU an EPC decoded to. Matched exactly: a
+                            -- decoded SKU is a fact, not a guess, and a
+                            -- substring match on it would pull in siblings.
+                            OR ($2::text IS NOT NULL AND s.sku_code = $2)))
+         OR EXISTS (SELECT 1 FROM supplier_item si
+                     WHERE si.internal_article_code = a.article_code
+                       AND si.supplier_item_code ILIKE '%' || $1 || '%'))
+";
+
+fn article_row_from(row: &PgRow) -> Result<ArticleRow, AppError> {
+    Ok(ArticleRow {
+        article_code: row.try_get("article_code")?,
+        name: row.try_get("name")?,
+        active: row.try_get("active")?,
+        division_code: row.try_get("division_code")?,
+        image_url: row.try_get("image_url")?,
+        tags: row.try_get("tags")?,
+        colours: serde_json::from_value(row.try_get("colours")?)?,
+        size_codes: row.try_get("size_codes")?,
+        sku_count: row.try_get("sku_count")?,
+        base_price_min_minor: row.try_get("base_price_min_minor")?,
+        base_price_max_minor: row.try_get("base_price_max_minor")?,
+        currency: row.try_get("currency")?,
+        version: row.try_get("version")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+/// Everything the article row needs that does not live on `article`.
+///
+/// Written once and interpolated into both the list and the detail query, so a
+/// row cannot mean one thing in a list and another in a sheet — which is the
+/// bug that makes somebody open a record to check a figure and see a different
+/// one.
+const ROW_COLUMNS: &str = "
+    a.id, a.article_code, a.name, a.active, a.division_code, a.image_url,
+    a.version, a.created_at, a.created_by_session_id,
+    COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
+                FROM article_tag t WHERE t.article_id = a.id), '{}') AS tags,
+    COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                         'colour_digit', ac.colour_digit,
+                         'colour_code',  ac.colour_code,
+                         'label',        c.label,
+                         'hex_code',     c.hex_code)
+                     ORDER BY ac.colour_digit)
+                FROM article_colour ac
+                JOIN colour c ON c.code = ac.colour_code
+               WHERE ac.article_id = a.id), '[]'::jsonb) AS colours,
+    COALESCE((SELECT array_agg(z.size_code ORDER BY z.display_order, z.size_code)
+                FROM (SELECT DISTINCT s.size_code, sc.display_order
+                        FROM sku s
+                        JOIN size_code sc ON sc.code = s.size_code
+                       WHERE s.article_id = a.id) z), '{}') AS size_codes,
+    stats.sku_count, stats.base_price_min_minor, stats.base_price_max_minor,
+    stats.currency
+";
+
+/// The per-article figures, as one LATERAL rather than four correlated
+/// subqueries so the planner walks `sku` once per article instead of four
+/// times.
+const ROW_STATS_JOIN: &str = "
+    LEFT JOIN LATERAL (
+        SELECT count(*) AS sku_count,
+               min(s.base_price_minor) AS base_price_min_minor,
+               max(s.base_price_minor) AS base_price_max_minor,
+               -- One currency per article in practice; `min` picks one rather
+               -- than returning a set, because a range quoted in two
+               -- currencies is not a range.
+               min(s.currency) AS currency
+          FROM sku s WHERE s.article_id = a.id
+    ) stats ON true
+";
+
+/// The master, a page at a time, with what the rest of it contains.
+///
+/// `q` is tried against six things at once — article code, SKU code, name, QR
+/// payload, a decoded EPC, and the supplier's own code — because those are the
+/// six identifiers that exist for one garment and the person searching has
+/// exactly one of them in front of them. An EPC that does not decode is not an
+/// error: it only means the text somebody pasted was not an EPC, and it is
+/// still tried as everything else.
+pub async fn search_articles(
+    pool: &PgPool,
+    scope: ArticleScope,
+) -> Result<ArticlePage, AppError> {
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    // A handheld reads EPCs, not SKUs. Decoding here rather than asking the
+    // browser to do it keeps the one implementation of the EPC codec on the
+    // side that owns it — `encode_epc_range` writes them, this reads them, and
+    // a second decoder in TypeScript would drift the day the header byte does.
+    let epc_sku = needle
+        .as_deref()
+        .and_then(|value| decode_epc(value).ok())
+        .map(|(sku, _serial)| sku);
+    let divisions = (!scope.division_codes.is_empty()).then_some(scope.division_codes);
+    let tags = (!scope.tag_codes.is_empty()).then_some(scope.tag_codes);
+    let sizes = (!scope.size_codes.is_empty()).then_some(scope.size_codes);
+    let colours = (!scope.colour_codes.is_empty()).then_some(scope.colour_codes);
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(ArticleCursor::decode)
+        .transpose()?;
+    let limit = scope.limit.clamp(1, 200);
+
+    let sql = format!(
+        "SELECT {ROW_COLUMNS}
+           FROM article a
+           {ROW_STATS_JOIN}
+          WHERE {MATCH_CLAUSE}
+            AND ($4::text[] IS NULL OR a.division_code = ANY($4))
+            AND ($5::text[] IS NULL OR EXISTS (
+                    SELECT 1 FROM article_tag t
+                     WHERE t.article_id = a.id AND t.tag_code = ANY($5)))
+            AND ($6::text[] IS NULL OR EXISTS (
+                    SELECT 1 FROM sku s
+                     WHERE s.article_id = a.id AND s.size_code::text = ANY($6)))
+            AND ($7::text[] IS NULL OR EXISTS (
+                    SELECT 1 FROM sku s
+                      JOIN article_colour ac
+                        ON ac.article_id = s.article_id
+                       AND ac.colour_digit = s.colour_digit
+                     WHERE s.article_id = a.id AND ac.colour_code = ANY($7)))
+            AND ($8::text IS NULL OR a.article_code > $8)
+          ORDER BY a.article_code
+          LIMIT $9"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&epc_sku)
+        .bind(scope.active)
+        .bind(&divisions)
+        .bind(&tags)
+        .bind(&sizes)
+        .bind(&colours)
+        .bind(cursor.as_ref().map(|c| c.article_code.clone()))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    let next_cursor = if (rows.len() as i64) < limit {
+        None
+    } else {
+        match rows.last() {
+            Some(row) => Some(
+                ArticleCursor {
+                    article_code: row.try_get("article_code")?,
+                }
+                .encode()?,
+            ),
+            None => None,
+        }
+    };
+    let items = rows
+        .iter()
+        .map(article_row_from)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let (total, facets) = article_facets(pool, needle.as_deref(), epc_sku.as_deref(), scope.active)
+        .await?;
+    Ok(ArticlePage {
+        items,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// What the whole search contains, by division, tag, size and colour.
+///
+/// One round trip for all four: a screen cannot draw its filter column before
+/// it has them, so splitting them would only buy three more waits.
+async fn article_facets(
+    pool: &PgPool,
+    needle: Option<&str>,
+    epc_sku: Option<&str>,
+    active: Option<bool>,
+) -> Result<(i64, ArticleFacets), AppError> {
+    let sql = format!(
+        "WITH base AS (
+             SELECT a.id, a.division_code FROM article a WHERE {MATCH_CLAUSE}
+         )
+         SELECT
+             (SELECT count(*) FROM base) AS total,
+             COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
+                                        ORDER BY count DESC, value)
+                         FROM (SELECT COALESCE(division_code, 'Unclassified') AS value,
+                                      count(*) AS count
+                                 FROM base GROUP BY 1) d), '[]'::jsonb) AS divisions,
+             COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
+                                        ORDER BY count DESC, value)
+                         FROM (SELECT t.tag_code AS value, count(*) AS count
+                                 FROM base b
+                                 JOIN article_tag t ON t.article_id = b.id
+                                GROUP BY 1) g), '[]'::jsonb) AS tags,
+             COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
+                                        ORDER BY count DESC, value)
+                         FROM (SELECT s.size_code::text AS value,
+                                      count(DISTINCT b.id) AS count
+                                 FROM base b
+                                 JOIN sku s ON s.article_id = b.id
+                                WHERE s.size_code IS NOT NULL
+                                GROUP BY 1) z), '[]'::jsonb) AS sizes,
+             COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
+                                        ORDER BY count DESC, value)
+                         FROM (SELECT ac.colour_code AS value,
+                                      count(DISTINCT b.id) AS count
+                                 FROM base b
+                                 JOIN sku s ON s.article_id = b.id
+                                 JOIN article_colour ac
+                                      ON ac.article_id = b.id
+                                     AND ac.colour_digit = s.colour_digit
+                                GROUP BY 1) k), '[]'::jsonb) AS colours"
+    );
+    let row = sqlx::query(&sql)
+        .bind(needle)
+        .bind(epc_sku)
+        .bind(active)
+        .fetch_one(pool)
+        .await?;
+    Ok((
+        row.try_get("total")?,
+        ArticleFacets {
+            divisions: serde_json::from_value(row.try_get("divisions")?)?,
+            tags: serde_json::from_value(row.try_get("tags")?)?,
+            sizes: serde_json::from_value(row.try_get("sizes")?)?,
+            colours: serde_json::from_value(row.try_get("colours")?)?,
+        },
+    ))
+}
+
+/// One article and everything hanging off it.
+pub async fn article_detail(pool: &PgPool, article_code: &str) -> Result<ArticleDetail, AppError> {
+    let mut connection = pool.acquire().await?;
+    read_article_detail(&mut connection, article_code).await
+}
+
+/// The detail read, against a connection rather than the pool.
+///
+/// Taken this way so a PATCH can read its own answer back INSIDE the
+/// transaction that wrote it. Reading afterwards through the pool would let
+/// another writer land between the two, and the editor would be shown a
+/// version of the record that is not the one their edit produced.
+async fn read_article_detail(
+    connection: &mut sqlx::PgConnection,
+    article_code: &str,
+) -> Result<ArticleDetail, AppError> {
+    let sql = format!(
+        "SELECT {ROW_COLUMNS} FROM article a {ROW_STATS_JOIN} WHERE a.article_code = $1"
+    );
+    let row = sqlx::query(&sql)
+        .bind(article_code.trim())
+        .fetch_optional(&mut *connection)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Article".to_owned()))?;
+    let article_id: Uuid = row.try_get("id")?;
+    let created_by_session_id: Option<Uuid> = row.try_get("created_by_session_id")?;
+    let article = article_row_from(&row)?;
+
+    // The colour is joined through `article_colour` rather than read off the
+    // SKU, because the SKU only carries the digit. A SKU minted before 0022
+    // has neither, and comes back with all three colour fields null — the
+    // honest answer for a row that never recorded one.
+    let skus = sqlx::query(
+        "SELECT s.id AS sku_id, s.sku_code, s.colour_digit, ac.colour_code,
+                c.label AS colour_label, s.size_code, sc.label AS size_label,
+                s.base_price_minor, s.currency, s.qr_payload, s.active
+           FROM sku s
+           LEFT JOIN article_colour ac
+                  ON ac.article_id = s.article_id AND ac.colour_digit = s.colour_digit
+           LEFT JOIN colour c ON c.code = ac.colour_code
+           LEFT JOIN size_code sc ON sc.code = s.size_code
+          WHERE s.article_id = $1
+          ORDER BY s.sku_code",
+    )
+    .bind(article_id)
+    .fetch_all(&mut *connection)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(ArticleSku {
+            sku_id: row.try_get("sku_id")?,
+            sku_code: row.try_get("sku_code")?,
+            colour_digit: row.try_get("colour_digit")?,
+            colour_code: row.try_get("colour_code")?,
+            colour_label: row.try_get("colour_label")?,
+            size_code: row.try_get("size_code")?,
+            size_label: row.try_get("size_label")?,
+            base_price_minor: row.try_get("base_price_minor")?,
+            currency: row.try_get("currency")?,
+            qr_payload: row.try_get("qr_payload")?,
+            active: row.try_get("active")?,
+        })
+    })
+    .collect::<Result<Vec<_>, AppError>>()?;
+
+    let supplier_items = sqlx::query(
+        "SELECT si.supplier_item_id, si.supplier_id, sp.name AS supplier_name,
+                si.supplier_item_code, si.unit_price_minor, si.currency
+           FROM supplier_item si
+           JOIN supplier sp ON sp.supplier_id = si.supplier_id
+          WHERE si.internal_article_code = $1
+          ORDER BY sp.name, si.supplier_item_code",
+    )
+    .bind(&article.article_code)
+    .fetch_all(&mut *connection)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(ArticleSupplierItem {
+            supplier_item_id: row.try_get("supplier_item_id")?,
+            supplier_id: row.try_get("supplier_id")?,
+            supplier_name: row.try_get("supplier_name")?,
+            supplier_article_code: row.try_get("supplier_item_code")?,
+            unit_price_minor: row.try_get("unit_price_minor")?,
+            currency: row.try_get("currency")?,
+        })
+    })
+    .collect::<Result<Vec<_>, AppError>>()?;
+
+    Ok(ArticleDetail {
+        article,
+        skus,
+        created_by_session_id,
+        supplier_items,
+    })
+}
+
+/// Which colour a digit stands for on this article.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticleColourwayInput {
+    pub colour_digit: String,
+    pub colour_code: String,
+}
+
+/// What an Articles screen may change about an article.
+///
+/// Notice what is not here: `article_code` and every `sku_code`. They are
+/// minted by the centre through a setup session and are the one thing a node
+/// must never be able to edit — a code that can be corrected is a code that
+/// means something different before and after the correction, and every
+/// document that quoted it is now wrong.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UpdateArticleRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Absent leaves it; `null` clears it back to unclassified, which is a
+    /// real state something may legitimately be returned to.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub division_code: NullablePatch<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub image_url: NullablePatch<String>,
+    /// Absent leaves tags alone; present REPLACES them. An empty list is
+    /// therefore "remove every tag", which is a thing somebody may want to
+    /// say — and is why this is not merged into the existing set.
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub active: Option<bool>,
+    /// Absent leaves the colourways alone; present REPLACES the mapping.
+    #[serde(default)]
+    pub colours: Option<Vec<ArticleColourwayInput>>,
+}
+
+fn map_article_write_error(error: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(database) = &error {
+        return match database.code().as_deref() {
+            Some("23503") => AppError::Validation(
+                "that division, tag or colour is not in the vocabulary".to_owned(),
+            ),
+            Some("23505") => AppError::Conflict(database.message().to_owned()),
+            Some("23514") | Some("23502") => AppError::Validation(database.message().to_owned()),
+            _ => AppError::Database(error),
+        };
+    }
+    AppError::Database(error)
+}
+
+/// Edit an article's attributes.
+///
+/// Guarded twice over, because the two guards answer different questions.
+/// `Idempotency-Key` answers "did this request already happen" — a browser
+/// that retried a slow PATCH must not apply it twice. `If-Match` answers "is
+/// the version I edited still the current one" — two people editing one
+/// article in two tabs must not both succeed, with the second silently
+/// discarding the first's work.
+pub async fn update_article(
+    pool: &PgPool,
+    article_code: &str,
+    expected_version: i32,
+    request: UpdateArticleRequest,
+    actor: &str,
+    idempotency_key: &str,
+    digest: &str,
+) -> Result<ArticleDetail, AppError> {
+    if expected_version <= 0 {
+        return Err(AppError::Validation(
+            "If-Match version must be positive".into(),
+        ));
+    }
+    let article_code = article_code.trim().to_owned();
+    let changes_name = request.name.is_some();
+    let changes_division = !matches!(request.division_code, NullablePatch::Missing);
+    let changes_image = !matches!(request.image_url, NullablePatch::Missing);
+    let changes_active = request.active.is_some();
+    if !(changes_name
+        || changes_division
+        || changes_image
+        || changes_active
+        || request.tags.is_some()
+        || request.colours.is_some())
+    {
+        return Err(AppError::Validation(
+            "Article update must contain at least one field".into(),
+        ));
+    }
+    let name = match request.name.as_deref().map(str::trim) {
+        Some("") => {
+            return Err(AppError::Validation(
+                "an article needs a name a human can read on a picking list".into(),
+            ))
+        }
+        other => other.map(str::to_owned),
+    };
+    let division_code = match &request.division_code {
+        NullablePatch::Value(value) => Some(value.trim().to_uppercase()).filter(|v| !v.is_empty()),
+        NullablePatch::Missing | NullablePatch::Null => None,
+    };
+    let image_url = match &request.image_url {
+        NullablePatch::Value(value) => Some(value.trim().to_owned()).filter(|v| !v.is_empty()),
+        NullablePatch::Missing | NullablePatch::Null => None,
+    };
+    let tags = request
+        .tags
+        .map(normalize_tag_codes)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    let colours = request.colours.map(validate_colourways).transpose()?;
+
+    let mut transaction = pool.begin().await?;
+    if let Some(response) =
+        begin_idempotent(&mut transaction, idempotency_key, "article.update", digest).await?
+    {
+        return Ok(serde_json::from_value(response)?);
+    }
+    let updated = sqlx::query(
+        "UPDATE article SET
+             name          = CASE WHEN $3 THEN $4 ELSE name END,
+             division_code = CASE WHEN $5 THEN $6 ELSE division_code END,
+             image_url     = CASE WHEN $7 THEN $8 ELSE image_url END,
+             active        = CASE WHEN $9 THEN $10 ELSE active END,
+             version = version + 1, updated_by = $11, updated_at = now()
+         WHERE article_code = $1 AND version = $2
+         RETURNING id",
+    )
+    .bind(&article_code)
+    .bind(expected_version)
+    .bind(changes_name)
+    .bind(&name)
+    .bind(changes_division)
+    .bind(&division_code)
+    .bind(changes_image)
+    .bind(&image_url)
+    .bind(changes_active)
+    .bind(request.active)
+    .bind(actor.trim())
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(map_article_write_error)?;
+    let Some(row) = updated else {
+        return Err(stale_article_error(&mut transaction, &article_code, expected_version).await);
+    };
+    let article_id: Uuid = row.try_get("id")?;
+
+    if let Some(tags) = tags.as_deref() {
+        replace_article_tags(&mut transaction, article_id, tags).await?;
+    }
+    if let Some(colours) = colours.as_deref() {
+        replace_article_colourways(&mut transaction, article_id, &article_code, colours).await?;
+    }
+    // Read back through the same query the list and the sheet use, so what the
+    // editor sees after saving is what everybody else will see.
+    let detail = read_article_detail(&mut transaction, &article_code).await?;
+    complete_idempotent(
+        &mut transaction,
+        idempotency_key,
+        &serde_json::to_value(&detail)?,
+    )
+    .await?;
+    transaction.commit().await?;
+    Ok(detail)
+}
+
+/// Everything that can be decided about a colourway list without asking the
+/// database, decided before the transaction opens.
+fn validate_colourways(
+    colours: Vec<ArticleColourwayInput>,
+) -> Result<Vec<ArticleColourwayInput>, AppError> {
+    // Ten is not a soft limit. Colour is one character of an 11-digit SKU, so
+    // an eleventh colourway cannot be expressed at all — there is no eleventh
+    // value of one digit.
+    if colours.len() > 10 {
+        return Err(AppError::Validation(format!(
+            "an article has ten colour digits and this names {}; \
+             colour is one character of the SKU, so there is no eleventh",
+            colours.len()
+        )));
+    }
+    let mut cleaned: Vec<ArticleColourwayInput> = Vec::with_capacity(colours.len());
+    for colour in colours {
+        let digit = colour.colour_digit.trim().to_owned();
+        if digit.len() != 1 || !digit.chars().all(|c| c.is_ascii_digit()) {
+            return Err(AppError::Validation(format!(
+                "colour digit {digit:?} is not one digit 0-9; it is one character of the SKU"
+            )));
+        }
+        let code = colour.colour_code.trim().to_uppercase();
+        if code.is_empty() {
+            return Err(AppError::Validation(format!(
+                "colour digit {digit} names no colour; colours are picked from the master, not typed"
+            )));
+        }
+        if cleaned.iter().any(|other| other.colour_digit == digit) {
+            return Err(AppError::Validation(format!(
+                "colour digit {digit} is listed twice"
+            )));
+        }
+        if cleaned.iter().any(|other| other.colour_code == code) {
+            return Err(AppError::Validation(format!(
+                "colour {code} is used under two digits on one article; \
+                 that is two SKUs no picker can tell apart"
+            )));
+        }
+        cleaned.push(ArticleColourwayInput {
+            colour_digit: digit,
+            colour_code: code,
+        });
+    }
+    Ok(cleaned)
+}
+
+async fn replace_article_tags(
+    transaction: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+    tags: &[String],
+) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM article_tag WHERE article_id = $1")
+        .bind(article_id)
+        .execute(&mut **transaction)
+        .await?;
+    if tags.is_empty() {
+        return Ok(());
+    }
+    // Named rather than left to the foreign key, for the same reason the
+    // supplier catalogue names them: a tag that silently disappears is a
+    // filter that silently misses rows, and "insert or update violates
+    // foreign key constraint" tells nobody which word was wrong.
+    let known: Vec<String> = sqlx::query_scalar("SELECT code FROM tag WHERE code = ANY($1)")
+        .bind(tags)
+        .fetch_all(&mut **transaction)
+        .await?;
+    let unknown: Vec<&str> = tags
+        .iter()
+        .filter(|tag| !known.contains(tag))
+        .map(String::as_str)
+        .collect();
+    if !unknown.is_empty() {
+        return Err(AppError::Validation(format!(
+            "unknown tag codes: {}",
+            unknown.join(", ")
+        )));
+    }
+    sqlx::query(
+        "INSERT INTO article_tag (article_id, tag_code)
+         SELECT $1, code FROM unnest($2::text[]) AS code",
+    )
+    .bind(article_id)
+    .bind(tags)
+    .execute(&mut **transaction)
+    .await
+    .map_err(map_article_write_error)?;
+    Ok(())
+}
+
+/// Point the article's colour digits at colours, and refuse the two ways of
+/// doing that which quietly rewrite goods already on a shelf.
+///
+/// A digit with SKUs minted against it is not a mapping any more; it is the
+/// meaning of every tag printed for those SKUs and every EPC encoded from
+/// them. Repointing it renames merchandise that is already in a shop, and
+/// nothing downstream would notice — the SKU string does not change, so no
+/// count, no label and no receipt would look any different. Removing such a
+/// digit is the same failure with the rename left out.
+async fn replace_article_colourways(
+    transaction: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+    article_code: &str,
+    colours: &[ArticleColourwayInput],
+) -> Result<(), AppError> {
+    let existing = sqlx::query(
+        "SELECT ac.colour_digit, ac.colour_code,
+                EXISTS (SELECT 1 FROM sku s
+                         WHERE s.article_id = ac.article_id
+                           AND s.colour_digit = ac.colour_digit) AS minted
+           FROM article_colour ac
+          WHERE ac.article_id = $1
+          ORDER BY ac.colour_digit",
+    )
+    .bind(article_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+
+    let mut pinned: Vec<(String, String)> = Vec::new();
+    for row in &existing {
+        let digit: String = row.try_get("colour_digit")?;
+        let code: String = row.try_get("colour_code")?;
+        if row.try_get::<bool, _>("minted")? {
+            pinned.push((digit, code));
+        }
+    }
+    for (digit, code) in &pinned {
+        match colours
+            .iter()
+            .find(|colour| &colour.colour_digit == digit)
+            .map(|colour| &colour.colour_code)
+        {
+            Some(wanted) if wanted == code => {}
+            Some(wanted) => {
+                return Err(AppError::Validation(format!(
+                    "colour digit {digit} of article {article_code} already has SKUs minted as \
+                     {code} and cannot be repointed to {wanted}: the goods are tagged, printed \
+                     and on a shelf, and their SKU codes would not change. Give the new colour \
+                     a free digit instead."
+                )))
+            }
+            None => {
+                return Err(AppError::Validation(format!(
+                    "colour digit {digit} of article {article_code} has SKUs minted against it \
+                     and cannot be removed; retire the SKUs instead."
+                )))
+            }
+        }
+    }
+
+    let unknown: Vec<String> = {
+        let wanted: Vec<String> = colours
+            .iter()
+            .map(|colour| colour.colour_code.clone())
+            .collect();
+        let known: Vec<String> =
+            sqlx::query_scalar("SELECT code FROM colour WHERE code = ANY($1) AND active")
+                .bind(&wanted)
+                .fetch_all(&mut **transaction)
+                .await?;
+        wanted
+            .into_iter()
+            .filter(|code| !known.contains(code))
+            // A pinned colour keeps its digit even if the master has since
+            // retired it: the shirts are still that colour. Only colours being
+            // newly mapped have to still be on offer.
+            .filter(|code| !pinned.iter().any(|(_, pinned_code)| pinned_code == code))
+            .collect()
+    };
+    if !unknown.is_empty() {
+        return Err(AppError::Validation(format!(
+            "these colours are not in the master, or have been retired: {}",
+            unknown.join(", ")
+        )));
+    }
+
+    // The unpinned rows go first, so a mapping that swaps two digits does not
+    // trip `article_colour_colour_unique` halfway through. The pinned ones are
+    // left exactly where they are — they were proved identical above.
+    let keep: Vec<String> = pinned.iter().map(|(digit, _)| digit.clone()).collect();
+    sqlx::query(
+        "DELETE FROM article_colour
+          WHERE article_id = $1 AND colour_digit <> ALL($2::text[])",
+    )
+    .bind(article_id)
+    .bind(&keep)
+    .execute(&mut **transaction)
+    .await
+    .map_err(map_article_write_error)?;
+
+    for colour in colours {
+        if keep.contains(&colour.colour_digit) {
+            continue;
+        }
+        sqlx::query(
+            "INSERT INTO article_colour (article_id, colour_digit, colour_code)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(article_id)
+        .bind(&colour.colour_digit)
+        .bind(&colour.colour_code)
+        .execute(&mut **transaction)
+        .await
+        .map_err(map_article_write_error)?;
+    }
+    Ok(())
+}
+
+async fn stale_article_error(
+    transaction: &mut Transaction<'_, Postgres>,
+    article_code: &str,
+    expected_version: i32,
+) -> AppError {
+    match sqlx::query_scalar::<_, i32>("SELECT version FROM article WHERE article_code = $1")
+        .bind(article_code)
+        .fetch_optional(&mut **transaction)
+        .await
+    {
+        Ok(Some(actual)) => AppError::Conflict(format!(
+            "Article version is {actual}, not expected version {expected_version}"
+        )),
+        Ok(None) => AppError::NotFound("Article".to_owned()),
+        Err(error) => AppError::Database(error),
+    }
+}

@@ -1,0 +1,24 @@
+-- 0080: Remove the tier, and everything that waited on it.
+--
+-- A tier price was authorable, validated, stored, dispatched to thirty shops —
+-- and could never apply, because no customer anywhere carries a tier. The only
+-- `tier` columns in this schema were on the PRICE side; nothing on the person
+-- side ever set one, and the till never filled the field the engine reads.
+--
+-- It had a refusal at the authoring gate, added when this was found. That was
+-- the right first move and the wrong place to stop: a gate is a promise to wire
+-- something up later, and an unkept promise is just a field somebody will
+-- eventually fill in. Two other refusals went the same way in this change —
+-- a margin effect that waited on a unit cost no shop is ever told, and a
+-- cumulative condition that waited on a purchase history nothing supplies.
+--
+-- Removing rather than leaving inert. A column nothing writes and nothing reads
+-- is not harmless: it is an invitation, and the next person to accept it will
+-- find their prices silently doing nothing at every counter in the fleet.
+--
+-- Any surviving row with a tier in it now reads as a company-level price, in
+-- both nodes. That is deliberate: the alternative is a product with no price
+-- at all, and a shop that cannot sell a shirt is worse than one that sells it
+-- at the company's number.
+ALTER TABLE commercial_price_rule DROP COLUMN IF EXISTS tier;
+ALTER TABLE commercial_markdown   DROP COLUMN IF EXISTS tier;

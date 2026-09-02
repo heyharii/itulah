@@ -24,7 +24,7 @@
 //! defaulted: an invented account is a mistake that balances, which is the kind
 //! that survives a year.
 
-use super::ledger::resolve_account;
+use super::ledger::{assert_postable, resolve_account, Intent};
 use crate::cloud::application::AppError;
 use chrono::NaiveDate;
 use serde::Deserialize;
@@ -185,8 +185,17 @@ pub async fn post(
 
     // Resolved before anything is written, so an unmapped meaning fails without
     // leaving half an entry behind for the rollback to tidy up.
+    //
+    // And checked before anything is written, for the same reason. The
+    // composite foreign key on `journal_line` already refuses a heading and an
+    // unknown code — but as SQLSTATE 23503, which arrives as "database
+    // operation failed" and names neither the line nor the fault. `assert_postable`
+    // says which of the three things is wrong; the constraint still guarantees
+    // it. Both variants are checked, not just the code a person typed: a
+    // mapping made when an account was live keeps resolving after Finance
+    // retires it, and `is_active` is not part of the foreign key.
     let mut resolved = Vec::with_capacity(intent.lines.len());
-    for line in &intent.lines {
+    for (index, line) in intent.lines.iter().enumerate() {
         let code = match &line.account {
             LineAccount::Meaning {
                 semantic_key,
@@ -194,6 +203,17 @@ pub async fn post(
             } => resolve_account(&mut **tx, semantic_key, &line.site_id, qualifier).await?,
             LineAccount::Account { account_code } => account_code.trim().to_string(),
         };
+        assert_postable(&mut **tx, &code, Intent::Post)
+            .await
+            .map_err(|error| match error {
+                // The line number matters here in a way it does not on the
+                // Account Map: an entry has several, and "which one" is the
+                // first thing somebody has to work out before they can fix it.
+                AppError::Validation(message) => {
+                    AppError::Validation(format!("line {}: {message}", index + 1))
+                }
+                other => other,
+            })?;
         resolved.push(code);
     }
 

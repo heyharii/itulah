@@ -3,14 +3,18 @@ import { useQuery } from "@tanstack/react-query"
 import { AppLink } from "@/components/ui/app-link"
 import { Fact, Facts } from "@/components/ui/sheet"
 import { Tag } from "@/components/ui/tag"
-import { day, money } from "@/lib/format"
+import { count, day, money } from "@/lib/format"
 import {
   procurementKeys,
   supplierDetail,
   supplierItemImage,
 } from "@/lib/queries/procurement"
 import { termLabel } from "@/screens/procurement/shared"
-import type { CatalogueVocabulary, SupplierItem } from "@itulah/contract"
+import type {
+  CatalogueVocabulary,
+  PurchaseHistory,
+  SupplierItem,
+} from "@itulah/contract"
 
 /// What a supplier item is, drawn once for the two screens that show one.
 ///
@@ -27,9 +31,14 @@ import type { CatalogueVocabulary, SupplierItem } from "@itulah/contract"
 export function ItemDetail({
   item,
   vocabulary,
+  bought,
 }: {
   item: SupplierItem
   vocabulary?: CatalogueVocabulary
+  /// What has already been ordered of this item, when the caller knows.
+  /// Handed in rather than fetched: the catalogue row already carries it, and
+  /// a second request to learn what is in hand is a request for nothing.
+  bought?: PurchaseHistory
 }) {
   const supplier = useQuery({
     queryKey: procurementKeys.supplier(item.supplier_id),
@@ -84,6 +93,15 @@ export function ItemDetail({
         <Fact term="Division">
           {termLabel(vocabulary?.divisions, item.division_code)}
         </Fact>
+        {/* Only when there is a history. "0 bought" on an item nobody has
+            ordered reads as a judgement; silence reads as a first order. */}
+        {bought !== undefined && bought.orders > 0 && (
+          <>
+            <Fact term="Bought">{count(bought.units)} pieces</Fact>
+            <Fact term="On orders">{count(bought.orders)}</Fact>
+            <Fact term="Last ordered">{day(bought.last_ordered_at)}</Fact>
+          </>
+        )}
         <Fact term="Our article">
           {/* Blank is a real state and it is the one that matters: an item with
               no internal article code can never be tagged, priced or sold. */}

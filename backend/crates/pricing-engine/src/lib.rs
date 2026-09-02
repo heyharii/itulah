@@ -54,7 +54,7 @@ pub mod rule;
 pub use money::{Currency, Money};
 pub use price::{resolve_price, Markdown, PriceEntry, PriceLevel};
 pub use rule::{
-    Applicability, Campaign, CampaignStatus, Caps, Conditions, Coupon, CumulativeHistory,
+    Applicability, Campaign, CampaignStatus, Caps, Conditions, Coupon,
     CustomerScope, DaySet, EarnBasis, EarnEffect, Effect, RejectionReason, Rule, RuleScope,
     RuleStatus, Stacking, TimeWindow,
 };
@@ -94,18 +94,6 @@ pub struct PricingContext {
     /// The shopper, when they are known. Absent for an anonymous sale.
     #[serde(default)]
     pub customer_id: Option<String>,
-    /// Their membership tier, when the shop runs tiers.
-    ///
-    /// Loyalty is flat unless a shop says otherwise, and a tier benefit is an
-    /// ordinary rule scoped to that tier — never a hidden multiplier applied
-    /// behind the rules. A shopper who asks why they got that price can be
-    /// shown the rule.
-    #[serde(default)]
-    pub customer_tier: Option<String>,
-    /// How many times this shopper has already used each rule, as far as this
-    /// node knows.
-    #[serde(default)]
-    pub customer_rule_uses: std::collections::BTreeMap<String, i64>,
     /// How far ahead of UTC the shop is, in minutes.
     ///
     /// Read only by the day-of-week and time-of-day conditions, which are the
@@ -115,18 +103,6 @@ pub struct PricingContext {
     /// that know where the shop is set it, and the engine assumes nothing.
     #[serde(default)]
     pub utc_offset_minutes: i32,
-    /// The same, per campaign.
-    ///
-    /// Separate from the rule counts rather than derived from them: a campaign
-    /// of five offers is one thing to the business, so "used it twice" means
-    /// two baskets that took any of the five — not two uses of one offer, and
-    /// not the sum of five counts.
-    #[serde(default)]
-    pub customer_campaign_uses: std::collections::BTreeMap<String, i64>,
-    /// What this shopper has already bought toward each cumulative rule, keyed
-    /// by rule id. Supplied by the caller; the engine keeps no history.
-    #[serde(default)]
-    pub customer_cumulative: std::collections::BTreeMap<String, CumulativeHistory>,
 }
 
 impl PricingContext {
@@ -137,11 +113,7 @@ impl PricingContext {
             at,
             coupon_codes: Vec::new(),
             customer_id: None,
-            customer_tier: None,
             utc_offset_minutes: 0,
-            customer_rule_uses: std::collections::BTreeMap::new(),
-            customer_campaign_uses: std::collections::BTreeMap::new(),
-            customer_cumulative: std::collections::BTreeMap::new(),
         }
     }
 
@@ -155,10 +127,6 @@ impl PricingContext {
         self
     }
 
-    pub fn in_tier(mut self, tier: impl Into<String>) -> Self {
-        self.customer_tier = Some(tier.into());
-        self
-    }
 }
 
 /// One thing a shopper is buying.
@@ -178,36 +146,7 @@ pub struct CartLine {
     /// Free-form labels a promotion can target: "Lebaran", "end-of-season".
     #[serde(default)]
     pub tags: Vec<String>,
-    /// What this cost the shop. Only a margin rule reads it; a line without one
-    /// is simply left alone by such a rule rather than priced off a guess.
-    #[serde(default)]
-    pub unit_cost: Option<Money>,
-    /// A price a person typed in, overriding the book entirely.
-    ///
-    /// It still has to be a price the shop can defend, so it is recorded as
-    /// `MANUAL_OVERRIDE` on the line rather than blending into the published
-    /// price. Promotions still apply on top: an override says what the item
-    /// costs, not that the shopper forfeits every offer.
-    #[serde(default)]
-    pub manual_unit_price: Option<Money>,
-    /// What kind of thing this is, for the ledger. A carrier bag and a service
-    /// charge must not land in merchandise net sales.
-    #[serde(default)]
-    pub posting_class: PostingClass,
     pub quantity: i64,
-}
-
-/// What a line is, as far as the ledger is concerned.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PostingClass {
-    /// Goods. The default, and the only one that belongs in net sales.
-    #[default]
-    Merchandise,
-    /// A carrier bag — kantong. Sold, but not merchandise.
-    Bag,
-    /// Alterations, delivery, gift wrap.
-    Service,
 }
 
 impl CartLine {
@@ -217,9 +156,6 @@ impl CartLine {
             article_code: None,
             division: None,
             tags: Vec::new(),
-            unit_cost: None,
-            manual_unit_price: None,
-            posting_class: PostingClass::Merchandise,
             quantity,
         }
     }
@@ -239,20 +175,6 @@ impl CartLine {
         self
     }
 
-    pub fn costing(mut self, unit_cost: Money) -> Self {
-        self.unit_cost = Some(unit_cost);
-        self
-    }
-
-    pub fn priced_by_hand(mut self, unit_price: Money) -> Self {
-        self.manual_unit_price = Some(unit_price);
-        self
-    }
-
-    pub fn posting(mut self, posting_class: PostingClass) -> Self {
-        self.posting_class = posting_class;
-        self
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -267,14 +189,10 @@ pub enum PriceSource {
     SitePrice,
     /// A price for a group of shops this one belongs to.
     SiteGroupPrice,
-    /// A price for this shopper's membership tier.
-    TierPrice,
     /// The company-wide price.
     CompanyPrice,
     /// A markdown replaced whichever of the above applied.
     Markdown,
-    /// A price a person typed in, overriding the book.
-    ManualOverride,
 }
 
 impl PriceSource {
@@ -296,10 +214,8 @@ impl PriceSource {
         match self {
             Self::SitePrice => "SITE_PRICE",
             Self::SiteGroupPrice => "SITE_GROUP_PRICE",
-            Self::TierPrice => "TIER_PRICE",
             Self::CompanyPrice => "COMPANY_PRICE",
             Self::Markdown => "MARKDOWN",
-            Self::ManualOverride => "MANUAL_OVERRIDE",
         }
     }
 }
@@ -328,8 +244,6 @@ pub struct LineResult {
     pub publication_version: i64,
     /// Named when a markdown won, so a reader can go and look at it.
     pub markdown_id: Option<String>,
-    /// Which ledger bucket this line belongs in.
-    pub posting_class: PostingClass,
 }
 
 /// An item handed over at no charge, or at a token price.
@@ -361,6 +275,30 @@ pub struct AppliedRule {
     /// a code typed and refused has not been redeemed, and counting it as used
     /// would burn a customer's coupon for nothing.
     pub coupon_code: Option<String>,
+    pub benefit: Money,
+    /// What it took off each line, by the line's position in the cart.
+    ///
+    /// The engine has always computed this — a flat "Rp 50,000 off" has to be
+    /// apportioned across the matched lines before it can be applied — and used
+    /// to sum it away immediately. Keeping it is the difference between two
+    /// questions a merchandiser asks with the same words: what a promotion
+    /// INFLUENCED (the baskets it appeared in, which overstates by however much
+    /// of each basket it never touched) and what it ATTRIBUTABLY cost.
+    ///
+    /// Empty for a rule that grants goods rather than cutting a price: the
+    /// value handed over belongs to no line in the basket.
+    #[serde(default)]
+    pub line_benefits: Vec<LineBenefit>,
+}
+
+/// What one promotion took off one line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineBenefit {
+    /// The line's position in the cart as it was handed in, which is also its
+    /// position in `PricingResult::lines`. Position rather than sku code,
+    /// because a basket may hold the same product on two lines and only one of
+    /// them may have matched.
+    pub line: usize,
     pub benefit: Money,
 }
 

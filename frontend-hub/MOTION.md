@@ -26,10 +26,45 @@ In `src/styles/index.css`, so nothing hand-picks a duration:
 | `--t-hover` | 120ms | hover states — the default, applied in the base layer |
 | `--t-pop` | 160ms | tooltip, popover |
 | `--t-panel` | 200ms | dropdown, select, sidebar collapse |
+| `--t-page` | 180ms | one screen replacing another |
 | `--t-sheet` | 280ms | the detail rail, drawers |
 
 Under 300ms is the ceiling for interface motion. Anything longer is an
 explanatory demo, not a control.
+
+## The page turn
+
+The one piece of motion here that is not a hover, a press or a panel, and the
+only one that needed a decision about *when* as well as *what*.
+
+It is the browser's own view transition — `document.startViewTransition`, which
+the router calls for us. No library and no wrapper component: the browser
+snapshots the screen either side of the router's state change and animates
+between the two pictures. `routes.tsx` decides when one runs; `styles/index.css`
+decides what it looks like.
+
+**Only the well fades.** The scrolling content area carries
+`view-transition-name: page`, which lifts it out of the root snapshot. The rail
+and the sidebar are therefore exempt: their active marks answer the click
+immediately, and only the content they point at is allowed 180ms to catch up.
+Fading the whole frame would read as the app blinking rather than the page
+turning, and it would make the nav look slower than it is.
+
+**Only the new screen animates.** The old snapshot holds, opaque, underneath.
+A true dissolve — both layers fading past each other — shows the backdrop
+through the gap for a frame or two on a page this light.
+
+**Only when the pathname changes.** Most navigations on this surface do not:
+a sheet writes `?order=`, `lib/filters.ts` writes a filter, the ledger writes an
+account. Those are a table refreshing in place, not a new screen, and a sheet
+has an animation of its own to fight with. The rule is a predicate on
+`defaultViewTransition` in `routes.tsx` rather than a flag at each call site,
+because the call sites are the part that grows. `lib/sheets.ts` says it a second
+time, for the browser that has view transitions but not view-transition *types*
+and so never consults the predicate.
+
+A hidden tab skips the transition and commits the navigation anyway, which is
+also what a browser without the API at all does. There is no fallback to write.
 
 ## Reduced motion is a designed state
 

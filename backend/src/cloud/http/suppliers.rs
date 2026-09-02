@@ -38,6 +38,12 @@ pub struct SourcingQuery {
     /// Matches an item's name or code, or the supplier's name.
     #[serde(default)]
     q: Option<String>,
+    /// `relevance` (the default), `newest`, `price_low` or `price_high`.
+    /// An unknown word is relevance rather than a refusal: a sort is a way of
+    /// looking, and a stale link asking for an order this server no longer has
+    /// should still show the catalogue.
+    #[serde(default)]
+    sort: Option<String>,
     #[serde(default)]
     status: Option<SupplierStatus>,
     #[serde(default)]
@@ -101,6 +107,7 @@ pub async fn search_supplier_items(
         infrastructure::search_supplier_items(
             &state.db,
             infrastructure::SourcingScope {
+                sort: infrastructure::SourcingSort::parse(query.sort.as_deref()),
                 needle: query.q,
                 status: query.status,
                 supplier_ids,

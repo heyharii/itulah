@@ -16,7 +16,7 @@ import { Segmented } from "@/components/ui/segmented"
 import { Banner, EmptyState, Problem, Receipt } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { count, label, toneFor } from "@/lib/format"
-import { savePrinter, usePrinter } from "@/lib/printer"
+import { savePrinter, TAG_PRESETS, usePrinter } from "@/lib/printer"
 import { keys } from "@/lib/queries/keys"
 import { queryState } from "@/lib/query-state"
 import { useActor } from "@/lib/session"
@@ -122,13 +122,146 @@ export function PrintBench() {
               again.
             </Banner>
           ) : (
-            <Run jobId={job.value} />
+            <>
+              <Preview jobId={job.value} />
+              <Run jobId={job.value} />
+            </>
           )}
         </div>
 
         <PrinterCard />
       </div>
     </PageContent>
+  )
+}
+
+/// What is about to come out of the printer.
+///
+/// Before this, the first sight of a hang tag was the tag itself, on stock
+/// somebody had already loaded — so a tag size was two numbers typed into a
+/// box and confirmed by walking to the machine and burning a ribbon. The
+/// picture and the ZPL underneath it come out of one layout pass on the node
+/// (`edge/zpl.rs`), so this is not a second rendering that has to be kept in
+/// step with the printer's: it is the same label, described twice.
+///
+/// Drawn on the stock THIS bench says it is holding, not on the run's. Those
+/// two disagree exactly when somebody has carried a run to a different bench,
+/// and the run card below says so and offers to repoint it — which is the
+/// honest order of events, because the reel in the machine is the fact and the
+/// run's opinion of it is what needs correcting.
+function Preview({ jobId }: { jobId: string }) {
+  const printer = usePrinter()
+  const [sku, setSku] = useState<string | undefined>(undefined)
+  const [showing, setShowing] = useState<"tag" | "zpl">("tag")
+
+  const jobs = useQuery({
+    queryKey: keys.taggingJobs(),
+    queryFn: ({ signal }) => dc.taggingJobs(signal),
+  })
+  const lines = (jobs.data ?? []).find((row) => row.job_id === jobId)?.lines ?? []
+
+  const preview = useQuery({
+    queryKey: keys.labelPreview(jobId, printer.widthMm, printer.heightMm, sku),
+    queryFn: ({ signal }) =>
+      dc.previewJobLabel(
+        jobId,
+        {
+          label_width_mm: printer.widthMm,
+          label_height_mm: printer.heightMm,
+          sku_code: sku ?? null,
+        },
+        signal
+      ),
+  })
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader>
+        <CardTitle>What comes out</CardTitle>
+        <Segmented
+          value={showing}
+          onChange={setShowing}
+          options={[
+            { value: "tag", label: "Tag" },
+            { value: "zpl", label: "ZPL" },
+          ]}
+        />
+      </CardHeader>
+
+      <div className="flex flex-col gap-3 border-t border-hairline px-4 py-3.5">
+        {lines.length > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            {lines.map((line) => {
+              const chosen = (sku ?? lines[0]?.sku_code) === line.sku_code
+              return (
+                <button
+                  key={line.sku_code}
+                  type="button"
+                  onClick={() => setSku(line.sku_code)}
+                  aria-pressed={chosen}
+                  className={`min-h-[1.875rem] rounded-full px-2.5 text-[0.71875rem] transition-colors ${
+                    chosen
+                      ? "bg-ink text-canvas"
+                      : "bg-soft-2 text-body hover:bg-soft-3"
+                  }`}
+                >
+                  {line.colour_label} · {line.size_label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {queryState(preview, {
+          loading: "Drawing the label…",
+          render: (drawn) => (
+            <>
+              {showing === "tag" ? (
+                /* The node's own SVG, escaped there for exactly this: an
+                   article name is operator-supplied text and it is drawn into
+                   a document the browser parses. */
+                <div
+                  /* The node sends a `viewBox` and no size, so the tag keeps
+                     its true proportions and this decides how big the picture
+                     is. Without the child rules an SVG with no width lands on
+                     the browser's 300 × 150 default and the tag comes out the
+                     wrong shape. */
+                  className="rounded-inner bg-soft-2 p-4 [&>svg]:block [&>svg]:h-auto [&>svg]:w-full [&>svg]:rounded-[0.125rem] [&>svg]:shadow-soft"
+                  dangerouslySetInnerHTML={{ __html: drawn.svg }}
+                />
+              ) : (
+                <pre className="max-h-[19rem] overflow-auto rounded-inner bg-soft-2 p-3 font-mono text-[0.6875rem] leading-[1.5] text-body">
+                  {drawn.zpl}
+                </pre>
+              )}
+
+              <div>
+                <KeyValue term="Tag">
+                  {drawn.label_width_mm} × {drawn.label_height_mm} mm
+                </KeyValue>
+                <KeyValue term="Writes">
+                  {drawn.epc === "" ? (
+                    <span className="text-mute">
+                      no tag yet — the centre has not sent the EPCs
+                    </span>
+                  ) : (
+                    <span className="font-mono text-id">{drawn.epc}</span>
+                  )}
+                </KeyValue>
+              </div>
+
+              <p className="text-[0.71875rem] text-mute">
+                {drawn.source === "SESSION"
+                  ? "The next label this run has left to print, drawn from the words it froze when it was queued."
+                  : "Drawn from the job as it stands now. Queueing freezes these words, so a reprint six weeks from now reproduces this tag and not today's catalogue."}{" "}
+                The bars are shown as the space they will occupy, at true width
+                — the printer encodes them, not this screen.
+              </p>
+            </>
+          ),
+        })}
+      </div>
+    </Card>
   )
 }
 
@@ -190,6 +323,8 @@ function Run({ jobId }: { jobId: string }) {
         printer_host: printer.host,
         printer_port: printer.port,
         chunk_size: printer.chunk,
+        label_width_mm: printer.widthMm,
+        label_height_mm: printer.heightMm,
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.jobRun(jobId) })
@@ -235,6 +370,13 @@ function Run({ jobId }: { jobId: string }) {
 
   const elsewhere =
     state.printer_host !== printer.host || state.printer_port !== printer.port
+  /// The same discrepancy as `elsewhere`, one axis over. A run opened at
+  /// another bench carries that bench's tag, and until the stock could be
+  /// repointed the only way to notice was to watch the first label come out
+  /// the wrong size.
+  const otherStock =
+    state.label_width_mm !== printer.widthMm ||
+    state.label_height_mm !== printer.heightMm
 
   return (
     <>
@@ -270,6 +412,9 @@ function Run({ jobId }: { jobId: string }) {
             <KeyValue term="Coming out at">
               {state.printer_host}:{state.printer_port}
             </KeyValue>
+            <KeyValue term="Drawn for">
+              {state.label_width_mm} × {state.label_height_mm} mm
+            </KeyValue>
           </div>
 
           {elsewhere && (
@@ -277,6 +422,15 @@ function Run({ jobId }: { jobId: string }) {
               This run prints at {state.printer_host}:{state.printer_port}, and
               this bench is set to {printer.host}:{printer.port}. Repoint it
               before you press print, or the labels come out in another room.
+            </Banner>
+          )}
+
+          {otherStock && (
+            <Banner tone="warn">
+              This run is drawn for {state.label_width_mm} ×{" "}
+              {state.label_height_mm} mm tags, and this bench is set to{" "}
+              {printer.widthMm} × {printer.heightMm} mm. Repoint it, or the
+              labels come out laid out for a tag that is not in the machine.
             </Banner>
           )}
 
@@ -309,7 +463,7 @@ function Run({ jobId }: { jobId: string }) {
               onClick={() => repoint.mutate()}
             >
               <PrinterIcon />
-              Print at this bench
+              {otherStock ? "Use this bench and its tags" : "Print at this bench"}
             </Button>
           </div>
         </div>
@@ -552,6 +706,35 @@ function PrinterCard() {
             />
           </Field>
         </div>
+        <div className="flex flex-wrap gap-1.5">
+          {TAG_PRESETS.map((preset) => {
+            const chosen =
+              preset.widthMm === printer.widthMm &&
+              preset.heightMm === printer.heightMm
+            return (
+              <button
+                key={`${preset.widthMm}x${preset.heightMm}`}
+                type="button"
+                aria-pressed={chosen}
+                onClick={() =>
+                  savePrinter({
+                    ...printer,
+                    widthMm: preset.widthMm,
+                    heightMm: preset.heightMm,
+                  })
+                }
+                title={preset.note}
+                className={`min-h-[1.875rem] rounded-full px-2.5 text-[0.71875rem] tabular-nums transition-colors ${
+                  chosen
+                    ? "bg-ink text-canvas"
+                    : "bg-soft-2 text-body hover:bg-soft-3"
+                }`}
+              >
+                {preset.widthMm}×{preset.heightMm}
+              </button>
+            )
+          })}
+        </div>
         <div className="flex gap-3">
           <Field label="Tag width" hint="mm" className="flex-1">
             <Input
@@ -581,7 +764,9 @@ function PrinterCard() {
         <p className="text-[0.71875rem] text-mute">
           58 × 40 mm is the tag the label layout was tuned against by hand, and
           what the node assumes when a run leaves it out. Other sizes scale from
-          it.
+          it — the ones above are starting points, not a list of what this
+          warehouse stocks, and anything can be typed. What the tag actually
+          looks like at a given size is the picture on the left.
         </p>
       </div>
     </Card>

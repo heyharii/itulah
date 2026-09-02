@@ -14,13 +14,4 @@ min_quantity: number, max_quantity: number | null,
 /**
  * How much the matched lines must come to.
  */
-min_amount: Money, max_amount: Money | null, effective_from: string | null, effective_to: string | null, days: DaySet, time_window: TimeWindow | null, 
-/**
- * Whether the thresholds above count what this shopper has already bought
- * in the promotion's window, not just what is in the basket now.
- *
- * "Spend five million during June and get ten per cent" is this. It needs
- * both window bounds — a running total with no start is not a total of
- * anything — and the history itself comes from the caller.
- */
-cumulative: boolean, };
+min_amount: Money, max_amount: Money | null, effective_from: string | null, effective_to: string | null, days: DaySet, time_window: TimeWindow | null, };

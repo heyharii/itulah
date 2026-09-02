@@ -1,3 +1,5 @@
+import type { Rule, RuleStatus } from "@itulah/contract"
+
 import { node } from "@/lib/api"
 
 /// Commercial is pricing, and nothing else.
@@ -45,6 +47,11 @@ export type PriceSource =
   | "MANUAL_OVERRIDE"
 
 /// The words a merchandiser would use for each rung.
+///
+/// The default arm is load-bearing and getting more so: `TIER_PRICE` and
+/// `MANUAL_OVERRIDE` are on their way out of the engine, and a rung this build
+/// has not been told about has to render as the word the server sent rather
+/// than as a blank badge. Nothing written since reaches for either name.
 export function describeSource(source: string): string {
   switch (source) {
     case "SITE_PRICE":
@@ -121,9 +128,15 @@ export interface BookRule {
   readonly name: string
   readonly status: string
   readonly priority: number
-  /// The rule as the engine serialised it, handed back whole. A second reading
-  /// of it here would be a second opinion about what a promotion does.
-  readonly definition: unknown
+  /// The rule as the engine serialised it, handed back whole.
+  ///
+  /// Typed as the generated `Rule` rather than as `unknown`: this one field is
+  /// **not** hand-transcribed, because the handler stores and returns
+  /// `pricing_engine::Rule`'s own serialisation and ts-rs generates that type
+  /// from the same struct. A second reading of it here would be a second
+  /// opinion about what a promotion does; taking the generated type is how the
+  /// screen renders the engine's answer rather than its own.
+  readonly definition: Rule
 }
 
 export interface BookCoupon {
@@ -195,31 +208,103 @@ export interface MarkdownInput {
   readonly markdown_id: string
   readonly sku_code?: string | null
   readonly article_code?: string | null
+  /// One shop, or every shop when it is absent. A Pricelist cell is one article
+  /// at one shop, so the cell editor always names one.
+  readonly site_id?: string | null
   readonly replacement_unit_price_minor: number
   readonly priority: number
   readonly effective_from: string
   readonly effective_to?: string | null
 }
 
-/// What this app can author today: a book of markdowns.
+/// A base price. Keyed by `sku_id` and not by a code, which is the whole reason
+/// fixed-price editing is not wired up yet: `article-prices` answers in styles
+/// and carries no product ids, so a Pricelist cell cannot name the rows the
+/// server would need. See the Pricelist screen and §6.1 of the brief.
+export interface OfferRuleInput {
+  readonly sku_id: string
+  readonly site_id?: string | null
+  readonly site_ids?: readonly string[] | null
+  readonly channel: CommercialChannel
+  readonly sellable: boolean
+  readonly currency: string
+  readonly unit_price_minor: number
+  readonly tax_category: string
+}
+
+export interface TaxRuleInput {
+  readonly tax_category: string
+  readonly rate_bps: number
+  readonly tax_inclusive: boolean
+}
+
+export interface CouponInput {
+  readonly code: string
+  readonly rule_id: string
+  readonly active: boolean
+  readonly customer_id?: string | null
+  readonly valid_from?: string | null
+  readonly valid_to?: string | null
+  readonly max_uses?: number | null
+}
+
+export interface CampaignInput {
+  readonly campaign_id: string
+  readonly name: string
+  readonly status: string
+  readonly valid_from?: string | null
+  readonly valid_to?: string | null
+  readonly budget_minor?: number | null
+  readonly max_uses?: number | null
+}
+
+/// One publication, as the command that writes it.
 ///
-/// The server accepts far more in one publication — base prices with their tax
-/// categories, promotion rules, coupons and campaigns — and refuses a book that
-/// changes nothing at all. Markdowns are the whole of the authoring surface
-/// here because they are the change a merchandiser makes weekly and the only
-/// one that needs no product picker: a markdown names a style or a product by
-/// its code. `tax_rules` is deliberately absent and must stay absent — the
-/// server refuses tax rules on a book that sets no prices, because they would
-/// categorise nothing.
+/// Every list is sent, empty ones included, and two of them have to be:
+/// `tax_rules` and `offer_rules` are plain `Vec` fields on the server's request
+/// struct with no `#[serde(default)]`, so a body that omits them is refused at
+/// deserialisation — `422 missing field 'tax_rules'`, before any validator
+/// runs. Sending `[]` is not noise; it is the difference between a book that
+/// writes and one that never reaches the handler.
+///
+/// The server then refuses two shapes on purpose: a book that changes nothing
+/// at all, and tax rules on a book that sets no prices — they would categorise
+/// nothing. A book of markdowns therefore sends `tax_rules: []`, and a book
+/// that sets prices must send at least one.
 export interface CreatePriceBookRequest {
   readonly version: number
   readonly name: string
   readonly effective_from: string
   readonly effective_to: string | null
+  readonly tax_rules: readonly TaxRuleInput[]
+  readonly offer_rules: readonly OfferRuleInput[]
   readonly markdowns: readonly MarkdownInput[]
+  /// Promotions, as the engine's own rule documents. Sent whole rather than
+  /// field by field, so the browser never becomes a second author of rule
+  /// semantics.
+  readonly rules: readonly Rule[]
+  readonly coupons: readonly CouponInput[]
+  readonly campaigns: readonly CampaignInput[]
   readonly actor_id: string
   readonly idempotency_key: string
 }
+
+/// The empty book — every list present, nothing in any of them.
+///
+/// Spread over, rather than restated at each call site: the two required lists
+/// are exactly the ones a caller forgets, and the failure is a 422 that names a
+/// field nobody meant to leave out.
+export const NOTHING_TO_PUBLISH = {
+  tax_rules: [],
+  offer_rules: [],
+  markdowns: [],
+  rules: [],
+  coupons: [],
+  campaigns: [],
+} as const satisfies Pick<
+  CreatePriceBookRequest,
+  "tax_rules" | "offer_rules" | "markdowns" | "rules" | "coupons" | "campaigns"
+>
 
 export interface CreatedPriceBook {
   readonly id: string
@@ -516,6 +601,10 @@ export const commercialKeys = {
     ] as const,
   usage: () => ["commercial", "usage"] as const,
   fleet: () => ["commercial", "activation"] as const,
+  /// Every promotion, coupon and campaign the fleet is carrying, gathered from
+  /// the books. One key for the three of them because it is one read — see
+  /// `promotionCatalogue`.
+  catalogue: () => ["commercial", "catalogue"] as const,
   /// Article-level prices. The channel and the moment are part of the key
   /// because a different question has a different answer.
   articlePrices: (channel: string, at: string | null) =>
@@ -594,6 +683,152 @@ export function commercialFleet(signal?: AbortSignal): Promise<Fleet> {
   return node.get<Fleet>("/api/v1/commercial/activation", { signal })
 }
 
+// ── every promotion the fleet is carrying ──────────────────────────────────
+
+/// The book a promotion arrived in, and how far that book has actually got.
+///
+/// Carried beside every rule, coupon and campaign rather than fetched again by
+/// the screen: "which shops have this offer" is a property of the book that
+/// delivered it, and asking a second endpoint for it is how two readings of the
+/// same fact come to disagree.
+export interface CarriedBy {
+  readonly id: string
+  readonly version: number
+  readonly name: string
+  readonly effective_from: string
+  readonly effective_to: string | null
+  readonly activated_by: readonly BookActivation[]
+}
+
+export interface PromotionRow {
+  readonly rule_id: string
+  readonly name: string
+  /// The column the server keeps beside the document, which is what its own
+  /// queries read. `definition.status` is the engine's copy of the same thing.
+  readonly status: string
+  readonly priority: number
+  readonly definition: Rule
+  readonly book: CarriedBy
+}
+
+export interface CouponRow {
+  readonly coupon: BookCoupon
+  readonly book: CarriedBy
+}
+
+export interface CampaignRow {
+  readonly campaign: BookCampaign
+  readonly book: CarriedBy
+}
+
+export interface PromotionCatalogue {
+  readonly rules: readonly PromotionRow[]
+  readonly coupons: readonly CouponRow[]
+  readonly campaigns: readonly CampaignRow[]
+  /// How many published books the answer was drawn from. Not a cost any more —
+  /// the server counts them — but still the honest denominator: "no promotions,
+  /// from twelve books" and "no promotions, from none" mean opposite things.
+  readonly book_count: number
+  /// The number a new book has to carry to win. Every write on these screens
+  /// needs it, and it is one `max()` over the same list.
+  readonly next_version: number
+}
+
+/// One row as the three catalogue endpoints shape it: the object itself, plus
+/// the book that carried it, flattened into the same record.
+interface CarriedRow {
+  readonly publication_id: string
+  readonly version: number
+  readonly book_name: string
+  readonly effective_from: string
+  readonly effective_to: string | null
+  readonly activated_by: readonly BookActivation[]
+}
+
+function carriedBy(row: CarriedRow): CarriedBy {
+  return {
+    id: row.publication_id,
+    version: row.version,
+    name: row.book_name,
+    effective_from: row.effective_from,
+    effective_to: row.effective_to,
+    activated_by: row.activated_by,
+  }
+}
+
+/// Every promotion, coupon and campaign the fleet is actually carrying.
+///
+/// Four requests, flat, where this used to be one plus one per published book.
+/// The de-duplication that used to happen here — newest publication wins per
+/// key — now happens in SQL, in `cloud/postgres/catalogue.rs`, which mirrors
+/// `load_rules` / `load_coupons` / `load_campaigns` in `pricing.rs`. That is
+/// the point of the move, not the round trips: the rule about which of two
+/// statements of a promotion is live belongs beside the code a shop resolves it
+/// with, not in a browser that has to be told.
+///
+/// `listPriceBooks` stays in the set for one reason — `next_version`, the number
+/// a new book has to carry to win. Every write on these screens needs it and it
+/// is one `max()` over that list; the catalogue rows only know the books that
+/// happen to declare an offer.
+export async function promotionCatalogue(
+  signal?: AbortSignal
+): Promise<PromotionCatalogue> {
+  const [books, ruleRows, couponRows, campaignRows] = await Promise.all([
+    listPriceBooks(signal),
+    node.get<{ items: (BookRule & CarriedRow)[]; book_count: number }>(
+      "/api/v1/commercial/rules",
+      { signal }
+    ),
+    node.get<{ items: (BookCoupon & CarriedRow)[]; book_count: number }>(
+      "/api/v1/commercial/coupons",
+      { signal }
+    ),
+    node.get<{ items: (BookCampaign & CarriedRow)[]; book_count: number }>(
+      "/api/v1/commercial/campaigns",
+      { signal }
+    ),
+  ])
+
+  return {
+    rules: ruleRows.items.map((row) => ({
+      rule_id: row.rule_id,
+      name: row.name,
+      status: row.status,
+      priority: row.priority,
+      definition: row.definition,
+      book: carriedBy(row),
+    })),
+    coupons: couponRows.items.map((row) => ({
+      coupon: {
+        code: row.code,
+        rule_id: row.rule_id,
+        active: row.active,
+        customer_id: row.customer_id,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to,
+        max_uses: row.max_uses,
+      },
+      book: carriedBy(row),
+    })),
+    campaigns: campaignRows.items.map((row) => ({
+      campaign: {
+        campaign_id: row.campaign_id,
+        name: row.name,
+        status: row.status,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to,
+        budget_minor: row.budget_minor,
+        max_uses: row.max_uses,
+        max_uses_per_customer: row.max_uses_per_customer ?? null,
+      },
+      book: carriedBy(row),
+    })),
+    book_count: ruleRows.book_count,
+    next_version:
+      books.reduce((highest, book) => Math.max(highest, book.version), 0) + 1,
+  }
+}
+
 // ── writes ─────────────────────────────────────────────────────────────────
 
 /// Write the book. It is a DRAFT until somebody publishes it.
@@ -635,6 +870,145 @@ export function publishPriceBook(
   )
 }
 
+/// The book was written and then not published.
+///
+/// Its own error type because it is its own outcome, and the one the two-step
+/// exists to make visible: a draft now exists, numbered, holding the changes
+/// somebody typed, and no till has heard about it. Swallowing this into "save
+/// failed" would send them to write it again — and the second attempt would be
+/// refused, because the number it wants is already taken by the book that did
+/// get written.
+export class BookWrittenNotPublished extends Error {
+  /// The draft that now exists. Declared and assigned rather than written as a
+  /// constructor parameter property: this project builds with
+  /// `erasableSyntaxOnly`, so the only TypeScript allowed is the kind that
+  /// disappears when the types are stripped, and a parameter property emits
+  /// code.
+  readonly book: CreatedPriceBook
+
+  constructor(book: CreatedPriceBook, cause: unknown) {
+    const said =
+      cause instanceof Error ? cause.message : "the server could not be reached"
+    super(
+      `Book v${book.version} “${book.name}” was written but not published: ${said} It is a draft, so nothing has changed at any till yet.`,
+      { cause }
+    )
+    this.name = "BookWrittenNotPublished"
+    this.book = book
+  }
+}
+
+/// Write a book and put it into service, as one act.
+///
+/// Two calls, because they are two decisions — writing a price is a
+/// merchandiser's and sending it to thirty tills is somebody's to approve — and
+/// one function, because on these screens the person doing both is the same
+/// person and a draft nobody meant to leave behind is worse than a click saved.
+/// The failure *between* them is not flattened away: see the error above.
+export async function writeAndPublish(
+  request: CreatePriceBookRequest,
+  signal?: AbortSignal
+): Promise<PublishReceipt> {
+  const created = await createPriceBook(request, signal)
+  try {
+    // A **different** key for the second half, derived from the first so both
+    // are stable across a retry. `command_deduplication` is keyed by the
+    // idempotency key alone — the command type is stored beside it and
+    // compared, not part of the key — so reusing one key for the two calls
+    // does not make them idempotent, it makes the second one a
+    // `409 idempotency key was already used with a different command`. The
+    // book gets written and never published, every time.
+    return await publishPriceBook(
+      created.id,
+      request.actor_id,
+      `${request.idempotency_key}:publish`,
+      signal
+    )
+  } catch (error) {
+    throw new BookWrittenNotPublished(created, error)
+  }
+}
+
+/// Pause or resume one promotion — the whole of the live/paused switch.
+///
+/// **There is no status route on the cloud node.** `RuleStatus` and
+/// `CampaignStatus` are engine concepts written once, when a book is created,
+/// and nothing amends them afterwards. A shop holds its own copy, delivered by
+/// the book dispatch, so a status flip that only changed a row at the centre
+/// would stop a promotion at head office and leave it running at every till.
+///
+/// So the switch publishes a one-line book restating the rule with its new
+/// status. That is not a workaround so much as the model taken at its word:
+/// `load_rules` reads `DISTINCT ON (rule_id) … ORDER BY version DESC`, so the
+/// newest book naming a rule *is* the rule. The flip is versioned, dispatched
+/// and auditable, and it needs nothing built.
+///
+/// **When `PATCH /api/v1/commercial/rules/{id}/status` lands, this function and
+/// `setCampaignStatus` below are the only two places that change.** Nothing
+/// else in the module knows how a status is written — that is why the toggle
+/// goes through here rather than composing a book at the call site.
+export function setRuleStatus(
+  input: {
+    readonly rule: Rule
+    readonly status: RuleStatus
+    /// The campaign the rule names, restated alongside it. Required, because
+    /// the server refuses a book whose rule names a campaign that same book
+    /// does not define — a rule dispatched without its campaign is an offer no
+    /// till can ever apply.
+    readonly campaign: CampaignInput | null
+    readonly version: number
+    readonly actorId: string
+    readonly idempotencyKey: string
+  },
+  signal?: AbortSignal
+): Promise<PublishReceipt> {
+  const verb = input.status === "ACTIVE" ? "Resume" : "Pause"
+  return writeAndPublish(
+    {
+      ...NOTHING_TO_PUBLISH,
+      version: input.version,
+      name: `${verb} ${input.rule.name}`,
+      effective_from: new Date().toISOString(),
+      effective_to: null,
+      rules: [{ ...input.rule, status: input.status }],
+      campaigns: input.campaign === null ? [] : [input.campaign],
+      actor_id: input.actorId,
+      idempotency_key: input.idempotencyKey,
+    },
+    signal
+  )
+}
+
+/// The same switch, one level up. Pausing a campaign pauses every rule inside
+/// it — a rule is live only when both it and its campaign are — which is what
+/// somebody means by "stop the Lebaran promo", and is the reason this exists
+/// rather than six visits to `setRuleStatus`.
+export function setCampaignStatus(
+  input: {
+    readonly campaign: CampaignInput
+    readonly status: string
+    readonly version: number
+    readonly actorId: string
+    readonly idempotencyKey: string
+  },
+  signal?: AbortSignal
+): Promise<PublishReceipt> {
+  const verb = input.status === "ACTIVE" ? "Resume" : "Pause"
+  return writeAndPublish(
+    {
+      ...NOTHING_TO_PUBLISH,
+      version: input.version,
+      name: `${verb} ${input.campaign.name}`,
+      effective_from: new Date().toISOString(),
+      effective_to: null,
+      campaigns: [{ ...input.campaign, status: input.status }],
+      actor_id: input.actorId,
+      idempotency_key: input.idempotencyKey,
+    },
+    signal
+  )
+}
+
 /// Send every shop the running totals of what promotions have cost.
 ///
 /// A shop enforces a budget from the last count it received, so what it knows
@@ -660,6 +1034,14 @@ export function publishUsageToFleet(
 /// not an approximation built for a preview. It is a `useMutation` on the
 /// screen for that reason rather than a query: nothing is cached, because
 /// nothing was recorded.
+///
+/// **No screen calls this today.** The basket simulator was the only place the
+/// engine's `rejected_rules` explanations were visible, and the owner removed
+/// it with the rest of the seven menus. The function is kept rather than
+/// deleted because the endpoint has not gone anywhere and the explanations are
+/// the best answer to "why did the promotion not come off" that this system
+/// has — a "Try it" button inside the promotion form is where it belongs when
+/// somebody wants it back.
 export function simulate(
   request: SimulateRequest,
   signal?: AbortSignal
@@ -701,19 +1083,62 @@ export function instantOf(value: string): string | null {
 // nothing to generate from and these are transcribed. If a column moves, this
 // is where it goes stale.
 
+/// Which rung of the cascade a price was authored on.
+///
+/// `pricing_engine::PriceLevel`, flattened into the candidate by serde, so it
+/// arrives as an object with a `level` tag and not as a string. It was
+/// transcribed here as `applies_to: string` and every reading of it was
+/// therefore `"[object Object]"` — the failure this file's header warns about,
+/// caught by reading `price.rs` rather than by anything at build time.
+export type PriceLevel =
+  | { readonly level: "COMPANY" }
+  | { readonly level: "SITE_GROUP"; readonly site_ids: readonly string[] }
+  | { readonly level: "SITE"; readonly site_id: string }
+
+/// Who a candidate was written for, in words.
+export function describeLevel(level: PriceLevel): string {
+  switch (level.level) {
+    case "SITE":
+      return level.site_id
+    case "SITE_GROUP":
+      return `${level.site_ids.length} shops`
+    default:
+      return "Every shop"
+  }
+}
+
+/// One distinct amount inside a range, and which products carry it.
+///
+/// A style can be priced per size, so a rung of the cascade covers a range
+/// rather than a number — and somebody eventually has to ask which size is the
+/// expensive one. The server answers that from the same rung it drew the range
+/// from, so the detail can never disagree with the summary above it.
+export interface ArticlePricePoint {
+  readonly unit_price_minor: number
+  readonly sku_codes: readonly string[]
+  /// How many of those products this amount actually wins.
+  readonly in_force_for: number
+}
+
 /// What one shop charges for one article, as a stack of rules in the order the
 /// engine applied them. The rank is the engine's, not a sort key.
 export interface ArticlePriceRule {
   readonly rank: number
   readonly source: string
-  readonly applies_to: string
+  readonly applies_to: PriceLevel
   readonly markdown_id: string | null
   readonly currency: string
-  readonly publication_version: number | null
+  readonly publication_version: number
   readonly min_unit_price_minor: number
   readonly max_unit_price_minor: number
   readonly sku_count: number
-  readonly in_force_for: string | null
+  /// How many of the style's products this candidate actually wins — a count,
+  /// not a sentence. A shop price on one size beats the company price on that
+  /// size alone, and the company row is then in force for the rest.
+  readonly in_force_for: number
+  readonly points: readonly ArticlePricePoint[]
+  readonly effective_from: string
+  readonly effective_to: string | null
 }
 
 export interface ArticlePriceShop {

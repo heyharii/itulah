@@ -194,8 +194,6 @@ export function BookPanel({ book }: { book: PriceBookDetail }) {
                     : `Budget ${money(campaign.budget_minor)}`}
                   {campaign.max_uses !== null &&
                     ` · at most ${units(campaign.max_uses)} uses`}
-                  {campaign.max_uses_per_customer !== null &&
-                    ` · ${units(campaign.max_uses_per_customer)} per shopper`}
                 </span>
               </li>
             ))}

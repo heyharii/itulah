@@ -47,7 +47,16 @@ pub struct Principal {
 /// Paths that must stay reachable without a token: liveness, login itself,
 /// the machine-to-machine sync ingest (guarded by x-sync-key), and metrics
 /// scraping.
+///
+/// The member surface is here too, and is the one entry that is not actually
+/// unauthenticated: `/api/v1/member/...` is guarded by `member::require_member`,
+/// which runs before this middleware and resolves a member session. It is
+/// exempt here because a shopper has no node account and never will — see
+/// `http/member.rs`.
 fn is_public(path: &str) -> bool {
+    if super::member::is_member_path(path) {
+        return true;
+    }
     matches!(
         path,
         "/api/v1/health" | "/api/v1/auth/login" | "/api/v1/sync/ingest" | "/metrics"

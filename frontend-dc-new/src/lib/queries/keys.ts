@@ -37,6 +37,24 @@ export const keys = {
   /// which job it was printing.
   jobRun: (jobId: string) => ["dc", "tagging-job", jobId, "run"] as const,
   run: (sessionId: string) => ["dc", "print-session", sessionId] as const,
+  /// One drawn label. The stock and the colourway are in the key because they
+  /// are what the picture is OF — change either and it is a different label,
+  /// not a stale one, so it must not be served from the cache of the last.
+  labelPreview: (
+    jobId: string,
+    widthMm: number,
+    heightMm: number,
+    skuCode: string | undefined
+  ) =>
+    [
+      "dc",
+      "tagging-job",
+      jobId,
+      "label-preview",
+      widthMm,
+      heightMm,
+      skuCode ?? "first",
+    ] as const,
 
   // ── Counting ─────────────────────────────────────────────────────────────
   counts: () => ["dc", "official-counts"] as const,

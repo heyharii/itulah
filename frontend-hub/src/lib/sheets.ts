@@ -78,8 +78,9 @@ function clauses(value: unknown): string | undefined {
   return typeof value === "string" &&
     value !== "" &&
     value.length <= 2048 &&
-    // eslint-disable-next-line no-control-regex -- a control character in a
-    // query parameter is not a filter, it is somebody probing the parser.
+    // A control character in a query parameter is not a filter, it is somebody
+    // probing the parser.
+    // eslint-disable-next-line no-control-regex
     !/[\u0000-\u001f]/.test(value)
     ? value
     : undefined
@@ -93,6 +94,9 @@ function clauses(value: unknown): string | undefined {
 /// does: a report is something you send somebody, and the window it was read
 /// over is half of what you are sending.
 export const SHEET_PARAMS = {
+  /// How a browsable list is ordered. In the URL because an order is half of
+  /// what somebody is looking at — "the newest ones" is a link worth sending.
+  sort: oneOf(["newest", "price_low", "price_high"] as const),
   /// What was typed into a search box, when that box filters a whole screen
   /// rather than a card. In the URL so a filtered catalogue can be sent to a
   /// colleague and survives the back button — the two things a `useState`
@@ -118,7 +122,17 @@ export const SHEET_PARAMS = {
   /// One article-setup session: the receipt that arrived without an article,
   /// and the variants being declared against it.
   setup: id,
+  /// A delivery line waiting to be told what it is. Distinct from `setup`
+  /// because they are two moments: this one has no session yet, and opening
+  /// one is the whole point of the sheet it names.
+  receipt: id,
   basket: flag,
+  // articles
+  /// One master article, keyed by its eight-digit code rather than a uuid.
+  /// The code is the identifier every other system already speaks — it is on
+  /// the label, in the SKU and in the supplier's own paperwork — so a link to
+  /// an article is a thing somebody can type from a garment in their hand.
+  article: id,
   // inventory
   pool: id,
   allotment: id,
@@ -140,6 +154,8 @@ export const SHEET_PARAMS = {
   // commercial
   book: id,
   price: id,
+  campaign: id,
+  rule: id,
   // people
   employee: id,
   // storeops
@@ -199,6 +215,8 @@ const SHEET_SUBJECT: Partial<Record<SheetKey, string>> = {
   asset: "asset",
   statement: "bank_statement",
   book: "publication",
+  campaign: "campaign",
+  rule: "commercial_rule",
   employee: "employee",
   sale: "sale",
   refund: "return",
@@ -257,12 +275,20 @@ export function useSheet<K extends SheetKey>(key: K) {
         // The screen does not change; only which record is being looked at.
         to: ".",
         search: (prev: SheetSearch) => ({ ...prev, [key]: next }),
+        // Said here as well as in `routes.tsx`, and not redundantly: the
+        // router's `pathChanged` predicate is only consulted by a browser that
+        // supports view-transition *types*, and one with view transitions but
+        // without them would take the default and fade the screen behind every
+        // sheet that opened. A sheet already animates; the page under it is
+        // meant to hold still.
+        viewTransition: false,
       }),
     close: () =>
       navigate({
         to: ".",
         replace: true,
         search: (prev: SheetSearch) => ({ ...prev, [key]: undefined }),
+        viewTransition: false,
       }),
   }
 }

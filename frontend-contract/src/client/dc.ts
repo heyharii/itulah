@@ -13,6 +13,8 @@ import type {
   IntakeRequest,
   Koli,
   KoliManifest,
+  LabelPreview,
+  LabelPreviewRequest,
   LinePosition,
   MovementView,
   MoveRequest,
@@ -292,6 +294,24 @@ export class Dc {
     return this.node.post<PrintChunkReport>(
       `/api/v1/dc/print-sessions/${encodeURIComponent(sessionId)}/run`,
       {},
+      { signal },
+    );
+  }
+
+  /// Draw one of a job's labels without printing it.
+  ///
+  /// A read, despite the POST — it carries a body (the stock in the machine,
+  /// and which line of the job to draw) and claims nothing. Calling it twice
+  /// costs a ribbon nothing, which is the point: until this existed, the first
+  /// time anybody saw a hang tag was when it came off the printer.
+  previewJobLabel(
+    jobId: string,
+    request: LabelPreviewRequest,
+    signal?: AbortSignal,
+  ): Promise<LabelPreview> {
+    return this.node.post<LabelPreview>(
+      `/api/v1/dc/tagging-jobs/${encodeURIComponent(jobId)}/label-preview`,
+      request,
       { signal },
     );
   }

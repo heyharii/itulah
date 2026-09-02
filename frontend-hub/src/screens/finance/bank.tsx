@@ -29,7 +29,11 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { AccountPicker } from "@/screens/finance/parts"
+import {
+  AccountPicker,
+  LocationSelect,
+  SiteName,
+} from "@/screens/finance/parts"
 import {
   parseMinor,
   parseStatementPaste,
@@ -80,8 +84,11 @@ const columns: ColumnDef<TableSetup, BankStatementRow>[] = [
   },
   {
     accessorKey: "site_id",
-    header: "Site",
-    size: 100,
+    header: "Location",
+    size: 130,
+    // The client's own name for it. The id stays in `title`, because that is
+    // what the account codes carry and what a support call will be about.
+    cell: ({ row }) => <SiteName id={row.original.site_id} />,
   },
   {
     id: "period",
@@ -325,7 +332,9 @@ function ReconcileSheet({
             {statement && (
               <>
                 <Facts>
-                  <Fact term="Site">{statement.site_id}</Fact>
+                  <Fact term="Location">
+                    <SiteName id={statement.site_id} />
+                  </Fact>
                   <Fact term="Period">
                     {day(statement.period_start)} – {day(statement.period_end)}
                   </Fact>
@@ -495,6 +504,16 @@ function UnmatchedLine({
                 <span className="block text-[0.71875rem] text-text">
                   {suggestion.reasons.join(" · ")}
                 </span>
+                {/* Text, not a link, and it has to stay text. A `Suggestion`
+                    carries `journal_line_id` — the line, not the entry — and
+                    nothing in this app is addressed by a journal *line*: the
+                    journal sheet opens on an `entry_id`, which the suggestion
+                    does not carry and no endpoint will trade for it. Linking
+                    the line id to the entry sheet would 404 on a click; the
+                    same gap keeps `matched_entry_number` above unlinked, where
+                    the number is the entry's own and the id still is not.
+                    Closing it means `Suggestion` growing an entry id in
+                    `cloud/http/finance.rs`. */}
                 <span className="block font-mono text-[0.65625rem] text-mute">
                   {suggestion.journal_line_id}
                 </span>
@@ -718,12 +737,13 @@ function ImportSheet({
         <div className="grid grid-cols-2 gap-3">
           <form.Field name="siteId">
             {(field) => (
-              <Field label="Site">
-                <Input
+              <Field label="Location">
+                {/* The statement belongs to one bank account at one location,
+                    and the id is not a thing anybody knows by heart. */}
+                <LocationSelect
                   value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="e.g. DC01"
+                  onChange={(next) => field.handleChange(next)}
+                  emptyLabel="Choose a location"
                 />
               </Field>
             )}

@@ -4,22 +4,15 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import {
-  ArrowLeft,
-  Check,
-  Globe,
-  Search,
-  ShoppingBasket,
-  Store,
-} from "lucide-react"
-import { useMemo, useState } from "react"
+import { ArrowLeft, Check, Search, ShoppingBasket, Store } from "lucide-react"
+import { useCallback, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
-import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { FacetGroup } from "@/components/ui/facets"
 import { Tag } from "@/components/ui/tag"
 import { count, money } from "@/lib/format"
 import {
@@ -38,8 +31,10 @@ import { cn } from "@/lib/utils"
 import { BasketSheet } from "@/screens/procurement/basket"
 import { ItemDetail } from "@/screens/procurement/item-detail"
 import { termLabel, toggle } from "@/screens/procurement/shared"
+import { ProcurementTabs } from "@/screens/procurement/tabs"
 import type {
   CatalogueVocabulary,
+  PurchaseHistory,
   SourcedItem,
   Supplier,
 } from "@itulah/contract"
@@ -72,8 +67,10 @@ export function Sourcing() {
   const search = useSheet("q")
   const item = useSheet("item")
   const cart = useSheet("cart")
+  /// Relevance is the absence of a sort rather than a value, so the plain URL
+  /// is the plain catalogue and there is one spelling of "no order chosen".
+  const sort = useSheet("sort")
 
-  const [onlyActive, setOnlyActive] = useState<"ACTIVE" | "ALL">("ACTIVE")
   const [divisions, setDivisions] = useState<readonly string[]>([])
   const [tags, setTags] = useState<readonly string[]>([])
   const [suppliers, setSuppliers] = useState<readonly string[]>([])
@@ -104,10 +101,29 @@ export function Sourcing() {
     [supplierList.data]
   )
 
+  /// How each facet's codes are read out loud. Callbacks rather than inline
+  /// arrows because `<FacetGroup>` memoises its sifting on them.
+  const divisionLabel = useCallback(
+    (code: string) => termLabel(vocabulary.data?.divisions, code),
+    [vocabulary.data]
+  )
+  const tagLabel = useCallback(
+    (code: string) => termLabel(vocabulary.data?.tags, code),
+    [vocabulary.data]
+  )
+  const supplierLabel = useCallback(
+    (id: string) => supplierNames.get(id) ?? id,
+    [supplierNames]
+  )
+
   const scope = useMemo<SourcingScope>(
     () => ({
+      sort: sort.value ?? "relevance",
       q: needle === "" ? undefined : needle,
-      status: onlyActive === "ACTIVE" ? "ACTIVE" : undefined,
+      // Always what is actually on offer. A retired item cannot be ordered, so
+      // a control that shows them is a control that can only mislead — every
+      // extra row it adds is a row the buyer must not pick.
+      status: "ACTIVE",
       divisionCodes: divisions.length === 0 ? undefined : divisions,
       tagCodes: tags.length === 0 ? undefined : tags,
       // Standing in a shop IS a supplier filter. Expressed as the same
@@ -119,7 +135,7 @@ export function Sourcing() {
           ? undefined
           : suppliers,
     }),
-    [needle, onlyActive, divisions, tags, suppliers, shop.value]
+    [needle, divisions, tags, suppliers, shop.value, sort.value]
   )
 
   const catalogue = useInfiniteQuery({
@@ -182,35 +198,6 @@ export function Sourcing() {
           filtering are one question, and splitting them across two corners of
           the screen makes a buyer hunt for half of it. */}
       <aside className="flex w-[13.25rem] shrink-0 flex-col overflow-y-auto border-r border-hairline px-4 py-[1.125rem]">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-line-ico" />
-          <Input
-            value={search.value ?? ""}
-            onChange={(event) =>
-              event.target.value === ""
-                ? search.close()
-                : search.open(event.target.value)
-            }
-            placeholder={standing ? `In ${standing.name}` : "Search everything"}
-            className="h-9 pl-9"
-            aria-label="Search the catalogue"
-          />
-        </div>
-
-        {/* The scope, said out loud. A box that quietly searches one shop is
-            worse than one that searches everything: the missing results look
-            like missing stock. */}
-        {standing && (
-          <button
-            type="button"
-            onClick={() => shop.close()}
-            className="mt-2 inline-flex items-center gap-1.5 self-start rounded-full bg-accent-bg px-2.5 py-1 text-[0.6875rem] font-medium text-info-fg transition-colors hover:brightness-97"
-          >
-            <Globe className="size-3" />
-            Search everything instead
-          </button>
-        )}
-
         <div className="mt-4 flex items-center justify-between">
           <b className="text-[0.9375rem] font-semibold text-ink">Filters</b>
           {filtered && (
@@ -229,70 +216,48 @@ export function Sourcing() {
           )}
         </div>
 
-        <FacetGroup label="Offered">
-          <Segmented
-            className="w-full"
-            options={[
-              { value: "ACTIVE", label: "On offer" },
-              { value: "ALL", label: "Everything" },
-            ]}
-            value={onlyActive}
-            onChange={setOnlyActive}
-          />
-        </FacetGroup>
+        <FacetGroup
+          label="Division"
+          values={facets?.divisions}
+          selected={divisions}
+          onToggle={(value) => setDivisions(toggle(divisions, value))}
+          onClear={() => setDivisions([])}
+          labelOf={divisionLabel}
+        />
 
-        <FacetGroup label="Division">
-          {(facets?.divisions ?? []).map((facet) => (
-            <FacetItem
-              key={facet.value}
-              label={termLabel(vocabulary.data?.divisions, facet.value)}
-              count={facet.count}
-              on={divisions.includes(facet.value)}
-              onToggle={() => setDivisions(toggle(divisions, facet.value))}
-            />
-          ))}
-        </FacetGroup>
+        <FacetGroup
+          label="Tag"
+          shape="chip"
+          values={facets?.tags}
+          selected={tags}
+          onToggle={(value) => setTags(toggle(tags, value))}
+          onClear={() => setTags([])}
+          labelOf={tagLabel}
+        />
 
-        <FacetGroup label="Tag">
-          <div className="flex flex-wrap gap-1.5">
-            {(facets?.tags ?? []).map((facet) => (
-              <button
-                key={facet.value}
-                type="button"
-                onClick={() => setTags(toggle(tags, facet.value))}
-                className={cn(
-                  "rounded-full border px-2.5 py-1 text-[0.75rem] transition-colors",
-                  tags.includes(facet.value)
-                    ? "border-ink bg-ink text-white"
-                    : "border-hairline-2 text-text hover:bg-soft-2"
-                )}
-              >
-                {termLabel(vocabulary.data?.tags, facet.value)}{" "}
-                <span className="text-mute">{facet.count}</span>
-              </button>
-            ))}
-          </div>
-        </FacetGroup>
-
-        {/* Hidden inside a shop: filtering by supplier when you are standing in
-            one supplier's shop is a control that can only do nothing. */}
+        {/* Hidden inside a shop: filtering by supplier while standing in one
+            supplier's shop is a control that can only do nothing. */}
         {!standing && (
-          <FacetGroup label="Supplier">
-            {(facets?.suppliers ?? []).map((facet) => (
-              <FacetItem
-                key={facet.value}
-                label={supplierNames.get(facet.value) ?? facet.value}
-                count={facet.count}
-                on={suppliers.includes(facet.value)}
-                onToggle={() => setSuppliers(toggle(suppliers, facet.value))}
-              />
-            ))}
-          </FacetGroup>
+          <FacetGroup
+            label="Supplier"
+            values={facets?.suppliers}
+            selected={suppliers}
+            onToggle={(value) => setSuppliers(toggle(suppliers, value))}
+            onClear={() => setSuppliers([])}
+            labelOf={supplierLabel}
+          />
         )}
       </aside>
 
       <div className="@container min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[77.5rem] px-[1.875rem] pt-6 pb-14">
+          {/* Above the title, not under it. On the other two screens the tabs
+              sit below the header the way Commercial's do, but this one's
+              header is replaced by a supplier card the moment a shop is opened
+              — and module navigation that moves when you open a shop is
+              navigation you have to find again. */}
+          <ProcurementTabs current="/procurement" />
+
           {standing ? (
             <ShopHead
               supplier={standing}
@@ -312,6 +277,29 @@ export function Sourcing() {
             </div>
           )}
 
+          {/* The search sits over the content, not in the filter column: it
+              asks a different question. The filters narrow what is already
+              being shown; this changes what is being looked for, and a
+              marketplace puts that across the top for the same reason. */}
+          <div className="relative mb-4">
+            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-line-ico" />
+            <input
+              value={search.value ?? ""}
+              onChange={(event) =>
+                event.target.value === ""
+                  ? search.close()
+                  : search.open(event.target.value)
+              }
+              placeholder={
+                standing
+                  ? `Search in ${standing.name}`
+                  : "Search every supplier's catalogue"
+              }
+              aria-label="Search the catalogue"
+              className="h-10 w-full rounded-full border border-transparent bg-soft-2 pr-4 pl-10 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 hover:bg-soft-3"
+            />
+          </div>
+
           <div className="mb-[1.125rem] flex items-center justify-between gap-3">
             <span className="text-[0.84375rem] text-body">
               <b className="font-medium text-ink">{count(rows.length)}</b>{" "}
@@ -323,6 +311,33 @@ export function Sourcing() {
                     : "items match"
                 : `of ${count(searchable)} shown`}
             </span>
+            <div className="ml-auto flex items-center gap-1">
+              <span className="mr-1 text-[0.71875rem] text-mute">Urutkan</span>
+              {(
+                [
+                  [undefined, "Paling cocok"],
+                  ["newest", "Terbaru"],
+                  ["price_low", "Termurah"],
+                  ["price_high", "Termahal"],
+                ] as const
+              ).map(([value, labelText]) => (
+                <button
+                  key={labelText}
+                  type="button"
+                  onClick={() =>
+                    value === undefined ? sort.close() : sort.open(value)
+                  }
+                  className={cn(
+                    "h-8 rounded-full px-3 text-[0.78125rem] font-medium transition-colors",
+                    (sort.value ?? undefined) === value
+                      ? "bg-ink text-white"
+                      : "text-body hover:bg-soft-2 hover:text-ink"
+                  )}
+                >
+                  {labelText}
+                </button>
+              ))}
+            </div>
             <Button
               variant={picked > 0 ? "dark" : "ghost"}
               onClick={() => cart.open(true)}
@@ -382,6 +397,9 @@ export function Sourcing() {
       <ItemSheet
         id={item.value ?? null}
         vocabulary={vocabulary.data}
+        bought={
+          rows.find((row) => row.item.supplier_item_id === item.value)?.bought
+        }
         onClose={item.close}
       />
       <BasketSheet open={cart.isOpen} onClose={cart.close} />
@@ -434,9 +452,12 @@ function ProductCard({
               No photograph
             </span>
           )}
-          {item.status !== "ACTIVE" && (
-            <span className="absolute top-2.5 left-2.5">
-              <Pill tone="neutral">Retired</Pill>
+          {/* The division rides on the photograph, the way a marketplace puts
+              its category badge there: it is what the picture IS, so it belongs
+              with the picture rather than in a list of facts under it. */}
+          {item.division_code && (
+            <span className="absolute top-2.5 left-2.5 inline-flex items-center rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-[0.625rem] font-semibold text-ink shadow-[0_1px_3px_rgba(20,20,25,.1)] backdrop-blur-[5px]">
+              {termLabel(vocabulary?.divisions, item.division_code)}
             </span>
           )}
         </div>
@@ -447,8 +468,20 @@ function ProductCard({
           <div className="mt-[0.1875rem] truncate font-mono text-[0.6875rem] text-mute">
             {item.supplier_item_code}
           </div>
-          <div className="mt-2 text-[1rem] font-semibold text-ink tabular-nums">
-            {money(item.unit_price_minor)}
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-[1rem] font-semibold text-ink tabular-nums">
+              {money(item.unit_price_minor)}
+            </span>
+            {/* What this business has already committed to. The marketplace
+                equivalent is "10RB+ terjual", and the difference matters: we
+                are the buyer here, so the number that helps is what WE bought,
+                not what anybody sold. Hidden at zero rather than shown as "0
+                bought" — a first order is not a warning. */}
+            {row.bought !== undefined && row.bought.units > 0 && (
+              <span className="text-[0.71875rem] text-mute tabular-nums">
+                {count(row.bought.units)} dibeli
+              </span>
+            )}
           </div>
         </div>
       </button>
@@ -465,10 +498,22 @@ function ProductCard({
           <Store className="size-3 shrink-0 text-line-ico" />
           <span className="truncate">{supplier.name}</span>
         </button>
-        {item.division_code && (
-          <Tag className="mt-1.5">
-            {termLabel(vocabulary?.divisions, item.division_code)}
-          </Tag>
+
+        {/* What the item is filed under. Capped at three with a count for the
+            rest: a card is a glance, and an item wearing nine tags would push
+            every other card down the page to say something no buyer reads at
+            this size. The full set is in the sheet. */}
+        {item.tags.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {item.tags.slice(0, 3).map((code) => (
+              <Tag key={code}>{termLabel(vocabulary?.tags, code)}</Tag>
+            ))}
+            {item.tags.length > 3 && (
+              <span className="text-[0.625rem] text-mute tabular-nums">
+                +{count(item.tags.length - 3)}
+              </span>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -547,66 +592,15 @@ function ShopHead({
   )
 }
 
-function FacetGroup({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="border-t border-hairline py-4 first-of-type:border-t-0">
-      <div className="mb-2.5 text-[0.6875rem] font-semibold tracking-[0.04em] text-mute uppercase">
-        {label}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-/// A checkbox with its count, which is the whole affordance: the number is how
-/// a buyer decides whether a filter is worth pressing.
-function FacetItem({
-  label,
-  count: howMany,
-  on,
-  onToggle,
-}: {
-  label: string
-  count: number
-  on: boolean
-  onToggle: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={on}
-      className="flex w-full items-center gap-2.5 py-[0.3125rem] text-left text-[0.84375rem] text-text transition-colors hover:text-ink"
-    >
-      <span
-        className={cn(
-          "grid size-4 shrink-0 place-items-center rounded-[5px] border-[1.5px] transition-colors",
-          on ? "border-ink bg-ink" : "border-hairline-strong"
-        )}
-      >
-        {on && <Check className="size-2.5 text-white" />}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      <span className="shrink-0 text-[0.75rem] text-mute tabular-nums">
-        {count(howMany)}
-      </span>
-    </button>
-  )
-}
-
 function ItemSheet({
   id,
   vocabulary,
+  bought,
   onClose,
 }: {
   id: string | null
   vocabulary?: CatalogueVocabulary
+  bought?: PurchaseHistory
   onClose: () => void
 }) {
   const client = useQueryClient()
@@ -677,7 +671,7 @@ function ItemSheet({
                 {count(pick.data.quantity)} in the basket.
               </Banner>
             )}
-            <ItemDetail item={item} vocabulary={vocabulary} />
+            <ItemDetail item={item} vocabulary={vocabulary} bought={bought} />
           </div>
         ),
       })}

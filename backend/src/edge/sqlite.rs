@@ -171,6 +171,13 @@ pub(crate) const RETIRE_TIER_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0021_retire_what_no_customer_carries.sql"
 ));
 
+/// The counters a book used to freeze into itself. See the migration: a count
+/// with two sources is one this system has been bitten by before.
+pub(crate) const ONE_SOURCE_FOR_A_COUNT_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0022_a_count_has_one_source.sql"
+));
+
 /// The colourway and size a hang tag has to carry to be shoppable.
 pub(crate) const PRINT_ITEM_COLOUR_SIZE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -467,6 +474,19 @@ impl SqliteEdge {
             .map_err(db)?;
         if still_offers_a_tier > 0 {
             connection.execute_batch(RETIRE_TIER_SCHEMA).map_err(db)?;
+        }
+        let still_counts_in_the_book: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('commercial_coupon')
+                  WHERE name='used'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if still_counts_in_the_book > 0 {
+            connection
+                .execute_batch(ONE_SOURCE_FOR_A_COUNT_SCHEMA)
+                .map_err(db)?;
         }
         // Asks after the size, because that is the line a rail is shopped by.
         // A tag without it prices the garment correctly and never says whether
@@ -2205,6 +2225,15 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::printing::session_for_job(&connection, job_id)
     }
 
+    fn preview_job_label(
+        &self,
+        job_id: &str,
+        request: &crate::edge::printing::LabelPreviewRequest,
+    ) -> Result<crate::edge::printing::LabelPreview, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::printing::preview_job_label(&connection, job_id, request)
+    }
+
     fn repoint_print_session(
         &self,
         session_id: &str,
@@ -2356,7 +2385,7 @@ impl EdgeInventory for SqliteEdge {
         // connection lock in hand, same as the label queue does.
         let manifest = {
             let connection = self.lock()?;
-            crate::edge::outbound::koli_manifest(&connection, koli_id)?
+            crate::edge::outbound::koli_manifest_on(&connection, koli_id, request.label_size())?
         };
         crate::edge::printing::send_document(
             &request.printer_host,
@@ -3707,6 +3736,23 @@ impl EdgeInventory for SqliteEdge {
                                 "campaign_id": promotion.campaign_id,
                                 "coupon_code": promotion.coupon_code,
                                 "benefit_minor": promotion.benefit_minor,
+                                // Which units it came off. Sent as subject ids
+                                // rather than positions: a position is only
+                                // meaningful against the basket that produced
+                                // it, and the centre reads this fact on its own
+                                // days later.
+                                "lines": promotion
+                                    .line_benefits
+                                    .iter()
+                                    .filter_map(|line| {
+                                        subjects.get(line.line).map(|subject| {
+                                            serde_json::json!({
+                                                "subject_id": subject.id,
+                                                "benefit_minor": line.benefit_minor,
+                                            })
+                                        })
+                                    })
+                                    .collect::<Vec<_>>(),
                             }))
                             .collect::<Vec<_>>()
                     })

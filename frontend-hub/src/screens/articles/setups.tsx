@@ -7,17 +7,30 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Input } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniTable, TotalsLadder } from "@/components/ui/rows"
+import {
+  MiniCell,
+  MiniRow,
+  MiniTable,
+  SubHead,
+  TotalsLadder,
+} from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Lifecycle } from "@/components/ui/timeline"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, day, label, money, moment, toneFor } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import {
+  articleKeys,
+  searchArticles,
+  type ArticleColourwayInput,
+} from "@/lib/queries/articles"
+import { ColourPicker } from "@/screens/articles/colour-picker"
 import {
   articleImage,
   issueSetupSession,
@@ -29,11 +42,20 @@ import {
   type SetupSession,
   type SetupSessionRow,
   type UnidentifiedReceipt,
+  catalogueVocabulary,
+  openSetupSession,
+  type NewSetupSession,
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import type { CatalogueVocabulary, FacetCount } from "@itulah/contract"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { useActor, useIdempotencyKey } from "@/screens/procurement/shared"
+import {
+  toggle,
+  useActor,
+  useIdempotencyKey,
+} from "@/screens/procurement/shared"
+import { ArticlesTabs } from "@/screens/articles/tabs"
 
 /// Article setups — head office giving a delivery its identity.
 ///
@@ -177,6 +199,18 @@ export function ArticleSetups() {
   const [query, setQuery] = useState("")
   // Which setup session is open lives in the URL, like every other sheet.
   const session = useSheet("setup")
+  /// Which delivery is being given an identity. A separate key from `setup`:
+  /// this line has no session yet, and opening one is what the sheet does.
+  const waiting_ = useSheet("receipt")
+
+  /// The words a division may be named with. Needed only by the composer, but
+  /// fetched here so opening the sheet does not start a request the person is
+  /// then waiting on.
+  const vocabulary = useQuery({
+    queryKey: procurementKeys.vocabulary(),
+    queryFn: ({ signal }) => catalogueVocabulary(signal),
+    staleTime: 30 * 60 * 1000,
+  })
   const [waitingSort, setWaitingSort] = useState<SortingState>([
     { id: "verified_at", desc: false },
   ])
@@ -235,7 +269,7 @@ export function ArticleSetups() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Procurement"
+        crumb="Articles"
         title="Article setups"
         sub="Deliveries waiting to be told what they are, and the sessions that will mint them."
         actions={
@@ -247,6 +281,8 @@ export function ArticleSetups() {
           />
         }
       />
+
+      <ArticlesTabs current="/articles/setups" />
 
       <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
         <Kpi
@@ -281,6 +317,8 @@ export function ArticleSetups() {
               ) : (
                 <DataTable<UnidentifiedReceipt>
                   table={receiptTable}
+                  onRowClick={(row) => waiting_.open(row.receipt_line_id)}
+                  isSelected={(row) => row.receipt_line_id === waiting_.value}
                   className="max-h-[calc(100vh-24rem)]"
                 />
               ),
@@ -309,6 +347,20 @@ export function ArticleSetups() {
         </Card>
       )}
 
+      <OpenSessionSheet
+        receipt={
+          waiting.find((row) => row.receipt_line_id === waiting_.value) ?? null
+        }
+        vocabulary={vocabulary.data}
+        onClose={waiting_.close}
+        onOpened={(opened) => {
+          waiting_.close()
+          // Straight into the session that was just made: the next question —
+          // what the SKUs will be — is asked there, and making somebody find
+          // it again in a list they were not looking at is a step for nothing.
+          session.open(opened.session_id)
+        }}
+      />
       <SessionSheet
         id={session.value ?? null}
         onClose={() => session.close()}
@@ -614,5 +666,294 @@ function Colourway({
         />
       </label>
     </div>
+  )
+}
+
+/// Give one delivery its identity.
+///
+/// This sheet is the step the whole chain was waiting on. Goods are received
+/// and accepted at the DC, they reach head office with the supplier's own code
+/// and nothing of ours, and until somebody answers "what IS this" they have no
+/// article, therefore no SKU, therefore no tag, no price and no sale. The DC's
+/// tagging queue says as much in its empty state: head office issues these
+/// when goods are accepted.
+///
+/// Almost everything is prefilled from what the buyer already wrote on the
+/// order. The two things only a person can say are which colours arrived and
+/// how the pieces split across colour and size — and the second is checked
+/// against the quantity the warehouse actually counted, because a session that
+/// declared more pieces than turned up would mint stock that does not exist.
+function OpenSessionSheet({
+  receipt,
+  vocabulary,
+  onClose,
+  onOpened,
+}: {
+  receipt: UnidentifiedReceipt | null
+  vocabulary?: CatalogueVocabulary
+  onClose: () => void
+  onOpened: (session: SetupSession) => void
+}) {
+  const client = useQueryClient()
+  const actor = useActor()
+
+  /// The sizes this business actually sells, read off the catalogue's own
+  /// facets rather than a master list. That is a deliberate narrowing: a size
+  /// nothing has ever been sold in is a size nobody is about to receive, and
+  /// offering the full ISO range would bury the six that matter.
+  const catalogue = useQuery({
+    queryKey: articleKeys.list({ limit: 1 }),
+    queryFn: ({ signal }) => searchArticles({ limit: 1 }, signal),
+    staleTime: 10 * 60 * 1000,
+  })
+  const sizes = catalogue.data?.facets.sizes ?? []
+
+  const open = useMutation({
+    mutationFn: (request: NewSetupSession) => openSetupSession(request),
+    onSuccess: (session) => {
+      // The queue this line was in, and the sessions it just joined.
+      void client.invalidateQueries({
+        queryKey: procurementKeys.unidentified(),
+      })
+      void client.invalidateQueries({ queryKey: procurementKeys.setups() })
+      onOpened(session)
+    },
+  })
+
+  return (
+    <Sheet
+      open={receipt !== null}
+      onOpenChange={(next) => !next && onClose()}
+      id={receipt?.po_number}
+      title={receipt?.article_name ?? "Give this delivery an identity"}
+    >
+      {receipt !== null && (
+        <SessionComposer
+          key={receipt.receipt_line_id}
+          receipt={receipt}
+          vocabulary={vocabulary}
+          sizes={sizes}
+          actor={actor}
+          problem={open.error === null ? null : (open.error as Error).message}
+          busy={open.isPending}
+          onSubmit={(request) => open.mutate(request)}
+        />
+      )}
+    </Sheet>
+  )
+}
+
+/// The form itself, keyed on the receipt line so switching deliveries starts
+/// clean rather than carrying the last one's colours into this one.
+function SessionComposer({
+  receipt,
+  vocabulary,
+  sizes,
+  actor,
+  problem,
+  busy,
+  onSubmit,
+}: {
+  receipt: UnidentifiedReceipt
+  vocabulary?: CatalogueVocabulary
+  sizes: readonly FacetCount[]
+  actor: string
+  problem: string | null
+  busy: boolean
+  onSubmit: (request: NewSetupSession) => void
+}) {
+  const [chosenColours, setChosenColours] = useState<ArticleColourwayInput[]>(
+    []
+  )
+  const [chosenSizes, setChosenSizes] = useState<readonly string[]>([])
+  /// Keyed `digit|size` so a cell survives a colour being removed and added
+  /// back, which happens constantly while somebody works out what arrived.
+  const [pieces, setPieces] = useState<Record<string, string>>({})
+  const [price, setPrice] = useState("")
+  const [name, setName] = useState(receipt.article_name)
+  const [division, setDivision] = useState(receipt.division_code ?? "")
+
+  const cells = chosenColours.flatMap((colour) =>
+    chosenSizes.map((size) => ({
+      colour_digit: colour.colour_digit,
+      colour_code: colour.colour_code,
+      size_code: size,
+      key: `${colour.colour_digit}|${size}`,
+    }))
+  )
+  const declared = cells.reduce(
+    (sum, cell) => sum + (Number(pieces[cell.key]) || 0),
+    0
+  )
+  const priceMinor = Number(price.replace(/[^\d]/g, "")) || 0
+  // Every piece the warehouse counted has to end up somewhere. Declaring fewer
+  // leaves stock unaccounted; declaring more mints stock that never arrived.
+  const balanced = declared === receipt.quantity
+  const ready =
+    name.trim() !== "" &&
+    division !== "" &&
+    chosenColours.length > 0 &&
+    chosenSizes.length > 0 &&
+    balanced &&
+    priceMinor > 0 &&
+    actor !== ""
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        // The button is disabled, but a form submits on Enter regardless and
+        // `disabled` on a control elsewhere cannot stop that.
+        if (!ready || busy) return
+        onSubmit({
+          receipt_line_id: receipt.receipt_line_id,
+          article_name: name.trim(),
+          division_code: division,
+          tags: receipt.tags,
+          image_url: receipt.image_url,
+          currency: "IDR",
+          colours: chosenColours,
+          variants: cells
+            .filter((cell) => (Number(pieces[cell.key]) || 0) > 0)
+            .map((cell) => ({
+              colour_digit: cell.colour_digit,
+              size_code: cell.size_code,
+              quantity: Number(pieces[cell.key]),
+              base_price_minor: priceMinor,
+            })),
+          created_by: actor,
+        })
+      }}
+      className="flex flex-col gap-5"
+    >
+      {problem !== null && <Banner tone="bad">{problem}</Banner>}
+
+      <Facts>
+        <Fact term="Delivery">{receipt.receipt_number}</Fact>
+        <Fact term="Landed at">{receipt.site_id}</Fact>
+        <Fact term="Counted">{count(receipt.quantity)} pieces</Fact>
+        <Fact term="Supplier code">{receipt.supplier_article_code}</Fact>
+      </Facts>
+
+      <Field label="What is it called">
+        <Input value={name} onChange={(event) => setName(event.target.value)} />
+      </Field>
+
+      <Field label="Division">
+        <Select
+          value={division}
+          onChange={(event) => setDivision(event.target.value)}
+        >
+          <option value="">Choose a division…</option>
+          {(vocabulary?.divisions ?? []).map((term) => (
+            <option key={term.code} value={term.code}>
+              {term.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <div>
+        <SubHead aside={`${count(chosenColours.length)} chosen`}>
+          Colours that arrived
+        </SubHead>
+        <ColourPicker
+          value={chosenColours}
+          onChange={setChosenColours}
+          minted={new Map()}
+        />
+      </div>
+
+      <div>
+        <SubHead aside={`${count(chosenSizes.length)} chosen`}>Sizes</SubHead>
+        <div className="flex flex-wrap gap-1.5">
+          {sizes.map((size) => (
+            <button
+              key={size.value}
+              type="button"
+              onClick={() => setChosenSizes(toggle(chosenSizes, size.value))}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-[0.75rem] transition-colors",
+                chosenSizes.includes(size.value)
+                  ? "border-ink bg-ink text-white"
+                  : "border-hairline-2 text-text hover:bg-soft-2"
+              )}
+            >
+              {size.value}
+            </button>
+          ))}
+        </div>
+        {sizes.length === 0 && (
+          <p className="text-[0.71875rem] text-mute">
+            No size has ever been used in this catalogue, so there is nothing to
+            choose from yet.
+          </p>
+        )}
+      </div>
+
+      {cells.length > 0 && (
+        <div>
+          <SubHead
+            aside={
+              <span className={balanced ? "text-ok-fg" : "text-warn-fg"}>
+                {count(declared)} of {count(receipt.quantity)}
+              </span>
+            }
+          >
+            How the pieces split
+          </SubHead>
+          <MiniTable head={["Colour", "Size", "Pieces"]}>
+            {cells.map((cell) => (
+              <MiniRow key={cell.key}>
+                <MiniCell>{cell.colour_code}</MiniCell>
+                <MiniCell>{cell.size_code}</MiniCell>
+                <MiniCell align="right">
+                  <Input
+                    inputMode="numeric"
+                    aria-label={`Pieces of ${cell.colour_code} ${cell.size_code}`}
+                    value={pieces[cell.key] ?? ""}
+                    onChange={(event) =>
+                      setPieces((was) => ({
+                        ...was,
+                        [cell.key]: event.target.value,
+                      }))
+                    }
+                    className="h-8 w-20 text-right"
+                  />
+                </MiniCell>
+              </MiniRow>
+            ))}
+          </MiniTable>
+          {!balanced && (
+            <p className="mt-2 text-[0.71875rem] text-warn-fg">
+              {declared > receipt.quantity
+                ? "That is more than the warehouse counted. A session cannot mint stock that did not arrive."
+                : "Every piece counted has to be accounted for before this can be opened."}
+            </p>
+          )}
+        </div>
+      )}
+
+      <Field
+        label="Base price"
+        hint="What one piece will be worth. The same for every variant here — a colour that sells for more is a price decision, and it is made in Commercial, not at intake."
+      >
+        <Input
+          inputMode="numeric"
+          value={price}
+          onChange={(event) => setPrice(event.target.value)}
+          placeholder="31000"
+        />
+      </Field>
+
+      <Button
+        variant="dark"
+        type="submit"
+        disabled={!ready || busy}
+        className="w-full"
+      >
+        {busy ? "Opening…" : "Open the session"}
+      </Button>
+    </form>
   )
 }

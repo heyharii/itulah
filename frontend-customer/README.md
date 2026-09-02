@@ -18,35 +18,59 @@ VITE_API_TARGET=http://localhost:8080 npm run dev
 
 ## What it reads
 
-Three endpoints, all GET, all added for this surface
-(`backend/src/cloud/http/customer.rs`):
+Three endpoints, all GET, all scoped by the member session rather than by
+anything in the URL (`backend/src/cloud/http/member.rs`):
 
 | Path | Answers |
 | --- | --- |
-| `/api/v1/customer/{id}/summary` | points earned, spend, savings, first and last purchase |
-| `/api/v1/customer/{id}/transactions` | their purchases, newest first, cursor-paged |
-| `/api/v1/customer/{id}/transactions/{sale_id}` | one receipt with its lines |
+| `/api/v1/member/summary` | points earned, spend, savings, first and last purchase |
+| `/api/v1/member/transactions` | their purchases, newest first, cursor-paged |
+| `/api/v1/member/transactions/{sale_id}` | one receipt with its lines |
 
 Everything is derived from `edge_sale` — the sales the shops reported and the
 centre accepted — so a member's screen and the centre's revenue cannot
 disagree. Points come from `edge_sale.points_earned`, computed by the pricing
 engine at the till.
 
-## Two things this app is not, yet
+## How a phone becomes paired
 
-**There is no customer identity.** The member id lives in `localStorage`
-(`src/lib/member.tsx`), put there by the person who typed it. It is a card
-number, not a credential, and the code says so. The endpoints therefore sit
-behind the ordinary node session like every other route — which is why this
-app has a device sign-in that a real shopper should never have to see. Customer
-sign-in (a phone number and a one-time code) is the work that replaces
-`src/components/login-form.tsx`.
+The shopper types **their member number and six digits the cashier reads out**.
+That is the whole sign-in.
 
-Until that exists, the deployed site (`frontend-customer` in `render.yaml`) is a
-**preview for the people building it, not a shopper-facing product**: anyone
-reaching the URL meets a device login they have no account for. Nothing leaks —
-every route is behind the node session — but do not hand the address to
-customers or announce it as a member app before sign-in lands.
+It is deliberately **not** a one-time code sent to a phone number, which is what
+all three reference implementations do (`retail/internal/cloud/customer` in Go,
+`final-product/.../cloud-customer` in Rust, and the old `customer-pwa`). The
+question this has to answer is "does this person hold that card", and a phone
+OTP answers a different one — "does this person control that number". In this
+market those come apart: prepaid numbers are changed often and Indonesian
+operators recycle them after roughly 60–90 days of inactivity, so whoever is
+issued a recycled number would inherit the previous holder's purchase history.
+A code read out at the counter proves the card is in the person's hand, in the
+shop, checked by an employee — and it needs no WhatsApp or SMS provider, no
+per-message cost, and no data connection at the moment somebody signs in.
+
+The one attack it has is a dishonest cashier pairing their own phone to a
+customer's card. Every issuance carries the name of the cashier who made it, so
+that is answerable; a phone OTP can name nobody.
+
+    counter   POST /api/v1/members                       enrol the card
+              POST /api/v1/members/{id}/pairing-code     six digits, 10 minutes
+    shopper   POST /api/v1/member/session                card number + code
+              → sets `member_session` (HttpOnly) + `member_csrf`
+
+Then every read is scoped by that session: `/api/v1/member/summary`,
+`/transactions`, `/transactions/{sale_id}`. Nothing in this app stores a member
+id, because there is nothing to store — the cookie is `HttpOnly` and no script
+here or anywhere else can read the thing that authorises a request.
+
+The `/api/v1/customer/{id}/…` routes still exist and still take an operator
+session. They are the counter's lookup, for somebody phoning up about a
+receipt, and that is a legitimate thing for a shop to do. What was wrong was
+their being the **only** way, so that a shopper's own app had to borrow an
+operator's password — and so that anyone holding one could read anybody's
+history.
+
+## What this app is not, yet
 
 **Points are earned, never spent.** `points_earned_total` is a lifetime total,
 not a balance: nothing in this system records a redemption yet. The wording on

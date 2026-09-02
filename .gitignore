@@ -14,3 +14,6 @@ semantic-review/
 *.sqlite3
 *.sqlite3-shm
 *.sqlite3-wal
+
+# The demo DC node runs from its own directory with its own .env and SQLite.
+demo/

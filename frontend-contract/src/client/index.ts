@@ -8,5 +8,6 @@
 export * from "./error";
 export * from "./node";
 export * from "./auth";
+export * from "./member";
 export * from "./sync";
 export * from "./dc";

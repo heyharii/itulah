@@ -47,8 +47,14 @@ so those are the only three edits.
 
 ## Found by walking the flow (2026-09-02)
 
-**The chain from an accepted delivery to a tagging job is broken in the
-browser.** Walking sourcing → basket → PO → sync → DC count → verify → accepted
+**CLOSED 2026-09-02.** The "Awaiting identity" table now opens a composer that
+calls `POST /api/v1/article-setups`, so a delivery can be given its identity and
+the DC's tagging queue fills. The finding is kept below because the way it was
+found — walking the whole flow on a live pair rather than reading the code — is
+the only reason anybody noticed.
+
+~~**The chain from an accepted delivery to a tagging job is broken in the
+browser.**~~ Walking sourcing → basket → PO → sync → DC count → verify → accepted
 → head office, the goods arrive in Procurement → Article setups → "Awaiting
 identity" and stop there: that table has no row action and no button, and
 `POST /api/v1/article-setups` (open a setup session) is not called anywhere in

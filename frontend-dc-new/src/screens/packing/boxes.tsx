@@ -171,6 +171,11 @@ function BoxCard({
       return dc.printKoliLabel(box.koli_id, {
         printer_host: printer.host,
         printer_port: printer.port,
+        // The reel in the machine, not the house default. The carton sticker
+        // was the one label that ignored the bench entirely — it rendered at
+        // 58 × 40 whatever was loaded, which is discovered at the loading bay.
+        label_width_mm: printer.widthMm,
+        label_height_mm: printer.heightMm,
       })
     },
   })

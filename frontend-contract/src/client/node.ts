@@ -5,6 +5,13 @@ import { readError } from "./error";
 /// form cannot set. Named in `backend/src/security.rs`.
 const CSRF_COOKIE = "inventory_csrf";
 
+/// The member surface's own pair, from `cloud/http/member.rs`.
+///
+/// A shopper's session is not an operator's, and the two cookies are named
+/// apart so that neither can be mistaken for the other. A `Node` built for the
+/// member app is told to echo this one instead.
+export const MEMBER_CSRF_COOKIE = "member_csrf";
+
 /// Methods the server treats as safe, and so does not demand a CSRF token for.
 /// Kept in step with the middleware in `cloud/http/auth.rs` and `edge/http.rs`.
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -67,8 +74,16 @@ export class Node {
   // survives having its types stripped, and a parameter property does not.
   private readonly baseUrl: string;
 
-  constructor(baseUrl: string = "") {
+  /// Which CSRF cookie a write echoes back.
+  ///
+  /// Almost always the operator one. The member app passes
+  /// `MEMBER_CSRF_COOKIE`, because its session is a different session with a
+  /// different cookie — see `cloud/http/member.rs`.
+  private readonly csrfCookie: string;
+
+  constructor(baseUrl: string = "", csrfCookie: string = CSRF_COOKIE) {
     this.baseUrl = baseUrl;
+    this.csrfCookie = csrfCookie;
   }
 
   async request<T>(
@@ -116,7 +131,7 @@ export class Node {
     // when either is missing. Omitting this header is why a signed-in browser
     // gets 403 on everything except reads.
     if (!SAFE_METHODS.has(method.toUpperCase())) {
-      const csrf = readCookie(CSRF_COOKIE);
+      const csrf = readCookie(this.csrfCookie);
       if (csrf !== undefined) {
         headers["x-csrf-token"] = csrf;
       }

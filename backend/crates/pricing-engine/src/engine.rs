@@ -47,8 +47,6 @@ struct LineState {
     article_code: Option<String>,
     division: Option<String>,
     tags: Vec<String>,
-    unit_cost: Option<Money>,
-    posting_class: crate::PostingClass,
     quantity: i64,
     /// Before markdown — what the price list said.
     list_unit_price: Money,
@@ -130,7 +128,6 @@ fn source_of(level: &PriceLevel) -> PriceSource {
     match level {
         PriceLevel::Site { .. } => PriceSource::SitePrice,
         PriceLevel::SiteGroup { .. } => PriceSource::SiteGroupPrice,
-        PriceLevel::Tier { .. } => PriceSource::TierPrice,
         PriceLevel::Company => PriceSource::CompanyPrice,
     }
 }
@@ -183,18 +180,23 @@ fn settle_lines(
             Some(_) => {}
         }
 
-        // A price somebody typed in beats the book and every clearance in it:
-        // it is a deliberate act by a person who is standing there, and a
-        // markdown quietly undercutting it would make the override meaningless.
+        // Clearance replaces the list price; nothing overrides clearance.
+        //
+        // There used to be a third case above these two: a price typed in by
+        // hand, which beat the book and every markdown in it. It was reachable
+        // only from `simulate` — no till could produce one — so the simulator
+        // was the only screen in the business that could answer with a price no
+        // counter would ever charge. A supervisor override is a real thing a
+        // shop needs, and when it is built it needs an authorisation trail and
+        // a route at the till; it does not need to exist in the engine first.
         let markdown = index.markdown(context, line);
-        let (unit_price, source, markdown_id) = match (line.manual_unit_price, markdown) {
-            (Some(manual), _) => (manual, PriceSource::ManualOverride, None),
-            (None, Some(markdown)) => (
+        let (unit_price, source, markdown_id) = match markdown {
+            Some(markdown) => (
                 markdown.replacement_unit_price,
                 PriceSource::Markdown,
                 Some(markdown.markdown_id.clone()),
             ),
-            (None, None) => (entry.unit_price, source_of(&entry.applies_to), None),
+            None => (entry.unit_price, source_of(&entry.applies_to), None),
         };
 
         states.push(LineState {
@@ -202,8 +204,6 @@ fn settle_lines(
             article_code: line.article_code.clone(),
             division: line.division.clone(),
             tags: line.tags.clone(),
-            unit_cost: line.unit_cost,
-            posting_class: line.posting_class,
             quantity: line.quantity,
             list_unit_price: entry.unit_price,
             unit_price,
@@ -283,50 +283,19 @@ fn gate(
                 return Err(RejectionReason::NotThisCustomer);
             }
         }
-        CustomerScope::Tiers { tier_ids } => {
-            let in_tier = context
-                .customer_tier
-                .as_deref()
-                .is_some_and(|tier| tier_ids.contains(tier));
-            if !in_tier {
-                return Err(RejectionReason::NotThisCustomer);
-            }
-        }
     }
     if let Some(code) = &rule.coupon_code {
         if let Some(reason) = check_coupon(code, rule, snapshot, context) {
             return Err(reason);
         }
     }
-    let customer_uses = context
-        .customer_id
-        .as_deref()
-        .and_then(|_| context.customer_rule_uses.get(&rule.rule_id).copied())
-        .unwrap_or(0);
-    if let Some(reason) = rule.caps.allows(customer_uses) {
+    if let Some(reason) = rule.caps.allows() {
         return Err(reason);
     }
     // The campaign's shared caps, checked after the rule's own. Five offers
     // that are one promotion to the business spend one budget between them.
-    //
-    // Counted against the CAMPAIGN's own key, not the rule's. Passing the
-    // rule's count here would have read "this shopper has used this offer
-    // twice" as "this shopper has used the whole Lebaran campaign twice" — so a
-    // campaign limited to one use per customer would lock out anyone who had
-    // taken one of its five offers twice, and let through anyone who had taken
-    // all five once. Neither is the limit anybody set.
     if let Some(campaign) = campaign {
-        let campaign_uses = context
-            .customer_id
-            .as_deref()
-            .and_then(|_| {
-                context
-                    .customer_campaign_uses
-                    .get(&campaign.campaign_id)
-                    .copied()
-            })
-            .unwrap_or(0);
-        if let Some(reason) = campaign.caps.allows(campaign_uses) {
+        if let Some(reason) = campaign.caps.allows() {
             return Err(reason);
         }
     }
@@ -447,7 +416,6 @@ fn check_conditions(
     rule: &Rule,
     matched: &[usize],
     states: &[LineState],
-    context: &PricingContext,
 ) -> Result<Option<RejectionReason>, PricingError> {
     let conditions = &rule.conditions;
     let mut quantity = 0_i64;
@@ -457,23 +425,6 @@ fn check_conditions(
             .checked_add(states[index].quantity)
             .ok_or(PricingError::AmountOverflow)?;
         amount = amount.try_add(states[index].gross_total)?;
-    }
-    // A running threshold counts what this shopper has already bought in the
-    // promotion's window, so the basket that finally crosses the line gets the
-    // benefit. The history is the caller's to supply; the engine keeps none.
-    if conditions.cumulative {
-        if conditions.effective_from.is_none() || conditions.effective_to.is_none() {
-            // A running total with no window is a total of nothing. Refused
-            // rather than silently treated as a single-basket rule, which would
-            // look like it worked and quietly never trigger.
-            return Ok(Some(RejectionReason::NotStarted));
-        }
-        if let Some(history) = context.customer_cumulative.get(&rule.rule_id) {
-            quantity = quantity
-                .checked_add(history.quantity)
-                .ok_or(PricingError::AmountOverflow)?;
-            amount = amount.try_add(history.amount)?;
-        }
     }
     if quantity < conditions.min_quantity {
         return Ok(Some(RejectionReason::QuantityTooLow));
@@ -514,7 +465,7 @@ fn apply_price_effect(
     states: &[LineState],
     totals: &mut [Money],
     ceiling: Option<Money>,
-) -> Result<Money, PricingError> {
+) -> Result<(Money, Vec<crate::LineBenefit>), PricingError> {
     let mut cuts: Vec<(usize, Money)> = Vec::with_capacity(matched.len());
 
     match &rule.effect {
@@ -530,22 +481,6 @@ fn apply_price_effect(
                     states[index].gross_total
                 };
                 cuts.push((index, basis.basis_points(*bps)?.at_most(totals[index])));
-            }
-        }
-        Effect::Margin { bps } => {
-            for &index in matched {
-                let Some(unit_cost) = states[index].unit_cost else {
-                    // No cost, no margin. Guessing one would price goods
-                    // against a number nobody supplied.
-                    continue;
-                };
-                let unit = unit_cost.try_add(unit_cost.basis_points(*bps)?)?;
-                let replaced = unit.times(states[index].quantity)?;
-                if replaced.minor >= totals[index].minor {
-                    // Not cheaper, so not a discount.
-                    continue;
-                }
-                cuts.push((index, totals[index].try_sub(replaced)?));
             }
         }
         Effect::Amount { amount } => {
@@ -577,7 +512,9 @@ fn apply_price_effect(
         }
         // Handled elsewhere: a free item adds a line rather than cutting one,
         // and points carry no price benefit at all.
-        Effect::FreeItem { .. } | Effect::EarnPoints(_) => return Ok(Money::ZERO),
+        Effect::FreeItem { .. } | Effect::EarnPoints(_) => {
+            return Ok((Money::ZERO, Vec::new()))
+        }
     }
 
     // Trim to the rule's ceiling before anything is applied, so a capped rule
@@ -598,12 +535,25 @@ fn apply_price_effect(
         }
     }
 
+    let mut landed = Vec::with_capacity(cuts.len());
     for (index, cut) in cuts {
         if cut.is_positive() {
             totals[index] = totals[index].try_sub(cut)?.floor_at_zero();
+            landed.push(crate::LineBenefit {
+                line: index,
+                benefit: cut,
+            });
         }
     }
-    Ok(total_cut)
+    // The per-line breakdown, returned rather than summed away.
+    //
+    // It was computed here all along and discarded three lines later, which
+    // left the centre able to say a promotion cost 50,000 on a basket of three
+    // shirts and unable to say which shirt. Every report built on that
+    // attributes the WHOLE basket to the promotion — influenced revenue, which
+    // is standard in the trade and overstates by however much of the basket the
+    // offer never touched.
+    Ok((total_cut, landed))
 }
 
 /// Work out what a free-item rule grants.
@@ -723,12 +673,16 @@ fn run_scenario(
                 name: rule.name.clone(),
                 coupon_code: rule.coupon_code.clone(),
                 benefit: value,
+                // A granted item is not a cut off a line: its value is the
+                // price of goods handed over, and it belongs to no line in the
+                // basket. Empty rather than attributed somewhere arbitrary.
+                line_benefits: Vec::new(),
             });
             scenario.free.push(free);
             scenario.note(rule);
             continue;
         }
-        let cut = apply_price_effect(
+        let (cut, line_benefits) = apply_price_effect(
             rule,
             &candidate.effect,
             states,
@@ -745,6 +699,7 @@ fn run_scenario(
             name: rule.name.clone(),
             coupon_code: rule.coupon_code.clone(),
             benefit: cut,
+            line_benefits,
         });
         scenario.note(rule);
     }
@@ -891,7 +846,7 @@ pub(crate) fn resolve(
             rejected.push(RejectedRule::new(rule, RejectionReason::NothingMatched));
             continue;
         }
-        if let Some(reason) = check_conditions(rule, &matched, &states, context)? {
+        if let Some(reason) = check_conditions(rule, &matched, &states)? {
             rejected.push(RejectedRule::new(rule, reason));
             continue;
         }
@@ -989,7 +944,6 @@ pub(crate) fn resolve(
             tax_category: state.tax_category.clone(),
             publication_version: state.publication_version,
             markdown_id: state.markdown_id.clone(),
-            posting_class: state.posting_class,
         });
     }
     for free in &best.free {

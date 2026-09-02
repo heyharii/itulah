@@ -150,21 +150,269 @@ fn scale_round(base: i64, scale: f64) -> i64 {
     (base as f64 * scale + 0.5) as i64
 }
 
-/// Render one label.
-///
-/// The output is a complete ZPL job: header, fields, RFID write, quantity,
-/// footer. It is safe to concatenate several of these onto one printer socket.
-pub fn render_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> String {
-    let l = Layout::resolve(size);
-    let copies = data.copies.max(1);
-    let mut out = String::with_capacity(384);
+// ---------------------------------------------------------------------------
+// The sheet: one description of a label, two ways of drawing it
+// ---------------------------------------------------------------------------
 
-    out.push_str("^XA\n");
-    out.push_str(&format!("^PW{}\n", l.w_dots));
-    out.push_str(&format!("^LL{}\n", l.h_dots));
-    // UTF-8. Indonesian article names carry accented characters, and the
-    // default code page renders them as noise.
-    out.push_str("^CI28\n");
+/// One thing placed on the tag, in tag coordinates — dots from the top-left.
+///
+/// The layout functions below produce these and nothing else. Whether a label
+/// then becomes ZPL on a printer socket or SVG on a screen is decided
+/// afterwards, by which emitter is asked for it. That indirection exists for
+/// exactly one reason: a preview drawn by a second, parallel layout would
+/// agree with the printer on every ordinary day and part company on the day
+/// somebody moves a field — and a preview that is allowed to drift is worse
+/// than no preview at all, because somebody will trust it and print four
+/// hundred tags.
+#[derive(Debug)]
+enum Mark {
+    /// `^A0N` proportional text. `font` is the character cell height in dots,
+    /// which the tag also passes as the width: nothing here is condensed.
+    Text {
+        x: i64,
+        y: i64,
+        font: i64,
+        text: String,
+    },
+    /// Code 128 with its human readable line underneath.
+    Barcode {
+        x: i64,
+        y: i64,
+        /// The bars only. The readable line sits below this and is extra.
+        height: i64,
+        /// `^BY`'s narrow bar, in dots, chosen so the symbol fits the tag.
+        module: i64,
+        /// What the preview draws the readable line at. The printer uses its
+        /// own default instead, so this is the one number on a sheet that is
+        /// an estimate rather than an instruction — it is here because the
+        /// line takes vertical space, and a barcode whose text falls off the
+        /// bottom of the tag is a thing worth seeing before the ribbon runs.
+        hri_font: i64,
+        payload: String,
+    },
+    /// The EPC write. Not ink: it has no position and leaves no mark on the
+    /// paper. It rides on the sheet anyway so that one value describes
+    /// everything a label carries, and the ZPL emitter is the only thing that
+    /// has to know it goes last.
+    Rfid { hex: String },
+}
+
+/// One label, laid out and not yet drawn.
+struct Sheet {
+    w_dots: i64,
+    h_dots: i64,
+    copies: u32,
+    marks: Vec<Mark>,
+}
+
+/// Where the baseline of `^A0` text sits below its `^FO` point, as a fraction
+/// of the character cell. `^FO` places the top-left of the cell; SVG places a
+/// baseline. Measured off rendered output, like the 0.62 width ratio above,
+/// and used only by the preview — the printer is told the corner, never the
+/// baseline.
+const BASELINE_RATIO: f64 = 0.78;
+
+/// `^BY2`: the module width every barcode on these tags is set at.
+const BARCODE_MODULE_DOTS: i64 = 2;
+
+impl Sheet {
+    /// The printer's copy. This is the format the field-proven Go lineage
+    /// emitted and the tags already stuck to garments were written by, so the
+    /// ordering and spelling here are reproduced rather than chosen.
+    fn to_zpl(&self) -> String {
+        let mut out = String::with_capacity(384);
+        out.push_str("^XA\n");
+        out.push_str(&format!("^PW{}\n", self.w_dots));
+        out.push_str(&format!("^LL{}\n", self.h_dots));
+        // UTF-8. Indonesian article names carry accented characters, and the
+        // default code page renders them as noise.
+        out.push_str("^CI28\n");
+
+        for mark in &self.marks {
+            match mark {
+                Mark::Text { x, y, font, text } => out.push_str(&format!(
+                    "^FO{x},{y}^A0N,{font},{font}^FD{text}^FS\n"
+                )),
+                // ^BY sets the module width and ratio; ^BC is Code 128 with
+                // the human readable line below and no ZPL-computed check
+                // digit — the payload is already exactly what should be
+                // scanned.
+                Mark::Barcode {
+                    x,
+                    y,
+                    height,
+                    module,
+                    payload,
+                    ..
+                } => out.push_str(&format!(
+                    "^FO{x},{y}^BY{module},3,{height}^BCN,{height},Y,N,N^FD{payload}^FS\n"
+                )),
+                // Full form `^RFW,t,b,n,r`: hex, EPC bank, byte count, one
+                // retry. The shorthand `^RFW,E` works on modern Zebra Link-OS
+                // but is not guaranteed under T6204e ZGL emulation, so it is
+                // not used.
+                Mark::Rfid { hex } => {
+                    out.push_str(&format!("^RFW,H,1,{},1^FD{hex}^FS\n", hex.len() / 2))
+                }
+            }
+        }
+
+        // ^PQ<qty>,<pause>,<replicates>,<override>
+        out.push_str(&format!("^PQ{},0,1,Y\n", self.copies));
+        out.push_str("^XZ\n");
+        out
+    }
+
+    /// The screen's copy: the same marks, drawn as a picture of the paper.
+    ///
+    /// White paper and black ink in both light and dark themes, because that
+    /// is what the operator is about to hold. A preview that inverted itself
+    /// with the interface would be a picture of a screen, not of a tag.
+    ///
+    /// What this is exact about is geometry: every position, every glyph
+    /// height and the barcode's true footprint are the numbers the printer
+    /// gets, so a field that overflows here overflows there. What it
+    /// approximates is the shape of the glyphs — the printer's `^A0` is a
+    /// proportional font this browser does not have — and the bars, which are
+    /// drawn as the block they will occupy rather than encoded. This file is
+    /// not an encoder, and a barcode it invented would be a barcode nothing
+    /// guarantees the printer agrees with.
+    fn to_svg(&self) -> String {
+        let (w, h) = (self.w_dots, self.h_dots);
+        let mut out = String::with_capacity(1024);
+        out.push_str(&format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" \
+             preserveAspectRatio=\"xMidYMid meet\" role=\"img\">\
+             <title>Label preview</title>\
+             <rect width=\"{w}\" height=\"{h}\" fill=\"#ffffff\"/>"
+        ));
+
+        for mark in &self.marks {
+            match mark {
+                Mark::Text { x, y, font, text } => {
+                    let baseline = *y as f64 + *font as f64 * BASELINE_RATIO;
+                    out.push_str(&format!(
+                        "<text x=\"{x}\" y=\"{baseline:.1}\" font-size=\"{font}\" \
+                         font-family=\"Helvetica Neue,Helvetica,Arial,sans-serif\" \
+                         fill=\"#111111\" xml:space=\"preserve\">{}</text>",
+                        xml(text)
+                    ));
+                }
+                Mark::Barcode {
+                    x,
+                    y,
+                    height,
+                    module,
+                    hri_font,
+                    payload,
+                } => {
+                    let width = code128_dots(payload.chars().count(), *module);
+                    out.push_str(&format!(
+                        "<rect x=\"{x}\" y=\"{y}\" width=\"{width}\" height=\"{height}\" \
+                         fill=\"#e8e8e8\"/>"
+                    ));
+                    // Said in words inside the block, so nobody mistakes a
+                    // placeholder for something their scanner should read.
+                    let caption = (*height as f64 * 0.34) as i64;
+                    out.push_str(&format!(
+                        "<text x=\"{}\" y=\"{:.1}\" font-size=\"{caption}\" \
+                         font-family=\"Helvetica Neue,Helvetica,Arial,sans-serif\" \
+                         fill=\"#9a9a9a\" text-anchor=\"middle\">CODE 128</text>",
+                        x + width / 2,
+                        *y as f64 + *height as f64 / 2.0 + caption as f64 * 0.36
+                    ));
+                    // The readable line the printer puts under the bars,
+                    // centred on the symbol the same way ^BC centres it.
+                    let baseline = (y + height) as f64 + *hri_font as f64 * (1.0 + BASELINE_RATIO);
+                    out.push_str(&format!(
+                        "<text x=\"{}\" y=\"{baseline:.1}\" font-size=\"{hri_font}\" \
+                         font-family=\"Helvetica Neue,Helvetica,Arial,sans-serif\" \
+                         fill=\"#111111\" text-anchor=\"middle\">{}</text>",
+                        x + width / 2,
+                        xml(payload)
+                    ));
+                }
+                // Nothing to draw. The EPC is reported beside the picture, not
+                // printed on it.
+                Mark::Rfid { .. } => {}
+            }
+        }
+
+        out.push_str("</svg>");
+        out
+    }
+}
+
+/// How wide a Code 128 symbol is, in dots.
+///
+/// Eleven modules for the start character, eleven for each character of the
+/// payload, eleven for the checksum and thirteen for the stop bar. The count
+/// is fixed by the symbology, so this can be known without encoding anything.
+///
+/// It is an upper bound, and deliberately so: a run of digits encodes two to a
+/// symbol in subset C, which the printer will use and this does not model.
+/// Erring wide is the safe direction for both jobs this serves — a barcode
+/// drawn wider than it prints never hides an overflow, and a module chosen
+/// against a wider estimate never produces one.
+fn code128_dots(chars: usize, module: i64) -> i64 {
+    (11 * (chars as i64 + 2) + 13) * module
+}
+
+/// The widest narrow-bar the symbol can use and still land on the tag.
+///
+/// `^BY` is in dots and follows nothing: every coordinate and glyph on this
+/// label scales with the stock, and the barcode alone kept the width it had on
+/// a 58 mm tag. On a 40 mm one that is 334 dots of barcode across 320 dots of
+/// paper, and on the koli sticker a seventeen-character number overflowed at
+/// the DEFAULT size — the last characters are simply not printed, and Code 128
+/// carries a stop bar and a checksum, so what comes back from the scanner is
+/// not a truncated number but silence.
+///
+/// Scanners prefer a wide module, so this takes the widest that fits rather
+/// than shrinking in proportion, and never goes below one dot: at that point
+/// the payload is too long for the stock, and a hairline barcode and a clipped
+/// one are equally unreadable — but the hairline one at least reads close up.
+fn barcode_module(chars: usize, x: i64, w_dots: i64, scale_x: f64) -> i64 {
+    // The same margin on the right as the layout left on the left.
+    let room = w_dots - x * 2;
+    let ideal = scale_round(BARCODE_MODULE_DOTS, scale_x).max(1);
+    (1..=ideal)
+        .rev()
+        .find(|module| code128_dots(chars, *module) <= room)
+        .unwrap_or(1)
+}
+
+/// Escape for the preview's XML.
+///
+/// A different job from `escape` above and neither substitutes for the other:
+/// that one keeps an article name from ending a ZPL field and starting a
+/// command, this one keeps the same name from closing a `<text>` element in a
+/// document the browser is about to parse. The strings that reach here have
+/// already been through the first, which does not touch a single character
+/// this one cares about.
+fn xml(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// Place one hang tag.
+///
+/// The output is a complete description of the label: header geometry, every
+/// field, the RFID write, and how many copies. Nothing below decides how it is
+/// drawn.
+fn lay_out_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> Sheet {
+    let l = Layout::resolve(size);
+    let mut marks = Vec::with_capacity(7);
 
     // The name of the shop, set as the largest thing on the tag after the
     // price. It shrinks for a long name rather than growing into the SKU
@@ -173,104 +421,108 @@ pub fn render_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>
     // name smaller.
     let brand_text = truncate_chars(&escape(brand.0), 18);
     let brand_font = brand_font_dots(brand_text.chars().count());
-    out.push_str(&format!(
-        "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-        l.x(16),
-        l.y(14),
-        l.font(brand_font),
-        l.font(brand_font),
-        brand_text
-    ));
+    marks.push(Mark::Text {
+        x: l.x(16),
+        y: l.y(14),
+        font: l.font(brand_font),
+        text: brand_text,
+    });
 
     // The SKU rides in the top-right corner, small: it is for the person
     // holding a stock list, not for the shopper, and every one of its eleven
     // digits is already under the barcode for anyone who needs to read it.
-    out.push_str(&format!(
-        "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-        l.x(300),
-        l.y(28),
-        l.font(16),
-        l.font(16),
-        truncate_chars(&escape(data.sku_code), 16)
-    ));
+    marks.push(Mark::Text {
+        x: l.x(300),
+        y: l.y(28),
+        font: l.font(16),
+        text: truncate_chars(&escape(data.sku_code), 16),
+    });
 
-    let name = ellipsize(&escape(data.article_name), 32);
-    out.push_str(&format!(
-        "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-        l.x(16),
-        l.y(84),
-        l.font(21),
-        l.font(21),
-        name
-    ));
+    marks.push(Mark::Text {
+        x: l.x(16),
+        y: l.y(84),
+        font: l.font(21),
+        text: ellipsize(&escape(data.article_name), 32),
+    });
 
     // Size and colour share a baseline at two weights: the size is what a rail
     // is shopped by, the colour merely confirms what the eye already sees.
     let size_label = truncate_chars(&escape(data.size_label), 6);
     let mut colour_x = l.x(16);
     if !size_label.is_empty() {
-        out.push_str(&format!(
-            "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-            l.x(16),
-            l.y(116),
-            l.font(44),
-            l.font(44),
-            size_label
-        ));
         colour_x = l.x(16 + text_dots(size_label.chars().count(), 44) + 16);
+        marks.push(Mark::Text {
+            x: l.x(16),
+            y: l.y(116),
+            font: l.font(44),
+            text: size_label,
+        });
     }
     let colour_label = ellipsize(&escape(data.colour_label), 18);
     if !colour_label.is_empty() {
         // Sitting on the size's baseline rather than its cap height, so the two
         // read as one line instead of as a heading and a stray word.
-        out.push_str(&format!(
-            "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-            colour_x,
-            l.y(134),
-            l.font(17),
-            l.font(17),
-            colour_label
-        ));
+        marks.push(Mark::Text {
+            x: colour_x,
+            y: l.y(134),
+            font: l.font(17),
+            text: colour_label,
+        });
     }
 
     if data.price_minor > 0 {
-        out.push_str(&format!(
-            "^FO{},{}^A0N,{},{}^FDRp {}^FS\n",
-            l.x(16),
-            l.y(178),
-            l.font(48),
-            l.font(48),
-            format_rupiah(data.price_minor)
-        ));
+        marks.push(Mark::Text {
+            x: l.x(16),
+            y: l.y(178),
+            font: l.font(48),
+            text: format!("Rp {}", format_rupiah(data.price_minor)),
+        });
     }
 
-    if !data.barcode_payload.is_empty() {
-        // ^BY sets the module width and ratio; ^BC is Code 128 with the human
-        // readable line below and no ZPL-computed check digit — the payload is
-        // already exactly what should be scanned.
-        let bar_height = scale_round(50, l.scale_y);
-        out.push_str(&format!(
-            "^FO{},{}^BY2,3,{}^BCN,{},Y,N,N^FD{}^FS\n",
-            l.x(16),
-            l.y(238),
-            bar_height,
-            bar_height,
-            escape(data.barcode_payload)
-        ));
+    let barcode_payload = escape(data.barcode_payload);
+    if !barcode_payload.is_empty() {
+        marks.push(Mark::Barcode {
+            x: l.x(16),
+            y: l.y(238),
+            height: scale_round(50, l.scale_y),
+            module: barcode_module(
+                barcode_payload.chars().count(),
+                l.x(16),
+                l.w_dots,
+                l.scale_x,
+            ),
+            hri_font: l.font(18),
+            payload: barcode_payload,
+        });
     }
 
-    if let Some(epc) = printable_epc(data.epc) {
-        // Full form `^RFW,t,b,n,r`: hex, EPC bank, byte count, one retry.
-        // The shorthand `^RFW,E` works on modern Zebra Link-OS but is not
-        // guaranteed under T6204e ZGL emulation, so it is not used.
-        out.push_str(&format!("^RFW,H,1,{},1^FD{}^FS\n", epc.len() / 2, epc));
+    if let Some(hex) = printable_epc(data.epc) {
+        marks.push(Mark::Rfid { hex });
     }
 
-    // ^PQ<qty>,<pause>,<replicates>,<override>
-    out.push_str(&format!("^PQ{copies},0,1,Y\n"));
-    out.push_str("^XZ\n");
+    Sheet {
+        w_dots: l.w_dots,
+        h_dots: l.h_dots,
+        copies: data.copies.max(1),
+        marks,
+    }
+}
 
-    out
+/// Render one label.
+///
+/// The output is a complete ZPL job: header, fields, RFID write, quantity,
+/// footer. It is safe to concatenate several of these onto one printer socket.
+pub fn render_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> String {
+    lay_out_label(data, size, brand).to_zpl()
+}
+
+/// The same label, drawn for a screen.
+///
+/// Returned as a standalone SVG document with a `viewBox` and no fixed size,
+/// so whatever shows it decides how big the picture is while the tag keeps its
+/// true proportions.
+pub fn preview_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> String {
+    lay_out_label(data, size, brand).to_svg()
 }
 
 /// How large the shop name may be set before it runs into the SKU beside it.
@@ -297,7 +549,7 @@ pub struct KoliLabelData<'a> {
     pub sealed_at: Option<&'a str>,
 }
 
-/// Render the koli sticker.
+/// Place the koli sticker.
 ///
 /// Deliberately no QR. `^BQ` never appears anywhere in the field-proven Go
 /// lineage, so it is not among the commands known to survive the Printronix
@@ -306,63 +558,77 @@ pub struct KoliLabelData<'a> {
 /// the garment tags already use. The QR belongs on the packing list, which is
 /// printed from a browser where any encoder works.
 ///
-/// No `^RFW` either: a cardboard box is not an RFID tag.
+/// No RFID write either: a cardboard box is not an RFID tag.
+fn lay_out_koli(data: &KoliLabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> Sheet {
+    let l = Layout::resolve(size);
+    let mut marks = Vec::with_capacity(4);
+
+    marks.push(Mark::Text {
+        x: l.x(10),
+        y: l.y(10),
+        font: l.font(14),
+        text: escape(brand.0),
+    });
+
+    // The number is the identity of the box, so it is the biggest thing on it:
+    // this is what someone reads across a loading bay.
+    marks.push(Mark::Text {
+        x: l.x(10),
+        y: l.y(36),
+        font: l.font(26),
+        text: escape(data.koli_number),
+    });
+
+    marks.push(Mark::Text {
+        x: l.x(10),
+        y: l.y(74),
+        font: l.font(18),
+        text: format!(
+            "{} - {} pcs",
+            escape(data.destination_store_id),
+            data.unit_count
+        ),
+    });
+
+    let koli_number = escape(data.koli_number);
+    marks.push(Mark::Barcode {
+        x: l.x(30),
+        y: l.y(112),
+        height: scale_round(72, l.scale_y),
+        module: barcode_module(
+            koli_number.chars().count(),
+            l.x(30),
+            l.w_dots,
+            l.scale_x,
+        ),
+        hri_font: l.font(18),
+        payload: koli_number,
+    });
+
+    Sheet {
+        w_dots: l.w_dots,
+        h_dots: l.h_dots,
+        copies: 1,
+        marks,
+    }
+}
+
+/// Render the koli sticker for the printer.
 pub fn render_koli_label(
     data: &KoliLabelData<'_>,
     size: LabelSize,
     brand: LabelBrand<'_>,
 ) -> String {
-    let l = Layout::resolve(size);
-    let mut out = String::with_capacity(256);
+    lay_out_koli(data, size, brand).to_zpl()
+}
 
-    out.push_str("^XA\n");
-    out.push_str(&format!("^PW{}\n", l.w_dots));
-    out.push_str(&format!("^LL{}\n", l.h_dots));
-    out.push_str("^CI28\n");
-
-    out.push_str(&format!(
-        "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-        l.x(10),
-        l.y(10),
-        l.font(14),
-        l.font(14),
-        escape(brand.0)
-    ));
-
-    // The number is the identity of the box, so it is the biggest thing on it:
-    // this is what someone reads across a loading bay.
-    out.push_str(&format!(
-        "^FO{},{}^A0N,{},{}^FD{}^FS\n",
-        l.x(10),
-        l.y(36),
-        l.font(26),
-        l.font(26),
-        escape(data.koli_number)
-    ));
-
-    out.push_str(&format!(
-        "^FO{},{}^A0N,{},{}^FD{} - {} pcs^FS\n",
-        l.x(10),
-        l.y(74),
-        l.font(18),
-        l.font(18),
-        escape(data.destination_store_id),
-        data.unit_count
-    ));
-
-    let bar_height = scale_round(72, l.scale_y);
-    out.push_str(&format!(
-        "^FO{},{}^BY2,3,{}^BCN,{},Y,N,N^FD{}^FS\n",
-        l.x(30),
-        l.y(112),
-        bar_height,
-        bar_height,
-        escape(data.koli_number)
-    ));
-
-    out.push_str("^PQ1,0,1,Y\n");
-    out.push_str("^XZ\n");
-    out
+/// The same sticker, drawn for a screen.
+pub fn preview_koli_label(
+    data: &KoliLabelData<'_>,
+    size: LabelSize,
+    brand: LabelBrand<'_>,
+) -> String {
+    lay_out_koli(data, size, brand).to_svg()
 }
 
 /// Strip everything that could end a field and begin a command.
@@ -580,6 +846,168 @@ mod tests {
         data.article_name = "Kemeja lengan panjang katun premium warna biru tua";
         let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
         assert!(zpl.contains("Kemeja lengan panjang katun p...^FS"), "{zpl}");
+    }
+
+    // -----------------------------------------------------------------------
+    // The same layout, drawn for a screen
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_preview_puts_every_field_where_the_printer_is_told_to_put_it() {
+        let svg = preview_label(&sample(), LabelSize::default(), LabelBrand("CENTRAL"));
+
+        // The tag's own dots are the picture's coordinate system, so a
+        // position read off one is a position on the other.
+        assert!(svg.contains("viewBox=\"0 0 464 320\""), "{svg}");
+
+        // Brand: ^FO16,14 at 48 dots, so a baseline at 14 + 48 × 0.78.
+        assert!(svg.contains("x=\"16\" y=\"51.4\" font-size=\"48\""), "{svg}");
+        // The price, which is the other thing anybody squints at.
+        assert!(svg.contains("Rp 89.000"), "{svg}");
+        // And the size, at the weight the rail is shopped by.
+        assert!(svg.contains("font-size=\"44\""), "{svg}");
+    }
+
+    #[test]
+    fn a_preview_and_a_print_are_one_layout_asked_twice() {
+        // Not a comparison of two renderings — a demonstration that both come
+        // from the same pass. Every text the ZPL carries appears in the
+        // picture, and at the same size.
+        let mut data = sample();
+        data.article_name = "Kemeja katun";
+        let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
+        let svg = preview_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
+
+        for field in ["CENTRAL", "12345678123", "Kemeja katun", "L", "Navy", "Rp 89.000"] {
+            assert!(zpl.contains(field), "missing from the job: {field}");
+            assert!(svg.contains(field), "missing from the picture: {field}");
+        }
+        for font in ["48", "16", "21", "44", "17"] {
+            assert!(
+                svg.contains(&format!("font-size=\"{font}\"")),
+                "picture is missing {font} dot type: {svg}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_preview_of_a_smaller_tag_is_a_smaller_picture() {
+        let svg = preview_label(
+            &sample(),
+            LabelSize {
+                width_mm: 40.0,
+                height_mm: 30.0,
+            },
+            LabelBrand("CENTRAL"),
+        );
+        assert!(svg.contains("viewBox=\"0 0 320 240\""), "{svg}");
+        assert!(svg.contains("font-size=\"33\""), "{svg}");
+    }
+
+    #[test]
+    fn a_name_that_would_close_the_element_it_is_drawn_into_cannot() {
+        // `escape` guards the printer's field terminator and leaves XML alone,
+        // because ZPL does not care about it. The picture does: this is the
+        // second escape, and it is not the same job as the first.
+        let mut data = sample();
+        data.article_name = "Jaket <b>&\"biru\"</b>";
+        let svg = preview_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
+        assert!(svg.contains("Jaket &lt;b&gt;&amp;&quot;biru&quot;"), "{svg}");
+        assert!(!svg.contains("<b>"), "{svg}");
+        // One document out, and it still closes exactly once.
+        assert_eq!(svg.matches("</svg>").count(), 1, "{svg}");
+    }
+
+    #[test]
+    fn a_preview_draws_the_barcode_footprint_the_symbology_actually_needs() {
+        // Twelve payload characters: start, twelve, checksum and stop, at two
+        // dots a module. Drawn rather than encoded, but drawn at true size, so
+        // a payload too wide for the tag is visible here before it is
+        // discovered on paper.
+        let svg = preview_label(&sample(), LabelSize::default(), LabelBrand("CENTRAL"));
+        let width = code128_dots(12, 2);
+        assert_eq!(width, (11 * 14 + 13) * 2);
+        assert!(
+            svg.contains(&format!("width=\"{width}\" height=\"50\"")),
+            "{svg}"
+        );
+        // Said in words, so nobody tries to scan the screen.
+        assert!(svg.contains("CODE 128"), "{svg}");
+        // And the readable line the printer puts under the bars.
+        assert!(svg.contains(">812345678123</text>"), "{svg}");
+    }
+
+    #[test]
+    fn a_barcode_is_narrowed_to_stay_on_a_tag_rather_than_running_off_it() {
+        // `^BY` is in dots and scales with nothing, so the barcode was the one
+        // field on this label that kept its 58 mm width on a 40 mm tag: 334
+        // dots of symbol across 320 dots of paper. A clipped Code 128 has no
+        // stop bar, so it does not scan as a shortened number — it does not
+        // scan.
+        let small = LabelSize {
+            width_mm: 40.0,
+            height_mm: 30.0,
+        };
+        let zpl = render_label(&sample(), small, LabelBrand("CENTRAL"));
+        assert!(zpl.contains("^BY1,3,"), "{zpl}");
+
+        let svg = preview_label(&sample(), small, LabelBrand("CENTRAL"));
+        let (w_dots, _) = small.dots();
+        let width = code128_dots(12, 1);
+        assert!(11 + width <= w_dots, "{width} dots does not fit {w_dots}");
+        assert!(svg.contains(&format!("width=\"{width}\"")), "{svg}");
+    }
+
+    #[test]
+    fn the_tag_the_layout_was_tuned_against_still_gets_the_wide_module() {
+        // The narrowing must not reach the stock everything was checked on:
+        // a scanner prefers a wide bar, and 58 × 40 has the room.
+        let zpl = render_label(&sample(), LabelSize::default(), LabelBrand("CENTRAL"));
+        assert!(zpl.contains("^BY2,3,50"), "{zpl}");
+    }
+
+    #[test]
+    fn a_koli_number_long_enough_to_overflow_its_own_default_stock_does_not() {
+        // Found by drawing it: seventeen characters at two dots a module is
+        // 444 dots of barcode starting 30 dots in, on a 464 dot sticker. This
+        // was overflowing at the DEFAULT size, on every carton, before the
+        // preview made it visible.
+        let zpl = render_koli_label(
+            &KoliLabelData {
+                koli_number: "KOLI-dc-01-000901",
+                destination_store_id: "toko-a",
+                unit_count: 40,
+                sealed_at: None,
+            },
+            LabelSize::default(),
+            LabelBrand("CENTRAL"),
+        );
+        assert!(zpl.contains("^BY1,3,"), "{zpl}");
+        let (w_dots, _) = LabelSize::default().dots();
+        assert!(30 + code128_dots(17, 1) <= w_dots);
+    }
+
+    #[test]
+    fn a_preview_draws_ink_and_not_the_rfid_write() {
+        // The EPC leaves no mark on the paper. Showing it on the picture would
+        // be drawing something the operator will never find on the tag.
+        let svg = preview_label(&sample(), LabelSize::default(), LabelBrand("CENTRAL"));
+        assert!(!svg.to_uppercase().contains("A0123456781230"), "{svg}");
+        assert!(!svg.contains("RFW"), "{svg}");
+    }
+
+    #[test]
+    fn a_koli_sticker_can_be_looked_at_too() {
+        let data = KoliLabelData {
+            koli_number: "KOLI-dc-01-000901",
+            destination_store_id: "toko-a",
+            unit_count: 40,
+            sealed_at: None,
+        };
+        let svg = preview_koli_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
+        assert!(svg.contains("KOLI-dc-01-000901"), "{svg}");
+        assert!(svg.contains("toko-a - 40 pcs"), "{svg}");
+        assert!(svg.contains("viewBox=\"0 0 464 320\""), "{svg}");
     }
 
     #[test]

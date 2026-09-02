@@ -448,8 +448,8 @@ fn apply_activation(
         tx.execute(
             "INSERT OR REPLACE INTO commercial_campaign
                  (campaign_id, publication_id, name, status, valid_from, valid_to,
-                  budget_minor, spent_minor, max_uses, used, max_uses_per_customer)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                  budget_minor, max_uses)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 campaign.campaign_id,
                 publication_id,
@@ -458,10 +458,7 @@ fn apply_activation(
                 campaign.valid_from.map(time_text),
                 campaign.valid_to.map(time_text),
                 campaign.budget_minor,
-                campaign.spent_minor,
                 campaign.max_uses,
-                campaign.used,
-                campaign.max_uses_per_customer,
             ],
         )
         .map_err(err)?;
@@ -505,8 +502,8 @@ fn apply_activation(
         tx.execute(
             "INSERT OR REPLACE INTO commercial_coupon
                  (code, publication_id, rule_id, active, customer_id,
-                  valid_from, valid_to, max_uses, used)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                  valid_from, valid_to, max_uses)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 coupon.code,
                 publication_id,
@@ -516,7 +513,6 @@ fn apply_activation(
                 coupon.valid_from.map(time_text),
                 coupon.valid_to.map(time_text),
                 coupon.max_uses,
-                coupon.used,
             ],
         )
         .map_err(err)?;

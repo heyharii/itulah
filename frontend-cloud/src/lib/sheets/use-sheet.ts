@@ -81,6 +81,13 @@ function useWriteSheet() {
           return merged
         },
         replace,
+        // Said here as well as in `router.tsx`, and not redundantly. The
+        // router's predicate reads `pathChanged`, but the browser only
+        // consults a predicate at all if it supports view-transition *types*;
+        // one that has view transitions without them would take the default
+        // and fade the screen behind every sheet that opened. A sheet already
+        // animates, and the page under it is meant to stay still.
+        viewTransition: false,
       })
     },
     [navigate]

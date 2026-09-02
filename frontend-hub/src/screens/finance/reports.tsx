@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import { Meter } from "@/components/ui/meter"
 import { TotalsLadder } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
@@ -14,6 +16,7 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
 import {
+  accountChildren,
   balanceMatrix,
   financeKeys,
   statement,
@@ -27,14 +30,13 @@ import {
   ladderLevel,
   ROOT_CLASSES,
 } from "@/screens/finance/chart"
+import { useAsOf, useWindow } from "@/screens/finance/hooks"
 import {
   Amount,
   AsOfControl,
   Check,
   LocationSelect,
   SiteName,
-  useAsOf,
-  useWindow,
   WindowControl,
 } from "@/screens/finance/parts"
 import type { BalanceRow, StatementSection } from "@itulah/contract"
@@ -75,9 +77,15 @@ import type { BalanceRow, StatementSection } from "@itulah/contract"
 /// asked one subtree at a time, so somebody comparing the two reports had to
 /// hold the answer in their head across a nav click. It is now a reading of
 /// the balance sheet: same three root classes, same as-of date, broken out by
-/// location instead of consolidated. The typed-code box went with it; the
-/// altitude an accountant actually wanted from it — one account across every
-/// location — is the Ledger, which takes a heading as readily as a leaf.
+/// location instead of consolidated.
+///
+/// The typed-code box went with it, and for one pass so did the altitude it
+/// bought: three root classes over an endpoint that answers with immediate
+/// children only is three coarse rows apiece, and "cash on hand per store" was
+/// no longer askable. It is back as a descent rather than as a box — the tree
+/// is in the codes, so a row's own name walks into it and the crumbs above say
+/// where that is. Typing `1011001` was a quiz; clicking KAS & SETARA KAS is
+/// not.
 export function Reports() {
   const [kind, setKind] = useState<StatementKind>("BALANCE_SHEET")
   const [site, setSite] = useState("")
@@ -195,7 +203,12 @@ export function Reports() {
         <div className="flex flex-col gap-3">
           {SPREAD_CLASSES.map((rootCode) => (
             <LocationSpread
-              key={rootCode}
+              // The as-of date is part of the key, so moving it starts a fresh
+              // reading rather than leaving somebody four levels down a class
+              // with the crumbs of a descent they made against another date.
+              // Switching the toggle off is the other half of that reset: it
+              // unmounts these outright.
+              key={`${rootCode}:${asOf.value}`}
               rootCode={rootCode}
               asOf={asOf.value}
             />
@@ -223,10 +236,21 @@ export function Reports() {
                 </Card>
               ) : (
                 <div className="flex flex-col gap-3">
+                  {/* The client's own name for the location and not the id it
+                      is filed under — `<SiteName>` keeps `store-02` in `title`,
+                      because that is what the account codes carry and what a
+                      support call will be about. */}
                   <p className="text-[0.71875rem] text-mute">
                     {data.from ? `${day(data.from)} – ` : "As at "}
                     {day(data.to)}
-                    {data.site_id ? ` · ${data.site_id}` : " · every location"}
+                    {data.site_id ? (
+                      <>
+                        {" · "}
+                        <SiteName id={data.site_id} />
+                      </>
+                    ) : (
+                      " · every location"
+                    )}
                   </p>
 
                   {data.sections.map((section) => (
@@ -272,8 +296,27 @@ export function Reports() {
 /// other tab. `ROOT_CLASSES` carries their names.
 const SPREAD_CLASSES = ["1", "2", "3"] as const
 
+/// One crumb of a descent: a code that was asked for, and the client's own name
+/// for it. Captured from the row that was clicked, so climbing back is a slice
+/// of an array and never a re-read.
+interface Crumb {
+  readonly code: string
+  readonly name: string
+}
+
 /// One root class of the balance sheet, account by account and location by
-/// location.
+/// location — and as far into that class as the reader wants to go.
+///
+/// # Why the grid descends
+///
+/// `GET /balances?family=` answers with the *immediate children* of a family
+/// and nothing below them, so a root class is three or four rows: "CURRENT
+/// ASSET, 3.2 billion, across fourteen shops" is not an answer to "how much is
+/// in store 07's drawer". The tree is in the codes on their own
+/// {1,3,5,7,10,12} ladder, so a row's name asks the same endpoint one rung
+/// lower and the crumbs above the grid say where that is. Every crumb goes
+/// back, which is the whole navigation: no history, no URL, nothing to get
+/// out of step with the as-of date in the toolbar.
 ///
 /// # Why the columns are built rather than declared
 ///
@@ -292,14 +335,52 @@ const SPREAD_CLASSES = ["1", "2", "3"] as const
 /// still the server's figure and never a sum of what is on screen — the grand
 /// total below says so for both.
 function LocationSpread({ rootCode, asOf }: { rootCode: string; asOf: string }) {
+  // Where the reader has walked to below the root class, deepest last; empty is
+  // the root itself. Component state and not the URL: three of these are on
+  // screen at once and three descents in the address bar would be a link
+  // nobody could read. `<Reports>` mounts them only while the toggle is on and
+  // keys them on the as-of date, so both resets are somebody else's problem.
+  const [descent, setDescent] = useState<readonly Crumb[]>([])
   const [sorting, setSorting] = useState<SortingState>([
     { id: "total_minor", desc: true },
   ])
 
+  const code = descent.at(-1)?.code ?? rootCode
+
   const matrix = useQuery({
-    queryKey: financeKeys.balances(rootCode, asOf),
-    queryFn: ({ signal }) => balanceMatrix(rootCode, asOf, signal),
+    queryKey: financeKeys.balances(code, asOf),
+    queryFn: ({ signal }) => balanceMatrix(code, asOf, signal),
   })
+
+  /// Which rows have anything under them — from the chart, not from a guess.
+  ///
+  /// It cannot be read off the grid. `/balances` returns a family's children,
+  /// so a posting account answers with zero rows *and* a zero grand total:
+  /// descending into one would draw an empty table that reads as "this holds
+  /// nothing" when what happened is "there is nothing beneath it". The code's
+  /// own length is not enough either — the ladder makes every 12-digit code a
+  /// leaf, but three of the deposits under `1011004` are postable at ten
+  /// digits, which is exactly where somebody chasing cash would click.
+  ///
+  /// So the chart is asked, and `is_group` is the client's own answer. It is
+  /// the key and the read the Chart of accounts screen already uses for a
+  /// level, so it is as often warm as it is a request. Until it lands, nothing
+  /// is drillable: a name that becomes a link a moment later is a smaller
+  /// surprise than a link that does nothing.
+  const children = useQuery({
+    queryKey: financeKeys.accountChildren(code, false),
+    queryFn: ({ signal }) => accountChildren({ parent: code }, signal),
+    // The chart is imported once and then sits for months.
+    staleTime: 10 * 60 * 1000,
+  })
+
+  const groups = useMemo(() => {
+    const codes = new Set<string>()
+    for (const account of children.data ?? []) {
+      if (account.is_group) codes.add(account.account_code)
+    }
+    return codes
+  }, [children.data])
 
   const locations = useMemo(() => matrix.data?.locations ?? [], [matrix.data])
   const columnTotals = useMemo(
@@ -314,6 +395,12 @@ function LocationSpread({ rootCode, asOf }: { rootCode: string; asOf: string }) 
         accessorKey: "name",
         header: "Account",
         size: 300,
+        // Two questions, two affordances, and they are not the same question.
+        // The code still opens the Ledger — *what happened in this account* —
+        // and the name walks into the family — *what is under it*. A row whose
+        // account is a posting leaf keeps its name as plain text: there is
+        // nothing below it, and a hover state promising otherwise is a lie the
+        // reader only finds out about by clicking.
         cell: ({ row }) => (
           <span className="flex min-w-0 items-center gap-2">
             <AppLink
@@ -323,7 +410,31 @@ function LocationSpread({ rootCode, asOf }: { rootCode: string; asOf: string }) 
             >
               {row.original.account_code}
             </AppLink>
-            <span className="truncate text-ink">{row.original.name}</span>
+            {groups.has(row.original.account_code) ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setDescent((trail) => [
+                    ...trail,
+                    {
+                      code: row.original.account_code,
+                      name: row.original.name,
+                    },
+                  ])
+                }
+                className="flex min-w-0 items-center gap-1 text-ink transition-colors hover:text-accent"
+              >
+                <span className="truncate hover:underline">
+                  {row.original.name}
+                </span>
+                <ChevronRight
+                  aria-hidden
+                  className="size-3 shrink-0 text-faint"
+                />
+              </button>
+            ) : (
+              <span className="truncate text-ink">{row.original.name}</span>
+            )}
           </span>
         ),
       },
@@ -368,7 +479,7 @@ function LocationSpread({ rootCode, asOf }: { rootCode: string; asOf: string }) 
         ),
       },
     ],
-    [locations, columnTotals]
+    [locations, columnTotals, groups]
   )
 
   const table = useTable(
@@ -385,15 +496,63 @@ function LocationSpread({ rootCode, asOf }: { rootCode: string; asOf: string }) 
     )
   )
 
+  // The descent, from the class down. The root's name is the server's while the
+  // root is what is being read; once below it the response describes the level
+  // the reader is on, so the class falls back to the client's own list of
+  // eight. It is drawn even when it is one crumb long — at the root that is
+  // exactly the heading this card always had.
+  const trail: readonly Crumb[] = [
+    {
+      code: rootCode,
+      name:
+        (descent.length === 0 ? matrix.data?.family_name : undefined) ??
+        ROOT_CLASSES[rootCode] ??
+        "—",
+    },
+    ...descent,
+  ]
+
   return (
     <Card className="overflow-hidden">
       <CardHeader>
-        <CardTitle>
-          <span className="font-mono text-id text-mute">{rootCode}</span>{" "}
-          {matrix.data?.family_name ?? ROOT_CLASSES[rootCode] ?? "—"}
+        {/* In the header and not above the table: it is the card's title once
+            the card is a level rather than a class, and it stays put while the
+            grid below it is loading — the way back cannot be the thing that
+            disappears while somebody waits. */}
+        <CardTitle className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+          {trail.map((crumb, index) => (
+            <span key={crumb.code} className="flex min-w-0 items-center gap-2">
+              {index > 0 && (
+                <ChevronRight
+                  aria-hidden
+                  className="size-3 shrink-0 text-faint"
+                />
+              )}
+              {/* The level being read is not a link to itself. `trail[0]` is
+                  the class, so at the root this is the whole crumb list and
+                  the card is titled exactly as it always was. */}
+              {index === trail.length - 1 ? (
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="font-mono text-id text-mute">
+                    {crumb.code}
+                  </span>
+                  <span className="truncate">{crumb.name}</span>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setDescent(descent.slice(0, index))}
+                  className="flex min-w-0 items-center gap-2 font-normal text-mute transition-colors hover:text-accent hover:underline"
+                >
+                  <span className="font-mono text-id">{crumb.code}</span>
+                  <span className="truncate">{crumb.name}</span>
+                </button>
+              )}
+            </span>
+          ))}
         </CardTitle>
         {matrix.data && (
-          <span className="text-[0.71875rem] text-mute">
+          <span className="shrink-0 text-[0.71875rem] text-mute">
             as at {day(matrix.data.as_of)}
           </span>
         )}
@@ -415,26 +574,110 @@ function LocationSpread({ rootCode, asOf }: { rootCode: string; asOf: string }) 
                   table={table}
                   className="max-h-[32rem]"
                 />
-                <div className="px-4 py-3">
-                  <TotalsLadder
-                    className="max-w-sm"
-                    rows={[]}
-                    total={{
-                      label: "Every location",
-                      value: money(data.grand_total_minor),
-                    }}
-                  />
-                  <p className="mt-1 max-w-sm text-[0.71875rem] text-mute">
-                    The server's total for the whole class, and the column heads
-                    are its per-location totals. Neither is a sum of the rows on
-                    screen.
-                  </p>
+                <div className="grid gap-x-6 gap-y-4 px-4 py-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
+                  <div>
+                    <h4 className="mb-2 text-eyebrow font-semibold text-mute uppercase">
+                      By location, largest first
+                    </h4>
+                    <LocationBars
+                      locations={data.locations}
+                      totals={data.column_totals}
+                    />
+                  </div>
+                  <div>
+                    <TotalsLadder
+                      rows={[]}
+                      total={{
+                        label: "Every location",
+                        value: money(data.grand_total_minor),
+                      }}
+                    />
+                    <p className="mt-1 text-[0.71875rem] text-mute">
+                      The server's total for this level, and the column heads
+                      are its per-location totals. Neither is a sum of the rows
+                      on screen.
+                    </p>
+                  </div>
                 </div>
               </>
             ),
         })}
       </div>
     </Card>
+  )
+}
+
+/// The column totals of the level on screen, ranked and drawn at a length.
+///
+/// Fourteen locations across the top of a grid is fourteen numbers to read and
+/// compare in your head. This is the same fourteen figures — the server's
+/// `column_totals`, already in the response the grid was built from, so no
+/// second read and no arithmetic beyond the ratio that gives a bar its width.
+/// It moves with the descent, because the response does.
+///
+/// # Why a bar and not a chart
+///
+/// `<Meter>` is what this app already has for "how much of the biggest": a
+/// horizontal track, the accent fill, no axis. The shared `<BarSeries>` next
+/// door is vertical, and fourteen vertical categories means fourteen tick
+/// labels that Recharts thins out — "Store 07" disappearing is the one thing a
+/// per-location comparison cannot afford.
+///
+/// # Why the bar is a magnitude and the figure is signed
+///
+/// The ledger sends credit-natured classes negative, and classes 2 and 3 come
+/// back wholly negative. A track cannot draw a negative, and flipping the sign
+/// here would print a figure the column head above it does not. So the bar is
+/// scaled on the largest magnitude and the number keeps its sign, exactly as
+/// the grid shows it.
+function LocationBars({
+  locations,
+  totals,
+}: {
+  locations: readonly string[]
+  totals: readonly number[]
+}) {
+  const ranked = useMemo(
+    () =>
+      locations
+        .map((site, index) => ({ site, value: totals[index] ?? 0 }))
+        .sort((a, b) => Math.abs(b.value) - Math.abs(a.value)),
+    [locations, totals]
+  )
+
+  const peak = Math.max(...ranked.map((row) => Math.abs(row.value)), 0)
+
+  // Nothing posted anywhere at this level. A row of empty tracks would say
+  // "fourteen shops hold nothing" in fourteen lines; the grid says it once.
+  if (peak === 0) {
+    return (
+      <p className="text-[0.71875rem] text-mute">
+        Nothing at any location under this heading.
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {ranked.map((row) => (
+        <div
+          key={row.site}
+          className="flex items-center gap-2.5 text-[0.71875rem]"
+        >
+          <SiteName
+            id={row.site}
+            className="w-20 shrink-0 truncate text-mute"
+          />
+          <Meter
+            value={Math.abs(row.value) / peak}
+            className="min-w-0 flex-1"
+          />
+          <span className="w-32 shrink-0 text-right text-ink tabular-nums">
+            {money(row.value)}
+          </span>
+        </div>
+      ))}
+    </div>
   )
 }
 

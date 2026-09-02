@@ -27,6 +27,30 @@ pub fn random_token() -> String {
     hex::encode(bytes)
 }
 
+/// A short numeric code a person will read aloud and another will type.
+///
+/// Uniform over every value of the requested width, leading zeros included: a
+/// code that can never start with `0` has 900,000 possibilities while everyone
+/// involved believes it has a million. Drawn by rejection sampling rather than
+/// a bare `%`, because the remainder of a 32-bit draw over 1,000,000 is not
+/// uniform and the low codes would come up more often than the high ones.
+pub fn random_digits(width: u32) -> String {
+    assert!((1..=9).contains(&width), "code width must be 1..=9 digits");
+    let span = 10u32.pow(width);
+    // The largest multiple of `span` that fits in a u32. Draws at or above it
+    // are thrown away, which is what removes the bias.
+    let ceiling = (u32::MAX / span) * span;
+    let mut bytes = [0u8; 4];
+    let value = loop {
+        OsRng.fill_bytes(&mut bytes);
+        let candidate = u32::from_le_bytes(bytes);
+        if candidate < ceiling {
+            break candidate % span;
+        }
+    };
+    format!("{value:0width$}", width = width as usize)
+}
+
 pub fn sha256_hex(value: impl AsRef<[u8]>) -> String {
     hex::encode(Sha256::digest(value.as_ref()))
 }

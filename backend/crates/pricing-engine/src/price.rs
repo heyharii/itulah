@@ -26,8 +26,6 @@ use crate::{CartLine, PricingContext};
 pub enum PriceLevel {
     /// Everywhere, unless something more specific says otherwise.
     Company,
-    /// Shoppers in this membership tier, wherever they shop.
-    Tier { tier: String },
     /// A named set of shops — a city, a format, a region.
     SiteGroup { site_ids: BTreeSet<String> },
     /// This one shop.
@@ -39,16 +37,14 @@ impl PriceLevel {
     pub(crate) fn rank(&self) -> u8 {
         match self {
             Self::Company => 0,
-            Self::Tier { .. } => 1,
-            Self::SiteGroup { .. } => 2,
-            Self::Site { .. } => 3,
+            Self::SiteGroup { .. } => 1,
+            Self::Site { .. } => 2,
         }
     }
 
     pub(crate) fn applies(&self, context: &PricingContext) -> bool {
         match self {
             Self::Company => true,
-            Self::Tier { tier } => context.customer_tier.as_deref() == Some(tier.as_str()),
             Self::SiteGroup { site_ids } => site_ids.contains(&context.site_id),
             Self::Site { site_id } => *site_id == context.site_id,
         }

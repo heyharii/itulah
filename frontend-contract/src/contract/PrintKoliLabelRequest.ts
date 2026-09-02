@@ -3,4 +3,10 @@
 /**
  * Where to send a koli sticker.
  */
-export type PrintKoliLabelRequest = { printer_host: string, printer_port: number, };
+export type PrintKoliLabelRequest = { printer_host: string, printer_port: number, 
+/**
+ * The stock in the machine. Left out, the house default — which is what
+ * every koli sticker printed before this field existed was drawn at,
+ * whatever the bench was actually holding.
+ */
+label_width_mm: number | null, label_height_mm: number | null, };

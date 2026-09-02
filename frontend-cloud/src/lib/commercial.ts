@@ -45,10 +45,8 @@ export type PublicationStatus = "DRAFT" | "PUBLISHED"
 export type PriceSource =
   | "SITE_PRICE"
   | "SITE_GROUP_PRICE"
-  | "TIER_PRICE"
   | "COMPANY_PRICE"
   | "MARKDOWN"
-  | "MANUAL_OVERRIDE"
 
 /// The old centre spelling, still accepted.
 ///
@@ -59,10 +57,8 @@ export type PriceSource =
 const SOURCE_BY_DEBUG_NAME: Readonly<Record<string, PriceSource>> = {
   SitePrice: "SITE_PRICE",
   SiteGroupPrice: "SITE_GROUP_PRICE",
-  TierPrice: "TIER_PRICE",
   CompanyPrice: "COMPANY_PRICE",
   Markdown: "MARKDOWN",
-  ManualOverride: "MANUAL_OVERRIDE",
 }
 
 export function priceSource(raw: string): PriceSource {
@@ -81,14 +77,10 @@ export function describeSource(source: PriceSource): string {
       return "This shop"
     case "SITE_GROUP_PRICE":
       return "Shop group"
-    case "TIER_PRICE":
-      return "Member tier"
     case "COMPANY_PRICE":
       return "Company"
     case "MARKDOWN":
       return "Markdown"
-    case "MANUAL_OVERRIDE":
-      return "Typed in"
     default:
       return source
   }
@@ -373,7 +365,6 @@ export interface BookPriceRule {
   readonly article_name: string
   readonly site_id: string | null
   readonly site_ids: readonly string[] | null
-  readonly tier: string | null
   readonly channel: CommercialChannel
   readonly sellable: boolean | null
   readonly currency: string
@@ -387,7 +378,6 @@ export interface BookMarkdown {
   readonly article_code: string | null
   readonly site_id: string | null
   readonly site_ids: readonly string[] | null
-  readonly tier: string | null
   readonly replacement_unit_price_minor: number
   readonly priority: number
   readonly effective_from: string
@@ -424,7 +414,6 @@ export interface BookCampaign {
   readonly valid_to: string | null
   readonly budget_minor: number | null
   readonly max_uses: number | null
-  readonly max_uses_per_customer: number | null
 }
 
 export interface BookActivation {
@@ -467,7 +456,6 @@ export function priceBookDetail(
 export interface SimulateLine {
   readonly sku_code: string
   readonly quantity: number
-  readonly manual_unit_price_minor?: number
 }
 
 export interface SimulateRequest {
@@ -477,7 +465,6 @@ export interface SimulateRequest {
   readonly lines: readonly SimulateLine[]
   readonly coupon_codes?: readonly string[]
   readonly customer_id?: string
-  readonly customer_tier?: string
 }
 
 export interface PricedLine {
@@ -566,11 +553,10 @@ export function simulate(
 /// Who a price is for. The four levels, narrowest last.
 ///
 /// The engine's own `PriceLevel`, sent structured rather than pre-rendered so
-/// a screen can style a tier price differently from a shop price without the
+/// a screen can style a shop price differently from a company one without the
 /// server deciding how it reads.
 export type PriceLevel =
   | { readonly level: "COMPANY" }
-  | { readonly level: "TIER"; readonly tier: string }
   | { readonly level: "SITE_GROUP"; readonly site_ids: readonly string[] }
   | { readonly level: "SITE"; readonly site_id: string }
 
@@ -673,8 +659,6 @@ export function describeLevel(level: PriceLevel): string {
       return level.site_id
     case "SITE_GROUP":
       return `${level.site_ids.length} shops`
-    case "TIER":
-      return `tier ${level.tier}`
     default:
       return "every shop"
   }

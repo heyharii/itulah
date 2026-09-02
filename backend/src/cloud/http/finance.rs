@@ -17,9 +17,9 @@ use crate::cloud::{
         self as infrastructure, AccountBalance, AssessAssetRequest, AssetRow, BalanceMatrix,
         BankStatementLineRow, BankStatementRow, ConfirmMatchRequest, DepreciationRun, FiscalPeriod,
         GeneralLedger, ImportOutcome, ImportStatementRequest, JournalEntryDetail, JournalEntryRow,
-        LedgerAccount, LineSuggestions, PostingIntent, PostingLine, RecordBillRequest,
-        RegisterAssetRequest, SetAccountMappingRequest, Statement, SupplierBill, TrialBalance,
-        UnbilledReceipt,
+        LedgerAccount, LineSuggestions, PayablesAging, PostingIntent, PostingLine,
+        RecordBillRequest, RecordPaymentRequest, RegisterAssetRequest, SetAccountMappingRequest,
+        Statement, SupplierBill, SupplierPayment, TrialBalance, UnbilledReceipt,
     },
 };
 use axum::{
@@ -449,6 +449,105 @@ pub async fn unbilled(
 ) -> Result<Json<Vec<UnbilledReceipt>>, AppError> {
     Ok(Json(
         infrastructure::unbilled_receipts(&state.db, 200).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgingQuery {
+    /// The reporting date. Both sides are wound back to it: a bill invoiced
+    /// after it is not yet a debt, and a payment made after it has not yet
+    /// happened.
+    pub as_of: Option<NaiveDate>,
+    pub site: Option<String>,
+}
+
+/// What is owed, to whom, and how late.
+///
+/// It belongs beside the Supplier bills screen rather than in Reports: it is
+/// the list somebody works from when deciding who to pay this week, not a
+/// statement of the books. The books already answer the same total under
+/// `trade_payable`, and the two agree — both move only when a bill or a payment
+/// posts.
+pub async fn payables_aging(
+    State(state): State<AppState>,
+    Query(query): Query<AgingQuery>,
+) -> Result<Json<PayablesAging>, AppError> {
+    let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
+    Ok(Json(
+        infrastructure::payables_aging(&state.db, as_of, query.site.as_deref()).await?,
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Supplier payments
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct PaymentQuery {
+    pub status: Option<String>,
+    pub site: Option<String>,
+    /// Who was paid. It lives on the allocations, not on the payment: one bank
+    /// line settling two suppliers is a thing that happens.
+    pub supplier: Option<String>,
+    pub limit: Option<i64>,
+}
+
+pub async fn payments(
+    State(state): State<AppState>,
+    Query(query): Query<PaymentQuery>,
+) -> Result<Json<Vec<SupplierPayment>>, AppError> {
+    Ok(Json(
+        infrastructure::list_payments(
+            &state.db,
+            query.status.as_deref(),
+            query.site.as_deref(),
+            query.supplier.as_deref(),
+            query.limit.unwrap_or(200),
+        )
+        .await?,
+    ))
+}
+
+pub async fn payment(
+    State(state): State<AppState>,
+    Path(payment_id): Path<Uuid>,
+) -> Result<Json<SupplierPayment>, AppError> {
+    Ok(Json(infrastructure::payment(&state.db, payment_id).await?))
+}
+
+/// Record a payment. It is not in the books yet — posting is a separate act.
+pub async fn record_payment(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<RecordPaymentRequest>,
+) -> Result<Json<SupplierPayment>, AppError> {
+    Ok(Json(
+        infrastructure::record_payment(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PostPaymentRequest {
+    /// Defaults to the payment date. Separate because a payment made on the
+    /// 31st and keyed on the 2nd belongs to the month the money moved, and
+    /// somebody may have to say so when that month has closed.
+    pub posting_date: Option<NaiveDate>,
+}
+
+pub async fn post_payment(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(payment_id): Path<Uuid>,
+    Json(request): Json<PostPaymentRequest>,
+) -> Result<Json<SupplierPayment>, AppError> {
+    Ok(Json(
+        infrastructure::post_payment(
+            &state.db,
+            payment_id,
+            request.posting_date,
+            &principal.username,
+        )
+        .await?,
     ))
 }
 

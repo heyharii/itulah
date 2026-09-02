@@ -9,4 +9,25 @@ entry_number: string | null, recorded_by: string, recorded_at: string, posted_by
  * Days past due, negative when it is not due yet. Derived on read: a
  * stored age would be wrong by morning.
  */
-days_overdue: number, };
+days_overdue: number, 
+/**
+ * What has actually left the bank against this bill — allocations from
+ * POSTED payments only. Summed on read for the same reason every balance
+ * in this module is: a stored figure and the rows it summarises drift.
+ */
+paid_minor: number, 
+/**
+ * Still owed: `total_minor - paid_minor`.
+ */
+outstanding_minor: number, 
+/**
+ * What is spoken for, counting DRAFT payments as well as posted ones.
+ *
+ * The third figure exists because without it a screen cannot explain
+ * itself. The database refuses an allocation that would push this past the
+ * bill's total — a draft reserves, so two drafts cannot both promise the
+ * same 10,000,000 — and a bill showing 8,000,000 outstanding that will not
+ * take another allocation looks broken until somebody can see that a draft
+ * already has it.
+ */
+allocated_minor: number, };

@@ -6,7 +6,7 @@ use crate::cloud::{
     domain::{CommercialChannel, CurrencyCode, SiteId},
 };
 use chrono::{DateTime, Utc};
-use pricing_engine::{price_catalog, CartLine, PricingContext};
+use pricing_engine::{price_catalog, CartLine};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::HashSet;
@@ -93,13 +93,12 @@ pub async fn create_commercial_publication(
             .bind(offer.sellable)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("INSERT INTO commercial_price_rule(id,publication_id,sku_id,site_id,site_ids,tier,channel,currency,unit_price_minor,tax_category) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+        sqlx::query("INSERT INTO commercial_price_rule(id,publication_id,sku_id,site_id,site_ids,channel,currency,unit_price_minor,tax_category) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
             .bind(Uuid::new_v4())
             .bind(publication_id)
             .bind(offer.sku_id)
             .bind(&offer.site_id)
             .bind(group_of(offer.site_ids.as_deref()))
-            .bind(&offer.tier)
             .bind(offer.channel.as_str())
             .bind(currency.as_str())
             .bind(offer.unit_price_minor)
@@ -108,7 +107,7 @@ pub async fn create_commercial_publication(
             .await?;
     }
     for markdown in &request.markdowns {
-        sqlx::query("INSERT INTO commercial_markdown(id,publication_id,markdown_id,sku_id,sku_code,article_code,site_id,site_ids,tier,replacement_unit_price_minor,priority,effective_from,effective_to) VALUES($1,$2,$3,$4,$5,$6,$7,$12,$13,$8,$9,$10,$11)")
+        sqlx::query("INSERT INTO commercial_markdown(id,publication_id,markdown_id,sku_id,sku_code,article_code,site_id,site_ids,replacement_unit_price_minor,priority,effective_from,effective_to) VALUES($1,$2,$3,$4,$5,$6,$7,$12,$8,$9,$10,$11)")
             .bind(Uuid::new_v4())
             .bind(publication_id)
             .bind(markdown.markdown_id.trim())
@@ -121,12 +120,11 @@ pub async fn create_commercial_publication(
             .bind(markdown.effective_from)
             .bind(markdown.effective_to)
             .bind(group_of(markdown.site_ids.as_deref()))
-            .bind(&markdown.tier)
             .execute(&mut *tx)
             .await?;
     }
     for campaign in &request.campaigns {
-        sqlx::query("INSERT INTO commercial_campaign(id,publication_id,campaign_id,name,status,valid_from,valid_to,budget_minor,max_uses,max_uses_per_customer) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+        sqlx::query("INSERT INTO commercial_campaign(id,publication_id,campaign_id,name,status,valid_from,valid_to,budget_minor,max_uses) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
             .bind(Uuid::new_v4())
             .bind(publication_id)
             .bind(campaign.campaign_id.trim())
@@ -136,11 +134,6 @@ pub async fn create_commercial_publication(
             .bind(campaign.valid_to)
             .bind(campaign.budget_minor)
             .bind(campaign.max_uses.map(|max| i32::try_from(max).unwrap_or(i32::MAX)))
-            .bind(
-                campaign
-                    .max_uses_per_customer
-                    .map(|max| i32::try_from(max).unwrap_or(i32::MAX)),
-            )
             .execute(&mut *tx)
             .await?;
     }
@@ -202,65 +195,23 @@ fn group_of(site_ids: Option<&[String]>) -> Option<Vec<String>> {
     }
 }
 
-/// Levels and effects the fleet cannot actually honour.
+/// What the fleet cannot honour.
 ///
-/// Each of these is authorable, validated, stored, dispatched — and then does
-/// nothing, because the input the engine needs to act on it is supplied by
-/// nobody:
+/// This gate used to hold three more entries: a tier price, a margin effect and
+/// a cumulative condition, each authorable and each doing nothing because the
+/// input the engine needed was supplied by nobody. They are gone now — not the
+/// refusal, the concepts. A gate is a promise to wire something up later, and
+/// after long enough an unkept promise is just a field somebody will eventually
+/// fill in.
 ///
-/// - a **tier** price waits on `PricingContext.customer_tier`, and no customer
-///   anywhere carries a tier: the only `tier` columns in the schema are on the
-///   price side, and the till never sets the field.
-/// - a **margin** effect waits on `CartLine.unit_cost`, which nothing sets —
-///   and cannot be set at a shop, because the architecture forbids cost
-///   reaching one.
-/// - a **cumulative** condition waits on `PricingContext.customer_cumulative`,
-///   which nothing fills, so "spend five million in June" counts nothing.
-///
-/// Refused here rather than left to fail quietly. A form field somebody fills
-/// in that silently does not apply is worse than a field that is not there: the
+/// What is left is refused for the same reason those were: a form field that
+/// silently does not apply is worse than a field that is not there. The
 /// promotion looks authored, the shelf ticket gets printed, and the counter
-/// charges something else. When the missing input is wired, this gate is the
-/// one place to remove.
+/// charges something else.
 fn refuse_what_the_fleet_cannot_honour(
     request: &CreateCommercialPublicationRequest,
 ) -> Result<(), AppError> {
-    if request.offer_rules.iter().any(|offer| offer.tier.is_some()) {
-        return Err(AppError::Validation(
-            "a tier price cannot be honoured: no customer carries a tier, so a till \
-             would never match one. Price by shop or by group of shops instead."
-                .into(),
-        ));
-    }
-    if request.markdowns.iter().any(|markdown| markdown.tier.is_some()) {
-        return Err(AppError::Validation(
-            "a tier markdown cannot be honoured: no customer carries a tier.".into(),
-        ));
-    }
     for rule in &request.rules {
-        if matches!(rule.effect, pricing_engine::Effect::Margin { .. }) {
-            return Err(AppError::Validation(format!(
-                "promotion {} prices at a margin over cost, and no cart line carries \
-                 a cost — a shop is never told one. Use a percentage or a fixed price.",
-                rule.rule_id
-            )));
-        }
-        if rule.conditions.cumulative {
-            return Err(AppError::Validation(format!(
-                "promotion {} counts what a shopper has bought before, and nothing \
-                 supplies that history yet, so it would never trigger.",
-                rule.rule_id
-            )));
-        }
-        if matches!(
-            rule.scope.customers,
-            pricing_engine::CustomerScope::Tiers { .. }
-        ) {
-            return Err(AppError::Validation(format!(
-                "promotion {} is for member tiers, and no customer carries a tier.",
-                rule.rule_id
-            )));
-        }
         // A free item is a physical unit, and this system sells physical units
         // by EPC.
         //
@@ -282,17 +233,6 @@ fn refuse_what_the_fleet_cannot_honour(
                  chooses which unit is given, so the goods would leave the shop \
                  while the stock still said they were on the shelf. Use a fixed \
                  price or a percentage.",
-                rule.rule_id
-            )));
-        }
-        // Authored everywhere, enforced nowhere: nothing populates
-        // `PricingContext::customer_rule_uses`, so `Caps::allows` always reads
-        // zero and a per-customer limit never bites. It is stored, dispatched,
-        // and honoured by no till.
-        if rule.caps.max_uses_per_customer.is_some() {
-            return Err(AppError::Validation(format!(
-                "promotion {} limits uses per customer, and nothing counts a \
-                 customer's own history yet — the limit would never bite.",
                 rule.rule_id
             )));
         }
@@ -413,13 +353,6 @@ fn validate_publication_request(
 
     let mut campaign_ids = HashSet::new();
     for campaign in &request.campaigns {
-        if campaign.max_uses_per_customer.is_some() {
-            return Err(AppError::Validation(format!(
-                "campaign {} limits uses per customer, and nothing counts a \
-                 customer's own history yet — the limit would never bite.",
-                campaign.campaign_id
-            )));
-        }
         if campaign.campaign_id.trim().is_empty() || campaign.name.trim().is_empty() {
             return Err(AppError::Validation(
                 "a campaign needs an id and a name".into(),
@@ -493,11 +426,10 @@ fn validate_publication_request(
         // One level per price. Two would have no single right reading, and
         // picking one silently is how the centre and a till come to disagree.
         let levels = u8::from(offer.site_id.is_some())
-            + u8::from(offer.site_ids.as_ref().is_some_and(|ids| !ids.is_empty()))
-            + u8::from(offer.tier.is_some());
+            + u8::from(offer.site_ids.as_ref().is_some_and(|ids| !ids.is_empty()));
         if levels > 1 {
             return Err(AppError::Validation(
-                "an offer may name a shop, a group of shops, or a tier — not more than one".into(),
+                "an offer may name a shop or a group of shops, not both".into(),
             ));
         }
         if let Some(site_ids) = &offer.site_ids {
@@ -752,7 +684,11 @@ pub(super) async fn dispatch_publication(
     .collect();
 
     let coupons: Vec<Value> = sqlx::query(
-        "SELECT code,rule_id,active,customer_id,valid_from,valid_to,max_uses,used
+        // Without the counters. What a code has been redeemed is counted in
+        // `commercial_usage` and broadcast on its own lane; sending the book's
+        // frozen copy alongside gave a shop two numbers for one fact, and it
+        // overwrote one with the other on arrival anyway.
+        "SELECT code,rule_id,active,customer_id,valid_from,valid_to,max_uses
            FROM commercial_coupon WHERE publication_id=$1 ORDER BY code",
     )
     .bind(publication_id)
@@ -768,14 +704,13 @@ pub(super) async fn dispatch_publication(
             "valid_from": row.get::<Option<DateTime<Utc>>, _>("valid_from"),
             "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
             "max_uses": row.get::<Option<i32>, _>("max_uses"),
-            "used": row.get::<i32, _>("used"),
         })
     })
     .collect();
 
     let campaigns: Vec<Value> = sqlx::query(
         "SELECT campaign_id,name,status,valid_from,valid_to,budget_minor,
-                spent_minor,max_uses,used,max_uses_per_customer
+                max_uses
            FROM commercial_campaign WHERE publication_id=$1 ORDER BY campaign_id",
     )
     .bind(publication_id)
@@ -790,10 +725,7 @@ pub(super) async fn dispatch_publication(
             "valid_from": row.get::<Option<DateTime<Utc>>, _>("valid_from"),
             "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
             "budget_minor": row.get::<Option<i64>, _>("budget_minor"),
-            "spent_minor": row.get::<i64, _>("spent_minor"),
             "max_uses": row.get::<Option<i32>, _>("max_uses"),
-            "used": row.get::<i32, _>("used"),
-            "max_uses_per_customer": row.get::<Option<i32>, _>("max_uses_per_customer"),
         })
     })
     .collect();
@@ -805,7 +737,7 @@ pub(super) async fn dispatch_publication(
         // `sellable` lives on the assortment rule, not the price rule; the two
         // are authored together and the shop receives them as one thing.
         let rules: Vec<Value> = sqlx::query(
-            "SELECT pr.sku_id,s.sku_code,pr.site_id,pr.site_ids,pr.tier,pr.channel,ar.sellable,
+            "SELECT pr.sku_id,s.sku_code,pr.site_id,pr.site_ids,pr.channel,ar.sellable,
                     pr.currency::text currency,pr.unit_price_minor,pr.tax_category
                FROM commercial_price_rule pr
                JOIN sku s ON s.id=pr.sku_id
@@ -828,7 +760,6 @@ pub(super) async fn dispatch_publication(
                 "sku_code": row.get::<String, _>("sku_code"),
                 "site_id": row.get::<Option<String>, _>("site_id"),
                 "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
-                "tier": row.get::<Option<String>, _>("tier"),
                 "channel": row.get::<String, _>("channel"),
                 "sellable": row.get::<bool, _>("sellable"),
                 "currency": row.get::<String, _>("currency").trim(),
@@ -841,7 +772,7 @@ pub(super) async fn dispatch_publication(
         // Clearance, scoped the same way prices are: the company-wide ones and
         // this shop's own. A branch has no business holding another branch's.
         let markdowns: Vec<Value> = sqlx::query(
-            "SELECT markdown_id,sku_code,article_code,site_id,site_ids,tier,
+            "SELECT markdown_id,sku_code,article_code,site_id,site_ids,
                     replacement_unit_price_minor,priority,effective_from,effective_to
                FROM commercial_markdown
               WHERE publication_id=$1
@@ -861,7 +792,6 @@ pub(super) async fn dispatch_publication(
                 "article_code": row.get::<Option<String>, _>("article_code"),
                 "site_id": row.get::<Option<String>, _>("site_id"),
                 "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
-                "tier": row.get::<Option<String>, _>("tier"),
                 "replacement_unit_price_minor": row.get::<i64, _>("replacement_unit_price_minor"),
                 "priority": row.get::<i32, _>("priority"),
                 "effective_from": row.get::<DateTime<Utc>, _>("effective_from"),
@@ -1322,7 +1252,7 @@ pub async fn commercial_publication_detail(
     // sellable one with no price, and the publish check refuses both.
     let price_rules: Vec<Value> = sqlx::query(
         "SELECT s.sku_code, a.article_code, a.name article_name,
-                pr.site_id, pr.site_ids, pr.tier, pr.channel, ar.sellable,
+                pr.site_id, pr.site_ids, pr.channel, ar.sellable,
                 pr.currency::text currency, pr.unit_price_minor, pr.tax_category
            FROM commercial_price_rule pr
            JOIN sku s ON s.id = pr.sku_id
@@ -1344,7 +1274,6 @@ pub async fn commercial_publication_detail(
             "article_name": row.get::<String, _>("article_name"),
             "site_id": row.get::<Option<String>, _>("site_id"),
             "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
-            "tier": row.get::<Option<String>, _>("tier"),
             "channel": row.get::<String, _>("channel"),
             "sellable": row.get::<Option<bool>, _>("sellable"),
             "currency": row.get::<String, _>("currency").trim(),
@@ -1355,7 +1284,7 @@ pub async fn commercial_publication_detail(
     .collect();
 
     let markdowns: Vec<Value> = sqlx::query(
-        "SELECT markdown_id, sku_code, article_code, site_id, site_ids, tier,
+        "SELECT markdown_id, sku_code, article_code, site_id, site_ids,
                 replacement_unit_price_minor, priority, effective_from, effective_to
            FROM commercial_markdown WHERE publication_id = $1 ORDER BY markdown_id",
     )
@@ -1370,7 +1299,6 @@ pub async fn commercial_publication_detail(
             "article_code": row.get::<Option<String>, _>("article_code"),
             "site_id": row.get::<Option<String>, _>("site_id"),
             "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
-            "tier": row.get::<Option<String>, _>("tier"),
             "replacement_unit_price_minor": row.get::<i64, _>("replacement_unit_price_minor"),
             "priority": row.get::<i32, _>("priority"),
             "effective_from": row.get::<DateTime<Utc>, _>("effective_from"),
@@ -1424,7 +1352,7 @@ pub async fn commercial_publication_detail(
 
     let campaigns: Vec<Value> = sqlx::query(
         "SELECT campaign_id, name, status, valid_from, valid_to, budget_minor,
-                max_uses, max_uses_per_customer
+                max_uses
            FROM commercial_campaign WHERE publication_id = $1 ORDER BY campaign_id",
     )
     .bind(publication_id)
@@ -1440,7 +1368,6 @@ pub async fn commercial_publication_detail(
             "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
             "budget_minor": row.get::<Option<i64>, _>("budget_minor"),
             "max_uses": row.get::<Option<i32>, _>("max_uses"),
-            "max_uses_per_customer": row.get::<Option<i32>, _>("max_uses_per_customer"),
         })
     })
     .collect();
@@ -1518,11 +1445,6 @@ pub async fn simulate(
                 line.sku_code
             )));
         }
-        if line.manual_unit_price_minor.is_some_and(|minor| minor < 0) {
-            return Err(AppError::Validation(
-                "a typed-in price cannot be negative".into(),
-            ));
-        }
     }
     let at = request.at.unwrap_or_else(Utc::now);
 
@@ -1536,7 +1458,6 @@ pub async fn simulate(
     let mut context = crate::reporting::pricing_context(&request.site_id, request.channel.as_str(), at);
     context.coupon_codes = request.coupon_codes.clone();
     context.customer_id = request.customer_id.clone();
-    context.customer_tier = request.customer_tier.clone();
 
     let cart: Vec<CartLine> = request
         .lines
@@ -1544,9 +1465,6 @@ pub async fn simulate(
         .map(|line| {
             let mut cart_line =
                 super::pricing::cart_line(&line.sku_code, line.quantity, &merchandise);
-            if let Some(minor) = line.manual_unit_price_minor {
-                cart_line.manual_unit_price = Some(pricing_engine::Money::new(minor));
-            }
             cart_line
         })
         .collect();

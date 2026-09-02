@@ -42,7 +42,6 @@ pub struct SitePricing {
 fn level_of(
     site_id: Option<String>,
     site_ids: Option<Vec<String>>,
-    tier: Option<String>,
 ) -> PriceLevel {
     if let Some(site_id) = site_id {
         return PriceLevel::Site { site_id };
@@ -54,9 +53,11 @@ fn level_of(
             };
         }
     }
-    if let Some(tier) = tier {
-        return PriceLevel::Tier { tier };
-    }
+    // A `tier` column with something in it is a row from before tiers were
+    // removed. It reads as a company price rather than being skipped: the
+    // alternative is a product that silently has no price at all, and a shop
+    // that cannot sell a shirt is worse than one that sells it at the
+    // company's number.
     PriceLevel::Company
 }
 
@@ -151,7 +152,7 @@ pub async fn load_site_price_book(
 ) -> Result<SitePricing, AppError> {
     let rows = sqlx::query(
         "SELECT p.version, p.effective_from, p.effective_to,
-                pr.sku_id, s.sku_code, pr.site_id, pr.site_ids, pr.tier, pr.channel,
+                pr.sku_id, s.sku_code, pr.site_id, pr.site_ids, pr.channel,
                 ar.sellable, pr.currency::text currency, pr.unit_price_minor, pr.tax_category
            FROM commercial_price_rule pr
            JOIN commercial_publication p ON p.id = pr.publication_id
@@ -185,7 +186,7 @@ pub async fn load_site_price_book(
         sku_id_by_code.insert(sku_code.clone(), sku_id);
         entries.push(PriceEntry {
             sku_code,
-            applies_to: level_of(row.get("site_id"), row.get("site_ids"), row.get("tier")),
+            applies_to: level_of(row.get("site_id"), row.get("site_ids")),
             channel: row.get("channel"),
             sellable: row.get("sellable"),
             currency: Currency(row.get::<String, _>("currency").trim().to_string()),
@@ -218,7 +219,7 @@ pub async fn load_site_price_book(
         // So the centre reproduces the shop's model explicitly rather than
         // relying on a comparator that was never given a version to compare.
         "SELECT DISTINCT ON (m.markdown_id)
-                m.markdown_id, m.sku_code, m.article_code, m.site_id, m.site_ids, m.tier,
+                m.markdown_id, m.sku_code, m.article_code, m.site_id, m.site_ids,
                 m.replacement_unit_price_minor, m.priority, p.version,
                 m.effective_from, m.effective_to
            FROM commercial_markdown m
@@ -239,7 +240,7 @@ pub async fn load_site_price_book(
         markdown_id: row.get("markdown_id"),
         sku_code: row.get("sku_code"),
         article_code: row.get("article_code"),
-        applies_to: level_of(row.get("site_id"), row.get("site_ids"), row.get("tier")),
+        applies_to: level_of(row.get("site_id"), row.get("site_ids")),
         replacement_unit_price: Money::new(row.get::<i64, _>("replacement_unit_price_minor")),
         priority: i64::from(row.get::<i32, _>("priority")),
         publication_version: row.get("version"),
@@ -331,7 +332,7 @@ async fn load_coupons(
     Ok(sqlx::query(
         "SELECT DISTINCT ON (c.code)
                 c.code, c.rule_id, c.active, c.customer_id, c.valid_from, c.valid_to,
-                c.max_uses, c.used
+                c.max_uses
            FROM commercial_coupon c
            JOIN commercial_publication p ON p.id = c.publication_id
           WHERE p.status = 'PUBLISHED'
@@ -342,12 +343,22 @@ async fn load_coupons(
     .into_iter()
     .map(|row| {
         let code: String = row.get("code");
-        // A coupon has no `Caps`; its count is one number on the row. The
-        // publication's copy is the one that was true when the book was
-        // written, which is to say never true again.
+        // A coupon has no `Caps`; its count is one number.
+        // Nought when nothing has counted it, never the publication's own
+        // copy.
+        //
+        // A count with two sources is the fault this whole area keeps
+        // producing, and this was one: `commercial_usage` when it had a row,
+        // and a column frozen into the price book when it did not. The two
+        // agree today only because authoring always writes nought — which
+        // means the column was never an answer, only a coincidence that
+        // matched one.
+        //
+        // No row in `commercial_usage` means no sale has redeemed this code.
+        // That is not missing information; it is the information.
         let used = usage
             .get(&("COUPON".to_string(), code.clone()))
-            .map_or_else(|| i64::from(row.get::<i32, _>("used")), |(uses, _)| *uses);
+            .map_or(0, |(uses, _)| *uses);
         Coupon {
             code,
             rule_id: row.get("rule_id"),
@@ -382,7 +393,7 @@ async fn load_campaigns(
         // and running at head office.
         "SELECT DISTINCT ON (c.campaign_id)
                 c.campaign_id, c.name, c.status, c.valid_from, c.valid_to,
-                c.budget_minor, c.spent_minor, c.max_uses, c.used, c.max_uses_per_customer
+                c.budget_minor, c.max_uses
            FROM commercial_campaign c
            JOIN commercial_publication p ON p.id = c.publication_id
           WHERE p.status = 'PUBLISHED'
@@ -402,12 +413,11 @@ async fn load_campaigns(
         caps: with_usage(
             Caps {
                 budget: row.get::<Option<i64>, _>("budget_minor").map(Money::new),
-                spent: Money::new(row.get::<i64, _>("spent_minor")),
+                // As the coupons above: one source for a count, and it is not
+                // a column frozen into the book that declared the limit.
+                spent: Money::ZERO,
                 max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
-                used: i64::from(row.get::<i32, _>("used")),
-                max_uses_per_customer: row
-                    .get::<Option<i32>, _>("max_uses_per_customer")
-                    .map(i64::from),
+                used: 0,
             },
             usage.get(&("CAMPAIGN".to_string(), campaign_id)),
         ),

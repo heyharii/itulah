@@ -43,7 +43,11 @@ export function AppShell({
         className,
       )}
     >
-      <aside className="hidden shrink-0 flex-col items-center overflow-y-auto border-r border-[var(--os-hairline,#eeeef1)] bg-[var(--os-canvas,#fff)] lg:flex">
+      {/* `os-rail` is not paint — it names this element for the page
+          transition, which is how the rail stays put while the screen beside
+          it changes. The one part of the frame that is the same on every
+          screen should not be part of what fades. See `index.css`. */}
+      <aside className="os-rail hidden shrink-0 flex-col items-center overflow-y-auto border-r border-[var(--os-hairline,#eeeef1)] bg-[var(--os-canvas,#fff)] lg:flex">
         {nav}
       </aside>
       {aside !== undefined && (

@@ -667,14 +667,13 @@ pub struct PublicationCampaign {
     /// Shared across every rule in the campaign. `None` is unlimited.
     #[serde(default)]
     pub budget_minor: Option<i64>,
-    #[serde(default)]
-    pub spent_minor: i64,
+    // No `spent_minor` and no `used`. A limit travels with the book that
+    // declared it; what has been spent against that limit travels on the usage
+    // lane, because it changes with every sale and the book is frozen. Sending
+    // both gave a shop two numbers for one fact and it overwrote one with the
+    // other on arrival.
     #[serde(default)]
     pub max_uses: Option<i64>,
-    #[serde(default)]
-    pub used: i64,
-    #[serde(default)]
-    pub max_uses_per_customer: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -686,13 +685,11 @@ pub struct PublicationMarkdown {
     pub sku_code: Option<String>,
     #[serde(default)]
     pub article_code: Option<String>,
-    /// `None` means every shop, unless a group or tier is named below.
+    /// `None` means every shop, unless a group is named below.
     #[serde(default)]
     pub site_id: Option<String>,
     #[serde(default)]
     pub site_ids: Option<Vec<String>>,
-    #[serde(default)]
-    pub tier: Option<String>,
     pub replacement_unit_price_minor: i64,
     #[serde(default)]
     pub priority: i64,
@@ -715,8 +712,6 @@ pub struct PublicationCoupon {
     pub valid_to: Option<DateTime<Utc>>,
     #[serde(default)]
     pub max_uses: Option<i64>,
-    #[serde(default)]
-    pub used: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -743,9 +738,6 @@ pub struct PublicationPriceRule {
     /// A named set of shops — a city, a format. Set for a group-level price.
     #[serde(default)]
     pub site_ids: Option<Vec<String>>,
-    /// A membership tier. Set for a tier-level price.
-    #[serde(default)]
-    pub tier: Option<String>,
     pub channel: String,
     pub sellable: bool,
     pub currency: String,
@@ -813,12 +805,11 @@ pub fn parse_activate_publication(payload: &Value) -> Result<ActivatePublication
         return Err("publication coupon must name a code and the rule it unlocks".into());
     }
     // Only one level per price. A row claiming to be both a shop price and a
-    // tier price has no single right reading, and picking one silently is how
+    // group price has no single right reading, and picking one silently is how
     // the centre and a till come to disagree.
     for rule in &parsed.price_rules {
         let levels = u8::from(rule.site_id.is_some())
-            + u8::from(rule.site_ids.as_ref().is_some_and(|ids| !ids.is_empty()))
-            + u8::from(rule.tier.is_some());
+            + u8::from(rule.site_ids.as_ref().is_some_and(|ids| !ids.is_empty()));
         if levels > 1 {
             return Err(format!(
                 "price rule for {} names more than one level",
@@ -833,8 +824,7 @@ pub fn parse_activate_publication(payload: &Value) -> Result<ActivatePublication
                     .site_ids
                     .as_ref()
                     .is_some_and(|ids| !ids.is_empty()),
-            )
-            + u8::from(markdown.tier.is_some());
+            );
         if levels > 1 {
             return Err(format!(
                 "markdown {} names more than one level",
@@ -1548,6 +1538,14 @@ pub struct SaleFactLine {
     /// belongs in a margin report.
     #[serde(default)]
     pub base_unit_price_minor: Option<i64>,
+    /// Which clearance set the price, when one did.
+    ///
+    /// `price_source` says a markdown won and `base_unit_price_minor` says what
+    /// it was worth; this says which one it was. Together they make a sold line
+    /// self-describing, so "what did THIS clearance cost us across the fleet"
+    /// is a group-by rather than a reconstruction from sku, version and date.
+    #[serde(default)]
+    pub markdown_id: Option<String>,
     /// Which authority set the price: the published book, a branch price, a
     /// clearance, a cashier's override, or the price stamped at intake.
     #[serde(default)]
@@ -1627,6 +1625,12 @@ pub struct SaleFactTender {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SaleFactPromotionLine {
+    pub subject_id: Uuid,
+    pub benefit_minor: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SaleFactPromotion {
     pub rule_id: String,
     #[serde(default)]
@@ -1636,6 +1640,16 @@ pub struct SaleFactPromotion {
     #[serde(default)]
     pub coupon_code: Option<String>,
     pub benefit_minor: i64,
+    /// Which sold units it came off, and for how much each.
+    ///
+    /// Absent from a shop running a build that predates it, which is why the
+    /// sale-level `benefit_minor` stays authoritative: this is the attributed
+    /// breakdown of that figure, not a replacement for it. A report that needs
+    /// both influenced and attributed revenue reads the total from the row and
+    /// the split from here, and says so when the split is missing rather than
+    /// treating absence as zero.
+    #[serde(default)]
+    pub lines: Vec<SaleFactPromotionLine>,
 }
 
 /// Parse and validate a sale fact, arithmetic included.
@@ -1699,6 +1713,52 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
         .any(|promotion| promotion.rule_id.trim().is_empty() || promotion.benefit_minor < 0)
     {
         return Err("a sale promotion needs a rule_id and a benefit that is not negative".into());
+    }
+    // A promotion's per-line split, checked the way the sale's own arithmetic
+    // is: re-derived here rather than believed.
+    //
+    // An empty split is a shop that does not send one yet and is accepted. A
+    // split that is present and does not add up to the promotion's own total is
+    // refused, because the two would then be stored side by side and every
+    // report reading both would give a different answer depending on which it
+    // happened to sum — the quietest kind of wrong number, and the kind this
+    // system already refuses on the money side.
+    for promotion in &sale.promotions {
+        if promotion.lines.is_empty() {
+            continue;
+        }
+        let mut apportioned = 0_i64;
+        for line in &promotion.lines {
+            if line.benefit_minor < 0 {
+                return Err(format!(
+                    "promotion {} claims a negative benefit on a line",
+                    promotion.rule_id
+                ));
+            }
+            // It must name a unit this sale actually sold. A subject from
+            // another basket would attribute one shop's discount to another
+            // sale's goods, and the join that reads it would look perfectly
+            // healthy.
+            if !sale
+                .lines
+                .iter()
+                .any(|sold| sold.subject_id == line.subject_id)
+            {
+                return Err(format!(
+                    "promotion {} names a unit this sale did not sell",
+                    promotion.rule_id
+                ));
+            }
+            apportioned = apportioned
+                .checked_add(line.benefit_minor)
+                .ok_or_else(|| format!("promotion {} overflows", promotion.rule_id))?;
+        }
+        if apportioned != promotion.benefit_minor {
+            return Err(format!(
+                "promotion {} says it took {} but its lines account for {}",
+                promotion.rule_id, promotion.benefit_minor, apportioned
+            ));
+        }
     }
     if sale.paid_minor - sale.total_minor != sale.change_minor {
         return Err(format!(

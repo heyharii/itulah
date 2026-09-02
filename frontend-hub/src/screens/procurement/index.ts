@@ -1,6 +1,5 @@
 import type { ScreenMap } from "@/screens/registry"
 
-import { ArticleSetups } from "@/screens/procurement/article-setups"
 import { Catalogue } from "@/screens/procurement/catalogue"
 import { Destinations } from "@/screens/procurement/destinations"
 import { Outstanding } from "@/screens/procurement/outstanding"
@@ -18,6 +17,5 @@ export const screens: ScreenMap = {
   "/procurement/amendments": PriceAmendments,
   "/procurement/suppliers": Suppliers,
   "/procurement/catalogue": Catalogue,
-  "/procurement/article-setups": ArticleSetups,
   "/procurement/destinations": Destinations,
 }

@@ -18,9 +18,8 @@ import { TransactionRow } from "@/components/transaction-row"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { cacheKey, customerSummary, customerTransactions } from "@/lib/api"
+import { cacheKey, member } from "@/lib/api"
 import { shortDate } from "@/lib/dates"
-import { useMemberId } from "@/lib/member"
 import { money, moneyShort, units } from "@/lib/money"
 
 const RECENT = 5
@@ -32,17 +31,14 @@ const RECENT = 5
 /// a history that will not load should not blank out a points figure that
 /// arrived perfectly well.
 export function HomeView() {
-  const memberId = useMemberId()
-
   const summary = useQuery({
-    queryKey: cacheKey.summary(memberId),
-    queryFn: ({ signal }) => customerSummary(memberId, signal),
+    queryKey: cacheKey.summary(),
+    queryFn: ({ signal }) => member.summary(signal),
   })
 
   const recent = useQuery({
-    queryKey: [...cacheKey.transactions(memberId), { limit: RECENT }],
-    queryFn: ({ signal }) =>
-      customerTransactions(memberId, { limit: RECENT, signal }),
+    queryKey: [...cacheKey.transactions(), { limit: RECENT }],
+    queryFn: ({ signal }) => member.transactions({ limit: RECENT, signal }),
   })
 
   // Both, together. A member pulling down after a purchase wants the points

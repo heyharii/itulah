@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use super::contracts::EdgeError;
 use super::printing::LABEL_BRAND;
-use super::zpl::{render_koli_label, KoliLabelData, LabelBrand, LabelSize};
+use super::zpl::{preview_koli_label, render_koli_label, KoliLabelData, LabelBrand, LabelSize};
 use qrcode::render::svg;
 use qrcode::{EcLevel, QrCode};
 
@@ -287,6 +287,10 @@ pub struct KoliManifest {
     /// Carried with the manifest so a caller never has to render it twice and
     /// risk the two disagreeing.
     pub label_zpl: String,
+    /// The same sticker drawn for a screen, out of the same layout pass. A
+    /// carton label is cheap to reprint and expensive to get wrong — it is
+    /// read across a loading bay, and the box is already taped.
+    pub label_svg: String,
     pub lines: Vec<ManifestLine>,
 }
 
@@ -409,7 +413,17 @@ pub fn load_koli(connection: &Connection, koli_id: &str) -> Result<Koli, EdgeErr
         })
 }
 
-pub fn koli_manifest(connection: &Connection, koli_id: &str) -> Result<KoliManifest, EdgeError> {
+/// What is in the box, on the stock the caller says the bench holds.
+///
+/// The size is a parameter rather than a constant because the koli sticker was
+/// the one label in this system that ignored the bench entirely: it rendered
+/// at the house default whatever reel was loaded, which is discovered at the
+/// loading bay by a sticker printed across two boxes' worth of paper.
+pub fn koli_manifest_on(
+    connection: &Connection,
+    koli_id: &str,
+    size: LabelSize,
+) -> Result<KoliManifest, EdgeError> {
     let koli = load_koli(connection, koli_id)?;
     let mut statement = connection
         .prepare(
@@ -432,24 +446,29 @@ pub fn koli_manifest(connection: &Connection, koli_id: &str) -> Result<KoliManif
         .collect::<Result<Vec<_>, _>>()
         .map_err(db)?;
     let qr_payload = format!("K1:{}", koli.koli_number);
-    let label_zpl = render_koli_label(
-        &KoliLabelData {
-            koli_number: &koli.koli_number,
-            destination_store_id: &koli.destination_store_id,
-            unit_count: koli.unit_count,
-            sealed_at: koli.sealed_at.as_deref(),
-        },
-        LabelSize::default(),
-        LabelBrand(LABEL_BRAND),
-    );
+    let label = KoliLabelData {
+        koli_number: &koli.koli_number,
+        destination_store_id: &koli.destination_store_id,
+        unit_count: koli.unit_count,
+        sealed_at: koli.sealed_at.as_deref(),
+    };
+    let label_zpl = render_koli_label(&label, size, LabelBrand(LABEL_BRAND));
+    let label_svg = preview_koli_label(&label, size, LabelBrand(LABEL_BRAND));
     let qr_svg = qr_svg(&qr_payload)?;
     Ok(KoliManifest {
         koli,
         qr_payload,
         qr_svg,
         label_zpl,
+        label_svg,
         lines,
     })
+}
+
+/// The manifest on the house default stock, for every caller that is only
+/// reading what is in the box.
+pub fn koli_manifest(connection: &Connection, koli_id: &str) -> Result<KoliManifest, EdgeError> {
+    koli_manifest_on(connection, koli_id, LabelSize::default())
 }
 
 // ---------------------------------------------------------------------------
@@ -475,6 +494,25 @@ pub struct PrintKoliLabelRequest {
     pub printer_host: String,
     #[serde(default = "default_printer_port")]
     pub printer_port: u16,
+    /// The stock in the machine. Left out, the house default — which is what
+    /// every koli sticker printed before this field existed was drawn at,
+    /// whatever the bench was actually holding.
+    pub label_width_mm: Option<i64>,
+    pub label_height_mm: Option<i64>,
+}
+
+impl PrintKoliLabelRequest {
+    pub fn label_size(&self) -> LabelSize {
+        let default = LabelSize::default();
+        LabelSize {
+            width_mm: self
+                .label_width_mm
+                .map_or(default.width_mm, |mm| mm as f64),
+            height_mm: self
+                .label_height_mm
+                .map_or(default.height_mm, |mm| mm as f64),
+        }
+    }
 }
 
 const fn default_printer_port() -> u16 {
@@ -487,7 +525,7 @@ pub fn print_koli_label(
     koli_id: &str,
     request: &PrintKoliLabelRequest,
 ) -> Result<KoliManifest, EdgeError> {
-    let manifest = koli_manifest(connection, koli_id)?;
+    let manifest = koli_manifest_on(connection, koli_id, request.label_size())?;
     super::printing::send_document(
         &request.printer_host,
         request.printer_port,

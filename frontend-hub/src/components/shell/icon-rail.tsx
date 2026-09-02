@@ -13,16 +13,28 @@ import { Mark } from "@/components/shell/mark"
 /// no global header component to find — search lives in the palette (⌘K), the
 /// account lives at the foot of the sidebar.
 ///
-/// Each tile is a pastel mesh: three soft radial blobs over a muted base. A
-/// hard two-stop gradient is exactly what the reference avoids, and it is the
-/// difference between "designed" and "a coloured square".
+/// Each tile is painted the way macOS paints an app icon: one hue lit from
+/// above — a light tint at the top falling to a saturated bottom — with a
+/// specular highlight across the top half, a hairline edge, and a small drop
+/// shadow to lift it off the rail. Everything here is that one idea; there is
+/// no second colour and no second light source.
+///
+/// It replaces a three-blob pastel mesh. At 30px the blobs averaged into one
+/// washed colour, so the tiles read as a row of faded stickers next to the Dock
+/// they sit beside all day.
 function RailTile({ module, active }: { module: AppModule; active: boolean }) {
   const Icon = module.icon
   const tile = (
     <>
-      <Icon className="relative z-10 size-[0.9375rem] stroke-[1.75] text-white [filter:drop-shadow(0_1px_1.5px_rgba(45,45,65,.32))]" />
-      {/* The top sheen. Without it the mesh reads flat against a white rail. */}
-      <span className="pointer-events-none absolute inset-0 rounded-[inherit] bg-linear-to-b from-white/20 to-transparent to-55%" />
+      {/* White glyph, and a shadow light enough to be a seam rather than a
+          second stroke: the tint under it is saturated now, so the glyph no
+          longer needs help separating from it. */}
+      <Icon className="relative z-10 size-[0.9375rem] stroke-[1.75] text-white [filter:drop-shadow(0_1px_1px_rgba(20,20,35,.24))]" />
+      {/* The specular highlight — the gloss along the top of every Dock icon.
+          Stopped at 52% because it is light falling on a curved face, not a
+          second gradient: carried further down it flattens the ramp it sits on
+          and the tile goes chalky. */}
+      <span className="pointer-events-none absolute inset-0 rounded-[inherit] bg-linear-to-b from-white/28 to-transparent to-52%" />
       {active && (
         /* The active mark is a dark bar in the rail's gutter, not a ring on
            the tile: the tiles are already coloured, and a ring on one of ten
@@ -37,21 +49,23 @@ function RailTile({ module, active }: { module: AppModule; active: boolean }) {
 
   const shell = cn(
     "group relative grid size-[1.875rem] shrink-0 place-items-center rounded-inner transition-transform duration-150",
-    "shadow-[inset_0_0_0_1px_rgba(0,0,0,.07),0_1px_2px_rgba(20,20,25,.10)]",
+    // Three shadows, in the order they are painted: the lit top edge, then a
+    // hairline that keeps a pale tile off a white rail, then the drop shadow
+    // that lifts it. The white line is listed first so it wins the top edge —
+    // later shadows paint under earlier ones.
+    "shadow-[inset_0_1px_0_rgba(255,255,255,.34),inset_0_0_0_1px_rgba(0,0,0,.09),0_1px_2px_rgba(20,20,25,.16)]",
     module.soon
       ? "cursor-default opacity-45 grayscale-[.7]"
       : "hover:-translate-y-px"
   )
 
-  // The mesh is data, so it arrives as custom properties rather than ten
-  // hand-written gradient classes.
+  // The ramp is data — ten colours in ten nav files — so it is a style object
+  // rather than ten hand-written gradient classes. `backgroundColor` under it
+  // is what shows if the gradient ever fails to parse: the tile goes solid, not
+  // transparent.
   const style = {
-    backgroundColor: module.mesh.base,
-    backgroundImage: [
-      `radial-gradient(72% 72% at 22% 18%, ${module.mesh.c1}, transparent 62%)`,
-      `radial-gradient(72% 72% at 82% 24%, ${module.mesh.c2}, transparent 62%)`,
-      `radial-gradient(84% 84% at 70% 88%, ${module.mesh.c3}, transparent 68%)`,
-    ].join(","),
+    backgroundColor: module.tint.bottom,
+    backgroundImage: `linear-gradient(180deg, ${module.tint.top} 0%, ${module.tint.bottom} 100%)`,
   }
 
   if (module.soon) {

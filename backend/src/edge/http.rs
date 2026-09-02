@@ -1508,6 +1508,42 @@ struct CatalogIdentityQuery {
     skus: String,
 }
 
+/// One HTTP client for image fetches, kept for its connection pool.
+///
+/// Building a client per request throws away the pooled TLS connection every
+/// time, which on a node serving a floor of handhelds is the whole cost.
+fn image_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new)
+}
+
+type CachedImage = (String, axum::body::Bytes);
+
+fn image_cache() -> &'static std::sync::Mutex<BTreeMap<String, CachedImage>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<BTreeMap<String, CachedImage>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(BTreeMap::new()))
+}
+
+fn image_cache_get(url: &str) -> Option<CachedImage> {
+    image_cache().lock().ok()?.get(url).cloned()
+}
+
+fn image_cache_put(url: &str, content_type: &str, bytes: &axum::body::Bytes) {
+    // Bounded so a node cannot be walked into swapping by asking for one
+    // photograph after another. Catalogue imagery is small and repeats hard;
+    // when the ceiling is hit the map is dropped rather than evicted one by
+    // one, because a cold cache costs one fetch and a clever eviction policy
+    // costs a bug.
+    const MAX_ENTRIES: usize = 256;
+    if let Ok(mut cache) = image_cache().lock() {
+        if cache.len() >= MAX_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(url.to_string(), (content_type.to_string(), bytes.clone()));
+    }
+}
+
 /// Serve a catalogue photograph through the node.
 ///
 /// # Why the Edge fetches it and the handheld does not
@@ -1539,28 +1575,38 @@ async fn catalog_image(
         .and_then(|item| item.image_url.clone())
         .ok_or_else(|| ApiError(EdgeError::NotFound(format!("no image for {sku}"))))?;
 
-    let response = reqwest::Client::new()
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(20))
-        .send()
-        .await
-        .map_err(|error| ApiError(EdgeError::Persistence(format!("image fetch: {error}"))))?;
-    if !response.status().is_success() {
-        return Err(ApiError(EdgeError::NotFound(format!(
-            "image source answered {}",
-            response.status()
-        ))));
-    }
-    let content_type = response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("image/jpeg")
-        .to_string();
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| ApiError(EdgeError::Persistence(format!("image body: {error}"))))?;
+    // Fetched once per URL for the life of the process. A colourway shares one
+    // photograph across every size, so a shop's whole catalogue is a handful of
+    // pictures — and without this every handheld on the floor would pull each
+    // one again over the same uplink.
+    let (content_type, bytes) = if let Some(hit) = image_cache_get(&url) {
+        hit
+    } else {
+        let response = image_client()
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(20))
+            .send()
+            .await
+            .map_err(|error| ApiError(EdgeError::Persistence(format!("image fetch: {error}"))))?;
+        if !response.status().is_success() {
+            return Err(ApiError(EdgeError::NotFound(format!(
+                "image source answered {}",
+                response.status()
+            ))));
+        }
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("image/jpeg")
+            .to_string();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| ApiError(EdgeError::Persistence(format!("image body: {error}"))))?;
+        image_cache_put(&url, &content_type, &bytes);
+        (content_type, bytes)
+    };
     let mut headers = HeaderMap::new();
     if let Ok(value) = HeaderValue::from_str(&content_type) {
         headers.insert(header::CONTENT_TYPE, value);

@@ -68,7 +68,6 @@ async fn publish_price_book(pool: &PgPool) {
         .enumerate()
         .map(|(index, row)| CommercialOfferRuleInput {
             site_ids: None,
-            tier: None,
             sku_id: row.get("id"),
             site_id: None,
             channel: CommercialChannel::Store,

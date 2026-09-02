@@ -146,6 +146,13 @@ const MATRIX: &[Authority] = &[
         reason: "written beside the counts, from the same fact and inside the \
                  same guard, so a receipt and the usage totals cannot disagree",
     },
+    Authority {
+        table: "edge_sale_promotion_line",
+        writers: &["src/cloud/postgres/sync.rs"],
+        reason: "the attributed split of the row above, written from the same \
+                 fact in the same guard. A second writer would be a breakdown \
+                 that no longer adds up to the total it explains",
+    },
 ];
 
 fn backend_root() -> PathBuf {

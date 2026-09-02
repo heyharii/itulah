@@ -442,9 +442,6 @@ pub struct CommercialOfferRuleInput {
     /// A named set of shops — a city, a format.
     #[serde(default)]
     pub site_ids: Option<Vec<String>>,
-    /// A membership tier.
-    #[serde(default)]
-    pub tier: Option<String>,
     pub channel: CommercialChannel,
     pub sellable: bool,
     pub currency: String,
@@ -495,8 +492,6 @@ pub struct CommercialMarkdownInput {
     pub site_id: Option<String>,
     #[serde(default)]
     pub site_ids: Option<Vec<String>>,
-    #[serde(default)]
-    pub tier: Option<String>,
     pub replacement_unit_price_minor: i64,
     #[serde(default)]
     pub priority: i64,
@@ -540,8 +535,6 @@ pub struct CommercialCampaignInput {
     pub budget_minor: Option<i64>,
     #[serde(default)]
     pub max_uses: Option<i64>,
-    #[serde(default)]
-    pub max_uses_per_customer: Option<i64>,
 }
 
 fn active() -> String {
@@ -554,7 +547,6 @@ pub struct ResolveOfferQuery {
     pub site_id: String,
     pub channel: CommercialChannel,
     pub at: Option<DateTime<Utc>>,
-    pub publication_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -594,12 +586,6 @@ pub struct SaleQuery {
 pub struct SimulateLineInput {
     pub sku_code: String,
     pub quantity: i64,
-    /// A price typed in over the book, the way a supervisor overrides at a
-    /// till. Recorded as `MANUAL_OVERRIDE` on the line rather than blended into
-    /// the published price, and promotions still apply on top: an override says
-    /// what the item costs, not that the shopper forfeits every offer.
-    #[serde(default)]
-    pub manual_unit_price_minor: Option<i64>,
 }
 
 /// Price a basket that is not being sold.
@@ -622,8 +608,6 @@ pub struct SimulateRequest {
     pub coupon_codes: Vec<String>,
     #[serde(default)]
     pub customer_id: Option<String>,
-    #[serde(default)]
-    pub customer_tier: Option<String>,
 }
 
 /// Every style, every shop, every price that could apply.

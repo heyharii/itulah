@@ -34,6 +34,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { ProcurementTabs } from "@/screens/procurement/tabs"
 import { LinkButton } from "@/screens/procurement/controls"
 import { useIdempotencyKey } from "@/screens/procurement/shared"
 import type { Supplier, SupplierStatus } from "@itulah/contract"
@@ -187,6 +188,8 @@ export function Suppliers() {
         }
       />
 
+      <ProcurementTabs current="/procurement/suppliers" />
+
       <Toolbar>
         <Segmented
           options={[
@@ -197,7 +200,7 @@ export function Suppliers() {
           value={status}
           onChange={setStatus}
         />
-      <FilterBar model={filters} table={table} />
+        <FilterBar model={filters} table={table} />
       </Toolbar>
 
       <Card className="overflow-hidden">

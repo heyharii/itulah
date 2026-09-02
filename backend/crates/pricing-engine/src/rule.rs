@@ -55,13 +55,6 @@ pub enum Effect {
     Amount { amount: Money },
     /// Replace the unit price of each matched line outright.
     FixedUnitPrice { unit_price: Money },
-    /// Price at cost plus a margin. Used to clear stock without selling below
-    /// what it was bought for.
-    ///
-    /// A line whose cost the caller did not supply is left alone, and so is one
-    /// where the margin price is not actually cheaper — a "discount" that
-    /// raises a price is not a discount.
-    Margin { bps: i64 },
     /// Grant free items. Emits a line the caller must append to the sale, so
     /// the stock actually leaves and the cost is not lost.
     FreeItem {
@@ -130,8 +123,6 @@ pub enum CustomerScope {
     Everyone,
     /// Any identified member.
     Members,
-    /// Members in one of these tiers.
-    Tiers { tier_ids: BTreeSet<String> },
 }
 
 /// What a rule matches.
@@ -265,14 +256,6 @@ pub struct Conditions {
     pub days: DaySet,
     #[serde(default)]
     pub time_window: Option<TimeWindow>,
-    /// Whether the thresholds above count what this shopper has already bought
-    /// in the promotion's window, not just what is in the basket now.
-    ///
-    /// "Spend five million during June and get ten per cent" is this. It needs
-    /// both window bounds — a running total with no start is not a total of
-    /// anything — and the history itself comes from the caller.
-    #[serde(default)]
-    pub cumulative: bool,
 }
 
 impl Conditions {
@@ -323,13 +306,10 @@ pub struct Caps {
     pub max_uses: Option<i64>,
     #[serde(default)]
     pub used: i64,
-    /// How many times one shopper may use it. `None` is unlimited.
-    #[serde(default)]
-    pub max_uses_per_customer: Option<i64>,
 }
 
 impl Caps {
-    pub(crate) fn allows(&self, customer_uses: i64) -> Option<RejectionReason> {
+    pub(crate) fn allows(&self) -> Option<RejectionReason> {
         if self
             .budget
             .is_some_and(|budget| self.spent.minor >= budget.minor)
@@ -338,12 +318,6 @@ impl Caps {
         }
         if self.max_uses.is_some_and(|max| self.used >= max) {
             return Some(RejectionReason::UsageExhausted);
-        }
-        if self
-            .max_uses_per_customer
-            .is_some_and(|max| customer_uses >= max)
-        {
-            return Some(RejectionReason::CustomerLimitReached);
         }
         None
     }
@@ -417,19 +391,6 @@ pub struct Campaign {
     /// Shared across every rule in the campaign.
     #[serde(default)]
     pub caps: Caps,
-}
-
-/// How much of a rule's thresholds a shopper has already met.
-///
-/// Supplied by the caller from what it knows of this customer's history in the
-/// promotion's window. It is what turns "spend five million in June and get ten
-/// per cent" from a single-basket test into a running one.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CumulativeHistory {
-    #[serde(default)]
-    pub quantity: i64,
-    #[serde(default)]
-    pub amount: Money,
 }
 
 /// One promotion.
@@ -532,7 +493,6 @@ pub enum RejectionReason {
     CouponBelongsToSomeoneElse,
     BudgetSpent,
     UsageExhausted,
-    CustomerLimitReached,
     NothingMatched,
     NotThisCustomer,
     /// It belongs to a promotion this node has never heard of.
@@ -570,7 +530,6 @@ impl RejectionReason {
             Self::CouponBelongsToSomeoneElse => "that coupon belongs to another customer",
             Self::BudgetSpent => "the promotion budget is used up",
             Self::UsageExhausted => "the promotion has reached its usage limit",
-            Self::CustomerLimitReached => "this customer has used the promotion already",
             Self::NothingMatched => "nothing in the basket qualifies",
             Self::NotThisCustomer => "the promotion is for members only",
             Self::CampaignUnknown => "this shop has not received that promotion",

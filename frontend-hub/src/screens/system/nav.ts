@@ -21,7 +21,7 @@ export const systemNav: AppModule = {
   id: "system",
   label: "System",
   icon: Settings2,
-  mesh: { c1: "#cbc9d7", c2: "#d3d1dd", c3: "#838095", base: "#8f8ca0" },
+  tint: { top: "#b3b1c0", bottom: "#78758a" },
   home: "/system",
   sections: [
     {

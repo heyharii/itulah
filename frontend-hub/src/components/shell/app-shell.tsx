@@ -48,7 +48,15 @@ export function AppShell() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* The scroll container is here, not on `body`: screens below hold a
               table body or a detail rail that scrolls inside itself, and a page
-              that grows instead would put a second scrollbar around the lot. */}
+              that grows instead would put a second scrollbar around the lot.
+
+              There is no page transition. One was tried — a short fade and a
+              4px rise on the incoming screen — and removed: a module that
+              navigates itself by tabs changes screens several times a minute,
+              and an animation that reads as considered on the first click reads
+              as lag on the tenth. Motion has to earn its place by explaining
+              something, and a screen that is already where it is going has
+              nothing to explain. */}
           <div className="min-h-0 flex-1 overflow-y-auto">
             <Outlet />
           </div>

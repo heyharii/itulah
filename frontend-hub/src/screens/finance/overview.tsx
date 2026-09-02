@@ -190,6 +190,7 @@ export function FinanceOverview() {
           row.year * 12 + row.month < thisYear * 12 + thisMonth
       )
       if (stale.length > 0) {
+        const entries = stale.reduce((sum, row) => sum + row.entry_count, 0)
         found.push({
           id: "months-open",
           title:
@@ -197,7 +198,19 @@ export function FinanceOverview() {
               ? `${monthLabel(stale[0].year, stale[0].month)} is still open`
               : `${count(stale.length)} past months are still open`,
           detail: "Worked months that nobody has sealed.",
-          amount: count(stale.reduce((sum, row) => sum + row.entry_count, 0)),
+          // Every other row in this queue carries one unit, and its title says
+          // which. This one counts months in the title and postings here, so
+          // the bare "64" beside "3 past months are still open" was a figure in
+          // no stated unit at all — a fourth month, a rupiah amount, or
+          // nothing. `amount` takes a node, so the unit goes in it.
+          amount: (
+            <>
+              {count(entries)}{" "}
+              <span className="font-normal text-mute">
+                {entries === 1 ? "entry" : "entries"}
+              </span>
+            </>
+          ),
           severity: "medium",
           icon: <CalendarClock className="size-4" />,
           onOpen: go("/finance/periods"),

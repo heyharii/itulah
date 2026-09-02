@@ -16,4 +16,14 @@ unit_price_minor: number,
  * What this line actually comes to. Promotions act on the line, not the
  * unit, so a discounted line is not always a whole number of unit prices.
  */
-line_total_minor: number, price_source: string, publication_version: number, };
+line_total_minor: number, price_source: string, publication_version: number, 
+/**
+ * Which clearance set this price, when one did.
+ *
+ * `price_source` says a markdown won; this says WHICH. Without it, asking
+ * "what did the end-of-season sale do to this shirt" means joining a sold
+ * line back to the markdown table by sku, publication version and date and
+ * hoping exactly one candidate covered that instant — which is a
+ * reconstruction, and a reconstruction is not evidence.
+ */
+markdown_id: string | null, };

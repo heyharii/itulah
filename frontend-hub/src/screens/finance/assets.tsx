@@ -6,13 +6,11 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
-import { MiniTable } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
@@ -21,7 +19,6 @@ import {
   financeKeys,
   listAssets,
   registerAsset,
-  runDepreciation,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -29,11 +26,11 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import {
   ASSET_CATEGORIES,
   DEPRECIATION_METHODS,
-  monthLabel,
   parseMinor,
   todayIso,
 } from "@/screens/finance/chart"
-import type { AssetRow, DepreciationRun } from "@itulah/contract"
+import { LocationSelect, SiteName } from "@/screens/finance/parts"
+import type { AssetRow } from "@itulah/contract"
 
 /// What the business owns, and what Finance has decided about it.
 ///
@@ -50,12 +47,13 @@ import type { AssetRow, DepreciationRun } from "@itulah/contract"
 /// "Expensed in January, capitalised in March" is the audit trail. Editing the
 /// January decision would erase the fact that it was ever made.
 ///
-/// # Why the run reports what it skipped
+/// # Why the monthly run is not on this screen
 ///
-/// A month's depreciation that says "nothing" without saying why is a report
-/// somebody has to re-derive by hand. And it is safe to run twice: a unique
-/// index on (asset, period) refuses the second charge, so a repeat reports
-/// every asset as already done rather than doubling the month.
+/// It was, as a button in this toolbar, and it was in the wrong place twice
+/// over. Depreciation is a month-end step, not something you do while looking
+/// at the register — and the button always charged the *current* calendar
+/// month, whichever month the person was actually closing. It now lives in the
+/// Period close checklist, against the month that checklist is for.
 
 const columns: ColumnDef<TableSetup, AssetRow>[] = [
   {
@@ -83,8 +81,11 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   },
   {
     accessorKey: "site_id",
-    header: "Site",
-    size: 100,
+    header: "Location",
+    size: 130,
+    // The client's own name for it. The id stays in `title`, because that is
+    // what the account codes carry and what a support call will be about.
+    cell: ({ row }) => <SiteName id={row.original.site_id} />,
   },
   {
     id: "treatment",
@@ -144,16 +145,12 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
 ]
 
 export function AssetRegister() {
-  const client = useQueryClient()
   const [query, setQuery] = useState("")
   const [registering, setRegistering] = useState(false)
-  const [report, setReport] = useState<DepreciationRun | null>(null)
   const asset = useSheet("asset")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "treatment", desc: false },
   ])
-
-  const now = new Date()
 
   // The whole register, once. `?unassessed=true` used to back a second tab
   // here, and asking the server for a subset of a list already in memory is a
@@ -167,16 +164,6 @@ export function AssetRegister() {
   })
 
   const rows = useMemo(() => assets.data ?? [], [assets.data])
-
-  const depreciate = useMutation({
-    mutationFn: () => runDepreciation(now.getFullYear(), now.getMonth() + 1),
-    onSuccess: (run) => {
-      setReport(run)
-      // A run posts one entry per capitalised asset, so the register, the
-      // journal and every balance moved with it.
-      client.invalidateQueries({ queryKey: financeKeys.all })
-    },
-  })
 
   const table = useTable(
     useMemo(
@@ -216,19 +203,6 @@ export function AssetRegister() {
         }
       />
 
-      <Toolbar>
-        <Toolbar.Spacer />
-        <Button
-          variant="ghost"
-          disabled={depreciate.isPending}
-          onClick={() => depreciate.mutate()}
-        >
-          {depreciate.isPending
-            ? "Charging…"
-            : `Run depreciation for ${monthLabel(now.getFullYear(), now.getMonth() + 1)}`}
-        </Button>
-      </Toolbar>
-
       {/* The control gap, stated once and only when there is one. It used to be
           a second tab; a tab that is empty most days is a tab that gets clicked
           most days for nothing, and the rows it would have held are already the
@@ -239,65 +213,6 @@ export function AssetRegister() {
           {count(gap)} assets have never been assessed — nobody has decided
           whether to capitalise or expense them. They sort to the top.
         </Banner>
-      )}
-
-      {depreciate.isError && (
-        <Banner tone="bad" className="mb-3">
-          {depreciate.error instanceof Error
-            ? depreciate.error.message
-            : "The depreciation run was refused."}
-        </Banner>
-      )}
-
-      {report && (
-        <Card className="mb-3 overflow-hidden">
-          <CardHeader>
-            <CardTitle>Depreciation · {report.period_month}</CardTitle>
-            <Button variant="quiet" size="sm" onClick={() => setReport(null)}>
-              Dismiss
-            </Button>
-          </CardHeader>
-          <div className="px-4 pb-4">
-            <p className="mb-3 text-meta text-body">
-              Charged {count(report.posted_count)} of{" "}
-              {count(report.posted_count + report.skipped_count)} assets,{" "}
-              {money(report.posted_total_minor)} in total.{" "}
-              {report.skipped_count > 0
-                ? `${count(report.skipped_count)} were skipped, each with a reason.`
-                : "Nothing was skipped."}
-            </p>
-            <MiniTable
-              head={[
-                "Asset",
-                { label: "Charge" },
-                { label: "Skipped because" },
-              ]}
-            >
-              {report.lines.map((line) => (
-                <tr key={line.asset_id} className="border-t border-hairline">
-                  <td className="py-2 pr-2">
-                    <span className="block text-[0.8125rem] text-ink">
-                      {line.name}
-                    </span>
-                    <span className="font-mono text-[0.65625rem] text-mute">
-                      {line.asset_number}
-                    </span>
-                  </td>
-                  <td className="py-2 text-right tabular-nums">
-                    {line.amount_minor === null ? (
-                      <span className="text-faint">—</span>
-                    ) : (
-                      money(line.amount_minor)
-                    )}
-                  </td>
-                  <td className="py-2 text-right text-[0.71875rem] text-body">
-                    {line.skipped_because ?? "—"}
-                  </td>
-                </tr>
-              ))}
-            </MiniTable>
-          </div>
-        </Card>
       )}
 
       <Card className="overflow-hidden">
@@ -483,7 +398,9 @@ function AssetSheet({
               <Facts>
                 <Fact term="Category">{asset.category_name}</Fact>
                 <Fact term="Category code">{asset.category_code}</Fact>
-                <Fact term="Site">{asset.site_id}</Fact>
+                <Fact term="Location">
+                  <SiteName id={asset.site_id} />
+                </Fact>
                 <Fact term="Status">{asset.status}</Fact>
                 <Fact term="Acquired">{day(asset.acquired_on)}</Fact>
                 <Fact term="Serial">{asset.serial_number ?? "—"}</Fact>
@@ -793,12 +710,14 @@ function RegisterSheet({
           </form.Field>
           <form.Field name="siteId">
             {(field) => (
-              <Field label="Site">
-                <Input
+              <Field label="Location">
+                {/* Where the thing physically is. A typed id put an asset at a
+                    location that does not exist, which the register then
+                    happily listed. */}
+                <LocationSelect
                   value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="e.g. DC01"
+                  onChange={(next) => field.handleChange(next)}
+                  emptyLabel="Choose a location"
                 />
               </Field>
             )}

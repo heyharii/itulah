@@ -773,9 +773,6 @@ function Promotions({
         effect: "PERCENT",
         percent: "",
         amount: "",
-        freeSku: "",
-        freeQuantity: "1",
-        freeEveryMatched: "",
         pointsMode: "FIXED_POINTS",
         pointsValue: "",
         minQuantity: "",
@@ -1257,7 +1254,6 @@ function Campaigns({
         to: "",
         budget: "",
         maxUses: "",
-        maxUsesPerCustomer: "",
       },
     ])
   const edit = (key: string, patch: Partial<CampaignDraft>) =>

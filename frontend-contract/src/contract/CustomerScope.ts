@@ -3,4 +3,4 @@
 /**
  * Who a rule is for.
  */
-export type CustomerScope = { "who": "EVERYONE" } | { "who": "MEMBERS" } | { "who": "TIERS", tier_ids: Array<string>, };
+export type CustomerScope = { "who": "EVERYONE" } | { "who": "MEMBERS" };

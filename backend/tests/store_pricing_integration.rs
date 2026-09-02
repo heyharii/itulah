@@ -623,7 +623,6 @@ async fn a_coupon_gates_the_promotion_it_unlocks() {
             "valid_from": null,
             "valid_to": null,
             "max_uses": null,
-            "used": 0,
         })],
     )
     .await;
@@ -905,7 +904,7 @@ async fn a_shop_on_the_old_basis_still_reconciles_at_the_centre() {
 }
 
 // ---------------------------------------------------------------------------
-// Campaigns, group prices and tier prices, over the wire
+// Campaigns and group prices, over the wire
 // ---------------------------------------------------------------------------
 
 fn campaign(id: &str, status: &str) -> serde_json::Value {
@@ -916,10 +915,7 @@ fn campaign(id: &str, status: &str) -> serde_json::Value {
         "valid_from": null,
         "valid_to": null,
         "budget_minor": null,
-        "spent_minor": 0,
         "max_uses": null,
-        "used": 0,
-        "max_uses_per_customer": null,
     })
 }
 
@@ -1147,7 +1143,7 @@ async fn a_sale_tells_the_centre_which_promotion_came_off_and_who_bought_it() {
         vec![json!({
             "code": "LEBARAN", "rule_id": "R1", "active": true,
             "customer_id": null, "valid_from": null, "valid_to": null,
-            "max_uses": 1, "used": 0,
+            "max_uses": 1,
         })],
     )
     .await;
@@ -1203,7 +1199,7 @@ async fn a_refused_coupon_is_not_reported_as_redeemed() {
         vec![json!({
             "code": "LEBARAN", "rule_id": "R1", "active": false,
             "customer_id": null, "valid_from": null, "valid_to": null,
-            "max_uses": null, "used": 0,
+            "max_uses": null,
         })],
     )
     .await;
@@ -1240,7 +1236,7 @@ async fn a_single_use_coupon_stops_working_once_the_centre_has_counted_it() {
         vec![json!({
             "code": "LEBARAN", "rule_id": "R1", "active": true,
             "customer_id": null, "valid_from": null, "valid_to": null,
-            "max_uses": 1, "used": 0,
+            "max_uses": 1,
         })],
     )
     .await;

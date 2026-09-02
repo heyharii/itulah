@@ -11,11 +11,15 @@ use serde_json::{json, Value};
 use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use uuid::Uuid;
 
+pub mod articles;
 pub mod attendance;
 pub mod auth;
 pub mod basket;
+pub mod catalogue;
 pub mod chat;
+pub mod colours;
 pub mod customer;
+pub mod member;
 pub mod discussion;
 pub mod employment;
 pub mod documents;
@@ -23,6 +27,7 @@ pub mod files;
 pub mod finance;
 pub mod audit;
 pub mod notifications;
+pub mod performance;
 pub mod suppliers;
 
 /// Exact browser origins from config. Unset means same-origin only.
@@ -155,6 +160,32 @@ pub fn router(state: AppState) -> Router {
         // types a code or a description and gets back the product with what it
         // currently costs, which is the number a change is judged against.
         .route("/api/v1/commercial/products", get(commercial_products))
+        // What the offers did, as opposed to what they say. Read from the sale
+        // facts rather than from the usage counters, because a counter has no
+        // window and no shop: it can say a rule spent four million and never
+        // say whether that was last week or last year.
+        .route(
+            "/api/v1/commercial/performance/campaigns",
+            get(performance::campaign_performance),
+        )
+        .route(
+            "/api/v1/commercial/performance/rules",
+            get(performance::rule_performance),
+        )
+        .route(
+            "/api/v1/commercial/performance/pricelist",
+            get(performance::pricelist_performance),
+        )
+        // What every published book declares, deduplicated the way a shop
+        // resolves it: newest book wins. Promotions and Campaign used to build
+        // this in the browser by opening each published book in turn, which was
+        // eleven requests in dev and one more with every publish.
+        .route("/api/v1/commercial/rules", get(catalogue::commercial_rules))
+        .route("/api/v1/commercial/coupons", get(catalogue::commercial_coupons))
+        .route(
+            "/api/v1/commercial/campaigns",
+            get(catalogue::commercial_campaigns),
+        )
         .route(
             "/api/v1/suppliers",
             get(suppliers::list_suppliers).post(suppliers::create_supplier),
@@ -183,6 +214,21 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/catalogue/vocabulary",
             get(suppliers::catalogue_vocabulary),
         )
+        // The master product, read whole. Nothing listed `article` before
+        // this; every screen that wanted to know what the company sells was
+        // reading the supplier catalogue, which is what somebody offers us.
+        .route("/api/v1/articles", get(articles::search_articles))
+        .route(
+            "/api/v1/articles/{article_code}",
+            get(articles::article_detail).patch(articles::update_article),
+        )
+        // The colour master. Picked from, never typed into — which is why the
+        // only way a colour is created is deliberately, here.
+        .route(
+            "/api/v1/colours",
+            get(colours::list_colours).post(colours::create_colour),
+        )
+        .route("/api/v1/colours/{code}", patch(colours::update_colour))
         // The drawer. Upload goes past this process to the bucket; everything
         // else is small enough to come through it.
         .route(
@@ -256,6 +302,28 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/customer/{customer_id}/transactions/{sale_id}",
             get(customer::transaction),
+        )
+        // ── the member's own surface ────────────────────────────────────
+        //
+        // Two prefixes on purpose. `/members` (plural) is the counter: enrol a
+        // card, issue the six digits a cashier reads out. `/member` (singular)
+        // is the shopper, holding a member session and able to read only their
+        // own sales. See `http/member.rs` for why the routes above this — the
+        // `/customer/{id}/...` lookups — stay operator-only rather than being
+        // replaced.
+        .route("/api/v1/members", post(member::enrol))
+        .route(
+            "/api/v1/members/{member_id}/pairing-code",
+            post(member::issue_code),
+        )
+        .route("/api/v1/member/session", post(member::pair))
+        .route("/api/v1/member/logout", post(member::sign_out))
+        .route("/api/v1/member/me", get(member::me))
+        .route("/api/v1/member/summary", get(member::summary))
+        .route("/api/v1/member/transactions", get(member::transactions))
+        .route(
+            "/api/v1/member/transactions/{sale_id}",
+            get(member::transaction),
         )
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/me", get(auth::me))
@@ -410,6 +478,25 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/finance/bills/{id}/post", post(finance::post_bill))
         .route("/api/v1/finance/unbilled", get(finance::unbilled))
+        // What is owed and how late. Beside the bills, not in Reports: it is
+        // the list somebody works from to decide who gets paid this week.
+        .route(
+            "/api/v1/finance/payables-aging",
+            get(finance::payables_aging),
+        )
+        // Money leaving. A payment is recorded, allocated against posted bills,
+        // and only then posted — the same two-step a bill goes through, and for
+        // the same reason: keying and booking are different acts by different
+        // people.
+        .route(
+            "/api/v1/finance/payments",
+            get(finance::payments).post(finance::record_payment),
+        )
+        .route("/api/v1/finance/payments/{id}", get(finance::payment))
+        .route(
+            "/api/v1/finance/payments/{id}/post",
+            post(finance::post_payment),
+        )
         .route(
             "/api/v1/finance/assets",
             get(finance::assets).post(finance::register_asset),
@@ -584,6 +671,14 @@ pub fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::require_auth,
+        ))
+        // Outside `require_auth`, so it runs first and the member routes never
+        // reach the operator check at all. A shopper has no node account, and
+        // a surface that answered 401 until they found an operator's password
+        // would be the hole this exists to close.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            member::require_member,
         ))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .layer(cors_layer(&state.config))

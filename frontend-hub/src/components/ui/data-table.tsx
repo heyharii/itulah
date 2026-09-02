@@ -135,6 +135,14 @@ export function DataTable<TRow>({
                         : undefined
                     }
                     className={cn(
+                      // Sticky, because this component owns its own scroll
+                      // container: without it the header scrolled away with
+                      // the rows and a reader forty lines down had columns of
+                      // figures with nothing naming them. On `<th>` rather
+                      // than `<thead>` — a sticky thead does nothing in a
+                      // table, the cells are what stick — and opaque, or the
+                      // rows show through as they pass underneath.
+                      "sticky top-0 z-10 bg-canvas",
                       "border-b border-hairline px-3.5 py-[0.5625rem] text-eyebrow font-semibold whitespace-nowrap text-mute uppercase",
                       align === "right" ? "text-right" : "text-left",
                       align === "center" && "text-center"

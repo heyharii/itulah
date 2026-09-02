@@ -22,9 +22,25 @@ export function Sidebar({
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const active = moduleForPath(pathname)
+  /// How many rows this module would actually draw.
+  ///
+  /// A module that navigates itself — Commercial reaches its four surfaces by
+  /// tabs inside the page — is left with one row that repeats the module name
+  /// the workspace chip above it already carries. A panel whose whole content
+  /// is its own title is chrome, so it is not drawn at all and the screen gets
+  /// the width back.
+  const rows = active.sections.reduce(
+    (total, section) =>
+      total + section.items.filter((item) => !item.hidden).length,
+    0
+  )
   const identity = useIdentity()
   const where = useNodeIdentity()
   const signOut = useSignOut()
+
+  // Nothing to navigate: see `rows` above. The rail still carries the module,
+  // and the page carries its own tabs.
+  if (rows < 2) return null
 
   return (
     <aside
@@ -66,7 +82,9 @@ export function Sidebar({
                 {section.label}
               </div>
             )}
-            {section.items.map((item) => (
+            {section.items
+              .filter((item) => !item.hidden)
+              .map((item) => (
               <NavRow
                 key={item.path}
                 item={item}

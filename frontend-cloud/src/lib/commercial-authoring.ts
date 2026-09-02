@@ -37,9 +37,9 @@ import { parseMoneyToMinor } from "@/lib/money"
 /// reading and picking one silently is how a till and the centre come to
 /// disagree.
 ///
-/// `TIER` is deliberately absent. The engine understands it, the schema holds
-/// it, and no customer carries one — so a tier price would publish, dispatch,
-/// and never match anybody. The server refuses it for exactly that reason.
+/// There used to be a fourth, `TIER`. It is gone from the engine, the schema
+/// and both nodes — a price for a membership tier nobody carries could publish,
+/// dispatch to thirty shops, and never match a single shopper.
 export type PriceLevel = "COMPANY" | "SITE_GROUP" | "SITE"
 
 export interface OfferRuleInput {
@@ -100,7 +100,6 @@ export interface CampaignInput {
   readonly valid_to?: string | null
   readonly budget_minor?: number | null
   readonly max_uses?: number | null
-  readonly max_uses_per_customer?: number | null
 }
 
 /// The promotion document, generated from the engine that reads it.
@@ -230,9 +229,6 @@ export interface PromotionDraft {
   effect: "PERCENT" | "AMOUNT" | "FIXED_UNIT_PRICE" | "EARN_POINTS"
   percent: string
   amount: string
-  freeSku: string
-  freeQuantity: string
-  freeEveryMatched: string
   pointsMode: "SPEND_RATE" | "FIXED_POINTS" | "POINTS_PER_QUANTITY"
   pointsValue: string
   minQuantity: string
@@ -259,7 +255,6 @@ export interface CampaignDraft {
   to: string
   budget: string
   maxUses: string
-  maxUsesPerCustomer: string
 }
 
 export interface CouponDraft {
@@ -511,7 +506,6 @@ export function toRules(drafts: readonly PromotionDraft[]): RuleInput[] {
           spent: money(0),
           max_uses: count(draft.maxUses),
           used: 0,
-          max_uses_per_customer: null,
         },
         priority: Number(draft.priority) || 0,
         stacking: draft.stacking,
@@ -537,7 +531,6 @@ export function toCampaigns(drafts: readonly CampaignDraft[]): CampaignInput[] {
         valid_to: instantOf(draft.to),
         budget_minor: minorOf(draft.budget),
         max_uses: count(draft.maxUses),
-        max_uses_per_customer: count(draft.maxUsesPerCustomer),
       },
     ]
   })

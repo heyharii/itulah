@@ -6,6 +6,7 @@ import { Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
@@ -29,7 +30,13 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { AccountPicker } from "@/screens/finance/parts"
+import { useWindow } from "@/screens/finance/hooks"
+import {
+  AccountPicker,
+  LocationSelect,
+  SiteName,
+  WindowControl,
+} from "@/screens/finance/parts"
 import { parseMinor, todayIso } from "@/screens/finance/chart"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { JournalEntryRow } from "@itulah/contract"
@@ -124,19 +131,18 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
 
 export function Journal() {
   const [query, setQuery] = useState("")
-  const [from, setFrom] = useState("")
-  const [to, setTo] = useState("")
   const [composing, setComposing] = useState(false)
   const entry = useSheet("entry")
+  const range = useWindow()
   const [sorting, setSorting] = useState<SortingState>([
     { id: "posting_date", desc: true },
   ])
 
   const entries = useQuery({
-    queryKey: financeKeys.journal(from || null, to || null, null),
+    queryKey: financeKeys.journal(range.from, range.to, null),
     queryFn: ({ signal }) =>
       listJournal(
-        { from: from || undefined, to: to || undefined, limit: 200 },
+        { from: range.from, to: range.to, limit: 200 },
         signal
       ),
   })
@@ -180,24 +186,13 @@ export function Journal() {
       />
 
       <Toolbar>
-        <Input
-          type="date"
-          value={from}
-          onChange={(event) => setFrom(event.target.value)}
-          className="h-8 w-40"
-          aria-label="Posted from"
-        />
-        <span className="text-[0.71875rem] text-mute">to</span>
-        <Input
-          type="date"
-          value={to}
-          onChange={(event) => setTo(event.target.value)}
-          className="h-8 w-40"
-          aria-label="Posted to"
-        />
+        <WindowControl range={range} />
         <Toolbar.Spacer />
+        {/* The window is stated rather than implied. The cap is not: 200 is the
+            server's, and a reader who has narrowed to a fortnight should still
+            be told the list can be truncated. */}
         <span className="text-[0.71875rem] text-mute">
-          With no window the server answers the newest 200 entries.
+          {range.chip} · the newest 200 entries in it
         </span>
       </Toolbar>
 
@@ -207,9 +202,9 @@ export function Journal() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                {from || to
-                  ? "No entry was posted in that window."
-                  : "Nothing has been posted to the books yet."}
+                No entry was posted between {day(range.from)} and{" "}
+                {day(range.to)}. The window is always set now, so this does not
+                say the books are empty — widen it to tell the two apart.
               </EmptyState>
             ) : (
               <DataTable<JournalEntryRow>
@@ -346,7 +341,7 @@ function EntrySheet({
               <h4 className="mb-2 text-card-title font-semibold text-ink">
                 Lines
               </h4>
-              <MiniTable head={["Account", "Site", "Debit", "Credit"]}>
+              <MiniTable head={["Account", "Location", "Debit", "Credit"]}>
                 {lines.map((line) => (
                   <tr
                     key={line.line_number}
@@ -356,17 +351,25 @@ function EntrySheet({
                       <span className="block text-[0.8125rem] text-ink">
                         {line.account_name}
                       </span>
-                      <span className="font-mono text-[0.65625rem] text-mute">
+                      {/* No dead ends: the question a line raises is "what else
+                          is in that account", and the ledger is the answer. The
+                          same `account` key every other finance screen opens
+                          with, so the link works from either direction. */}
+                      <AppLink
+                        to="/finance/ledger"
+                        sheet={{ key: "account", value: line.account_code }}
+                        className="font-mono text-[0.65625rem] text-mute hover:text-accent hover:underline"
+                      >
                         {line.account_code}
-                      </span>
+                      </AppLink>
                       {line.memo && (
                         <span className="block text-[0.65625rem] text-mute">
                           {line.memo}
                         </span>
                       )}
                     </td>
-                    <td className="py-2 text-right font-mono text-[0.65625rem] text-body">
-                      {line.site_id}
+                    <td className="py-2 text-right text-[0.71875rem] text-body">
+                      <SiteName id={line.site_id} />
                     </td>
                     <td className="py-2 text-right tabular-nums">
                       {line.debit_minor === 0 ? (
@@ -707,13 +710,16 @@ function ComposerSheet({
                   <div className="grid grid-cols-3 gap-2">
                     <form.Field name={`lines[${index}].site_id`}>
                       {(field) => (
-                        <Field label="Site">
-                          <Input
+                        <Field label="Location">
+                          {/* "e.g. DC01" was the placeholder here and no site
+                              id in the data looks like that. A line posted to a
+                              location that does not exist is refused by the
+                              server, which is the right refusal to never have
+                              to see. */}
+                          <LocationSelect
                             value={field.state.value}
-                            onChange={(event) =>
-                              field.handleChange(event.target.value)
-                            }
-                            placeholder="e.g. DC01"
+                            onChange={(next) => field.handleChange(next)}
+                            emptyLabel="Choose a location"
                           />
                         </Field>
                       )}

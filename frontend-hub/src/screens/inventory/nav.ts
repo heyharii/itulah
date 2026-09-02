@@ -35,7 +35,7 @@ export const inventoryNav: AppModule = {
   id: "inventory",
   label: "Inventory",
   icon: Boxes,
-  mesh: { c1: "#9cefd6", c2: "#a3d6ff", c3: "#34bd9d", base: "#45c9a8" },
+  tint: { top: "#5ce3c4", bottom: "#00ad93" },
   home: "/inventory",
   sections: [
     {

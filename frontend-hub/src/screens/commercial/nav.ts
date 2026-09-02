@@ -1,47 +1,50 @@
-import {
-  Activity,
-  BadgeDollarSign,
-  FileStack,
-  Gauge,
-  Percent,
-  Store,
-  Tags,
-} from "lucide-react"
+import { Tags } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
 /// This module's place in the rail and everything under it in the sidebar.
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
+///
+/// **One sidebar row, four tabs.** The module was seven screens, then three
+/// rows, and is now one row whose four surfaces are reached by tabs inside the
+/// page. The reason is that they are four readings of one subject rather than
+/// four places: a merchandiser moves between a price, the offer coming off it
+/// and the envelope that offer is run in within a single train of thought, and
+/// a sidebar makes that a departure each time.
+///
+/// The other three paths are still declared — that is what routes them, keeps
+/// them linkable and keeps the command palette honest — but `hidden` keeps them
+/// out of the sidebar, where they would say the same thing the tabs say and
+/// fight over which highlight is current.
 export const commercialNav: AppModule = {
   id: "commercial",
   label: "Commercial",
   icon: Tags,
-  mesh: { c1: "#ffb3cd", c2: "#ffc79f", c3: "#ee6d97", base: "#f2789f" },
+  tint: { top: "#ff87a9", bottom: "#f5265b" },
   home: "/commercial",
   sections: [
     {
       items: [
-        { path: "/commercial", label: "Overview", icon: Gauge },
+        { path: "/commercial", label: "Commercial", icon: Tags },
         {
-          path: "/commercial/price-books",
-          label: "Price books",
-          icon: FileStack,
+          path: "/commercial/promotions",
+          label: "Promotions",
+          icon: Tags,
+          hidden: true,
         },
-        { path: "/commercial/prices", label: "Prices", icon: BadgeDollarSign },
         {
-          path: "/commercial/across-shops",
-          label: "Across shops",
-          icon: Store,
+          path: "/commercial/campaigns",
+          label: "Campaign",
+          icon: Tags,
+          hidden: true,
         },
-        { path: "/commercial/promotions", label: "Promotions", icon: Percent },
-      ],
-    },
-    {
-      label: "Tools",
-      items: [
-        { path: "/commercial/simulate", label: "Simulate", icon: Activity },
-        { path: "/commercial/fleet", label: "Fleet", icon: Store },
+        {
+          path: "/commercial/vouchers",
+          label: "Vouchers",
+          icon: Tags,
+          hidden: true,
+        },
       ],
     },
   ],

@@ -34,6 +34,9 @@ These are why `/commercial/prices` shows nothing today. The backend prices fine;
 2. **Cloud rejects the edge's own site id.** `backend/src/cloud/domain/ids.rs:57` accepts only `dc` or `store-NN`; `backend/src/edge/domain/inventory/ids.rs:75` accepts `dc-<anything>`. So `?site_id=dc-01` → `400 site id must be 'dc' or 'store-NN'`. Either align the two validators or make sure every origin's `site_id` satisfies the cloud rule. Do not paper over it in the UI.
 3. **Stale binary.** The `cloud` process on :8080 started before `target/debug/cloud` was rebuilt; `/api/v1/commercial/products` (route at `http/mod.rs:157`, commit 961d662) returns 404 on it. Restart the backend.
 4. **No sales in dev** (`edge_sale` = 0 rows). Performa tabs can be built but not seen; seed or run a till sale.
+5. **The committed tip does not build from a clean checkout.** `backend/src/edge/sqlite.rs:171` (already in HEAD) does `include_str!` on `migrations/sqlite/0021_retire_what_no_customer_carries.sql`, and that file is **untracked**. Any worktree, CI, or the Render autodeploy on push will fail at that line. `git add backend/migrations/sqlite/0021_retire_what_no_customer_carries.sql` must travel with the next backend commit.
+
+*Status 2026-09-02, after the build:* items 1 and 3 are handled in dev — origin `store-01-edge` (STORE, `store-01`) was registered via `POST /api/v1/sync/origins` with the `x-sync-key` from `.env`, and the process on :8080 was still the stale one (product picker degrades to an empty state naming the endpoint). Items 2, 4, 5 remain. Verification also published books **v2–v8** under actor `development` (two markdowns, a promotion plus its pause and resume, a campaign, and a `store-02`-only markdown); keep as sample data or delete.
 
 ---
 
@@ -56,20 +59,43 @@ items:  [{ article_code, article_name, image_url,
 article_count, total_article_count               → "showing N of M", never imply complete
 ```
 
+- `applies_to` is an **object**, `{ level: "COMPANY"|"SITE"|"SITE_GROUP"|…, site_id?, site_ids? }` — not a string. The first draft of this brief and the hand-written TS both had it as `string`, which rendered `[object Object]`; the TS is now correct. Do not "fix" the server to emit a string.
 - `stack` is **the engine's own ranking** (`price_stacks` → `PriceIndex::ranked`, `price.rs:256`). Render in that order. Never re-sort.
 - `rank 0` is what the till charges. Others are the losing candidates — show them, dimmed.
 - `min ≠ max` means the article is priced per size; show as a range. `in_force_for` says how many SKUs that candidate actually wins.
 - The winner is `(publication_version DESC, level rank DESC, effective_from DESC)` (`price.rs:137`). Newest book beats a shop-specific price from an older book — by design.
 - **Scheduled prices are invisible in the "now" view** because `ranked()` applies `covers(at, from, to)`. Two options; do the second: a date picker "lihat per tanggal", **or** a per-cell indicator "↑ 150.000 mulai 16 Sep". The indicator needs a second `article-prices` call with `at` = next book's `effective_from`, or a small backend addition returning `upcoming` per cell (§6.3).
 
-### 2.2 Layout
-- Rows = articles (left, sticky): image thumb, `article_code` mono `text-id`, name, `division_code` tag, `sku_count`.
-- Columns = shops from `shops[]`. The column model is data — never hard-code shops.
-- Cell = rank-0 price (`money()`), source chip (`describeSource()` from `queries/commercial.ts`), `v{publication_version}`, and a small "N more" affordance when `stack.length > 1`.
-- Cell tone: `MARKDOWN` → warn tint; a shop whose rank-0 `publication_version` is below the max across the row → "behind" mark (this is what Across shops did; keep it).
-- Row summary pill: "Same everywhere" / "Differs by shop" — **compare only when `shops.length > 0`**. `across-shops.tsx:118` computes `agreed = prices.length > 0 && …`, which paints "Differs by shop" on every row when there are zero shops. Do not carry that over.
-- Toolbar: channel `Segmented` (all three), search (article code / name, client-side over the loaded page), "Priced as at" `datetime-local` (`instantOf()`).
-- Cap: server clamps `limit` to 1..2000; default 200. Show the "N of M" banner when capped.
+### 2.2 Layout — the table grammar is `~/newton`'s
+
+*Revised 2026-09-02 by the owner, after the first build read as untidy.* The reference is `/Users/hari/newton` — `components/primitives/RecordsTable.tsx` with `app/globals.css` `.records-table`. What was lifted, and why each part matters for a matrix:
+
+| Newton | Here |
+|---|---|
+| `border-collapse: separate; border-spacing: 0`, `table-layout: fixed`, `<colgroup>` widths | same — a column keeps its width as rows scroll |
+| **`border-right` on every cell**, none on the last | same — a matrix is read *across*; without vertical rules the eye loses which shop a figure belongs to mid-row. This was the single biggest cause of "tidak rapi" |
+| Fixed row height 35px, `padding: 0 8px` | `h-[2.1875rem]`, `px-2` — every row the same height, no ragged stack |
+| `white-space: nowrap; overflow: hidden; text-overflow: ellipsis` | `truncate` on the name |
+| Header sticky, **sentence case**, 12.5px, `font-weight: 500`, muted | `text-cell font-medium text-mute` — *not* uppercase micro-caps |
+| Sticky first column + `box-shadow: 5px 0 8px -10px` | same, on header, body and footer cells |
+| Row hover tint | `group-hover/row:bg-soft` |
+| `<tfoot>` calculation row | the sub-total row — see below |
+
+**One line per cell.** The first build stacked price, source tag, version, "N more candidates" and the upcoming price in each cell — four lines of micro-text, ragged row heights, and a version number on every cell naming a thing this app has no screen for. The cell now shows **the money and nothing else**, right-aligned, `tabular-nums`. Everything else is one click away in the drill-down, and reachable without a click via the cell's `title` and an `sr-only` sentence.
+
+Two markers survive in the cell, both only when they are true:
+- **`v{n}` in warn colour** when this shop's rank-0 book is older than the newest on its row. On every cell the version was decoration; on the one cell that is behind, *which* book it is stuck on is the answer.
+- **`↑` / `↓`** when a scheduled book changes this price. The figure and the date are in the tooltip and the panel.
+
+Markdown tints the cell `bg-warn-bg`; a pending unpublished edit strikes the old figure and prints the new one in `accent`.
+
+**The sub-total row** (`<tfoot>`, sticky to the bottom of the scroll, newton's calculation row): article count in the sticky column, and per shop **"N on sale"** — how many of the styles shown that shop is currently clearing. A count, never a sum: adding prices across styles answers nothing.
+
+**Removed by the owner, 2026-09-02:**
+- The **"Across the fleet"** column (the Same-everywhere / Differs-by-shop pill). The comparison it drew is visible in the row itself now that the row is one line of figures. `agrees()` went with it.
+- The **channel picker**. `ONLINE` and `MARKETPLACE` are real in the engine but nothing trades on them, so the control offered two always-empty answers. `CHANNEL` is now a module constant; the queries still take it as an argument, so restoring a `Segmented` is one edit when a second channel starts trading.
+- The **"priced as at" date filter** and its banner. The `at` parameter remains on the endpoint and on `CellSheet`; only the control is gone.
+- The **"N shops have never put any book into service"** banner, with the `commercialFleet` query behind it. The same fact is in each cell's drill-down under "In service at", against the book that actually carries the price.
 
 ### 2.3 Drill-down (replaces the old Prices screen)
 Open a cell → `Sheet` with the full stack, then the per-SKU rows for that article at that shop from `GET /api/v1/commercial/offers?site_id=&channel=&at=` (`commercial.rs:1014`) filtered client-side by `article_code`. Row click → `GET /api/v1/commercial/offers/resolve?sku_id=&site_id=&channel=&at=` (`commercial.rs:926`) for the single-product answer; the old `prices.tsx` `PriceSheet` is the reference, including its "drifted" banner when list and resolve disagree.
@@ -116,7 +142,7 @@ Toggle (§3.4) · name · `Pill` status · scope summary (from `definition.scope
 ### 3.4 Form (new rule) — shape is the engine's `Rule` (`pricing-engine/src/rule.rs:438`)
 Fields worth a control: `name`, `campaign_id` (select from campaigns), `scope.applicability` (`on: SKU|ARTICLE|DIVISION|TAG|WHOLE_CART` + the set), `scope.customer` (`who: EVERYONE|MEMBERS|TIERS`), `conditions` (min qty / min amount / window / days / hours), `effect` (`kind` + its fields), `coupon_code`, `caps { budget_minor, max_uses, max_uses_per_customer }`, `priority`, `stacking`. Product/article picker: `GET /api/v1/commercial/products?q=&limit=` (`commercial.rs:1942`, returns `sku_id` + current price; 404 until the binary is restarted — §1.3).
 
-**The server refuses three shapes on purpose** (`commercial.rs:225` `refuse_what_the_fleet_cannot_honour`): tier-scoped prices, `Effect::Margin`, cumulative conditions. Grey them out with the reason; do not hide the error.
+**Three shapes are being removed from the engine, not merely refused.** The backend session's uncommitted edits to `backend/crates/pricing-engine` delete `Effect::Margin`, `PriceLevel::Tier`, `CustomerScope::Tiers`, `Conditions.cumulative`, `PricingContext.customer_tier` and `CartLine.manual_unit_price` — the shapes `refuse_what_the_fleet_cannot_honour` (`commercial.rs:225`) used to gate. The form therefore offers **no control for them at all**: effects are `PERCENT · AMOUNT · FIXED_UNIT_PRICE · FREE_ITEM · EARN_POINTS`; customer scope is `EVERYONE · MEMBERS`. `PriceSource` will lose `TIER_PRICE` and `MANUAL_OVERRIDE`; `describeSource()` keeps its pass-through default so a retired rung on an old sale line still renders as its raw string.
 
 Save = a book with `rules[]` (+ `coupons[]`, `campaigns[]`) → `POST /publications` → `/publish`. Same Terbitkan flow as §2.4.
 
@@ -202,6 +228,10 @@ Nothing in the pricing engine changes.
 
 Delete the files, their entries in `screens/commercial/index.ts`, and the nav items in `screens/commercial/nav.ts`. `shared.ts` (`percent()`) and `parts.tsx` stay if used.
 
+*Done 2026-09-02.* Two shared files were deliberately left alone because another session had them open, and are now stale:
+- `frontend-hub/src/lib/search.ts:254` — the "Price books" palette source still routes to the deleted `/commercial/price-books`. Either delete that source, or point it at `/commercial` and keep `sheet: { key: "book" }` only if Pricelist learns to open a book sheet from the URL.
+- `frontend-hub/src/lib/sheets.ts:155` — add `campaign: id` beside `book` and `price` (and `campaign: "campaign"` in `SHEET_SUBJECT`), then move the Campaign detail sheet in `campaigns.tsx` from `useState` to `useSheet("campaign")` as PATTERN wants.
+
 ---
 
 ## 8. Accepted limits (owner signed off; fix later or hand to a follow-up)
@@ -241,3 +271,251 @@ Each step leaves the app usable.
 | Engine | `backend/crates/pricing-engine/src/{price,rule,engine,lib}.rs` |
 | Legacy for reference only | `~/Documents/retail/web/src/features/commercial/{pricing-rules,campaigns,catalog-workbench/store-price-matrix.tsx}` |
 | Dev server | `hub-dev` in `.claude/launch.json` → :5280, API :8080, DB `inventory_tanstack` |
+
+---
+
+## 11. Backend asks — from the build, in priority order
+
+Found while building and verifying the frontend on 2026-09-02. Each is one line the backend session can act on; sizes are honest estimates.
+
+| # | Ask | Why | Size |
+|---|---|---|---|
+| 1 | `git add backend/migrations/sqlite/0021_retire_what_no_customer_carries.sql` with the next commit | HEAD's `edge/sqlite.rs:171` already `include_str!`s it; clean checkouts and Render fail (§1.5) | 1 command |
+| 2 | `#[serde(default)]` on `tax_rules` and `offer_rules` in `CreateCommercialPublicationRequest` (`cloud/application/mod.rs:461-462`) | A markdown-only or promotion-only body is refused at deserialisation with `422 missing field 'tax_rules'`. The old `price-books.tsx` composer never worked because of this; the new client sends `[]` to get past it | 2 lines |
+| 3 | `article-prices`: emit `sku_id` per SKU (`skus: [{sku_id, sku_code}]` per row, or under each cell) | Sole blocker for fixed-price editing from the grid — `CommercialOfferRuleInput` is keyed by `sku_id` (§2.4, §6.1) | small |
+| 4 | Key `command_deduplication` by `(command_type, idempotency_key)`, not `idempotency_key` alone | Create-then-publish with one key returns `409 … already used with a different command`; the client derives `${key}:publish` as a workaround (`writeAndPublish` in `queries/commercial.ts`) | small |
+| 5 | Decide the site-id rule: make `cloud/domain/ids.rs:57` accept `dc-NN` like `edge/…/ids.rs:75` does, **or** re-site the DC origin to a cloud-legal id | `?site_id=dc-01` is a 400 at the cloud; the DC can never be priced or listed (§1.2) | decision + 3 lines |
+| 6 | `PATCH /api/v1/commercial/rules/{id}/status` and `…/campaigns/{id}/status`, dispatched to the fleet | Today every pause/resume publishes a whole one-line book (v5, v6 in dev are exactly that). Already in progress per the owner. Swap point is `setRuleStatus` / `setCampaignStatus` → `writeAndPublish` in `queries/commercial.ts` | in flight |
+| 7 | Merge the performance endpoints from worktree `.claude/worktrees/agent-a9e8a34ba70ce9db3` (branch `worktree-agent-a9e8a34ba70ce9db3`) after compiling them | §5/§6.2; written, **not compiled**. Use a private `CARGO_TARGET_DIR`; look first at `serde_json::Value` decoding of `series`, `Aggregate::merge_into`, the `undeclared: fn(&str) -> Value` parameter in `stitch`, and the uncompiled `backend/tests/commercial_performance_integration.rs` | verify + merge |
+| 8 | `article_prices`: emit `upcoming` per cell (§6.3) | The client pays a second full `article-prices` call at the next book's `effective_from` to draw "↑ price from date" | small |
+| 9 | `GET /api/v1/commercial/{rules,coupons,campaigns}` across published books | Promotions and Campaign currently do N+1 over `publications/{id}` (`promotionCatalogue()`), deduped `DISTINCT ON (rule_id) ORDER BY version DESC` client-side | medium, later |
+
+Not an ask: `applies_to` on `article-prices` is an object — that is correct; the brief was wrong (§2.1).
+
+## 12. Frontend follow-ups
+
+- ~~§7's two shared files (`search.ts`, `sheets.ts`).~~ **Done 2026-09-02:** the "Price books" palette source is removed (with its now-unused import), `sheets.ts` has `campaign: id` and a `campaign` subject, and `campaigns.tsx` opens its detail from the URL via `useSheet("campaign")` — verified by deep-linking `/commercial/campaigns?campaign=lebaran-79ce`. `tsc` and `eslint` clean on all three.
+- ~~Multi-shop paths are exercised by code only.~~ **Done 2026-09-02:** `store-02-edge` (STORE, `store-02`, "Toko Kemang") registered via `POST /api/v1/sync/origins` — the master key is `SYNC_INGEST_KEY` in the **repo-root** `.env`, not `backend/.env`; book **v8** publishes a `store-02`-only markdown on `ART-CAP` (139.000). The grid then shows two columns, "Differs by shop" on three rows and "behind" on three cells, both by eye. Neither fake origin will ever activate a book, so the "never put any book into service" banner now names both — correct, and worth remembering when reading dev.
+- UI strings are English (Publish, Sale price, Fixed price), matching the rest of the hub; the brief's Indonesian words were intent, not copy. Reverse if wanted.
+- Fixed-price editing: enable the disabled option once #3 lands; the popover and `CreatePriceBookRequest.offer_rules` plumbing are in place.
+
+---
+
+## 13. Second design pass — 2026-09-02, from the owner reading the built screens
+
+### Pricelist: one article, two prices
+
+The grid was "tidak rapi" and the owner named the cause: a cell held four stacked lines, so rows were ragged and a book version appeared on every square naming a thing this app has no screen for. The fix is structural, not cosmetic.
+
+**Each article is now several rows, one per rung**, with the article name in a `rowSpan` cell and a second frozen column naming the rung:
+
+```
+Article                    │ Priced by  │ Toko Bandung │ Toko Bintaro │ … 13 shops
+───────────────────────────┼────────────┼──────────────┼──────────────┼
+Classic Cap      ART-CAP   │ Pricelist  │  Rp 259.000  │  Rp 259.000  │
+  3 SKU                    │ Markdown   │  Rp 129.000  │      —       │
+```
+
+- **Pricelist and Markdown are named, always both present.** This is the distinction the owner asked for — they were one orange-tinted cell that never said what the price had been before, which is the one number a clearance is judged by. The markdown row is drawn even when empty, so the two concepts keep the same place on every row and there is always somewhere to click to start a sale price.
+- `rungLabel()` calls `COMPANY_PRICE` **"Pricelist"** — the word the business uses and the word on the menu. A narrower base level keeps the engine's name (This shop, Shop group), because when a base price differs the level *is* the explanation.
+- **The rung the till charges is `font-medium text-ink`; every other figure in the column is muted.** That, not row order, is what preserves the engine's authority: the display groups two named concepts, it does not re-rank the cascade.
+- **No background tint.** Removed at the owner's request; the row label carries the meaning now.
+- **No "N on sale" footer.** Removed — the owner asked what it was for, which is the answer.
+- **Currency written once in a range**: `Rp 139.000–159.000`. The repeated form was being truncated to `Rp 139.000–Rp…` at thirteen columns, hiding the very number a range exists to show.
+- **Two frozen columns** (article, rung) rather than one: with a fleet of thirteen the shops scroll a long way, and a price with no rung beside it is as unreadable as one with no article.
+- **Row metrics are the hub's own** `<DataTable>` (`px-3.5 py-2.5` body, `py-[0.5625rem]` head), not newton's raw 35px. Newton is a 16px-root app; at this app's 14.4px root the same declaration renders ~10% denser, which is what "terlalu compact" was.
+- Only the **markdown** row is selectable and editable. A base price still needs `sku_id` (§11 #3), and a checkbox on a row that cannot be written to promises something the build cannot do.
+
+Everything dropped from the cell — source, book version, candidates it beat, `in_force_for`, the scheduled change — is in the drill-down, and in the cell's `title` plus an `sr-only` sentence, so none of it needs a click to reach.
+
+### Promotions and Campaign: the column names
+
+The owner asked what "Given away" meant, which is the answer. Renames, applied to both screens so they read as one app: **Given away → Spent**, **Uses → Used**, **Reached → In shops**. The **From book** column is gone — a price book is not a screen any more, so naming one told nobody anything they could act on; it stays on the detail sheet.
+
+**A Coupon column was added to Promotions.** `definition.coupon_code`, drawn as the code or "Open to all". The gate is the most consequential fact about a promotion after what it does: a rule with a code is shut until somebody types it, and without this column an always-on promotion and a coupon-only one looked identical. A coupon-gated rule that has never fired is behaving correctly; an open one that has never fired is a fault.
+
+### Campaign: the performance header
+
+`screens/commercial/performance-header.tsx` — a row of clickable figures with the chosen one drawn as a sparkline beneath, the shape of the advertising console the owner referenced. Reads `GET /api/v1/commercial/performance/campaigns` via the new `lib/queries/commercial-performance.ts` (copied from the endpoints worktree).
+
+The words are deliberately not an ad platform's. An ad platform spends cash to buy attention; a promotion spends margin to buy a basket. So **Discount given · Baskets touched · Basket value · Customers · New customers** — and no ROAS, because two of that console's six tiles cannot be honest here:
+
+- **Revenue attributed to an offer** does not exist: what the server has is the whole of every basket an offer touched (§8.1). The tile is called *Basket value* and says so in its hint rather than being called revenue.
+- **Customers and new customers do not sum across campaigns** — the same shopper served by two campaigns would be counted twice, and there is no distinct roll-up. Those two tiles report the largest single campaign, the honest lower bound, said out loud in the hint.
+
+Deltas are against the window immediately before, from the server's own `previous` block — a subtraction, never a second request. `delta()` returns `null` when the previous window was zero: nothing to something is new, not infinite per cent.
+
+The endpoint is not deployed to this node (§11 #7), so the panel currently renders one line saying so, and the list below is live either way. **Every hook runs before that early return** — a `useMemo` after it would change hook order between a loaded and a failed render.
+
+### Dev data
+
+The fleet is now **13 STORE origins** (`store-01` … `store-13`, Jakarta through Yogyakarta), registered via `POST /api/v1/sync/origins`. Two traps for anyone repeating this: the master key is `SYNC_INGEST_KEY` in the **repo-root** `.env`, and `ingest_key` must be **at least 32 characters** or the route answers 400.
+
+Books **v9–v11** give the grid something to show: two shop-specific cap clearances, two shop-specific jacket clearances, and one fleet-wide hoodie markdown that dispatched to all 13. With v2–v8 that is eleven published books; keep as sample data or clear it.
+
+### Two defects the sub-rows exposed, both fixed
+
+Splitting a cell into rungs made a class of bug visible that a single-figure cell had hidden: **comparing a rung against something that is not the same rung.** Both were mine, both were wrong on screen, both are now like-for-like.
+
+1. **The scheduled-change caret.** `later` was keyed by cell and held the *winner* of the future answer. A pricelist row was therefore marked "↓ falling to 129.000" when the pricelist was not changing at all — the future winner was a markdown, which is a different row on this grid and a different fact. The map is now keyed `article@shop|source`.
+2. **The "behind" mark.** `newestOnRow()` took the maximum publication version across the whole row, so one shop's two-shop cap clearance dragged every *other* shop's pricelist into looking stale. Eleven cells were flagged; three were real. `newestByRung()` compares a shop's pricelist against its neighbours' pricelist and its markdown against their markdowns. This is the same false positive that was called out against the old Across-shops screen and it had quietly reappeared in a new shape.
+
+Also corrected: `ArticlePriceRule.in_force_for` is declared `string` in `queries/commercial.ts` but the server sends an **integer** (`commercial.rs` `json!`). Nothing crashed — a `!== "0"` guard silently never matched, so "in force for 0" printed on rungs that win nothing. The type is now `number`, and the tooltip reads "in force for 3 of 3". This is exactly the staleness that file's own header warns about; the same check is worth running over the other hand-written shapes.
+
+### Copy that no longer matched the screen
+
+- Page sub said "what each price beat to get there" — nothing beats anything visibly now that a rung is a row. It names the pricelist/markdown pair instead.
+- Empty state said "on this channel" — there is no channel picker.
+- The upcoming-book banner said "a cell … is marked with a caret"; a caret lands on a *rung* now.
+
+---
+
+## 14. Third pass — one sidebar row, four tabs
+
+*Owner, 2026-09-02, superseding §0's "three menus".* Commercial is now **one sidebar row** whose surfaces are reached by tabs inside the page, in the order the work happens:
+
+**Pricelist → Promotions → Campaign → Vouchers**
+
+They are four readings of one subject, not four places: a merchandiser moves between a price, the offer coming off it, and the envelope that offer is budgeted in within a single train of thought, and a sidebar made each of those a departure.
+
+### How it is wired
+
+- `NavItem` gained `hidden?: boolean` in `lib/navigation.ts`, and `components/shell/sidebar.tsx` filters on it. The three non-home paths are **still declared** — that is what routes them, keeps them linkable, and keeps the command palette honest — but they are not sidebar rows, where they would say what the tabs already say and fight over which highlight is current. This is the one shared-file change; it is additive and no other module sets the flag.
+- `screens/commercial/tabs.tsx` — `<CommercialTabs current={path}>`, mounted under the `PageHeader` of all four screens. **Tabs that navigate, not tabs that switch a variable**: each surface keeps its own route, so a link to a promotion still opens on the promotion, back still means back, and a sheet parameter belongs unambiguously to one screen. The search string is dropped on a tab change on purpose — every key in it (`?price=ART-CAP@store-01`) names a record on the screen being left.
+
+### Coupons are not a tab
+
+They are a **gate on a promotion**, never a thing of their own: a rule carrying a code is shut until somebody presents that code. That is the `Coupon` column on the Promotions list and a field on its form. The Coupons sub-tab is gone, and with it `couponColumns`, `CouponLine`, the coupon `useTable` and the memo feeding it — a tab implied a coupon could exist without a promotion to unlock, and one cannot.
+
+### Vouchers are a tab, and are not pricing
+
+A voucher **carries money**. It is tender — it sits beside cash and a card at the counter and is *spent*, where the other three tabs all describe what something *costs*. `pricing-engine/src/lib.rs` says so directly. This reverses §0's "out of scope" at the owner's direction, and the tab exists to hold the distinction rather than to hide it: the system this replaces filed `percent_off` and `stored_value` in one voucher table, and the discount half of that is what this app already calls a coupon.
+
+`screens/commercial/vouchers.tsx` says plainly that nothing in the backend stores a voucher — no table, no route — rather than drawing an empty table, which would imply the feature exists and merely has no rows. **A voucher backend is not in any brief yet**; it is a decision, not an omission.
+
+### Landed alongside
+
+- **Performance endpoints merged** into the main tree on `feat/handheld-rfid` — `cloud/{postgres,http}/performance.rs`, the integration test, and the `mod`/`route` registrations. The Campaign chart lights up as soon as a rebuilt binary runs on :8080; the dev DB still needs re-migrating first (§11 #7).
+- **The N+1 fix is in flight**: `GET /api/v1/commercial/{rules,coupons,campaigns}` in a new `catalogue.rs` pair, newest published publication wins, dedup matching `pricing.rs` `load_rules`/`load_coupons`/`load_campaigns`. Until it lands, `promotionCatalogue()` still opens all eleven books one at a time and the screens say so under the table.
+
+---
+
+## 15. Fourth pass — the stack is the rows
+
+*Owner, 2026-09-02:* "orang bingung kalau ada markdown dan pricelist itu yang berlaku yang mana" — and they were right. §13's two named rows, **Pricelist** and **Markdown**, read as two prices of equal standing and left the only question that matters, *which one does the till charge*, for the reader to work out.
+
+**Rows are now the engine's own ranking.** Row 1 is rank 0 at every shop, and rank 0 is by definition what is charged; every row under it was beaten. The rank column says `1 charged`, `2 beaten`, `3 beaten`.
+
+```
+Article                 │ Priced by  │ Toko Bandung      │ Toko Bintaro
+────────────────────────┼────────────┼───────────────────┼────────────────
+Classic Cap    ART-CAP  │ 1 charged  │ SALE  Rp 129.000  │ Rp 259.000
+  3 SKU                 │ 2 beaten   │       Rp 259.000  │ v1 Rp 259.000–279.000
+                        │ 3 beaten   │ v1 Rp 259.000–279.000 │ —
+```
+
+This is strictly better than the named rows, and not only because it answers the question:
+
+- **The kind of price moved into the cell**, as a `SALE` chip. It had to: the same rank can be a markdown at one shop and the company price at the next, which a row label cannot express and a rank number does not claim to. On a fleet of thirteen, "which shops are clearing this style" is what somebody scans the row for, and now it is one glance.
+- **It is no longer a display re-order.** §13's layout listed base rungs before markdown for readability, which was a second opinion about a cascade the brief says never to re-sort. Position now *is* rank, straight from `stack[]`.
+- `depthOf()` takes the deepest stack on the row (minimum two) so ranks line up across shops; a shop whose cascade is shallower shows `—`.
+- Editing is offered on **row 1 only** — a sale price is written against the cell, not against one rank of it, and row 1 is the price somebody is looking at when they decide to cut it.
+
+### Every price is exact
+
+*Owner: "jangan pakai sampai 20000–300000, tapi buat semua harga pastinya."* The ranges were never a rendering choice — the seed priced each size differently (`SKU-01-S` 129.000, `-M` 119.000, `-L` 109.000), so `min_unit_price_minor ≠ max_unit_price_minor` and the endpoint honestly reported an interval.
+
+Fixed in the data, not in the display: book **v12 "One price per style"** publishes 18 `offer_rules`, one exact company price per style across all its SKUs, with the `STANDARD` tax rule the server requires alongside prices. Row 1 is now a single figure everywhere. Ranges survive on *beaten* rows, where they belong — that is what the superseded v1 book actually said, and flattening history would be a lie about it.
+
+Worth knowing for the next seed: a book that sets prices **must** carry at least one `tax_rule` (`commercial.rs:351`), and `offer_rules` are keyed by `sku_id`, so the codes have to be resolved from `sku` first.
+
+---
+
+## 16. Fifth pass — naming, chrome, and the two remaining tabs
+
+### "Priced by" became "Order"
+
+*Owner: "price by nya nama promotion rules nya atau campaignnya atau apa, jangan beaten2 gitu ga jelas."*
+
+The instinct was right and the data settled the shape. **A rank is not uniform across shops**: rank 1 of `ART-CAP` has five distinct sources across the fleet — a markdown from v8 at one shop, one from v2 at another, the company price from v12 at the rest. So a name cannot live in the row label, because the row label has to be true of thirteen cells at once.
+
+What was tried and reverted, in one step, because it is worth not repeating: the book name went **into** every cell as a second line. It read as noise immediately — "One price per style" printed thirteen times across a row is a name that never varies, and a name that never varies distinguishes nothing. It now leads the cell's tooltip, one hover from the cell somebody is actually asking about.
+
+So the column holds precedence, and is called **Order**: `1 in force`, then a bare `2`, `3`. "Beaten" is gone — it was accurate and unclear, which is the worst combination for a word nobody chose. Row 1 says what it is; the rows below need no adjective, because being under row 1 is the whole statement.
+
+Markdown is distinguished in the cell by a `SALE` chip, which is where the distinction has to be for the same reason the name is: it varies shop by shop within one row.
+
+### The module's sidebar is gone
+
+`Sidebar` returns `null` when the active module would draw fewer than two rows. Commercial navigates itself by tabs, so its sidebar had one entry repeating the module name that the workspace chip directly above it already carries — a panel whose whole content is its own title. This is a general rule, not a Commercial special case; no other module trips it today.
+
+### The tab strip stopped moving when clicked
+
+`.vt-page` names the content area for the view transition, and the tab strip lives inside it — so every tab click faded and slid the tabs along with the screen they switch. The one element that must look like it answered the click was animating away from the click. `.vt-tabs` gives the strip its own `view-transition-name` and holds it, exactly as the rail and sidebar are held.
+
+### The chart is on Promotions too
+
+`<PerformanceHeader of="campaigns" | "rules">` — one component, because the measurement is identical (`edge_sale_promotion` keyed by campaign or by rule) and two copies would be two chances for the arithmetic to drift. Mounted on both screens. Still reports "not on this node yet" until the merged endpoints are running on :8080.
+
+### Vouchers has a New voucher button, disabled
+
+Present and disabled with the reason in its tooltip, rather than absent: a missing button reads as unfinished, a disabled one that says why reads as a decision. The empty state now names the three pieces in order — somewhere to hold a code and a balance, a command that issues one **and books the liability**, and a tender type at the till that redeems against it. The third is why this tab sits apart: a voucher is paid *with*.
+
+### Housekeeping
+
+The finished endpoints agent left a 3.6 GB `CARGO_TARGET_DIR` in the scratchpad and the machine hit 100% disk mid-session. Deleted. **Delete a private target dir when its agent reports** — the machine has under 20 GB spare at rest.
+
+---
+
+## 17. The charts are live — and what it cost to get there
+
+### What runs now
+
+`GET /api/v1/commercial/performance/{campaigns,rules,pricelist}` all answer 200 against `inventory_tanstack`, and both charts draw. Dev data was seeded to make them show something: **48 sample sales** over twelve days across four shops, attributed to `rule-51ce5711` / campaign `lebaran-79ce`, all carrying `origin_id = 'SEED-DEMO'` so they can be found and removed with one predicate.
+
+The binary serving them is **not** the main tree's. The main tree does not compile — two breaks, both other sessions' uncommitted work in progress:
+- `backend/src/edge/pricing.rs:470` — a coupon tuple destructured as 7 where the query now returns 8.
+- `backend/src/cloud/postgres/articles.rs:687` — `ArticleDetail` is deserialised but does not derive `Deserialize`.
+
+Neither was touched. Instead the binary was built in a throwaway worktree at HEAD plus the two `performance.rs` files, the `mod`/`route` registrations, and the working tree's migrations copied in: `/tmp/perfbuild` building to `/tmp/perfbuild-target`, running on **:8096**. `.claude/launch.json`'s `hub-dev` now points `VITE_API_TARGET` there. **Both are temporary** — point it back at `:8080` and delete the worktree once the main tree compiles.
+
+Config note for anyone repeating this: the listen address is `BIND_ADDR` (`backend/src/lib.rs:12`), and `.env` sets it, so `PORT=8096` is ignored — the process silently tries to bind 8080 and dies on "address already in use".
+
+### An incident, and the bridge that is holding the dev DB together
+
+**Starting that binary migrated the dev database forward, and broke every running node including the one another session was using.** `MIGRATOR.run` applies whatever the binary embeds; this one embedded the working tree's `0080`–`0086`, of which the database had only reached `0084`. Two of those drop columns:
+
+- `0080` → `commercial_price_rule.tier`, `commercial_markdown.tier`
+- `0086` → `commercial_coupon.used`, `commercial_campaign.{used, spent_minor, max_uses_per_customer}`
+
+Every binary currently running still `SELECT`s them, so `GET /commercial/publications/{id}` began returning 500 on **:8080 as well as :8096** — the Commercial screens showed "database operation failed" under a working chart.
+
+Restored by re-adding all six columns nullable/defaulted. This is a **bridge, not a schema decision**: the migrations are correct and the code that stops reading these columns is written but not built. When it lands, the columns are simply unused, `0080` and `0086` are already recorded as applied, and nothing re-drops them. Should that code be abandoned instead, re-run the two `DROP COLUMN` statements by hand.
+
+**The lesson worth keeping:** on a branch where several sessions hold uncommitted migrations, running any binary against the shared dev database applies all of them at once. Point a throwaway binary at a throwaway database — the earlier endpoints agent did exactly that with a `pg_dump` copy, and was right to.
+
+### Disk
+
+The machine hit 100% twice; the second time the Bash tool itself could not run, because it could not create its own output file. `cargo` target directories were the whole of it — `backend/target` alone was 21 GB, and two agent scratch targets held 5 GB more. The owner cleared `~/Documents/fresh/target` and `~/Documents/retail/final-product/backend/target`. **Delete a private `CARGO_TARGET_DIR` the moment its agent reports**, and expect a full backend build to want ~20 GB.
+
+---
+
+## 20. Two defects the owner spotted, and where they came from
+
+### The table header scrolled away
+
+`components/ui/data-table.tsx` owns its own scroll container but its `<th>`s were not sticky, so forty rows down a reader had columns of figures with nothing naming them. Fixed at the source — `sticky top-0 z-10 bg-canvas` — which repairs **every list in the app**, not just Commercial. Two details worth keeping: the rule goes on `<th>` and not `<thead>` (a sticky `thead` does nothing in a table; the cells are what stick), and it must be opaque or rows show through as they pass underneath.
+
+The Pricelist grid had this from the start, which is why the inconsistency was visible: two tables side by side, one holding its header and one not.
+
+### Promotions had no detail sheet
+
+Campaign had one and Promotions did not, so its list read as the end of the road: a rule's scope was a phrase in a column and its **conditions were nowhere at all** — and "what has to be true before it fires" explains a promotion that has never fired far more often than its scope does.
+
+`PromotionSheet` now opens on row click, keyed `?rule=<rule_id>` through a new `rule` key in `lib/sheets.ts`. It reads the engine's own `definition` document — effect, scope, campaign, customer scope, coupon gate, caps against spend, the four conditions, and "In service at" with the loud empty case. Nothing in it derives a second opinion about what a rule does.
+
+*Surveyed while there:* 49 screens use `<DataTable>`; 18 have no row click. Most are correct — `inventory/overview`, `finance/reports`, `system/activity` and the like are summaries with nothing to open. `commercial/pricelist` is also correct: it is a matrix whose click target is a cell, not a row. Promotions was the one that was simply missing.
+
+### And the last book numbers
+
+`from book v7` in the campaign sheet and `v7` beside "In service at" became the book's **name**. That was the last of them; a search for `book v` across the module now finds nothing.

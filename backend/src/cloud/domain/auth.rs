@@ -111,6 +111,13 @@ pub fn required_role(method: &str, path: &str) -> Role {
     {
         return Role::Cashier;
     }
+    // Enrolling a card and issuing its pairing code both happen at a till, with
+    // the customer standing there. Without this they would fall through to
+    // Supervisor at the bottom, and a cashier could hand somebody a card they
+    // are then unable to activate.
+    if path.starts_with("/api/v1/members") {
+        return Role::Cashier;
+    }
     if path.starts_with("/api/v1/sales") {
         let supervisor_actions = ["/void", "/returns"];
         if supervisor_actions.iter().any(|s| path.ends_with(s)) {

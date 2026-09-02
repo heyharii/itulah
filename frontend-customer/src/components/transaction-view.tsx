@@ -6,9 +6,8 @@ import { ErrorState, LoadingRows } from "@/components/states"
 import { Card, CardContent, CardStrip } from "@/components/ui/card"
 import { Pill } from "@/components/ui/pill"
 import { Separator } from "@/components/ui/separator"
-import { cacheKey, customerTransaction } from "@/lib/api"
+import { cacheKey, member } from "@/lib/api"
 import { stamp } from "@/lib/dates"
-import { useMemberId } from "@/lib/member"
 import { money, units } from "@/lib/money"
 
 /// One receipt, as the member's copy of it.
@@ -24,12 +23,11 @@ import { money, units } from "@/lib/money"
 /// shown struck through so the difference reads as a discount rather than a
 /// mistake.
 export function TransactionView() {
-  const memberId = useMemberId()
   const { saleId } = useParams({ from: "/riwayat/$saleId" })
 
   const receipt = useQuery({
-    queryKey: cacheKey.transaction(memberId, saleId),
-    queryFn: ({ signal }) => customerTransaction(memberId, saleId, signal),
+    queryKey: cacheKey.transaction(saleId),
+    queryFn: ({ signal }) => member.transaction(saleId, signal),
   })
 
   if (receipt.isPending) {
