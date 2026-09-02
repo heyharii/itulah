@@ -263,6 +263,66 @@ impl Sheet {
         out
     }
 
+
+    /// The same label for a TSC printer speaking its own language.
+    ///
+    /// Not a second layout. Every coordinate, glyph height and bar width below
+    /// is the one `to_zpl` emits, because both read the same `Mark`s — which is
+    /// the whole reason the marks exist. A TSPL renderer that laid the tag out
+    /// again would agree with the ZPL one until somebody moved a field.
+    ///
+    /// TSPL puts its origin at the top-left in dots, as ZPL does, and its
+    /// scalable font `"0"` takes the character cell width and height in dots —
+    /// so `Mark::Text` carries over unchanged rather than being rescaled.
+    ///
+    /// `GAP` is the one thing here that is about the stock rather than the
+    /// design: 2 mm is the ordinary die-cut gap, and a reel with a black mark
+    /// instead needs `BLINE`. It is stated rather than defaulted because a
+    /// wrong gap does not misprint one tag, it walks the whole reel.
+    fn to_tspl(&self) -> String {
+        let mut out = String::with_capacity(384);
+        out.push_str(&format!(
+            "SIZE {:.0} mm,{:.0} mm\n",
+            self.w_dots as f64 / DOTS_PER_MM,
+            self.h_dots as f64 / DOTS_PER_MM
+        ));
+        out.push_str("GAP 2 mm,0 mm\n");
+        out.push_str("DIRECTION 1\n");
+        // UTF-8, for the same reason `^CI28` is set on the ZPL side.
+        out.push_str("CODEPAGE UTF-8\n");
+        out.push_str("CLS\n");
+
+        for mark in &self.marks {
+            match mark {
+                Mark::Text { x, y, font, text } => out.push_str(&format!(
+                    "TEXT {x},{y},\"0\",0,{font},{font},\"{}\"\n",
+                    tspl_quoted(text)
+                )),
+                // `BARCODE x,y,"128",height,human,rotation,narrow,wide,"data"`.
+                // Human readable on, rotation zero, and the same module width
+                // the ZPL emitter passes to `^BY`; TSPL takes the wide bar
+                // explicitly, so the 3:1 ratio `^BY` is given is written out.
+                Mark::Barcode {
+                    x,
+                    y,
+                    height,
+                    module,
+                    payload,
+                    ..
+                } => out.push_str(&format!(
+                    "BARCODE {x},{y},\"128\",{height},1,0,{module},{},\"{}\"\n",
+                    module * 3,
+                    tspl_quoted(payload)
+                )),
+                Mark::Rfid { hex } => out.push_str(&rfid_write_tspl(hex)),
+            }
+        }
+
+        // `PRINT <sets>,<copies per set>`.
+        out.push_str(&format!("PRINT 1,{}\n", self.copies));
+        out
+    }
+
     /// The screen's copy: the same marks, drawn as a picture of the paper.
     ///
     /// White paper and black ink in both light and dark themes, because that
@@ -513,7 +573,25 @@ fn lay_out_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -
 /// The output is a complete ZPL job: header, fields, RFID write, quantity,
 /// footer. It is safe to concatenate several of these onto one printer socket.
 pub fn render_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> String {
-    lay_out_label(data, size, brand).to_zpl()
+    render_label_in(data, size, brand, PrinterLanguage::Zpl)
+}
+
+/// The same label, in whichever language the bench's printer speaks.
+///
+/// One layout, two emitters. The preview on the screen is drawn from the same
+/// marks again, so a TSC bench sees the tag it is about to print rather than a
+/// picture of what a Zebra would have done.
+pub fn render_label_in(
+    data: &LabelData<'_>,
+    size: LabelSize,
+    brand: LabelBrand<'_>,
+    language: PrinterLanguage,
+) -> String {
+    let sheet = lay_out_label(data, size, brand);
+    match language {
+        PrinterLanguage::Zpl => sheet.to_zpl(),
+        PrinterLanguage::Tspl => sheet.to_tspl(),
+    }
 }
 
 /// The same label, drawn for a screen.
@@ -694,6 +772,62 @@ fn printable_epc(epc: &str) -> Option<String> {
     Some(trimmed.to_ascii_uppercase())
 }
 
+/// TSPL delimits strings with double quotes and has no escape for one inside
+/// them, so a quote in an article name would end the argument early and leave
+/// the rest of the name as a syntax error the printer answers with silence.
+/// Replaced rather than escaped, because a tag that prints the name with a
+/// straight quote turned into a typographic one is right, and a tag that does
+/// not print at all is not.
+fn tspl_quoted(text: &str) -> String {
+    text.replace('"', "\u{201d}")
+}
+
+/// The EPC write, in TSPL.
+///
+/// THIS IS THE ONE LINE IN THIS FILE THAT HAS NOT BEEN PUT IN FRONT OF A
+/// PRINTER. Everything else here is geometry the ZPL side has printed and had
+/// checked; the RFID command differs between TSC families and firmware
+/// revisions, and the manual for the machine in the building is the authority.
+/// It is a function of its own so that correcting it is one edit, and
+/// `scripts/label-sink.py` prints exactly what was emitted so the comparison
+/// against the manual takes a minute.
+///
+/// The form below mirrors what the ZPL side asks for: bank 1 (EPC), starting
+/// at the first block, `hex.len() / 2` bytes, written as hexadecimal.
+///
+/// The failure to watch for is not a refusal. A TSC that does not recognise
+/// this simply ignores the line and prints a perfect tag with an empty chip —
+/// which is why a printed tag is not evidence and a tag read back is.
+fn rfid_write_tspl(hex: &str) -> String {
+    format!("RFWRITE 1,0,{},\"{hex}\"\n", hex.len() / 2)
+}
+
+/// Which language to hand the printer.
+///
+/// A fact about the machine at the bench, not about the label: the same tag
+/// goes to a Printronix in ZGL and to a TSC in TSPL, and the difference is a
+/// setting rather than a design.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrinterLanguage {
+    /// The strict ZPL II subset this file was built and proven against.
+    #[default]
+    Zpl,
+    /// TSC's own language, for a machine with no ZPL emulation to switch into.
+    Tspl,
+}
+
+impl PrinterLanguage {
+    /// `PRINTER_LANGUAGE=TSPL` on the node. Anything else, including unset, is
+    /// ZPL — the language every tag in the field so far was written in, and
+    /// therefore the only safe default.
+    pub fn from_env() -> Self {
+        match std::env::var("PRINTER_LANGUAGE") {
+            Ok(value) if value.trim().eq_ignore_ascii_case("tspl") => Self::Tspl,
+            _ => Self::Zpl,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -792,6 +926,60 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn tspl_draws_the_same_tag_the_zpl_emitter_does() {
+        let data = sample();
+        let size = LabelSize::default();
+        let tspl = render_label_in(&data, size, LabelBrand("CENTRAL"), PrinterLanguage::Tspl);
+        let zpl = render_label_in(&data, size, LabelBrand("CENTRAL"), PrinterLanguage::Zpl);
+
+        // The frame the printer is told to expect.
+        assert!(tspl.starts_with("SIZE 58 mm,40 mm\n"), "{tspl}");
+        assert!(tspl.contains("CLS\n"), "{tspl}");
+        assert!(tspl.ends_with("PRINT 1,1\n"), "{tspl}");
+        assert!(!tspl.contains("^XA"), "ZPL leaked into the TSPL job: {tspl}");
+
+        // Same words, same EPC. Whatever the ZPL emitter puts on the tag, this
+        // one puts there too — that is the point of sharing the marks.
+        for word in ["CENTRAL", "SB Eric rain pants", "Navy", "L", "Rp 89.000"] {
+            assert!(tspl.contains(word), "{word} missing from {tspl}");
+            assert!(zpl.contains(word), "{word} missing from {zpl}");
+        }
+        assert!(tspl.contains("A01234567812300000000064"), "{tspl}");
+
+        // Every text mark carries over at the height the ZPL side uses, so a
+        // field that fits one printer fits the other.
+        let heights: Vec<&str> = zpl
+            .lines()
+            .filter_map(|line| line.split("^A0N,").nth(1))
+            .filter_map(|rest| rest.split(',').next())
+            .collect();
+        for height in heights {
+            assert!(
+                tspl.contains(&format!(",\"0\",0,{height},{height},")),
+                "glyph height {height} not carried into {tspl}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_quote_in_a_name_cannot_end_a_tspl_argument_early() {
+        let mut data = sample();
+        data.article_name = "The 5\" Short";
+        let tspl = render_label_in(
+            &data,
+            LabelSize::default(),
+            LabelBrand("CENTRAL"),
+            PrinterLanguage::Tspl,
+        );
+        // Exactly two quotes on the line: the ones that delimit the argument.
+        let line = tspl
+            .lines()
+            .find(|line| line.contains("Short"))
+            .unwrap_or_default();
+        assert_eq!(line.matches('"').count(), 4, "{line}");
+    }
+
     fn a_malformed_epc_is_left_off_the_tag_rather_than_half_written() {
         for bad in ["", "A0123", "not-hexadecimal-at-all-xx", &"A".repeat(25)] {
             let mut data = sample();

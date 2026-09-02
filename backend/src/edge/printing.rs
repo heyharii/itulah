@@ -26,7 +26,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::contracts::EdgeError;
-use super::zpl::{preview_label, render_label, LabelBrand, LabelData, LabelSize};
+use super::zpl::{
+    preview_label, render_label_in, LabelBrand, LabelData, LabelSize, PrinterLanguage,
+};
 
 /// The name printed on the top line of every tag.
 ///
@@ -494,7 +496,10 @@ pub fn preview_job_label(
     };
 
     Ok(LabelPreview {
-        zpl: render_label(&data, size, LabelBrand(LABEL_BRAND)),
+        // The bench is shown what its own printer will be handed, not what a
+        // Zebra would have been: a preview in the wrong language is a preview
+        // of somebody else's tag.
+        zpl: render_label_in(&data, size, LabelBrand(LABEL_BRAND), PrinterLanguage::from_env()),
         svg: preview_label(&data, size, LabelBrand(LABEL_BRAND)),
         sku_code: item.sku_code,
         article_name: item.article_name,
@@ -673,6 +678,9 @@ pub fn claim_chunk(
         width_mm: width_mm as f64,
         height_mm: height_mm as f64,
     };
+    // Read once for the chunk rather than per label: the printer at a bench
+    // does not change language between two tags of the same run.
+    let language = PrinterLanguage::from_env();
     let now = now_text();
     let mut claimed = Vec::with_capacity(rows.len());
 
@@ -689,7 +697,7 @@ pub fn claim_chunk(
             )
             .map_err(db)?;
 
-        let zpl = render_label(
+        let zpl = render_label_in(
             &LabelData {
                 sku_code: &item.sku_code,
                 article_name: &item.article_name,
@@ -702,6 +710,7 @@ pub fn claim_chunk(
             },
             size,
             LabelBrand(LABEL_BRAND),
+            language,
         );
 
         claimed.push(ClaimedLabel {
