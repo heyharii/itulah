@@ -1,81 +1,112 @@
 package id.itulah.pindai.screens
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.itulah.pindai.ui.kit.*
 import id.itulah.pindai.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
+/**
+ * The sweep, as one list.
+ *
+ * Everything scrolls in a single [LazyColumn]. An earlier version put the tag
+ * list inside a scrolling Column, which is the classic Compose trap: a lazy
+ * list nested in a scrollable parent is given unbounded height, so it composes
+ * every row at once and recycles nothing. On a rack of fifty tags that is what
+ * the floor felt as lag.
+ */
 @Composable
-fun SweepScreen(vm: SweepViewModel, state: SweepState) {
+fun SweepScreen(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Unit) {
+    val lines = state.lines
+    val foreign = state.foreignCount
+
     Column(Modifier.fillMaxSize().background(Surface.canvas)) {
-        Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState())
-                .padding(horizontal = Space.lg).padding(top = Space.lg),
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(Space.lg),
             verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
-            HeroCount(state)
-            SessionCard(vm, state)
-            ModeExtras(vm, state)
-            if (state.seen.isNotEmpty()) {
-                val lines = state.grouped()
-                val unknown = state.seen.count { it.sku == null }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    SectionLabel("${lines.size} products · ${state.seen.size} tags")
-                    state.resolveNote?.let {
-                        Text(it, style = Type.micro, color = Ink.text(.60f))
+            item(key = "hero") { HeroCount(state) }
+            item(key = "session") { SessionRow(state, onOpenSessions) }
+            item(key = "extras") { ModeExtras(vm, state) }
+
+            if (lines.isNotEmpty()) {
+                item(key = "header") {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = Space.xs),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SectionLabel("${lines.size} products · ${state.seen.size} tags")
+                        state.resolveNote?.let {
+                            Text(it, style = Type.micro, color = Ink.text(.60f))
+                        }
                     }
                 }
-                ProductList(lines, unknown)
+                itemsIndexed(lines) { index, line ->
+                    ProductRow(line, first = index == 0, last = index == lines.lastIndex)
+                }
+                if (foreign > 0) {
+                    item(key = "foreign") {
+                        Text(
+                            "$foreign tags are not ours — not counted as product",
+                            style = Type.micro, color = Ink.text(.60f),
+                        )
+                    }
+                }
             }
-            Spacer(Modifier.height(Space.sm))
         }
-        Column(
-            Modifier.fillMaxWidth().padding(Space.lg),
-            verticalArrangement = Arrangement.spacedBy(Space.sm),
-        ) {
-            QuietButton(
-                text = if (state.sweeping) "Stop reading" else "Start reading",
-                onClick = vm::toggleSweep,
-                enabled = !state.busy,
-            )
-            PrimaryButton(
-                text = state.mode.verb,
-                onClick = vm::commit,
-                enabled = state.seen.isNotEmpty() && !state.busy,
-                loading = state.busy,
-            )
-        }
+        BottomActions(vm, state)
+    }
+}
+
+/** `itemsIndexed` for a plain list, keyed by SKU so rows keep identity. */
+private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexed(
+    lines: List<Grouped>,
+    row: @Composable (Int, Grouped) -> Unit,
+) = items(lines.size, key = { lines[it].sku }) { index -> row(index, lines[index]) }
+
+@Composable
+private fun BottomActions(vm: SweepViewModel, state: SweepState) {
+    Column(
+        Modifier.fillMaxWidth().background(Surface.canvas).padding(Space.lg),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
+    ) {
+        QuietButton(
+            text = if (state.sweeping) "Stop reading" else "Start reading",
+            onClick = vm::toggleSweep,
+            enabled = !state.busy,
+        )
+        PrimaryButton(
+            text = state.mode.verb,
+            onClick = vm::commit,
+            enabled = state.seen.isNotEmpty() && !state.busy,
+            loading = state.busy,
+        )
     }
 }
 
 /**
- * The count is the L5 hero — the one number somebody reads from arm's length
- * while their other hand is holding a garment.
+ * The count is the one number read from arm's length while the other hand is
+ * holding a garment, so it is the only thing on screen at hero size.
  */
 @Composable
 private fun HeroCount(state: SweepState) {
@@ -84,20 +115,14 @@ private fun HeroCount(state: SweepState) {
             verticalAlignment = Alignment.Top) {
             Column {
                 SectionLabel("Swept")
-                AnimatedContent(
-                    targetState = state.seen.size,
-                    transitionSpec = {
-                        (fadeIn(tween(140)) + slideInHorizontally(tween(140)) { it / 4 })
-                            .togetherWith(fadeOut(tween(90)) + slideOutHorizontally(tween(90)) { -it / 4 })
-                    },
-                    label = "count",
-                ) { count ->
-                    Text("$count", style = Type.hero,
-                        color = if (state.sweeping) Success else Ink.text())
-                }
+                RollingNumber(
+                    value = state.seen.size,
+                    style = Type.hero,
+                    color = if (state.sweeping) Success else Ink.text(),
+                )
             }
             Column(horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+                verticalArrangement = Arrangement.spacedBy(Space.xs)) {
                 when {
                     state.busy -> StatusDot(Warning, "busy")
                     state.sweeping -> StatusDot(Success, "reading")
@@ -105,6 +130,9 @@ private fun HeroCount(state: SweepState) {
                     else -> StatusDot(Ink.text(.36f), "ready")
                 }
                 state.readerInfo?.let {
+                    Text(it, style = Type.micro, color = Ink.text(.60f))
+                }
+                state.filingNote?.let {
                     Text(it, style = Type.micro, color = Ink.text(.60f))
                 }
             }
@@ -118,86 +146,46 @@ private fun HeroCount(state: SweepState) {
 }
 
 /**
- * The shared session: a name several handhelds agree on, and the combined
- * count that follows from it.
+ * One line, not a card.
  *
- * The card shows the union first because that is the number the floor is
- * working towards; this device's own contribution is a detail underneath it.
+ * Working alone is the ordinary case and joining is a deliberate act, so this
+ * says where you stand and gets out of the way. The choosing happens on its own
+ * screen, where there is room to show what each session already holds.
  */
 @Composable
-private fun SessionCard(vm: SweepViewModel, state: SweepState) {
-    PlanetCard {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("Shared session")
-            if (state.sessionCode.isNotBlank()) {
-                Text(state.sessionCode, style = Type.emphasis, color = Ink.text())
-            }
-        }
-        Spacer(Modifier.height(Space.sm))
-        if (state.sessionCode.isBlank()) {
-            Text(
-                "Working alone. Open a session so other handhelds can count the same " +
-                    "rack — one tag seen by two readers is still one unit.",
-                style = Type.caption, color = Ink.text(.74f),
-            )
-            Spacer(Modifier.height(Space.sm))
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                QuietButton("Open session", onClick = vm::newSessionCode,
-                    modifier = Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(Space.sm))
-            // Held locally until submitted: joining on every keystroke would
-            // fire a lookup for "S", "S-", "S-K" and land the operator in a
-            // session named after half of what they meant to type.
-            var typed by remember { mutableStateOf("") }
-            OutlinedTextField(
-                value = typed,
-                onValueChange = { typed = it },
-                placeholder = { Text("or type a session code", style = Type.body,
-                    color = Ink.text(.36f)) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = ControlShape,
-            )
-            if (typed.isNotBlank()) {
-                Spacer(Modifier.height(Space.sm))
-                QuietButton("Join ${typed.trim().uppercase()}",
-                    onClick = { vm.setSessionCode(typed); typed = "" })
-            }
-        } else {
-            val shared = state.shared
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom) {
-                Column {
-                    Text("${shared?.tagCount ?: 0}", style = Type.hero, color = Ink.text())
-                    Text("tags in this session", style = Type.caption, color = Ink.text(.60f))
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    shared?.helpers?.forEach { helper ->
-                        Text("${helper.deviceId} · ${helper.tagCount}",
-                            style = Type.micro, color = Ink.text(.60f))
-                    }
+private fun SessionRow(state: SweepState, onOpen: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        shape = CardShape,
+        color = Surface.card,
+        border = BorderStroke(1.dp, Ink.border(.04f)),
+    ) {
+        Row(
+            Modifier.padding(horizontal = Space.lg, vertical = Space.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                if (state.sessionCode.isBlank()) {
+                    Text("Working alone", style = Type.body, color = Ink.text())
+                    Text("Join a session to count with other handhelds",
+                        style = Type.micro, color = Ink.text(.60f))
+                } else {
+                    Text(state.sessionCode, style = Type.body, color = Ink.text())
+                    Text(
+                        state.shared?.let {
+                            "${it.tagCount} tags · ${it.helpers.size} readers"
+                        } ?: "shared session",
+                        style = Type.micro, color = Ink.text(.60f),
+                    )
                 }
             }
-            state.sharedNote?.let {
-                Spacer(Modifier.height(Space.xs))
-                Text(it, style = Type.micro, color = Destructive)
-            }
-            if (shared?.truncated == true) {
-                Text("list truncated — this session is very large",
-                    style = Type.micro, color = Ink.text(.60f))
-            }
-            Spacer(Modifier.height(Space.sm))
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                QuietButton("Refresh", onClick = vm::refreshShared,
-                    modifier = Modifier.weight(1f))
-                QuietButton("Leave", onClick = { vm.setSessionCode("") },
-                    modifier = Modifier.weight(1f))
-            }
+            Icon(Icons.Outlined.ChevronRight, contentDescription = null,
+                modifier = Modifier.size(18.dp), tint = Ink.text(.36f))
         }
     }
 }
 
-/** What each mode needs beyond the sweep itself. Scan needs nothing. */
+/** What each mode needs beyond the sweep itself. Scanning needs nothing. */
 @Composable
 private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
     when (state.mode) {
@@ -211,14 +199,14 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
                 singleLine = true, modifier = Modifier.fillMaxWidth(), shape = ControlShape,
             )
             Spacer(Modifier.height(Space.sm))
-            Text("The carton target comes from what was swept, not from typing — a " +
-                "target edited to match the sweep is not a target.",
+            Text("The carton target comes from what was swept, not from typing — " +
+                "a target edited to match the sweep is not a target.",
                 style = Type.micro, color = Ink.text(.60f))
         }
         Mode.RECEIVING -> PlanetCard {
             SectionLabel("Shop receiving")
             Spacer(Modifier.height(Space.sm))
-            Text("Each tag enters as one unit in this shop\u0027s stockroom. Tags that " +
+            Text("Each tag enters as one unit in this shop's stockroom. Tags that " +
                 "are not ours are reported, never silently dropped.",
                 style = Type.caption, color = Ink.text(.74f))
         }
@@ -230,8 +218,9 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
                 !state.countsLoaded ->
                     Text("Loading…", style = Type.caption, color = Ink.text(.60f))
                 state.counts.isEmpty() -> Text(
-                    "No active count. The sweep is still filed as observation — evidence " +
-                        "that these tags were here, which holds with or without a count.",
+                    "No active count. The sweep is still filed as observation — " +
+                        "evidence that these tags were here, which holds with or " +
+                        "without a count.",
                     style = Type.caption, color = Ink.text(.74f),
                 )
                 else -> state.counts.forEach { (id, label) ->
@@ -251,104 +240,97 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
 }
 
 /**
- * The sweep as products: a picture, a name, and how many are in front of you.
+ * One product: a picture, what it is, and how many are in front of you.
  *
- * Quantity is the L3 column and the only number that repeats down the list, so
- * it carries full ink while everything supporting it steps back. A line whose
- * name has not resolved still shows its SKU and its count — the count is the
- * thing somebody is standing there to learn, and it never depends on the
- * network.
+ * The quantity rolls when it changes, because during a sweep it is the only
+ * number moving and a value that swaps in place reads as a flicker. Rows do NOT
+ * animate on entry — a recycled row would replay that animation on every
+ * scroll, which is the jitter this list used to have.
  */
 @Composable
-private fun ProductList(lines: List<Grouped>, unknownTags: Int) {
-    Surface(shape = CardShape, color = Surface.card,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Ink.border(.04f)),
-        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
-        LazyColumn {
-            items(lines.size) { index ->
-                val line = lines[index]
-                StaggeredRow(index) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Space.md),
-                    ) {
-                        Box(
-                            Modifier.size(44.dp).clip(RoundedCornerShape(8.dp))
-                                .background(Ink.fill(.06f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val url = line.identity?.imageUrl
-                            if (url != null) {
-                                RemoteThumb(url)
-                            } else {
-                                Text(line.sku.takeLast(3), style = Type.micro,
-                                    color = Ink.text(.36f))
-                            }
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                line.identity?.name ?: line.sku,
-                                style = Type.body,
-                                color = Ink.text(),
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(line.sku, style = Type.mono, color = Ink.text(.60f))
-                        }
-                        Text("${line.qty}", style = Type.anchor, color = Ink.text())
-                    }
-                    if (index < lines.lastIndex) {
-                        Box(Modifier.fillMaxWidth().padding(horizontal = Space.lg)
-                            .height(1.dp).background(Ink.border(.04f)))
-                    }
-                }
+private fun ProductRow(line: Grouped, first: Boolean, last: Boolean) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(
+                when {
+                    first && last -> CardShape
+                    first -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                    last -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+                    else -> RoundedCornerShape(0.dp)
+                },
+            )
+            .background(Surface.card),
+    ) {
+        if (!first) {
+            Box(
+                Modifier.fillMaxWidth().padding(start = Space.lg + 44.dp + Space.md)
+                    .height(1.dp).background(Ink.border(.04f)),
+            )
+        }
+        Row(
+            Modifier.padding(horizontal = Space.lg, vertical = Space.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Space.md),
+        ) {
+            Box(
+                Modifier.size(44.dp).clip(RoundedCornerShape(8.dp))
+                    .background(Ink.fill(.06f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                val url = line.identity?.imageUrl
+                if (url != null) RemoteThumb(url)
             }
-            if (unknownTags > 0) {
-                items(1) {
-                    Text(
-                        "$unknownTags tags are not ours — not counted as product",
-                        style = Type.micro, color = Ink.text(.60f),
-                        modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.md),
-                    )
-                }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    line.identity?.name ?: line.sku,
+                    style = Type.body, color = Ink.text(),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(line.sku, style = Type.mono, color = Ink.text(.60f))
             }
+            // Plain text, not a rolling number. Seventeen animated counters is
+            // seventeen running transitions on a chip that cannot draw a still
+            // list at sixty frames; the hero count is the one number anybody
+            // actually watches climb, so it is the one that gets to move.
+            Text("${line.qty}", style = Type.anchor, color = Ink.text())
         }
     }
 }
 
 /**
- * Product photographs, fetched once per URL for the life of the process.
+ * Product photographs, decoded small and kept for the life of the process.
  *
- * A rack of fifty tags is a dozen products but only a handful of pictures — a
- * colourway shares one photograph across every size. Without this cache each
- * row fetched its own copy, and because a LazyColumn recycles rows, scrolling
- * back up fetched them all again: most tiles stayed empty while the same three
- * images were downloaded over and over.
+ * A colourway shares one photograph across every size, so a rack of fifty tags
+ * is a handful of pictures. They are decoded straight down to tile size:
+ * holding a 300KB full-resolution JPEG to draw a 44dp square costs memory on a
+ * device that has little, and the downscale is what a smooth scroll is made of.
+ * A failed fetch retries — on warehouse wifi the ordinary failure is a moment
+ * out of range, not a missing file.
  */
 private object Thumbs {
+    private const val TARGET_PX = 160
     private val cache = java.util.concurrent.ConcurrentHashMap<
         String, androidx.compose.ui.graphics.ImageBitmap>()
 
     fun cached(url: String) = cache[url]
 
-    /**
-     * Fetch once on success; retry on failure.
-     *
-     * An earlier version blacklisted a URL the first time it failed, to avoid
-     * hammering a dead link. On warehouse wifi that is the wrong trade: the
-     * ordinary failure is a moment out of range, not a missing file, and one
-     * bad second left the picture blank for the rest of the shift. The success
-     * cache alone is what stops repeat downloads, and it is enough — a
-     * colourway shares one photograph across every size, so a rack of fifty
-     * tags is a handful of images.
-     */
     suspend fun load(url: String): androidx.compose.ui.graphics.ImageBitmap? {
         cache[url]?.let { return it }
         val bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                java.net.URL(url).openStream().use { stream ->
-                    android.graphics.BitmapFactory.decodeStream(stream)
-                }?.asImageBitmap()
+                val bytes = java.net.URL(url).openStream().use { it.readBytes() }
+                val bounds = android.graphics.BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                var sample = 1
+                while (bounds.outWidth / (sample * 2) >= TARGET_PX) sample *= 2
+                val options = android.graphics.BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                }
+                android.graphics.BitmapFactory
+                    .decodeByteArray(bytes, 0, bytes.size, options)
+                    ?.asImageBitmap()
             }.getOrNull()
         }
         if (bitmap != null) cache[url] = bitmap
@@ -358,46 +340,10 @@ private object Thumbs {
 
 @Composable
 private fun RemoteThumb(url: String) {
-    var bitmap by remember(url) {
-        mutableStateOf(Thumbs.cached(url))
-    }
-    LaunchedEffect(url) {
-        if (bitmap == null) bitmap = Thumbs.load(url)
-    }
+    var bitmap by remember(url) { mutableStateOf(Thumbs.cached(url)) }
+    LaunchedEffect(url) { if (bitmap == null) bitmap = Thumbs.load(url) }
     bitmap?.let {
         Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop)
-    }
-}
-
-@Composable
-private fun TagList(state: SweepState) {
-    Surface(shape = CardShape, color = Surface.card,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Ink.border(.04f)),
-        modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
-        LazyColumn {
-            items(state.seen.size) { index ->
-                val seen = state.seen[index]
-                StaggeredRow(index) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = Space.lg,
-                        vertical = Space.md)) {
-                        Row(Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(seen.sku ?: "other tag",
-                                style = Type.bodyNum,
-                                color = if (seen.sku != null) Ink.text() else Ink.text(.36f))
-                            Text(seen.rssi?.let { "${it.toInt()}" } ?: "—",
-                                style = Type.micro, color = Ink.text(.60f))
-                        }
-                        Text(seen.epc, style = Type.mono, color = Ink.text(.60f),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (index < state.seen.lastIndex) {
-                        Box(Modifier.fillMaxWidth().padding(horizontal = Space.lg)
-                            .height(1.dp).background(Ink.border(.04f)))
-                    }
-                }
-            }
-        }
     }
 }

@@ -37,6 +37,14 @@ data class Identity(
 /** One product line of a sweep: what it is, and how many of it are here. */
 data class Grouped(val sku: String, val qty: Int, val identity: Identity?)
 
+/** One session as it appears in the list of work in progress. */
+data class SessionBrief(
+    val code: String,
+    val tagCount: Int,
+    val deviceCount: Int,
+    val lastSeenAt: String?,
+)
+
 /** One reader's contribution to a shared session. */
 data class Helper(val deviceId: String, val tagCount: Int)
 
@@ -69,6 +77,8 @@ data class SweepState(
     val lastReceipt: String? = null,
     val counts: List<Pair<String, String>> = emptyList(),
     val countsLoaded: Boolean = false,
+    val lines: List<Grouped> = emptyList(),
+    val foreignCount: Int = 0,
     val identities: Map<String, Identity> = emptyMap(),
     val resolving: Boolean = false,
     val resolveNote: String? = null,
@@ -77,16 +87,19 @@ data class SweepState(
     val sessionCode: String = "",
     val shared: SharedSession? = null,
     val sharedNote: String? = null,
+    val sessions: List<SessionBrief> = emptyList(),
+    val sessionsLoaded: Boolean = false,
 )
 
 /**
  * The sweep as products rather than tags.
  *
- * This is pure local arithmetic over what is already in memory — grouping 49
- * tags into a dozen lines costs nothing and needs no network, because the SKU
- * is carried inside the EPC itself.
+ * Computed when the reader's findings are PUBLISHED, not while the screen
+ * draws. Composition must never do O(n log n) work: a continuous sweep
+ * re-reads the same tags many times a second, and grouping and sorting on
+ * every frame is what turned a fifty-tag rack into visible lag.
  */
-fun SweepState.grouped(): List<Grouped> =
+internal fun regroup(seen: List<Seen>, identities: Map<String, Identity>): List<Grouped> =
     seen.mapNotNull { it.sku }
         .groupingBy { it }
         .eachCount()
@@ -113,6 +126,7 @@ class SweepViewModel(
     /** Tags whose evidence is already on the Edge; never filed twice. */
     private val filed = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     private var autoJob: kotlinx.coroutines.Job? = null
+    private val dirty = java.util.concurrent.atomic.AtomicBoolean(false)
     private var sessionId = UUID.randomUUID().toString()
 
     /** The id every batch of this sweep is filed under — shared when joined. */
@@ -198,8 +212,10 @@ class SweepViewModel(
             val elapsed = System.currentTimeMillis() - started
             result.onSuccess { found ->
                 update {
+                    val merged = it.identities + found
                     it.copy(
-                        identities = it.identities + found,
+                        identities = merged,
+                        lines = regroup(it.seen, merged),
                         resolving = false,
                         resolveNote = "${found.size}/${wanted.size} named · ${elapsed} ms",
                     )
@@ -232,10 +248,49 @@ class SweepViewModel(
         if (cleaned.isNotBlank()) refreshShared()
     }
 
+    /**
+     * Begin a session by naming one.
+     *
+     * Nothing is reserved: the name starts existing when the first batch is
+     * filed under it. The alphabet drops O/0 and I/1 because these codes are
+     * read aloud across a floor, and "S-I0K" is an argument waiting to happen.
+     */
     fun newSessionCode() {
-        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  // no O/0, no I/1
+        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         val code = (1..6).map { alphabet.random() }.joinToString("")
         setSessionCode("S-$code")
+        loadSessions()
+    }
+
+    /** Work in progress on this node, so somebody arriving can choose. */
+    fun loadSessions() {
+        val settings = settings()
+        if (!settings.isConfigured) {
+            update { it.copy(sessionsLoaded = true) }
+            return
+        }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val json = Api(settings).get("/api/v1/rfid/sessions")
+                    val items = json.optJSONArray("items") ?: org.json.JSONArray()
+                    (0 until items.length()).map { i ->
+                        val row = items.getJSONObject(i)
+                        SessionBrief(
+                            code = row.optString("reader_session_id"),
+                            tagCount = row.optInt("tag_count"),
+                            deviceCount = row.optInt("device_count"),
+                            lastSeenAt = row.optString("last_seen_at").ifBlank { null },
+                        )
+                    }
+                }
+            }
+            result.onSuccess { list ->
+                update { it.copy(sessions = list, sessionsLoaded = true) }
+            }.onFailure {
+                update { it.copy(sessions = emptyList(), sessionsLoaded = true) }
+            }
+        }
     }
 
     /** What everyone in this session has found so far. */
@@ -303,6 +358,8 @@ class SweepViewModel(
             withContext(Dispatchers.IO) { reader.stop() }
             autoJob?.cancel()
             autoJob = null
+            dirty.set(true)
+            publish()
             update { it.copy(sweeping = false, message = "${collector.size} tags read") }
             // Anything the last tick missed goes now, so stopping is a complete
             // act rather than a promise.
@@ -333,10 +390,16 @@ class SweepViewModel(
             if (settings.isConfigured) {
                 withContext(Dispatchers.IO) { runCatching { Api(settings).warm() } }
             }
+            var tick = 0
             while (state.value.sweeping) {
-                kotlinx.coroutines.delay(2_000)
-                fileNewTags()
-                resolveIdentities()
+                kotlinx.coroutines.delay(200)
+                publish()
+                // Evidence and names travel every ten ticks — two seconds — so
+                // the radio is quiet between them.
+                if (++tick % 10 == 0) {
+                    fileNewTags()
+                    resolveIdentities()
+                }
             }
         }
     }
@@ -368,15 +431,35 @@ class SweepViewModel(
         }
     }
 
+    /**
+     * Called from the reader's own thread, many times a second.
+     *
+     * It does the least possible: keep the strongest sighting of each tag and
+     * return. Publishing to the UI is somebody else's job on a timer, because a
+     * continuous sweep re-reads the same tags constantly and pushing state on
+     * every read asks Compose to redraw hundreds of times a second for a number
+     * that changed once.
+     */
     private fun absorb(read: TagRead) {
-        val parts = Epc.decode(read.epc)
         val existing = collector[read.epc]
-        // Keep the strongest sighting: a tag read six times from three angles is
-        // still one tag, and the best signal is the honest one to report.
         if (existing == null || (read.rssi ?: -999f) > (existing.rssi ?: -999f)) {
+            val parts = Epc.decode(read.epc)
             collector[read.epc] = Seen(read.epc, read.rssi, parts?.skuCode, parts?.serial)
+            dirty.set(true)
         }
-        update { it.copy(seen = collector.values.sortedBy { s -> s.epc }) }
+    }
+
+    /** Push what the reader has found, at a pace an eye can follow. */
+    private fun publish() {
+        if (!dirty.getAndSet(false)) return
+        val seen = collector.values.sortedBy { it.epc }
+        update {
+            it.copy(
+                seen = seen,
+                lines = regroup(seen, it.identities),
+                foreignCount = seen.count { s -> s.sku == null },
+            )
+        }
     }
 
     /** File the evidence, then do whatever this mode means on top of it. */

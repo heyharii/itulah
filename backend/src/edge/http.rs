@@ -301,6 +301,7 @@ fn common_router() -> Router<EdgeState> {
         // even though it has no price book.
         .route("/api/v1/catalog/identities", get(catalog_identities))
         // A shared reading session, readable by every handheld in it.
+        .route("/api/v1/rfid/sessions", get(rfid_sessions))
         .route("/api/v1/rfid/sessions/{session_id}", get(rfid_session))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/me", get(me))
@@ -1482,6 +1483,17 @@ async fn catalog_identities(
 struct CatalogIdentityQuery {
     #[serde(default)]
     skus: String,
+}
+
+/// What is being worked on right now, so somebody arriving can choose.
+async fn rfid_sessions(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let rfid = state.rfid.clone();
+    let items = run_blocking(move || rfid.recent_sessions(50)).await?;
+    Ok(Json(json!({ "items": items })))
 }
 
 /// What one shared session has found so far, across every reader in it.

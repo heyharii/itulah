@@ -65,6 +65,40 @@ impl EdgeRfid {
             .map_err(|_| EdgeError::Persistence("edge RFID connection is poisoned".into()))
     }
 
+    /// Sessions with recent activity, newest first.
+    ///
+    /// A session is not created by anyone; it begins existing the moment a
+    /// reader files under its name. So this is a list of what is being worked
+    /// on right now, not a registry — which is exactly what someone arriving to
+    /// help needs to see before choosing whether to join at all.
+    pub fn recent_sessions(&self, limit: i64) -> Result<Vec<RfidSessionBrief>, EdgeError> {
+        let limit = limit.clamp(1, 100);
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT reader_session_id,
+                        COUNT(DISTINCT epc),
+                        COUNT(DISTINCT device_id),
+                        MAX(last_seen_at) AS last_seen
+                 FROM edge_observation_sighting
+                 GROUP BY reader_session_id
+                 ORDER BY last_seen DESC
+                 LIMIT ?1",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map(params![limit], |row| {
+                Ok(RfidSessionBrief {
+                    reader_session_id: row.get(0)?,
+                    tag_count: row.get(1)?,
+                    device_count: row.get(2)?,
+                    last_seen_at: row.get(3)?,
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)
+    }
+
     /// Read back one shared session. See [`RfidSessionSummary`].
     pub fn session(&self, reader_session_id: &str) -> Result<RfidSessionSummary, EdgeError> {
         let id = reader_session_id.trim();
@@ -416,6 +450,15 @@ pub struct RfidSessionSummary {
     /// `truncated` says when the caller is looking at part of it.
     pub epcs: Vec<String>,
     pub truncated: bool,
+}
+
+/// One session in the list, thin enough to render a page of them.
+#[derive(Clone, Debug, Serialize)]
+pub struct RfidSessionBrief {
+    pub reader_session_id: String,
+    pub tag_count: i64,
+    pub device_count: i64,
+    pub last_seen_at: Option<String>,
 }
 
 /// One reader's contribution, so the floor can see who has covered what.

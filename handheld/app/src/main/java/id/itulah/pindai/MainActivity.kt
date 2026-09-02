@@ -83,6 +83,10 @@ private fun Shell(reader: Reader, store: ConfigStore) {
     val state by vm.state.collectAsStateWithLifecycle()
     var tab by remember { mutableStateOf(Tab.SCAN) }
     var previous by remember { mutableStateOf(Tab.SCAN) }
+    // Sessions is a detour, not a destination: it opens over whatever mode you
+    // were in and hands you straight back, so the rail keeps meaning "what am I
+    // doing" rather than "where am I".
+    var showSessions by remember { mutableStateOf(false) }
 
     LaunchedEffect(tab) {
         tab.mode?.let { vm.setMode(it) }
@@ -90,13 +94,13 @@ private fun Shell(reader: Reader, store: ConfigStore) {
     }
 
     Column(Modifier.fillMaxSize().background(Surface.canvas)) {
-        Header(tab)
+        Header(if (showSessions && tab != Tab.SETTINGS) "Sessions" else tab.label)
         Box(Modifier.weight(1f)) {
             // Direction-aware: moving right in the bar moves content left, so the
             // gesture and the picture agree about which way the app just went.
             val forward = tab.ordinal >= previous.ordinal
             AnimatedContent(
-                targetState = tab,
+                targetState = tab to showSessions,
                 transitionSpec = {
                     val width = 1
                     (slideInHorizontally(tween(220)) { if (forward) it / 6 else -it / 6 } +
@@ -107,22 +111,23 @@ private fun Shell(reader: Reader, store: ConfigStore) {
                         )
                 },
                 label = "tab",
-            ) { current ->
-                when (current) {
-                    Tab.SETTINGS -> SettingsScreen(store, onSaved = {})
-                    else -> SweepScreen(vm, state)
+            ) { (current, _) ->
+                when {
+                    current == Tab.SETTINGS -> SettingsScreen(store, onSaved = {})
+                    showSessions -> SessionsScreen(vm, state) { showSessions = false }
+                    else -> SweepScreen(vm, state) { showSessions = true }
                 }
             }
         }
-        BottomBar(tab) { next -> previous = tab; tab = next }
+        BottomBar(tab) { next -> previous = tab; tab = next; showSessions = false }
     }
 }
 
 @Composable
-private fun Header(tab: Tab) {
+private fun Header(title: String) {
     Column(Modifier.fillMaxWidth().background(Surface.chrome)
         .padding(horizontal = Space.lg, vertical = Space.md)) {
-        Text(tab.label, style = Type.anchor, color = Ink.text())
+        Text(title, style = Type.anchor, color = Ink.text())
         Text("itulah · handheld", style = Type.micro, color = Ink.text(.60f))
     }
 }

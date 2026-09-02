@@ -14,7 +14,22 @@ android {
     }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
-    buildTypes { debug { isMinifyEnabled = false } }
+    buildTypes {
+        debug { isMinifyEnabled = false }
+        // Signed with the debug key on purpose: this exists to measure and to
+        // hand to the floor, not to publish. Compose in a debug build carries
+        // composition tracing and no R8 — on this hardware that is the whole
+        // difference between a list that glides and one that stutters.
+        release {
+            // R8 is off: the vendor DeviceAPI aar references classes it does not
+            // ship, and shrinking it needs keep rules that are a separate piece
+            // of work. The speed that matters here does not come from R8 anyway
+            // — it comes from the build not being debuggable, which turns off
+            // Compose's composition tracing.
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
