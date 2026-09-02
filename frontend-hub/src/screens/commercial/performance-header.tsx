@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card"
 import { Banner } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
 import {
+  type PromotionPerformance,
   campaignPerformance,
   performanceKeys,
   rulePerformance,
@@ -133,7 +134,11 @@ export function PerformanceHeader({ of }: { of: "campaigns" | "rules" }) {
       of === "campaigns"
         ? performanceKeys.campaigns(scope)
         : performanceKeys.rules(scope),
-    queryFn: ({ signal }) =>
+    // Named rather than inferred: the two branches return different row
+    // types, and their union widens to `unknown` unless the shape they share
+    // is the one declared. Both extend `PromotionPerformance`, which is
+    // everything this panel reads.
+    queryFn: ({ signal }): Promise<readonly PromotionPerformance[]> =>
       of === "campaigns"
         ? campaignPerformance(scope, signal).then((one) => one.campaigns)
         : rulePerformance(scope, signal).then((one) => one.rules),

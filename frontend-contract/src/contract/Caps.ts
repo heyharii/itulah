@@ -25,8 +25,4 @@ spent: Money,
 /**
  * How many carts it may apply to. `None` is unlimited.
  */
-max_uses: number | null, used: number, 
-/**
- * How many times one shopper may use it. `None` is unlimited.
- */
-max_uses_per_customer: number | null, };
+max_uses: number | null, used: number, };

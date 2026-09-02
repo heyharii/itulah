@@ -339,7 +339,7 @@ export function Pricelist() {
               >
                 {receipt.delivered_to.length > 0 ? (
                   <>
-                    “{receipt.name}” published and queued for{" "}
+                    “{bookNames.get(receipt.version) ?? `Book v${receipt.version}`}” published and queued for{" "}
                     {count(receipt.delivered_to.length)} shop
                     {receipt.delivered_to.length === 1 ? "" : "s"} (
                     {receipt.delivered_to.join(", ")}). Each one starts charging
@@ -351,7 +351,7 @@ export function Pricelist() {
                   // rather than a toast: published and reaching nobody looks
                   // exactly like success everywhere else on this screen.
                   <>
-                    “{receipt.name}” published, and queued for nobody. No
+                    “{bookNames.get(receipt.version) ?? `Book v${receipt.version}`}” published, and queued for nobody. No
                     shop origin is registered, so no till will ever see these
                     prices.
                   </>
@@ -415,6 +415,7 @@ export function Pricelist() {
         cell={open}
         channel={CHANNEL}
         at={null}
+        bookNames={bookNames}
         row={
           open === null
             ? null
@@ -888,12 +889,16 @@ function CellSheet({
   row,
   channel,
   at,
+  bookNames,
   onClose,
 }: {
   cell: { articleCode: string; siteId: string } | null
   row: ArticlePriceRow | null
   channel: CommercialChannel
   at: string | null
+  /// Publication version to the book's name. The sheet says which book a
+  /// price came from, and a version number is not an answer to that.
+  bookNames: ReadonlyMap<number, string>
   onClose: () => void
 }) {
   const scope: PriceScope = useMemo(

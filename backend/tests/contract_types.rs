@@ -511,4 +511,14 @@ fn the_wire_types_are_written_for_the_browser() {
     // `Minutes` in behind it.
     inventory_backend::cloud::http::attendance::PolicyScheduleView::export_all(&config)
         .unwrap_or_else(|e| panic!("PolicyScheduleView: {e}"));
+    // A shopper's own surface. The pairing code is issued at a till and read
+    // out loud, so the cashier's screen and the shopper's app are two
+    // different clients of one exchange — which is exactly the shape that goes
+    // wrong when either side describes it by hand.
+    inventory_backend::cloud::postgres::MemberIdentity::export_all(&config)
+        .unwrap_or_else(|e| panic!("MemberIdentity: {e}"));
+    inventory_backend::cloud::postgres::IssuedPairingCode::export_all(&config)
+        .unwrap_or_else(|e| panic!("IssuedPairingCode: {e}"));
+    inventory_backend::cloud::http::member::MemberSessionResponse::export_all(&config)
+        .unwrap_or_else(|e| panic!("MemberSessionResponse: {e}"));
 }

@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { ArrowLeft, Check, Search, ShoppingBasket, Store } from "lucide-react"
+import { ArrowLeft, Search, ShoppingBasket, Store } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"

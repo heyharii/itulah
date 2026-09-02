@@ -258,8 +258,6 @@ export function RuleForm({
           spent: { minor: 0 },
           max_uses: maxUses.trim() === "" ? null : Number(maxUses),
           used: 0,
-          // Never sent. The server refuses it, and it would never bite anyway.
-          max_uses_per_customer: null,
         },
         priority: Number(priority) || 0,
         stacking: "ALONE",
