@@ -144,6 +144,50 @@ service and register `dc-01` again at the generation that service is running,
 or leave the laptop as the DC. Nothing else in the fleet is touched: the cloud,
 both stores and every browser surface are untouched by all of the above.
 
+## Driving the whole flow
+
+`scripts/demo-flow.py` runs one complete pass — sourcing, purchase order,
+receiving with a blind count and a second person's verification, the invoice,
+head office naming the article, the tagging job, and the print — and times
+every stage. `RENDER_API_TOKEN` in the environment is how it reads the cloud
+admin password from Render; no secret is written into this repository.
+
+    RENDER_API_TOKEN=... python3 scripts/demo-flow.py 4
+
+Nine consecutive passes ran clean on 2026-09-02: 54 labels, 54 distinct EPCs,
+none without an RFID write. A pass takes **12-23 seconds**, and almost all of
+it is waiting on sync:
+
+| stage | typical |
+|---|---|
+| sourcing + purchase order at the cloud | 0.4s |
+| order reaches the laptop | 3-6s |
+| receipt, count, verify, invoice | 0.1s |
+| facts reach the cloud and apply | 4-12s |
+| article named, tagging job issued | 0.5s |
+| tagging job reaches the laptop | 4-8s |
+| six labels printed | 0.0s |
+
+Nothing here is compute-bound. Every number above is a multiple of the
+five-second sync interval, so the floor is `SYNC_INTERVAL_SECONDS` and the way
+to make a demo feel quicker is to lower it, not to optimise anything.
+
+## Two faults this flow found, and what they cost
+
+**Document numbers do not roll with the generation.** The rebuilt node minted
+`GRN-dc-01-000001` again, and the cloud still held that number from the retired
+ledger — so `goods_receipt_receipt_number_key` rejected it and the whole apply
+stream stopped, silently, with the receipt sitting durable but unapplied. The
+generation fence protects the fact sequence; it says nothing about the
+human-readable numbering, which lives in its own namespace. Fixed here by
+retiring the three old numbers and starting the node's counter at 100. A node
+rebuilt on a live site needs its document counters moved past whatever the
+centre already holds.
+
+**Whoever counts cannot verify.** The node refuses a verification by the person
+who did the count, which is correct and which the demo has to plan for: two
+operators, or the count and the verification carry different actor ids.
+
 ## Verified on 2026-09-02
 
 * Render cloud answers `/api/v1/health` → 200.
