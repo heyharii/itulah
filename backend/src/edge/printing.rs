@@ -71,11 +71,18 @@ pub struct OpenPrintSessionRequest {
 const fn default_printer_port() -> u16 {
     9100
 }
+/// The stock this warehouse actually runs: 50 x 30 mm.
+///
+/// Not the same number as the layout's baseline, and the difference is
+/// deliberate. `zpl.rs` expresses every coordinate against one tag it was
+/// rendered and checked against by hand — 58 x 40 mm — and scales from there,
+/// so the house stock can change without redrawing the tag. This is the stock;
+/// that is the ruler.
 const fn default_label_width() -> i64 {
-    58
+    50
 }
 const fn default_label_height() -> i64 {
-    40
+    30
 }
 
 /// Move an open run to the printer in front of whoever is now holding it.

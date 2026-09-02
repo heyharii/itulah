@@ -28,15 +28,15 @@ export interface Printer {
   readonly language: PrinterLanguage
 }
 
-/// 58 × 40 mm because that is the tag the ZPL layout was tuned against by
-/// hand, and the size the server assumes when a request leaves it out. Other
-/// sizes scale from it, so a smaller default here would quietly hand every new
-/// bench a tag nobody calibrated.
+/// 50 × 30 mm: the stock this warehouse runs, and what the node assumes when a
+/// request leaves the size out. Not the same as the layout's baseline — the ZPL
+/// was tuned by hand against 58 × 40 and every other size scales from it, so the
+/// reel can change without the tag being redrawn.
 const DEFAULT_PRINTER: Printer = {
   host: "127.0.0.1",
   port: 9100,
-  widthMm: 58,
-  heightMm: 40,
+  widthMm: 50,
+  heightMm: 30,
   chunk: 25,
   // Every tag in the field so far was written in ZPL. A bench that has not
   // chosen must not be guessed into the other one.
@@ -58,8 +58,8 @@ export const TAG_PRESETS: readonly {
   readonly heightMm: number
   readonly note?: string
 }[] = [
+  { widthMm: 50, heightMm: 30, note: "House stock" },
   { widthMm: 58, heightMm: 40, note: "Tuned by hand" },
-  { widthMm: 50, heightMm: 30 },
   { widthMm: 40, heightMm: 30 },
   { widthMm: 100, heightMm: 50, note: "Cartons" },
 ]

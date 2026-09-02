@@ -84,10 +84,13 @@ pub struct LabelSize {
 }
 
 impl Default for LabelSize {
+    /// The stock in the machine, which is not `BASELINE_*` above: those are the
+    /// ruler every coordinate is expressed against, this is what the warehouse
+    /// buys. They were the same number until the reel changed.
     fn default() -> Self {
         Self {
-            width_mm: 58.0,
-            height_mm: 40.0,
+            width_mm: 50.0,
+            height_mm: 30.0,
         }
     }
 }
