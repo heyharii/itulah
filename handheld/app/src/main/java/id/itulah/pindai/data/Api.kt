@@ -73,6 +73,17 @@ class Api(private val settings: Settings) {
 
     fun health(): JSONObject = request("/api/v1/health", "GET", null, emptyMap(), false)
 
+    /**
+     * Open the socket before anything needs it.
+     *
+     * The first request of a sweep pays for the connection; every later one
+     * rides it. Doing that while the operator is still pulling the trigger
+     * moves the cost off the path where anybody is waiting.
+     */
+    fun warm() {
+        runCatching { health() }
+    }
+
     fun login(username: String, password: String): String {
         val body = JSONObject().put("username", username).put("password", password)
         val response = request("/api/v1/auth/login", "POST", body.toString().toByteArray(),
@@ -99,6 +110,7 @@ class Api(private val settings: Settings) {
         connection.connectTimeout = 15_000
         connection.readTimeout = 40_000
         connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("Connection", "keep-alive")
         if (body != null) connection.setRequestProperty("Content-Type", "application/json")
         headers.forEach { (k, v) -> connection.setRequestProperty(k, v) }
         if (withOperator && settings.operatorToken.isNotBlank()) {
@@ -111,7 +123,10 @@ class Api(private val settings: Settings) {
         val code = connection.responseCode
         val stream = if (code in 200..299) connection.inputStream else connection.errorStream
         val text = stream?.bufferedReader()?.use(BufferedReader::readText).orEmpty()
-        connection.disconnect()
+        // Deliberately NOT disconnect(): that tears the socket down, so every
+        // call pays a fresh TCP handshake — most of a 200ms round trip on shop
+        // wifi. Draining the stream returns the connection to the keep-alive
+        // pool instead, and the second request costs a fraction of the first.
         if (code !in 200..299) {
             val reason = runCatching { JSONObject(text).optString("error") }.getOrNull()
             throw ApiError(if (reason.isNullOrBlank()) "HTTP $code" else reason)

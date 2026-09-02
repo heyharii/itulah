@@ -45,7 +45,7 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState) {
                 val lines = state.grouped()
                 val unknown = state.seen.count { it.sku == null }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    SectionLabel("${lines.size} produk · ${state.seen.size} tag")
+                    SectionLabel("${lines.size} products · ${state.seen.size} tags")
                     state.resolveNote?.let {
                         Text(it, style = Type.micro, color = Ink.text(.60f))
                     }
@@ -59,7 +59,7 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState) {
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             QuietButton(
-                text = if (state.sweeping) "Berhenti membaca" else "Mulai membaca",
+                text = if (state.sweeping) "Stop reading" else "Start reading",
                 onClick = vm::toggleSweep,
                 enabled = !state.busy,
             )
@@ -69,11 +69,6 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState) {
                 enabled = state.seen.isNotEmpty() && !state.busy,
                 loading = state.busy,
             )
-            if (state.seen.isNotEmpty()) {
-                TextButton(onClick = vm::clear, modifier = Modifier.fillMaxWidth()) {
-                    Text("Kosongkan", style = Type.body, color = Ink.text(.60f))
-                }
-            }
         }
     }
 }
@@ -88,7 +83,7 @@ private fun HeroCount(state: SweepState) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top) {
             Column {
-                SectionLabel("Terbaca")
+                SectionLabel("Swept")
                 AnimatedContent(
                     targetState = state.seen.size,
                     transitionSpec = {
@@ -104,10 +99,10 @@ private fun HeroCount(state: SweepState) {
             Column(horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 when {
-                    state.busy -> StatusDot(Warning, "sibuk")
-                    state.sweeping -> StatusDot(Success, "membaca")
-                    state.failed -> StatusDot(Destructive, "gagal")
-                    else -> StatusDot(Ink.text(.36f), "siap")
+                    state.busy -> StatusDot(Warning, "busy")
+                    state.sweeping -> StatusDot(Success, "reading")
+                    state.failed -> StatusDot(Destructive, "failed")
+                    else -> StatusDot(Ink.text(.36f), "ready")
                 }
                 state.readerInfo?.let {
                     Text(it, style = Type.micro, color = Ink.text(.60f))
@@ -134,7 +129,7 @@ private fun SessionCard(vm: SweepViewModel, state: SweepState) {
     PlanetCard {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("Sesi bersama")
+            SectionLabel("Shared session")
             if (state.sessionCode.isNotBlank()) {
                 Text(state.sessionCode, style = Type.emphasis, color = Ink.text())
             }
@@ -142,13 +137,13 @@ private fun SessionCard(vm: SweepViewModel, state: SweepState) {
         Spacer(Modifier.height(Space.sm))
         if (state.sessionCode.isBlank()) {
             Text(
-                "Sendirian. Buat sesi agar handheld lain bisa ikut menghitung " +
-                    "rak yang sama — tag yang sama terbaca dua reader tetap satu unit.",
+                "Working alone. Open a session so other handhelds can count the same " +
+                    "rack — one tag seen by two readers is still one unit.",
                 style = Type.caption, color = Ink.text(.74f),
             )
             Spacer(Modifier.height(Space.sm))
             Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                QuietButton("Buat sesi", onClick = vm::newSessionCode,
+                QuietButton("Open session", onClick = vm::newSessionCode,
                     modifier = Modifier.weight(1f))
             }
             Spacer(Modifier.height(Space.sm))
@@ -159,13 +154,13 @@ private fun SessionCard(vm: SweepViewModel, state: SweepState) {
             OutlinedTextField(
                 value = typed,
                 onValueChange = { typed = it },
-                placeholder = { Text("atau ketik kode sesi", style = Type.body,
+                placeholder = { Text("or type a session code", style = Type.body,
                     color = Ink.text(.36f)) },
                 singleLine = true, modifier = Modifier.fillMaxWidth(), shape = ControlShape,
             )
             if (typed.isNotBlank()) {
                 Spacer(Modifier.height(Space.sm))
-                QuietButton("Gabung ${typed.trim().uppercase()}",
+                QuietButton("Join ${typed.trim().uppercase()}",
                     onClick = { vm.setSessionCode(typed); typed = "" })
             }
         } else {
@@ -174,7 +169,7 @@ private fun SessionCard(vm: SweepViewModel, state: SweepState) {
                 verticalAlignment = Alignment.Bottom) {
                 Column {
                     Text("${shared?.tagCount ?: 0}", style = Type.hero, color = Ink.text())
-                    Text("tag di sesi ini", style = Type.caption, color = Ink.text(.60f))
+                    Text("tags in this session", style = Type.caption, color = Ink.text(.60f))
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     shared?.helpers?.forEach { helper ->
@@ -188,14 +183,14 @@ private fun SessionCard(vm: SweepViewModel, state: SweepState) {
                 Text(it, style = Type.micro, color = Destructive)
             }
             if (shared?.truncated == true) {
-                Text("daftar dipotong — sesi ini sudah sangat besar",
+                Text("list truncated — this session is very large",
                     style = Type.micro, color = Ink.text(.60f))
             }
             Spacer(Modifier.height(Space.sm))
             Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                QuietButton("Segarkan", onClick = vm::refreshShared,
+                QuietButton("Refresh", onClick = vm::refreshShared,
                     modifier = Modifier.weight(1f))
-                QuietButton("Keluar", onClick = { vm.setSessionCode("") },
+                QuietButton("Leave", onClick = { vm.setSessionCode("") },
                     modifier = Modifier.weight(1f))
             }
         }
@@ -208,7 +203,7 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
     when (state.mode) {
         Mode.SCAN -> Unit
         Mode.PACKING -> PlanetCard {
-            SectionLabel("Toko tujuan")
+            SectionLabel("Destination shop")
             Spacer(Modifier.height(Space.sm))
             OutlinedTextField(
                 value = state.destination, onValueChange = vm::setDestination,
@@ -216,28 +211,27 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
                 singleLine = true, modifier = Modifier.fillMaxWidth(), shape = ControlShape,
             )
             Spacer(Modifier.height(Space.sm))
-            Text("Target koli diambil dari SKU yang tersapu, bukan diketik — " +
-                "target yang disunting agar cocok bukan target.",
+            Text("The carton target comes from what was swept, not from typing — a " +
+                "target edited to match the sweep is not a target.",
                 style = Type.micro, color = Ink.text(.60f))
         }
         Mode.RECEIVING -> PlanetCard {
-            SectionLabel("Penerimaan toko")
+            SectionLabel("Shop receiving")
             Spacer(Modifier.height(Space.sm))
-            Text("Tiap tag masuk sebagai satu unit di gudang toko ini. " +
-                "Tag tanpa SKU kita dilewati dan dilaporkan.",
+            Text("Each tag enters as one unit in this shop\u0027s stockroom. Tags that " +
+                "are not ours are reported, never silently dropped.",
                 style = Type.caption, color = Ink.text(.74f))
         }
         Mode.COUNT -> PlanetCard {
             LaunchedEffect(Unit) { vm.loadCounts() }
-            SectionLabel("Official Count di node ini")
+            SectionLabel("Official counts on this node")
             Spacer(Modifier.height(Space.sm))
             when {
                 !state.countsLoaded ->
-                    Text("Memuat…", style = Type.caption, color = Ink.text(.60f))
+                    Text("Loading…", style = Type.caption, color = Ink.text(.60f))
                 state.counts.isEmpty() -> Text(
-                    "Belum ada count aktif. Sapuan tetap terkirim sebagai observasi — " +
-                        "bukti bahwa tag ini ada di sini, dan itu berlaku dengan atau " +
-                        "tanpa count.",
+                    "No active count. The sweep is still filed as observation — evidence " +
+                        "that these tags were here, which holds with or without a count.",
                     style = Type.caption, color = Ink.text(.74f),
                 )
                 else -> state.counts.forEach { (id, label) ->
@@ -248,7 +242,7 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
                     ) {
                         Text(label, style = Type.body,
                             color = if (id == state.countId) Ink.text() else Ink.text(.74f))
-                        if (id == state.countId) StatusDot(Blue, "dipilih")
+                        if (id == state.countId) StatusDot(Blue, "chosen")
                     }
                 }
             }
@@ -312,7 +306,7 @@ private fun ProductList(lines: List<Grouped>, unknownTags: Int) {
             if (unknownTags > 0) {
                 items(1) {
                     Text(
-                        "$unknownTags tag bukan milik kita — tidak dihitung sebagai produk",
+                        "$unknownTags tags are not ours — not counted as product",
                         style = Type.micro, color = Ink.text(.60f),
                         modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.md),
                     )
@@ -322,20 +316,53 @@ private fun ProductList(lines: List<Grouped>, unknownTags: Int) {
     }
 }
 
-/** A thumbnail fetched once and kept; failures simply leave the tile empty. */
-@Composable
-private fun RemoteThumb(url: String) {
-    var bitmap by remember(url) {
-        mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
-    }
-    LaunchedEffect(url) {
-        bitmap = withContext(Dispatchers.IO) {
+/**
+ * Product photographs, fetched once per URL for the life of the process.
+ *
+ * A rack of fifty tags is a dozen products but only a handful of pictures — a
+ * colourway shares one photograph across every size. Without this cache each
+ * row fetched its own copy, and because a LazyColumn recycles rows, scrolling
+ * back up fetched them all again: most tiles stayed empty while the same three
+ * images were downloaded over and over.
+ */
+private object Thumbs {
+    private val cache = java.util.concurrent.ConcurrentHashMap<
+        String, androidx.compose.ui.graphics.ImageBitmap>()
+
+    fun cached(url: String) = cache[url]
+
+    /**
+     * Fetch once on success; retry on failure.
+     *
+     * An earlier version blacklisted a URL the first time it failed, to avoid
+     * hammering a dead link. On warehouse wifi that is the wrong trade: the
+     * ordinary failure is a moment out of range, not a missing file, and one
+     * bad second left the picture blank for the rest of the shift. The success
+     * cache alone is what stops repeat downloads, and it is enough — a
+     * colourway shares one photograph across every size, so a rack of fifty
+     * tags is a handful of images.
+     */
+    suspend fun load(url: String): androidx.compose.ui.graphics.ImageBitmap? {
+        cache[url]?.let { return it }
+        val bitmap = withContext(Dispatchers.IO) {
             runCatching {
                 java.net.URL(url).openStream().use { stream ->
                     android.graphics.BitmapFactory.decodeStream(stream)
                 }?.asImageBitmap()
             }.getOrNull()
         }
+        if (bitmap != null) cache[url] = bitmap
+        return bitmap
+    }
+}
+
+@Composable
+private fun RemoteThumb(url: String) {
+    var bitmap by remember(url) {
+        mutableStateOf(Thumbs.cached(url))
+    }
+    LaunchedEffect(url) {
+        if (bitmap == null) bitmap = Thumbs.load(url)
     }
     bitmap?.let {
         Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(),
@@ -356,7 +383,7 @@ private fun TagList(state: SweepState) {
                         vertical = Space.md)) {
                         Row(Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(seen.sku ?: "tag lain",
+                            Text(seen.sku ?: "other tag",
                                 style = Type.bodyNum,
                                 color = if (seen.sku != null) Ink.text() else Ink.text(.36f))
                             Text(seen.rssi?.let { "${it.toInt()}" } ?: "—",

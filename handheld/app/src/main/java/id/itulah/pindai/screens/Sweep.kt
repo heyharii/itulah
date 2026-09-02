@@ -17,10 +17,10 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 enum class Mode(val title: String, val verb: String) {
-    SCAN("Pindai", "Kirim observasi"),
-    PACKING("Packing", "Buat koli"),
-    RECEIVING("Terima", "Terima barang"),
-    COUNT("Stock Opname", "Kirim hitungan"),
+    SCAN("Scan", "Finish sweep"),
+    PACKING("Packing", "Open carton"),
+    RECEIVING("Receive", "Receive delivery"),
+    COUNT("Stock count", "Submit entries"),
 }
 
 data class Seen(val epc: String, val rssi: Float?, val sku: String?, val serial: Long?)
@@ -72,6 +72,8 @@ data class SweepState(
     val identities: Map<String, Identity> = emptyMap(),
     val resolving: Boolean = false,
     val resolveNote: String? = null,
+    val filedCount: Int = 0,
+    val filingNote: String? = null,
     val sessionCode: String = "",
     val shared: SharedSession? = null,
     val sharedNote: String? = null,
@@ -107,6 +109,10 @@ class SweepViewModel(
 
     val state = MutableStateFlow(SweepState(sessionCode = config.load().sessionCode))
     private val collector = ConcurrentHashMap<String, Seen>()
+
+    /** Tags whose evidence is already on the Edge; never filed twice. */
+    private val filed = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+    private var autoJob: kotlinx.coroutines.Job? = null
     private var sessionId = UUID.randomUUID().toString()
 
     /** The id every batch of this sweep is filed under — shared when joined. */
@@ -195,7 +201,7 @@ class SweepViewModel(
                     it.copy(
                         identities = it.identities + found,
                         resolving = false,
-                        resolveNote = "${found.size}/${wanted.size} SKU dikenali · ${elapsed} ms",
+                        resolveNote = "${found.size}/${wanted.size} named · ${elapsed} ms",
                     )
                 }
             }.onFailure { e ->
@@ -203,7 +209,7 @@ class SweepViewModel(
                 // still sendable, it just has no names on it yet.
                 update {
                     it.copy(resolving = false,
-                        resolveNote = "nama tak tersedia di node ini (${e.message})")
+                        resolveNote = "names unavailable here (${e.message})")
                 }
             }
         }
@@ -259,15 +265,9 @@ class SweepViewModel(
             result.onSuccess { session ->
                 update { it.copy(shared = session, sharedNote = null) }
             }.onFailure { e ->
-                update { it.copy(sharedNote = e.message ?: "sesi tak terbaca") }
+                update { it.copy(sharedNote = e.message ?: "session unreadable") }
             }
         }
-    }
-
-    fun clear() {
-        collector.clear()
-        sessionId = UUID.randomUUID().toString()
-        update { it.copy(seen = emptyList(), message = null, failed = false, lastReceipt = null) }
     }
 
     fun toggleSweep() {
@@ -276,12 +276,12 @@ class SweepViewModel(
 
     private fun startSweep() {
         viewModelScope.launch {
-            update { it.copy(busy = true, message = "Menyiapkan reader…", failed = false) }
+            update { it.copy(busy = true, message = "Waking the reader…", failed = false) }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val version = reader.init(appContext!!)
                     val started = reader.start(withTid = false) { read -> absorb(read) }
-                    if (!started) error("reader menolak mulai inventory")
+                    if (!started) error("the reader refused to start inventory")
                     version
                 }
             }
@@ -289,10 +289,11 @@ class SweepViewModel(
                 update {
                     it.copy(sweeping = true, busy = false,
                         readerInfo = "fw $version · ${reader.power()} dBm",
-                        message = "Membaca…")
+                        message = "Reading…")
                 }
+                startAutoFiling()
             }.onFailure { e ->
-                update { it.copy(busy = false, failed = true, message = e.message ?: "reader gagal") }
+                update { it.copy(busy = false, failed = true, message = e.message ?: "reader unavailable") }
             }
         }
     }
@@ -300,8 +301,70 @@ class SweepViewModel(
     private fun stopSweep() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) { reader.stop() }
-            update { it.copy(sweeping = false, message = "${collector.size} tag terbaca") }
+            autoJob?.cancel()
+            autoJob = null
+            update { it.copy(sweeping = false, message = "${collector.size} tags read") }
+            // Anything the last tick missed goes now, so stopping is a complete
+            // act rather than a promise.
+            fileNewTags()
             resolveIdentities()
+        }
+    }
+
+    /**
+     * File evidence as it is found, rather than at the end.
+     *
+     * A sweep can end in ways nobody chose: a flat battery on the top step of a
+     * ladder, an app killed behind a locked screen, a walk out of wifi range.
+     * Holding an hour of counting in memory until somebody remembers a button
+     * means all of it is one accident away from never having happened. Filing
+     * as we go also means the people sharing this session see the aisle fill in
+     * while it is being walked, not twenty minutes later.
+     *
+     * Only NEW tags travel each tick, so the cost is proportional to what was
+     * just found and not to how long the sweep has run.
+     */
+    private fun startAutoFiling() {
+        autoJob?.cancel()
+        autoJob = viewModelScope.launch {
+            // Open the socket while the operator is still pulling the trigger,
+            // so the first real batch does not also pay for the handshake.
+            val settings = settings()
+            if (settings.isConfigured) {
+                withContext(Dispatchers.IO) { runCatching { Api(settings).warm() } }
+            }
+            while (state.value.sweeping) {
+                kotlinx.coroutines.delay(2_000)
+                fileNewTags()
+                resolveIdentities()
+            }
+        }
+    }
+
+    private suspend fun fileNewTags() {
+        val settings = settings()
+        if (!settings.isConfigured) return
+        val fresh = collector.values.filter { filed.add(it.epc) }
+        if (fresh.isEmpty()) return
+        val started = System.currentTimeMillis()
+        val outcome = withContext(Dispatchers.IO) {
+            runCatching {
+                Api(settings).postObservations(
+                    fresh.map { it.epc to it.rssi }, currentSessionId(),
+                )
+            }
+        }
+        val elapsed = System.currentTimeMillis() - started
+        outcome.onSuccess {
+            update {
+                it.copy(filedCount = filed.size,
+                    filingNote = "${filed.size} filed · ${elapsed} ms")
+            }
+        }.onFailure { e ->
+            // Put them back: unfiled evidence must stay unfiled, or a dropped
+            // batch becomes a tag nobody ever files.
+            fresh.forEach { filed.remove(it.epc) }
+            update { it.copy(filingNote = "not filed yet (${e.message})") }
         }
     }
 
@@ -321,26 +384,23 @@ class SweepViewModel(
         val current = state.value
         val settings = settings()
         if (!settings.isConfigured) {
-            update { it.copy(failed = true, message = "Setelan belum lengkap") }; return
+            update { it.copy(failed = true, message = "Settings are incomplete") }; return
         }
         if (current.seen.isEmpty()) {
-            update { it.copy(failed = true, message = "Belum ada tag") }; return
+            update { it.copy(failed = true, message = "Nothing swept yet") }; return
         }
         viewModelScope.launch {
-            update { it.copy(busy = true, message = "Mengirim…", failed = false) }
+            update { it.copy(busy = true, message = "Sending…", failed = false) }
             if (current.sweeping) withContext(Dispatchers.IO) { reader.stop() }
-            // Two steps, reported separately on purpose. The observation is
-            // evidence and stands on its own; if the session on top of it fails,
-            // saying "gagal" would hide a batch that is already filed and send
-            // somebody back to re-sweep a rack for nothing.
+            // Evidence is already on the Edge — it went as the sweep ran. All
+            // that is left is anything the last tick missed, and then the act
+            // this mode actually means. Keeping the two apart matters: an
+            // observation is a fact, a carton or a receipt is a decision, and a
+            // decision that fails must never make the facts look unfiled.
+            val flushed = runCatching { fileNewTags() }
             val outcome = withContext(Dispatchers.IO) {
-                val api = Api(settings)
-                val observed = runCatching {
-                    api.postObservations(current.seen.map { it.epc to it.rssi }, sessionId)
-                }
-                val sighted = observed.getOrNull()
-                    ?.optInt("consolidated_sighting_count", current.seen.size)
-                val extra = if (sighted == null) null else runCatching {
+                runCatching {
+                    val api = Api(settings)
                     when (current.mode) {
                         Mode.SCAN -> null
                         Mode.PACKING -> packing(api, current)
@@ -348,26 +408,24 @@ class SweepViewModel(
                         Mode.COUNT -> counting(api, current)
                     }
                 }
-                Triple(sighted, extra, observed.exceptionOrNull())
             }
-            val (sighted, extra, observeError) = outcome
+            val filedNow = filed.size
             when {
-                sighted == null -> update {
+                flushed.isFailure -> update {
                     it.copy(busy = false, sweeping = false, failed = true,
-                        message = observeError?.message ?: "observasi gagal")
+                        message = "some tags are not filed yet: " +
+                            (flushed.exceptionOrNull()?.message ?: "unknown"))
                 }
-                extra?.isFailure == true -> update {
+                outcome.isFailure -> update {
                     it.copy(busy = false, sweeping = false, failed = true,
-                        message = "$sighted observasi TERKIRIM · " +
-                            (extra.exceptionOrNull()?.message ?: "langkah lanjutan gagal"))
+                        message = "$filedNow observations FILED · " +
+                            (outcome.exceptionOrNull()?.message ?: "next step failed"))
                 }
                 else -> {
-                    val text = "$sighted observasi terkirim" +
-                        (extra?.getOrNull()?.let { " · $it" } ?: "")
+                    val text = "$filedNow observations filed" +
+                        (outcome.getOrNull()?.let { " · $it" } ?: "")
                     update { it.copy(busy = false, sweeping = false, failed = false,
                         message = text, lastReceipt = text) }
-                    // Everyone else in the session should see this within a
-                    // moment; the person who just swept should see it now.
                     refreshShared()
                 }
             }
@@ -376,9 +434,9 @@ class SweepViewModel(
 
     /** A carton for one shop, targeted by what the sweep actually found. */
     private fun packing(api: Api, s: SweepState): String {
-        if (s.destination.isBlank()) throw IllegalStateException("isi toko tujuan dulu")
+        if (s.destination.isBlank()) throw IllegalStateException("name the destination shop first")
         val targets = s.seen.mapNotNull { it.sku }.groupingBy { it }.eachCount()
-        if (targets.isEmpty()) throw IllegalStateException("tak ada tag ber-SKU kita di sapuan ini")
+        if (targets.isEmpty()) throw IllegalStateException("no tags of ours in this sweep")
         val payload = JSONObject().apply {
             put("destination_store_id", s.destination)
             put("target", org.json.JSONArray().apply {
@@ -387,13 +445,13 @@ class SweepViewModel(
                 }
             })
             put("actor_id", "handheld")
-            put("note", "dibuat dari sapuan handheld")
+            put("note", "opened from a handheld sweep")
         }
         val response = api.post("/api/v1/dc/packing-boxes", payload)
         // The id lives on the nested session; a box only becomes a koli when it
         // is sealed, so `koli_id` is legitimately null at this point.
         val id = response.optJSONObject("session")?.optString("session_id").orEmpty()
-        return "sesi ${id.take(8).ifBlank { "?" }} · ${targets.size} SKU"
+        return "carton ${id.take(8).ifBlank { "?" }} · ${targets.size} SKUs"
     }
 
     /** Each tag arrives at the shop as its own unit. */
@@ -418,7 +476,7 @@ class SweepViewModel(
             )
         }
         if (lines.length() == 0) {
-            throw IllegalStateException("tak ada tag ber-SKU kita di sapuan ini")
+            throw IllegalStateException("no tags of ours in this sweep")
         }
         val payload = JSONObject().apply {
             put("lines", lines)
@@ -431,13 +489,13 @@ class SweepViewModel(
         // A tag that is not ours is reported, never silently dropped: the
         // difference between "not our merchandise" and "the server said no"
         // is the difference between a shrug and an investigation.
-        return "${lines.length()} diterima" +
-            if (foreign > 0) ", $foreign bukan milik kita" else ""
+        return "${lines.length()} received" +
+            if (foreign > 0) ", $foreign not ours" else ""
     }
 
     /** Entries against an Official Count the centre already opened. */
     private fun counting(api: Api, s: SweepState): String {
-        if (s.countId.isBlank()) throw IllegalStateException("pilih count dulu")
+        if (s.countId.isBlank()) throw IllegalStateException("choose a count first")
         val entries = org.json.JSONArray()
         s.seen.forEach { seen ->
             entries.put(JSONObject().put("epc", seen.epc).put("found_quantity", 1))
@@ -448,7 +506,7 @@ class SweepViewModel(
             put("idempotency_key", "hh-count-" + sessionId.take(12))
         }
         api.post("/api/v1/dc/official-counts/${s.countId}/entries", payload)
-        return "${s.seen.size} entri hitungan"
+        return "${s.seen.size} count entries"
     }
 
     fun releaseReader() {

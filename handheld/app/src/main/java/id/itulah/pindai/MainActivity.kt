@@ -66,11 +66,11 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Tab(val label: String, val icon: ImageVector, val mode: Mode?) {
-    SCAN("Pindai", Icons.Outlined.QrCodeScanner, Mode.SCAN),
+    SCAN("Scan", Icons.Outlined.QrCodeScanner, Mode.SCAN),
     PACKING("Packing", Icons.Outlined.Inventory2, Mode.PACKING),
-    RECEIVING("Terima", Icons.Outlined.MoveToInbox, Mode.RECEIVING),
-    COUNT("Opname", Icons.Outlined.Checklist, Mode.COUNT),
-    SETTINGS("Setelan", Icons.Outlined.Settings, null),
+    RECEIVING("Receive", Icons.Outlined.MoveToInbox, Mode.RECEIVING),
+    COUNT("Count", Icons.Outlined.Checklist, Mode.COUNT),
+    SETTINGS("Settings", Icons.Outlined.Settings, null),
 }
 
 @Composable

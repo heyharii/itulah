@@ -34,37 +34,37 @@ fun SettingsScreen(store: ConfigStore, onSaved: () -> Unit) {
         PlanetCard {
             SectionLabel("Node")
             Spacer(Modifier.height(Space.sm))
-            Field("URL Edge", settings.baseUrl) { settings = settings.copy(baseUrl = it) }
+            Field("Edge URL", settings.baseUrl) { settings = settings.copy(baseUrl = it) }
             Field("Site ID", settings.siteId) { settings = settings.copy(siteId = it) }
             Field("Pool", settings.pool) { settings = settings.copy(pool = it) }
             Spacer(Modifier.height(Space.sm))
-            Text("Satu build melayani DC dan toko; mana yang dipakai adalah fakta " +
-                "penempatan, bukan fakta kode.",
+            Text("One build serves a DC and a shop; which one a handheld belongs to is a " +
+                "deployment fact, not a code fact.",
                 style = Type.micro, color = Ink.text(.60f))
         }
 
         PlanetCard {
-            SectionLabel("Identitas perangkat")
+            SectionLabel("Device identity")
             Spacer(Modifier.height(Space.sm))
             Field("Device ID", settings.deviceId) { settings = settings.copy(deviceId = it) }
             Field("Device key", settings.deviceKey, secret = true) {
                 settings = settings.copy(deviceKey = it)
             }
             Spacer(Modifier.height(Space.sm))
-            Text("Kunci ini menandatangani tiap batch observasi. Ia membuktikan " +
-                "READER mana yang membaca — bukan siapa yang memegangnya.",
+            Text("This key signs every batch of evidence. It proves WHICH READER read — " +
+                "never who was holding it.",
                 style = Type.micro, color = Ink.text(.60f))
         }
 
         PlanetCard {
-            SectionLabel("Operator (opsional)")
+            SectionLabel("Operator (optional)")
             Spacer(Modifier.height(Space.sm))
             Field("Bearer token", settings.operatorToken, secret = true) {
                 settings = settings.copy(operatorToken = it)
             }
             Spacer(Modifier.height(Space.sm))
-            Text("Untuk atribusi audit dan untuk packing/terima/opname yang " +
-                "memang butuh sesi manusia.",
+            Text("For audit attribution, and for packing, receiving and counting, which " +
+                "do need a human session.",
                 style = Type.micro, color = Ink.text(.60f))
         }
 
@@ -72,7 +72,7 @@ fun SettingsScreen(store: ConfigStore, onSaved: () -> Unit) {
             Text(it, style = Type.caption, color = if (failed) Destructive else Success)
         }
 
-        QuietButton("Tes koneksi", enabled = !busy, onClick = {
+        QuietButton("Test connection", enabled = !busy, onClick = {
             busy = true; status = null
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
@@ -80,16 +80,16 @@ fun SettingsScreen(store: ConfigStore, onSaved: () -> Unit) {
                 }
                 result.onSuccess { json ->
                     failed = false
-                    status = "terhubung · " + json.optString("node_role", "?") +
+                    status = "connected · " + json.optString("node_role", "?") +
                         " · " + json.optString("database", "?")
-                }.onFailure { failed = true; status = it.message ?: "gagal" }
+                }.onFailure { failed = true; status = it.message ?: "failed" }
                 busy = false
             }
         })
 
-        PrimaryButton("Simpan", enabled = !busy, onClick = {
+        PrimaryButton("Save", enabled = !busy, onClick = {
             store.save(settings); settings = store.load()
-            failed = false; status = "tersimpan"; onSaved()
+            failed = false; status = "saved"; onSaved()
         })
     }
 }
