@@ -161,7 +161,15 @@ function Preview({ jobId }: { jobId: string }) {
   const lines = (jobs.data ?? []).find((row) => row.job_id === jobId)?.lines ?? []
 
   const preview = useQuery({
-    queryKey: keys.labelPreview(jobId, printer.widthMm, printer.heightMm, sku),
+    // The language is part of the key: switching it must redraw the machine's
+    // copy, not serve the other printer's from cache.
+    queryKey: keys.labelPreview(
+      jobId,
+      printer.widthMm,
+      printer.heightMm,
+      sku,
+      printer.language
+    ),
     queryFn: ({ signal }) =>
       dc.previewJobLabel(
         jobId,
@@ -169,6 +177,7 @@ function Preview({ jobId }: { jobId: string }) {
           label_width_mm: printer.widthMm,
           label_height_mm: printer.heightMm,
           sku_code: sku ?? null,
+          language: printer.language,
         },
         signal
       ),
@@ -183,7 +192,9 @@ function Preview({ jobId }: { jobId: string }) {
           onChange={setShowing}
           options={[
             { value: "tag", label: "Tag" },
-            { value: "zpl", label: "ZPL" },
+            // Named for what is actually in the panel. A tab that says ZPL
+            // over a TSPL job teaches the bench to trust the wrong word.
+            { value: "zpl", label: printer.language },
           ]}
         />
       </CardHeader>
@@ -299,6 +310,7 @@ function Run({ jobId }: { jobId: string }) {
         label_width_mm: printer.widthMm,
         label_height_mm: printer.heightMm,
         chunk_size: printer.chunk,
+        language: printer.language,
         actor_id: actor,
       }),
     onSuccess: (opened) => {
@@ -325,6 +337,7 @@ function Run({ jobId }: { jobId: string }) {
         chunk_size: printer.chunk,
         label_width_mm: printer.widthMm,
         label_height_mm: printer.heightMm,
+        language: printer.language,
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.jobRun(jobId) })
@@ -678,6 +691,19 @@ function PrinterCard() {
             onChange={(event) =>
               savePrinter({ ...printer, host: event.target.value })
             }
+          />
+        </Field>
+        {/* Not a preference. A machine that is handed the wrong language
+            prints nothing at all — which on a bay is indistinguishable from a
+            printer that is switched off, and is discovered by walking to it. */}
+        <Field label="Language">
+          <Segmented
+            value={printer.language}
+            onChange={(language) => savePrinter({ ...printer, language })}
+            options={[
+              { value: "ZPL", label: "ZPL" },
+              { value: "TSPL", label: "TSPL" },
+            ]}
           />
         </Field>
         <div className="flex gap-3">

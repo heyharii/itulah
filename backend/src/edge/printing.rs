@@ -59,6 +59,11 @@ pub struct OpenPrintSessionRequest {
     #[serde(default = "default_label_height")]
     pub label_height_mm: i64,
     pub chunk_size: Option<i64>,
+    /// Which language the machine at this bench speaks. Absent means the
+    /// node's own default, which is ZPL unless the node says otherwise: a
+    /// bench that has not chosen must not be guessed into TSPL.
+    #[serde(default)]
+    pub language: Option<PrinterLanguage>,
     #[serde(default)]
     pub actor_id: String,
 }
@@ -96,6 +101,14 @@ pub struct RepointPrinterRequest {
     /// printer is not a reason to redraw the label.
     pub label_width_mm: Option<i64>,
     pub label_height_mm: Option<i64>,
+    /// The language of the machine now holding the run. Carried for the same
+    /// reason the tag size is: a run walked to another bench may be walked to
+    /// a different make of printer, and a run that cannot say so keeps sending
+    /// ZPL to something that only reads TSPL — which prints nothing and looks
+    /// exactly like a printer that is switched off.
+    ///
+    /// Left out, the run keeps the language it was opened with.
+    pub language: Option<PrinterLanguage>,
 }
 
 /// Which labels to put back in the queue.
@@ -130,6 +143,12 @@ pub struct LabelPreviewRequest {
     /// so does the one line a rail is shopped by. Left out, the first line is
     /// drawn, which is also the first label the run will produce.
     pub sku_code: Option<String>,
+    /// The language to draw the machine's copy in. Left out, the run's own is
+    /// used, and for a job nobody has queued yet the node's default — so the
+    /// panel shows what this bench would actually send rather than what some
+    /// other bench would.
+    #[serde(default)]
+    pub language: Option<PrinterLanguage>,
 }
 
 /// One label, drawn both ways.
@@ -380,12 +399,16 @@ pub fn open_session(
                  (session_id,job_id,printer_host,printer_port,lang,
                   label_width_mm,label_height_mm,chunk_size,total_items,
                   status,created_by,created_at,updated_at)
-             VALUES(?1,?2,?3,?4,'ZPL',?5,?6,?7,?8,'OPEN',?9,?10,?10)",
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'OPEN',?10,?11,?11)",
             params![
                 session_id,
                 &request.job_id,
                 request.printer_host,
                 i64::from(request.printer_port),
+                request
+                    .language
+                    .unwrap_or_else(PrinterLanguage::from_env)
+                    .as_str(),
                 request.label_width_mm,
                 request.label_height_mm,
                 chunk_size,
@@ -448,12 +471,12 @@ pub fn preview_job_label(
     job_id: &str,
     request: &LabelPreviewRequest,
 ) -> Result<LabelPreview, EdgeError> {
-    let run: Option<(String, i64, i64)> = connection
+    let run: Option<(String, i64, i64, String)> = connection
         .query_row(
-            "SELECT session_id,label_width_mm,label_height_mm
+            "SELECT session_id,label_width_mm,label_height_mm,lang
                FROM print_session WHERE job_id = ?1",
             params![job_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(db)?;
@@ -463,8 +486,15 @@ pub fn preview_job_label(
     // different reel before committing a bench to it.
     let (fallback_width, fallback_height) = run
         .as_ref()
-        .map(|(_, width, height)| (*width, *height))
+        .map(|(_, width, height, _)| (*width, *height))
         .unwrap_or_else(|| (default_label_width(), default_label_height()));
+    // What the bench asked for; failing that what the run is already sending;
+    // failing that the node's default.
+    let language = request.language.unwrap_or_else(|| {
+        run.as_ref()
+            .map(|(_, _, _, lang)| PrinterLanguage::parse(lang))
+            .unwrap_or_else(PrinterLanguage::from_env)
+    });
     let width_mm = request.label_width_mm.unwrap_or(fallback_width);
     let height_mm = request.label_height_mm.unwrap_or(fallback_height);
     validate_label_size(width_mm, height_mm)?;
@@ -476,7 +506,7 @@ pub fn preview_job_label(
         .filter(|value| !value.is_empty());
 
     let (item, source) = match run.as_ref() {
-        Some((session_id, _, _)) => (queued_label(connection, session_id, sku_code)?, "SESSION"),
+        Some((session_id, _, _, _)) => (queued_label(connection, session_id, sku_code)?, "SESSION"),
         None => (job_label(connection, job_id, sku_code)?, "JOB"),
     };
 
@@ -499,7 +529,7 @@ pub fn preview_job_label(
         // The bench is shown what its own printer will be handed, not what a
         // Zebra would have been: a preview in the wrong language is a preview
         // of somebody else's tag.
-        zpl: render_label_in(&data, size, LabelBrand(LABEL_BRAND), PrinterLanguage::from_env()),
+        zpl: render_label_in(&data, size, LabelBrand(LABEL_BRAND), language),
         svg: preview_label(&data, size, LabelBrand(LABEL_BRAND)),
         sku_code: item.sku_code,
         article_name: item.article_name,
@@ -615,15 +645,16 @@ pub fn claim_chunk(
 ) -> Result<ClaimedChunk, EdgeError> {
     let transaction = connection.transaction().map_err(db)?;
 
-    let (chunk_size, width_mm, height_mm, printer_host, printer_port): (
+    let (chunk_size, width_mm, height_mm, printer_host, printer_port, session_lang): (
         i64,
         i64,
         i64,
         String,
         i64,
+        String,
     ) = transaction
         .query_row(
-            "SELECT chunk_size,label_width_mm,label_height_mm,printer_host,printer_port
+            "SELECT chunk_size,label_width_mm,label_height_mm,printer_host,printer_port,lang
                FROM print_session WHERE session_id = ?1",
             params![session_id],
             |row| {
@@ -633,6 +664,7 @@ pub fn claim_chunk(
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
                 ))
             },
         )
@@ -678,9 +710,10 @@ pub fn claim_chunk(
         width_mm: width_mm as f64,
         height_mm: height_mm as f64,
     };
-    // Read once for the chunk rather than per label: the printer at a bench
-    // does not change language between two tags of the same run.
-    let language = PrinterLanguage::from_env();
+    // From the run, not from the environment. A run is opened against one
+    // machine and must finish on it — including in the language that machine
+    // speaks, or half a batch comes out as text and the rest as nothing.
+    let language = PrinterLanguage::parse(&session_lang);
     let now = now_text();
     let mut claimed = Vec::with_capacity(rows.len());
 
@@ -956,7 +989,8 @@ pub fn repoint(
                     chunk_size = COALESCE(?4, chunk_size),
                     label_width_mm = COALESCE(?5, label_width_mm),
                     label_height_mm = COALESCE(?6, label_height_mm),
-                    updated_at = ?7
+                    lang = COALESCE(?7, lang),
+                    updated_at = ?8
               WHERE session_id = ?1",
             params![
                 session_id,
@@ -965,6 +999,7 @@ pub fn repoint(
                 request.chunk_size,
                 request.label_width_mm,
                 request.label_height_mm,
+                request.language.map(PrinterLanguage::as_str),
                 now_text(),
             ],
         )

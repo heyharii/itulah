@@ -807,19 +807,45 @@ fn rfid_write_tspl(hex: &str) -> String {
 /// A fact about the machine at the bench, not about the label: the same tag
 /// goes to a Printronix in ZGL and to a TSC in TSPL, and the difference is a
 /// setting rather than a design.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub enum PrinterLanguage {
     /// The strict ZPL II subset this file was built and proven against.
     #[default]
+    #[serde(rename = "ZPL")]
     Zpl,
     /// TSC's own language, for a machine with no ZPL emulation to switch into.
+    #[serde(rename = "TSPL")]
     Tspl,
 }
 
 impl PrinterLanguage {
-    /// `PRINTER_LANGUAGE=TSPL` on the node. Anything else, including unset, is
-    /// ZPL — the language every tag in the field so far was written in, and
-    /// therefore the only safe default.
+    /// What the column holds. The check constraint on `print_session.lang`
+    /// names these two exactly, so this is the one spelling both sides agree on.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Zpl => "ZPL",
+            Self::Tspl => "TSPL",
+        }
+    }
+
+    /// Read back from the session row. An unrecognised value cannot reach the
+    /// database — the check constraint refuses it — so anything else here means
+    /// a row written by something that is not this code, and ZPL is the answer
+    /// that prints rather than the answer that guesses.
+    pub fn parse(value: &str) -> Self {
+        if value.trim().eq_ignore_ascii_case("tspl") {
+            Self::Tspl
+        } else {
+            Self::Zpl
+        }
+    }
+
+    /// The node-wide default, for a bench that has not said.
+    ///
+    /// `PRINTER_LANGUAGE=TSPL` sets it; anything else, including unset, is ZPL
+    /// — the language every tag in the field so far was written in, and
+    /// therefore the only safe answer when nobody has chosen.
     pub fn from_env() -> Self {
         match std::env::var("PRINTER_LANGUAGE") {
             Ok(value) if value.trim().eq_ignore_ascii_case("tspl") => Self::Tspl,

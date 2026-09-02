@@ -44,7 +44,8 @@ export const keys = {
     jobId: string,
     widthMm: number,
     heightMm: number,
-    skuCode: string | undefined
+    skuCode: string | undefined,
+    language: string
   ) =>
     [
       "dc",
@@ -54,6 +55,7 @@ export const keys = {
       widthMm,
       heightMm,
       skuCode ?? "first",
+      language,
     ] as const,
 
   // ── Counting ─────────────────────────────────────────────────────────────

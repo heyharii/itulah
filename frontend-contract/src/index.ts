@@ -144,6 +144,7 @@ export type { PolicyScheduleView } from "./contract/PolicyScheduleView";
 export type { PolicyVersionView } from "./contract/PolicyVersionView";
 export type { PoolBalance } from "./contract/PoolBalance";
 export type { PrintChunkReport } from "./contract/PrintChunkReport";
+export type { PrinterLanguage } from "./contract/PrinterLanguage";
 export type { PrintKoliLabelRequest } from "./contract/PrintKoliLabelRequest";
 export type { PrintSessionSummary } from "./contract/PrintSessionSummary";
 export type { ProfileAmendmentView } from "./contract/ProfileAmendmentView";

@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react"
 
+import type { PrinterLanguage } from "@itulah/contract"
+
 /// Which label printer is in front of this person.
 ///
 /// Kept on the device rather than on the server because it is a fact about the
@@ -16,6 +18,14 @@ export interface Printer {
   /// How many labels one pass hands over. A smaller chunk is a longer wait
   /// between presses; a larger one is more to reprint when the ribbon jams.
   readonly chunk: number
+  /// Which language the machine at this bench speaks.
+  ///
+  /// A Printronix and a Zebra take ZPL; a TSC takes TSPL unless somebody has
+  /// switched it into emulation. Getting this wrong does not misprint a tag —
+  /// it prints nothing at all, which on a bay looks exactly like a printer
+  /// that is switched off, so it is offered here rather than buried in a
+  /// node's environment where nobody at the bench can see it.
+  readonly language: PrinterLanguage
 }
 
 /// 58 × 40 mm because that is the tag the ZPL layout was tuned against by
@@ -28,6 +38,9 @@ const DEFAULT_PRINTER: Printer = {
   widthMm: 58,
   heightMm: 40,
   chunk: 25,
+  // Every tag in the field so far was written in ZPL. A bench that has not
+  // chosen must not be guessed into the other one.
+  language: "ZPL",
 }
 
 /// Tag stock a bench can pick without typing two numbers.
