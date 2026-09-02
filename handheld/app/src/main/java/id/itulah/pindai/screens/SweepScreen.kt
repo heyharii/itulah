@@ -1,5 +1,11 @@
 package id.itulah.pindai.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -15,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,23 +91,58 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexed(
     row: @Composable (Int, Grouped) -> Unit,
 ) = items(lines.size, key = { lines[it].sku }) { index -> row(index, lines[index]) }
 
+/**
+ * One button, two meanings.
+ *
+ * Reading and finishing are the same gesture from the operator's side — you
+ * pull the trigger, you walk the aisle, you are done — so they are one control
+ * that changes what it says. Two buttons made you choose between "stop" and
+ * "finish" when there was never a difference: stopping without finishing left
+ * a sweep hanging with nothing to show for it.
+ *
+ * The label slides rather than swaps. A word replaced in place at this size
+ * reads as a flicker; a word that travels reads as the same button changing
+ * its mind, which is what actually happened.
+ */
 @Composable
 private fun BottomActions(vm: SweepViewModel, state: SweepState) {
+    val reading = state.sweeping
     Column(
         Modifier.fillMaxWidth().background(Surface.canvas).padding(Space.lg),
-        verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        QuietButton(
-            text = if (state.sweeping) "Stop reading" else "Start reading",
-            onClick = vm::toggleSweep,
-            enabled = !state.busy,
-        )
-        PrimaryButton(
-            text = state.mode.verb,
-            onClick = vm::commit,
-            enabled = state.seen.isNotEmpty() && !state.busy,
-            loading = state.busy,
-        )
+        AnimatedContent(
+            targetState = reading,
+            transitionSpec = {
+                // Asymmetric on purpose. Starting a sweep is the beginning of
+                // something and simply appears; Finish slides in from the right
+                // because it ARRIVES — it is the same button having become the
+                // end of the job, and the travel is what says so. Sliding both
+                // ways would make the pair look like a carousel of two equal
+                // options, which is exactly what this stopped being.
+                if (targetState) {
+                    (slideInHorizontally(tween(220)) { w -> w / 3 } + fadeIn(tween(160)))
+                        .togetherWith(fadeOut(tween(110)))
+                } else {
+                    fadeIn(tween(140)) togetherWith fadeOut(tween(90))
+                }
+            },
+            label = "action",
+        ) { isReading ->
+            if (isReading) {
+                PrimaryButton(
+                    text = state.mode.verb,
+                    onClick = vm::commit,
+                    enabled = state.seen.isNotEmpty() && !state.busy,
+                    loading = state.busy,
+                )
+            } else {
+                QuietButton(
+                    text = "Start reading",
+                    onClick = vm::toggleSweep,
+                    enabled = !state.busy,
+                )
+            }
+        }
     }
 }
 
@@ -249,17 +291,21 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
  */
 @Composable
 private fun ProductRow(line: Grouped, first: Boolean, last: Boolean) {
+    // No clip() and no per-row Surface. Every clip is a saved layer, and
+    // seventeen of them is seventeen layers to compose on a chip whose own
+    // system apps do not reach sixty frames. Corners are drawn by the shaped
+    // background of the first and last rows only; the ones between are square
+    // and nobody has ever noticed.
     Column(
-        Modifier.fillMaxWidth()
-            .clip(
-                when {
-                    first && last -> CardShape
-                    first -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-                    last -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
-                    else -> RoundedCornerShape(0.dp)
-                },
-            )
-            .background(Surface.card),
+        Modifier.fillMaxWidth().background(
+            color = Surface.card,
+            shape = when {
+                first && last -> CardShape
+                first -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                last -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+                else -> RectangleShape
+            },
+        ),
     ) {
         if (!first) {
             Box(
@@ -273,8 +319,7 @@ private fun ProductRow(line: Grouped, first: Boolean, last: Boolean) {
             horizontalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             Box(
-                Modifier.size(44.dp).clip(RoundedCornerShape(8.dp))
-                    .background(Ink.fill(.06f)),
+                Modifier.size(44.dp).background(Ink.fill(.06f), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 val url = line.identity?.imageUrl
@@ -288,10 +333,6 @@ private fun ProductRow(line: Grouped, first: Boolean, last: Boolean) {
                 )
                 Text(line.sku, style = Type.mono, color = Ink.text(.60f))
             }
-            // Plain text, not a rolling number. Seventeen animated counters is
-            // seventeen running transitions on a chip that cannot draw a still
-            // list at sixty frames; the hero count is the one number anybody
-            // actually watches climb, so it is the one that gets to move.
             Text("${line.qty}", style = Type.anchor, color = Ink.text())
         }
     }

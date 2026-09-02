@@ -17,10 +17,10 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 enum class Mode(val title: String, val verb: String) {
-    SCAN("Scan", "Finish sweep"),
-    PACKING("Packing", "Open carton"),
-    RECEIVING("Receive", "Receive delivery"),
-    COUNT("Stock count", "Submit entries"),
+    SCAN("Scan", "Finish"),
+    PACKING("Packing", "Finish · open carton"),
+    RECEIVING("Receive", "Finish · receive"),
+    COUNT("Stock count", "Finish · submit"),
 }
 
 data class Seen(val epc: String, val rssi: Float?, val sku: String?, val serial: Long?)
@@ -202,7 +202,14 @@ class SweepViewModel(
                             sku = sku,
                             name = row.optString("name", sku),
                             articleCode = row.optString("article_code").ifBlank { null },
-                            imageUrl = row.optString("image_url").ifBlank { null },
+                            // Point at the node, not at the object store. The
+                            // store's own domain is redirected to a block page
+                            // by Indonesian ISPs, so a handheld on shop wifi
+                            // gets a notice where a JPEG should be; the node is
+                            // not on that network and is already trusted here.
+                            imageUrl = if (row.optString("image_url").isNotBlank()) {
+                                settings.baseUrl + "/api/v1/catalog/image?sku=" + sku
+                            } else null,
                             basePriceMinor = if (row.isNull("base_price_minor")) null
                                 else row.optLong("base_price_minor"),
                         )
@@ -399,6 +406,12 @@ class SweepViewModel(
                 if (++tick % 10 == 0) {
                     fileNewTags()
                     resolveIdentities()
+                    // The point of a shared session is watching the aisle fill
+                    // in while it is walked. Refreshing only on join and on
+                    // finish meant the card sat at "shared session" for the
+                    // whole sweep — the number arrived when it was no longer
+                    // any use to the person deciding which rack to take next.
+                    if (state.value.sessionCode.isNotBlank()) refreshShared()
                 }
             }
         }

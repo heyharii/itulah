@@ -171,6 +171,10 @@ pub fn dc_router_with_sync(
             post(dc_run_print_chunk),
         )
         .route(
+            "/api/v1/dc/tagging-jobs/{job_id}/label-preview",
+            post(dc_preview_job_label),
+        )
+        .route(
             "/api/v1/dc/print-sessions/{session_id}/printer",
             post(dc_repoint_print_session),
         )
@@ -300,6 +304,8 @@ fn common_router() -> Router<EdgeState> {
         // in the common router because a DC needs to name what it is holding
         // even though it has no price book.
         .route("/api/v1/catalog/identities", get(catalog_identities))
+        // Product photographs, fetched BY the node rather than by the handheld.
+        .route("/api/v1/catalog/image", get(catalog_image))
         // A shared reading session, readable by every handheld in it.
         .route("/api/v1/rfid/sessions", get(rfid_sessions))
         .route("/api/v1/rfid/sessions/{session_id}", get(rfid_session))
@@ -1005,6 +1011,23 @@ async fn dc_job_print_session(
     Ok(Json(json!({ "session": result })))
 }
 
+/// Draw one of a job's labels without printing it.
+///
+/// A POST because it carries a body — the stock in the machine and which line
+/// of the job to draw — and not because it changes anything. Nothing is
+/// claimed, no socket is opened, and it reads with `InventoryRead`: looking at
+/// a label is not operating a printer.
+async fn dc_preview_job_label(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(job_id): Path<String>,
+    Json(request): Json<crate::edge::printing::LabelPreviewRequest>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.preview_job_label(&job_id, &request)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
 /// Move a run to the printer in front of whoever picked it up.
 async fn dc_repoint_print_session(
     State(state): State<EdgeState>,
@@ -1483,6 +1506,78 @@ async fn catalog_identities(
 struct CatalogIdentityQuery {
     #[serde(default)]
     skus: String,
+}
+
+/// Serve a catalogue photograph through the node.
+///
+/// # Why the Edge fetches it and the handheld does not
+///
+/// The imagery lives on an object-store subdomain that Indonesian ISPs
+/// redirect to a content-block page: the same URL that returns a JPEG from one
+/// network returns a block notice from another, so a handheld on shop wifi
+/// shows empty tiles while nothing is wrong with the app. The Edge is not on
+/// that network, and the handheld is already talking to the Edge, so the
+/// picture arrives over a connection that is known to work.
+///
+/// It also stops fifty handhelds each pulling the same photograph over a
+/// shop's uplink: one node fetches, and the answer is cacheable.
+async fn catalog_image(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<CatalogImageQuery>,
+) -> Result<Response, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let sku = query.sku.trim().to_string();
+    if sku.is_empty() {
+        return Err(ApiError(EdgeError::Validation("sku is required".into())));
+    }
+    let inventory = state.inventory.clone();
+    let codes = vec![sku.clone()];
+    let items = run_blocking(move || inventory.catalog_identities(&codes)).await?;
+    let url = items
+        .first()
+        .and_then(|item| item.image_url.clone())
+        .ok_or_else(|| ApiError(EdgeError::NotFound(format!("no image for {sku}"))))?;
+
+    let response = reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|error| ApiError(EdgeError::Persistence(format!("image fetch: {error}"))))?;
+    if !response.status().is_success() {
+        return Err(ApiError(EdgeError::NotFound(format!(
+            "image source answered {}",
+            response.status()
+        ))));
+    }
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| ApiError(EdgeError::Persistence(format!("image body: {error}"))))?;
+    let mut headers = HeaderMap::new();
+    if let Ok(value) = HeaderValue::from_str(&content_type) {
+        headers.insert(header::CONTENT_TYPE, value);
+    }
+    // A photograph is re-shot only when the garment is, which is rare enough to
+    // be worth a cache purge rather than a short lifetime.
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    Ok((StatusCode::OK, headers, bytes).into_response())
+}
+
+#[derive(serde::Deserialize)]
+struct CatalogImageQuery {
+    #[serde(default)]
+    sku: String,
 }
 
 /// What is being worked on right now, so somebody arriving can choose.

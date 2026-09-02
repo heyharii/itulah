@@ -4229,6 +4229,31 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
 
 /// Resolve the exact authoritative DC for a site inside the caller's business
 /// transaction. No aliasing and no broadcast fallback are permitted.
+/// What the centre's siteless pool model calls its distribution centre.
+const CANONICAL_DC_SITE_ID: &str = "dc";
+
+/// The single registered DC origin, or nothing when that is not unambiguous.
+async fn sole_dc_origin_tx(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<Option<String>, AppError> {
+    let rows = sqlx::query(
+        "SELECT origin_id FROM sync_origin_credential
+         WHERE inventory_enabled AND node_role = 'DC'
+         ORDER BY origin_id FOR SHARE",
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    match rows.len() {
+        0 => Ok(None),
+        1 => Ok(Some(rows[0].get("origin_id"))),
+        _ => Err(AppError::Conflict(
+            "several DC origins are registered; name the site explicitly rather \
+             than relying on the canonical `dc`"
+                .into(),
+        )),
+    }
+}
+
 pub(super) async fn inventory_dc_owner_tx(
     tx: &mut Transaction<'_, Postgres>,
     site_id: &str,
@@ -4241,6 +4266,20 @@ pub(super) async fn inventory_dc_owner_tx(
     .fetch_optional(&mut **tx)
     .await?;
     let Some(row) = row else {
+        // The centre names its distribution centre `dc`, because its pool model
+        // has exactly one; the Edge registers under the site it actually runs
+        // as, which is `dc-01`. Nothing reconciles those two names, so an
+        // Official Count opened for `dc` found no owner, silently became a
+        // cloud-executed count, and never reached the warehouse that was
+        // supposed to walk it.
+        //
+        // Resolving the canonical name to the one registered DC closes that
+        // without pretending the model supports several. If a second DC ever
+        // registers this refuses rather than guessing, because picking one of
+        // two warehouses to send a count to is not a decision code may make.
+        if site_id == CANONICAL_DC_SITE_ID {
+            return sole_dc_origin_tx(tx).await;
+        }
         return Ok(None);
     };
     let role: String = row.get("node_role");
@@ -5297,6 +5336,30 @@ async fn apply_sale(
         .execute(&mut **tx)
         .await?;
 
+        // And which units it came off, when the shop said. Written from the
+        // same fact and inside the same guard as the row above, so the parts
+        // and the total cannot come to disagree — which they would the moment
+        // either was derived from a second read.
+        //
+        // Empty from a shop older than this field, and that stays legible: the
+        // total above is what the promotion cost the basket, and these are the
+        // attributed split of it. A report must say "not broken down" for a
+        // sale with no lines here, never zero.
+        for line in &promotion.lines {
+            sqlx::query(
+                "INSERT INTO edge_sale_promotion_line
+                     (sale_id, rule_id, subject_id, benefit_minor)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (sale_id, rule_id, subject_id) DO NOTHING",
+            )
+            .bind(sale.sale_id)
+            .bind(promotion.rule_id.trim())
+            .bind(line.subject_id)
+            .bind(line.benefit_minor)
+            .execute(&mut **tx)
+            .await?;
+        }
+
         let mut keys: Vec<(&str, &str)> = vec![("RULE", promotion.rule_id.trim())];
         if let Some(campaign_id) = promotion.campaign_id.as_deref() {
             if !campaign_id.trim().is_empty() {
@@ -5347,8 +5410,8 @@ async fn apply_sale(
             "INSERT INTO edge_sale_line
                  (sale_id, subject_id, epc, sku_code, quantity, unit_price_minor,
                   line_total_minor, price_source, publication_version,
-                  base_unit_price_minor)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                  base_unit_price_minor, markdown_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
         )
         .bind(sale.sale_id)
         .bind(line.subject_id)
@@ -5362,6 +5425,7 @@ async fn apply_sale(
         .bind(line.price_source.as_deref())
         .bind(line.publication_version)
         .bind(line.base_unit_price_minor)
+        .bind(line.markdown_id.as_deref())
         .execute(&mut **tx)
         .await?;
     }
