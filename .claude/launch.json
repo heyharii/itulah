@@ -730,6 +730,31 @@
         "VITE_API_TARGET": "http://127.0.0.1:8093",
         "VITE_EDGE_TARGET": "http://127.0.0.1:8082"
       }
+    },
+    {
+      "name": "dc-demo-node",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeArgs": [],
+      "cwd": "demo/dc",
+      "port": 8092,
+      "url": "http://127.0.0.1:8092"
+    },
+    {
+      "name": "cloud-observed",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8096,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_tanstack",
+        "BIND_ADDR": "127.0.0.1:8096",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "OBSERVED_WINDOW_HOURS": "720",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
     }
   ]
 }

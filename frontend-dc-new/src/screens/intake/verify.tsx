@@ -235,6 +235,10 @@ function VerifySheet({
       }),
     onSuccess: () => {
       form.reset()
+      // The decided count leaves the queue, so leaving the sheet open would
+      // show the verifier who just decided it "already decided by somebody
+      // else" — the empty state below, addressed to the wrong person.
+      onClose()
       // Accepted goods become stock, leave the verifier's queue, change the
       // delivery's accepted tally, and appear in the pools and the ledger.
       void client.invalidateQueries({ queryKey: keys.verifyQueue() })
