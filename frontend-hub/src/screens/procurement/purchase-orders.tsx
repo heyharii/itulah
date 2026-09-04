@@ -13,17 +13,18 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
 import {
   listPurchaseOrders,
   procurementKeys,
   purchaseOrderDetail,
+  type CatalogPurchaseOrderReceipt,
   type PurchaseOrderRow,
 } from "@/lib/queries/procurement"
+import { OrderComposer } from "@/screens/procurement/composer"
 import { queryState } from "@/lib/query-state"
-import { useAppNavigate } from "@/lib/navigate"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 
@@ -43,6 +44,12 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 ///     columns with the shared predicate attached; `<FilterBar>` draws the
 ///     chips. Which columns are filterable is declared on the columns
 ///     themselves, in `meta.filter` — never in a list beside the table.
+///  8. `meta.card` and `meta.priority` on the same columns, which is the whole
+///     of what this screen does to work on an iPad and a phone: what each
+///     column becomes when the rows are relaid as cards, and what to drop
+///     first when the table is wider than the glass. There is no second screen
+///     and no second component — see `<DataTable>` for the three shapes those
+///     two declarations buy.
 ///
 /// The columns are the point, not the decoration. DESIGN.md is explicit that a
 /// list exists to decide and to compare rows, so what is here is the buyer's
@@ -54,7 +61,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorKey: "po_number",
     header: "PO",
     size: 150,
-    meta: { filter: { kind: "text" } },
+    meta: { filter: { kind: "text" }, card: "id" },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.po_number}
@@ -66,7 +73,9 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorFn: (row) => row.supplier_name ?? row.supplier_id,
     header: "Supplier",
     size: 260,
-    meta: { filter: { kind: "option" } },
+    // Who the order is with is what names the row on a phone: the PO number
+    // identifies it, the supplier is what somebody is looking for.
+    meta: { filter: { kind: "option" }, card: "title" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {row.original.supplier_name ?? row.original.supplier_id}
@@ -77,7 +86,10 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorKey: "destination_site_id",
     header: "Destination",
     size: 160,
-    meta: { filter: { kind: "option" } },
+    // Context, so it is the first thing a narrow table drops — and one half of
+    // the meta line on a card. Nearly every order goes to the one DC; the
+    // column earns its place at a desk and not on a tablet.
+    meta: { filter: { kind: "option" }, card: "meta", priority: 3 },
   },
   {
     accessorKey: "order_status",
@@ -85,7 +97,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     size: 150,
     // The picker shows the sentence, not the code: a buyer excluding cancelled
     // orders is looking for "Cancelled", not `ORDER_CANCELLED`.
-    meta: { filter: { kind: "option", format: label } },
+    meta: { filter: { kind: "option", format: label }, card: "status" },
     cell: ({ row }) => (
       <Pill tone={toneFor(row.original.order_status)}>
         {label(row.original.order_status)}
@@ -96,28 +108,52 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorKey: "issued_at",
     header: "Issued",
     size: 130,
-    meta: { filter: { kind: "date" } },
+    meta: { filter: { kind: "date" }, card: "meta", priority: 2 },
     cell: ({ row }) => day(row.original.issued_at),
   },
   {
     accessorKey: "expected_stock_units",
     header: "Expected",
     size: 110,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    // Expected and Received are what Outstanding is made of. On a screen that
+    // can only afford one of the three, the one that decides anything is
+    // Outstanding — so these two go before it does.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "pcs" },
+      card: "metric",
+      priority: 3,
+    },
     cell: ({ row }) => count(row.original.expected_stock_units),
   },
   {
     accessorKey: "received_stock_units",
     header: "Received",
     size: 110,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    // A 3 like Expected, and the number that settled it: at 820px — an iPad
+    // Air upright, the narrowest real tablet this app will meet — six columns
+    // measured 774px inside a 760px card and clipped the Outstanding figure.
+    // A budget tuned to the top of its range is not a budget.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "pcs" },
+      card: "metric",
+      priority: 3,
+    },
     cell: ({ row }) => count(row.original.received_stock_units),
   },
   {
     accessorKey: "outstanding_stock_units",
     header: "Outstanding",
     size: 120,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    // Priority 1: the decision metric survives every width. A purchase list
+    // that cannot say what is still owed is a list of paperwork.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "pcs" },
+      card: "metric",
+      priority: 1,
+    },
     // The decision metric, and the reason this list sorts by it: a zero is
     // quiet, anything else is a supplier somebody may need to chase.
     cell: ({ row }) => {
@@ -132,13 +168,18 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
 ]
 
 export function PurchaseOrders() {
-  const goTo = useAppNavigate()
   const [query, setQuery] = useState("")
   // Which order is open lives in the URL (`?order=…`), not in state beside the
   // table. A sheet in `useState` cannot be linked to, does not survive the
   // reload a browser gets every morning, and cannot be opened by the command
   // palette or a notification — all three of which want to.
   const order = useSheet("order")
+  /// A blank order being written. In the URL like every other sheet, so a
+  /// half-typed order survives a reload.
+  const composer = useSheet("new-order")
+  const [receipt, setReceipt] = useState<CatalogPurchaseOrderReceipt | null>(
+    null
+  )
   // Default sort is the decision metric, not the identifier: the first screenful
   // should already be the orders somebody has to chase.
   const [sorting, setSorting] = useState<SortingState>([
@@ -190,22 +231,46 @@ export function PurchaseOrders() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search"
-              className="h-8 w-48"
+              // Fills the row it drops onto below 48rem, where the header's
+              // actions are a line of their own rather than a corner.
+              className="h-8 w-full md:w-48"
             />
-            {/* An order starts by choosing goods, so this goes to sourcing
-                rather than opening an empty form. The order itself is raised
-                from the basket, which is where the chosen goods collect. */}
-            <Button variant="dark" onClick={() => goTo("/procurement")}>
+            {/* A blank order, raised here.
+                
+                This used to send people to Sourcing, on the reasoning that an
+                order starts by choosing goods. That is true of a buyer who
+                does not know what they want and false of everyone else: a
+                repeat order, or a supplier on the phone, is a list somebody
+                already has in their head, and making them walk a catalogue to
+                type it is the long way round. The composer is the same one the
+                basket opens — same document, same editable lines — it just
+                starts empty and has a box to add to it. */}
+            <Button variant="dark" onClick={() => composer.open(true)}>
               New order
             </Button>
           </>
         }
       />
 
+      {receipt && (
+        <Banner tone="ok" className="mb-4" onDismiss={() => setReceipt(null)}>
+          {receipt.po_number} raised for {money(receipt.net_minor)} and sent to{" "}
+          {receipt.sent_to_origin}. It is in the list below.
+        </Banner>
+      )}
 
       <Toolbar>
         <FilterBar model={filters} table={table} />
       </Toolbar>
+
+      <OrderComposer
+        open={composer.value === true}
+        onClose={composer.close}
+        onRaised={(raised) => {
+          setReceipt(raised)
+          composer.close()
+        }}
+      />
 
       <Card className="overflow-hidden">
         {queryState(orders, {
@@ -288,7 +353,7 @@ function OrderSheet({
                       (head, index) => (
                         <th
                           key={head}
-                          className={`pb-1.5 font-mono text-[0.625rem] tracking-[0.04em] text-faint uppercase ${index === 0 ? "text-left" : "text-right"}`}
+                          className={`pb-1.5 font-mono text-[0.625rem] tracking-[0.04em] whitespace-nowrap text-faint uppercase ${index === 0 ? "text-left" : "pl-2.5 text-right"}`}
                         >
                           {head}
                         </th>
@@ -310,13 +375,13 @@ function OrderSheet({
                           {line.article_code}
                         </span>
                       </td>
-                      <td className="py-2 text-right tabular-nums">
+                      <td className="py-2 pl-2.5 text-right whitespace-nowrap tabular-nums">
                         {count(line.ordered_quantity)}
                       </td>
-                      <td className="py-2 text-right tabular-nums">
+                      <td className="py-2 pl-2.5 text-right whitespace-nowrap tabular-nums">
                         {count(line.received_quantity)}
                       </td>
-                      <td className="py-2 text-right tabular-nums">
+                      <td className="py-2 pl-2.5 text-right whitespace-nowrap tabular-nums">
                         {money(line.ordered_value_minor)}
                       </td>
                     </tr>

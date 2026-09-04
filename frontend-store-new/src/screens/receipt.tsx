@@ -1,4 +1,11 @@
-import { CheckCircle2, Clock, Gift, ReceiptText, XCircle } from "lucide-react"
+import {
+  CheckCircle2,
+  Clock,
+  Gift,
+  Printer,
+  ReceiptText,
+  XCircle,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { RecordCard } from "@/components/ui/card"
@@ -17,6 +24,7 @@ import { useGo } from "@/lib/go"
 import { useParam } from "@/lib/params"
 import { groupBasket } from "@/lib/basket"
 import { useSaleQueue, type QueuedSale } from "@/lib/sale-queue"
+import { usePrintReceipt } from "@/lib/till"
 import { money } from "@itulah/contract/money"
 
 /// What just happened, and what the customer is owed.
@@ -28,6 +36,7 @@ import { money } from "@itulah/contract/money"
 /// reopen.
 export function ReceiptScreen() {
   const go = useGo()
+  const print = usePrintReceipt()
   const which = useParam("sale")
   const queue = useSaleQueue()
   const sale = queue.find((entry) => entry.localId === which.value)
@@ -214,9 +223,37 @@ export function ReceiptScreen() {
       </Screen>
 
       <ActionBar>
-        <Button variant="dark" size="lg" block onClick={() => go("/sell")}>
-          Next sale
-        </Button>
+        <div className="flex flex-col gap-2.5">
+          {print.error !== null && (
+            <Banner tone="bad">{print.error.message}</Banner>
+          )}
+          {/* Printable only once the counter has actually recorded the sale.
+              A receipt printed against a queued sale would carry a number head
+              office has never seen — and the customer would walk out holding
+              it. */}
+          <Button
+            block
+            size="lg"
+            disabled={result === null || print.isPending}
+            onClick={() => {
+              if (result === null) return
+              // Every print after the first says so on its face. Two
+              // identical receipts in a drawer at the end of the day are two
+              // sales to whoever counts them.
+              print.mutate({ saleId: result.sale_id, copy: print.isSuccess })
+            }}
+          >
+            <Printer />
+            {print.isPending
+              ? "Printing…"
+              : print.isSuccess
+                ? "Print another copy"
+                : "Print the receipt"}
+          </Button>
+          <Button variant="dark" size="lg" block onClick={() => go("/sell")}>
+            Next sale
+          </Button>
+        </div>
       </ActionBar>
     </>
   )

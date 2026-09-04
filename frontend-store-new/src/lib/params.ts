@@ -19,6 +19,27 @@ function id(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined
 }
 
+/// Text that may be all digits, which is not the same as `id` above.
+///
+/// Router's default search parser runs each value through `JSON.parse`, so
+/// `?sku=31001101001` arrives as the **number** 31001101001 rather than the
+/// string. Every SKU in this fleet is eleven digits (see the EPC codec), so
+/// every product link hits this — and it fails in the quietest possible way:
+/// `31001101001` renders identically in a template, so a screen prints the
+/// right code in its own error message while `row.sku_code === value` is false
+/// against every row in the book. The screen then says the shop does not sell a
+/// garment it plainly sells.
+///
+/// A search box has the same problem the moment somebody types a code into it,
+/// which on a shop floor is most of the time.
+function text(value: unknown): string | undefined {
+  if (typeof value === "string") return value === "" ? undefined : value
+  // Only a finite number becomes text. `Infinity` and `NaN` are what
+  // `JSON.parse` yields for a malformed URL, and neither is a product.
+  if (typeof value === "number" && Number.isFinite(value)) return String(value)
+  return undefined
+}
+
 /// A whole positive number carried as text — how many days a report covers.
 function counted(value: unknown): string | undefined {
   return typeof value === "string" && /^[1-9]\d{0,3}$/.test(value)
@@ -39,6 +60,23 @@ function oneOf<const T extends readonly string[]>(allowed: T) {
 export const PARAMS = {
   /// The sale whose receipt is open, by its queue id.
   sale: id,
+  /// The product a catalogue drill-in is showing.
+  ///
+  /// In the URL rather than in state for this screen's own reason: a shop
+  /// floor reads a price off a tablet that then sleeps in somebody's hand, and
+  /// a detail held in `useState` is gone when it wakes. It also makes the
+  /// screen linkable from the counter — "look at 30101010001" — which is how
+  /// somebody at the till answers somebody on the floor.
+  sku: text,
+  /// What is typed into the catalogue's search box.
+  ///
+  /// The exception to the rule below, and it is deliberate: this one is
+  /// debounced into the URL rather than written on every keystroke, so the
+  /// history stays walkable while a filtered catalogue stays a thing that
+  /// survives a reload.
+  q: text,
+  /// Which part of the range the catalogue is narrowed to.
+  division: text,
   /// How many days the report covers, ending today.
   span: counted,
   /// How the series is grouped.

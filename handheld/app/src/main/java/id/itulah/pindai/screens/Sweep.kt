@@ -68,10 +68,21 @@ data class SweepState(
     val mode: Mode = Mode.SCAN,
     val sweeping: Boolean = false,
     val busy: Boolean = false,
-    val seen: List<Seen> = emptyList(),
+    /**
+     * How many DISTINCT tags this sweep holds — the number, not the tags.
+     *
+     * The tags themselves stay in the view model. Copying a five-thousand
+     * element list into UI state five times a second is work no pixel needed:
+     * the screen shows a total, a row per product and a foreign count, and all
+     * three are already counted by the time this is read.
+     */
+    val tagCount: Int = 0,
     val message: String? = null,
     val failed: Boolean = false,
     val readerInfo: String? = null,
+    /** dBm as the module last reported it, or 0 while nothing has asked it. */
+    val readerPower: Int = 0,
+    val powerNote: String? = null,
     val destination: String = "",
     val countId: String = "",
     val lastReceipt: String? = null,
@@ -94,21 +105,6 @@ data class SweepState(
 )
 
 /**
- * The sweep as products rather than tags.
- *
- * Computed when the reader's findings are PUBLISHED, not while the screen
- * draws. Composition must never do O(n log n) work: a continuous sweep
- * re-reads the same tags many times a second, and grouping and sorting on
- * every frame is what turned a fifty-tag rack into visible lag.
- */
-internal fun regroup(seen: List<Seen>, identities: Map<String, Identity>): List<Grouped> =
-    seen.mapNotNull { it.sku }
-        .groupingBy { it }
-        .eachCount()
-        .map { (sku, qty) -> Grouped(sku, qty, identities[sku]) }
-        .sortedWith(compareByDescending<Grouped> { it.qty }.thenBy { it.sku })
-
-/**
  * One sweep, four uses.
  *
  * Scanning, packing, receiving and counting differ in what they MEAN, not in how
@@ -122,8 +118,27 @@ class SweepViewModel(
     private val config: ConfigStore,
 ) : ViewModel() {
 
-    val state = MutableStateFlow(SweepState(sessionCode = config.load().sessionCode))
+    val state = MutableStateFlow(
+        config.load().let { SweepState(sessionCode = it.sessionCode, readerPower = it.readerPower) },
+    )
     private val collector = ConcurrentHashMap<String, Seen>()
+
+    /**
+     * The sweep as products, kept up to date as tags arrive rather than
+     * recomputed from scratch on a timer.
+     *
+     * Measured on a C5: regrouping five thousand tags cost 90 ms per publish on
+     * the main thread, every 200 ms — 68% of frames janked and the median frame
+     * took 42 ms. Counting a garment is O(1) work; doing it again for every
+     * garment already counted, five times a second, is what made a stock count
+     * of a real shop unreadable.
+     */
+    private val qtyBySku = ConcurrentHashMap<String, Int>()
+
+    /** First-seen rank per SKU, so rows never reshuffle under a moving finger. */
+    private val skuRank = ConcurrentHashMap<String, Int>()
+    private val ranks = java.util.concurrent.atomic.AtomicInteger(0)
+    private val foreign = java.util.concurrent.atomic.AtomicInteger(0)
 
     /** Tags whose evidence is already on the Edge; never filed twice. */
     private val filed = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
@@ -186,17 +201,28 @@ class SweepViewModel(
     fun resolveIdentities() {
         val settings = settings()
         if (!settings.isConfigured) return
-        val wanted = state.value.seen.mapNotNull { it.sku }.toSet() - state.value.identities.keys
+        val wanted = qtyBySku.keys.toSet() - state.value.identities.keys
         if (wanted.isEmpty()) return
+        // Ask in batches. Every distinct SKU used to ride in one query string,
+        // which is fine for a rack and a URL nobody measured: 255 products
+        // already makes it 3 KB, and a DC counting a thousand styles would hand
+        // the node a 12 KB GET line and get a 414 back — losing every name at
+        // once, at exactly the scale where names matter most.
+        val batches = wanted.chunked(200)
         viewModelScope.launch {
             update { it.copy(resolving = true, resolveNote = null) }
             val started = System.currentTimeMillis()
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val json = Api(settings).get(
-                        "/api/v1/catalog/identities?skus=" + wanted.joinToString(","),
-                    )
-                    val items = json.optJSONArray("items") ?: org.json.JSONArray()
+                    val api = Api(settings)
+                    val items = org.json.JSONArray()
+                    batches.forEach { batch ->
+                        val json = api.get(
+                            "/api/v1/catalog/identities?skus=" + batch.joinToString(","),
+                        )
+                        val page = json.optJSONArray("items") ?: org.json.JSONArray()
+                        for (k in 0 until page.length()) items.put(page.getJSONObject(k))
+                    }
                     (0 until items.length()).associate { i ->
                         val row = items.getJSONObject(i)
                         val sku = row.optString("sku_code")
@@ -225,7 +251,7 @@ class SweepViewModel(
                     val merged = it.identities + found
                     it.copy(
                         identities = merged,
-                        lines = regroup(it.seen, merged),
+                        lines = it.lines.map { row -> row.copy(identity = merged[row.sku]) },
                         imageAuth = token,
                         resolving = false,
                         resolveNote = "${found.size}/${wanted.size} named · ${elapsed} ms",
@@ -336,6 +362,81 @@ class SweepViewModel(
         }
     }
 
+    /**
+     * Turn the antenna up or down, mid-sweep if that is when it is needed.
+     *
+     * A sweep quietly reading the next aisle has to be corrected NOW, not after
+     * somebody finishes and starts again. But moving the power costs the whole
+     * module: on this firmware a setPower to an open module goes silently
+     * unradiated, so [Reader.setPower] closes and re-opens it — and that
+     * measured **seven seconds** on a C5, not the fraction of a second this
+     * comment used to claim.
+     *
+     * Seven seconds of dead antenna is a rack walked past. So the screen says
+     * `busy` and stops offering Finish for the duration: this app's whole
+     * position is that a screen reading "reading" over a quiet radio is how
+     * somebody sweeps an aisle and collects nothing, and a gap we caused
+     * ourselves is no different. Nothing is lost — the collector is not the
+     * radio — but the person holding it has to know to stand still.
+     */
+    fun setPower(dbm: Int) {
+        if (state.value.busy) return
+        val target = dbm.coerceIn(Reader.MIN_POWER, Reader.MAX_POWER)
+        // Releasing the finger where the antenna already is must cost nothing.
+        // Committing anyway would stop and restart inventory for no change —
+        // a hiccup in the middle of an aisle, paid for a tap that meant "yes,
+        // that one".
+        if (target == state.value.readerPower) return
+        viewModelScope.launch {
+            val sweeping = state.value.sweeping
+            // Said before the antenna goes down, not after it comes back.
+            update {
+                it.copy(busy = true,
+                    powerNote = if (sweeping) "moving the antenna · about 7 seconds"
+                        else "moving the antenna…")
+            }
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (sweeping) reader.stop()
+                    val applied = reader.setPower(target)
+                    val resumed = !sweeping ||
+                        reader.start(withTid = false) { read -> absorb(read) }
+                    applied to resumed
+                }
+            }
+            outcome.onSuccess { (applied, resumed) ->
+                val settled = if (applied > 0) applied else target
+                config.saveReaderPower(settled)
+                update {
+                    it.copy(
+                        busy = false,
+                        readerPower = settled,
+                        powerNote = when {
+                            !resumed -> "power set · the reader did not resume"
+                            applied > 0 -> "module reports $applied dBm"
+                            else -> "kept · applies when the reader wakes"
+                        },
+                        // A sweep whose inventory never came back is over, and
+                        // must say so. Leaving the flag up is how somebody
+                        // walks an aisle collecting nothing.
+                        sweeping = it.sweeping && resumed,
+                        failed = it.failed || !resumed,
+                        message = if (resumed) it.message
+                            else "the reader stopped — start reading again",
+                    )
+                }
+                // A sweep that ended by accident still files what it found.
+                // Auto-filing stops with the flag, so without this the last
+                // tick's tags sit in memory until somebody sweeps again — and
+                // the whole point of filing as we go is that nothing waits on
+                // somebody remembering.
+                if (!resumed) fileNewTags()
+            }.onFailure { e ->
+                update { it.copy(busy = false, powerNote = e.message ?: "the reader refused") }
+            }
+        }
+    }
+
     fun toggleSweep() {
         if (state.value.sweeping) stopSweep() else startSweep()
     }
@@ -345,6 +446,13 @@ class SweepViewModel(
             update { it.copy(busy = true, message = "Waking the reader…", failed = false) }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
+                    // Choose the power BEFORE the module opens, so init applies
+                    // it once. Measured on a C5 (E710_V7.10.1): a setPower
+                    // issued to an ALREADY-OPEN module reports success and the
+                    // getter echoes the new figure, but the antenna goes silent
+                    // — 40 reads at 30 dBm became zero at 29, which is not a
+                    // thing one decibel can do.
+                    settings().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
                     val version = reader.init(appContext!!)
                     val started = reader.start(withTid = false) { read -> absorb(read) }
                     if (!started) error("the reader refused to start inventory")
@@ -354,7 +462,8 @@ class SweepViewModel(
             result.onSuccess { version ->
                 update {
                     it.copy(sweeping = true, busy = false,
-                        readerInfo = "fw $version · ${reader.power()} dBm",
+                        readerInfo = "fw " + version.ifBlank { "?" },
+                        readerPower = reader.power().coerceAtLeast(0),
                         message = "Reading…")
                 }
                 startAutoFiling()
@@ -459,24 +568,41 @@ class SweepViewModel(
      */
     private fun absorb(read: TagRead) {
         val existing = collector[read.epc]
-        if (existing == null || (read.rssi ?: -999f) > (existing.rssi ?: -999f)) {
-            val parts = Epc.decode(read.epc)
-            collector[read.epc] = Seen(read.epc, read.rssi, parts?.skuCode, parts?.serial)
-            dirty.set(true)
+        if (existing != null) {
+            // A tag already counted, seen again. Keep the strongest sighting,
+            // but do NOT mark the screen dirty: nothing on it shows RSSI, so a
+            // redraw here is a frame spent to change no pixel — and during a
+            // sweep this is the overwhelming majority of reads.
+            if ((read.rssi ?: -999f) > (existing.rssi ?: -999f)) {
+                collector[read.epc] = existing.copy(rssi = read.rssi)
+            }
+            return
         }
+        val parts = Epc.decode(read.epc)
+        val fresh = Seen(read.epc, read.rssi, parts?.skuCode, parts?.serial)
+        if (collector.putIfAbsent(read.epc, fresh) != null) return
+        val sku = parts?.skuCode
+        if (sku == null) {
+            foreign.incrementAndGet()
+        } else {
+            qtyBySku.merge(sku, 1) { a, b -> a + b }
+            skuRank.putIfAbsent(sku, ranks.getAndIncrement())
+        }
+        dirty.set(true)
     }
 
     /** Push what the reader has found, at a pace an eye can follow. */
     private fun publish() {
         if (!dirty.getAndSet(false)) return
-        val seen = collector.values.sortedBy { it.epc }
-        update {
-            it.copy(
-                seen = seen,
-                lines = regroup(seen, it.identities),
-                foreignCount = seen.count { s -> s.sku == null },
-            )
-        }
+        val identities = state.value.identities
+        // Rows in the order the shop floor met them. Sorting by quantity made
+        // two hundred rows change places under the finger every time a number
+        // moved, which is both work and a list nobody can read while counting.
+        val lines = qtyBySku.entries
+            .map { (sku, qty) -> Grouped(sku, qty, identities[sku]) }
+            .sortedBy { skuRank[it.sku] ?: Int.MAX_VALUE }
+        val tags = collector.size
+        update { it.copy(tagCount = tags, lines = lines, foreignCount = foreign.get()) }
     }
 
     /** File the evidence, then do whatever this mode means on top of it. */
@@ -486,7 +612,7 @@ class SweepViewModel(
         if (!settings.isConfigured) {
             update { it.copy(failed = true, message = "Settings are incomplete") }; return
         }
-        if (current.seen.isEmpty()) {
+        if (current.tagCount == 0) {
             update { it.copy(failed = true, message = "Nothing swept yet") }; return
         }
         viewModelScope.launch {
@@ -501,11 +627,14 @@ class SweepViewModel(
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
                     val api = Api(settings)
+                    // One snapshot, taken here. The collector is the tags; UI
+                    // state carries only their count.
+                    val tags = collector.values.toList()
                     when (current.mode) {
                         Mode.SCAN -> null
-                        Mode.PACKING -> packing(api, current)
-                        Mode.RECEIVING -> receiving(api, current)
-                        Mode.COUNT -> counting(api, current)
+                        Mode.PACKING -> packing(api, current, tags)
+                        Mode.RECEIVING -> receiving(api, tags)
+                        Mode.COUNT -> counting(api, current, tags)
                     }
                 }
             }
@@ -533,9 +662,9 @@ class SweepViewModel(
     }
 
     /** A carton for one shop, targeted by what the sweep actually found. */
-    private fun packing(api: Api, s: SweepState): String {
+    private fun packing(api: Api, s: SweepState, tags: List<Seen>): String {
         if (s.destination.isBlank()) throw IllegalStateException("name the destination shop first")
-        val targets = s.seen.mapNotNull { it.sku }.groupingBy { it }.eachCount()
+        val targets = tags.mapNotNull { it.sku }.groupingBy { it }.eachCount()
         if (targets.isEmpty()) throw IllegalStateException("no tags of ours in this sweep")
         val payload = JSONObject().apply {
             put("destination_store_id", s.destination)
@@ -555,14 +684,14 @@ class SweepViewModel(
     }
 
     /** Each tag arrives at the shop as its own unit. */
-    private fun receiving(api: Api, s: SweepState): String {
+    private fun receiving(api: Api, tags: List<Seen>): String {
         // One delivery, one request, one movement group. Sending a POST per tag
         // turned an arrival into fifty transactions over shop wifi — slow
         // enough that operators stopped waiting for it, and wrong in the ledger
         // besides, because the goods came off one lorry.
         val lines = org.json.JSONArray()
         var foreign = 0
-        s.seen.forEach { seen ->
+        tags.forEach { seen ->
             val sku = seen.sku
             if (sku == null) {
                 foreign++
@@ -594,10 +723,10 @@ class SweepViewModel(
     }
 
     /** Entries against an Official Count the centre already opened. */
-    private fun counting(api: Api, s: SweepState): String {
+    private fun counting(api: Api, s: SweepState, tags: List<Seen>): String {
         if (s.countId.isBlank()) throw IllegalStateException("choose a count first")
         val entries = org.json.JSONArray()
-        s.seen.forEach { seen ->
+        tags.forEach { seen ->
             entries.put(JSONObject().put("epc", seen.epc).put("found_quantity", 1))
         }
         val payload = JSONObject().apply {
@@ -606,11 +735,28 @@ class SweepViewModel(
             put("idempotency_key", "hh-count-" + sessionId.take(12))
         }
         api.post("/api/v1/dc/official-counts/${s.countId}/entries", payload)
-        return "${s.seen.size} count entries"
+        return "${tags.size} count entries"
     }
 
+    /**
+     * Put the radio down when the operator walks off to Setelan.
+     *
+     * Everything found stays found — this is a pause, not an abandonment. What
+     * must not survive is the CLAIM that the reader is still reading: the screen
+     * said "reading" over a stopped antenna, the trigger did nothing, and the
+     * only way back was Finish. Stopping properly also files whatever the last
+     * tick missed, so the walk away is a complete act.
+     */
     fun releaseReader() {
-        runCatching { reader.stop() }
+        if (state.value.sweeping) {
+            stopSweep()
+            return
+        }
+        // Off the main thread even when idle: stop() joins the poll thread and
+        // talks to the UART, and neither belongs in a tab change.
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { runCatching { reader.stop() } }
+        }
     }
 
     private inline fun update(block: (SweepState) -> SweepState) {

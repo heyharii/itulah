@@ -3,12 +3,13 @@ import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
+import { Checkbox } from "@/components/ui/field"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { BarSeries, type ChartSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
-import { Meter } from "@/components/ui/meter"
 import { TotalsLadder } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
@@ -28,18 +29,29 @@ import { cn } from "@/lib/utils"
 import {
   asPresented,
   ladderLevel,
+  periodResult,
   ROOT_CLASSES,
+  ROOT_CLASSES_SHORT,
 } from "@/screens/finance/chart"
 import { useAsOf, useWindow } from "@/screens/finance/hooks"
 import {
   Amount,
   AsOfControl,
-  Check,
   LocationSelect,
+  RankedBars,
   SiteName,
   WindowControl,
 } from "@/screens/finance/parts"
 import type { BalanceRow, StatementSection } from "@itulah/contract"
+
+/// One bar per section of the profit and loss.
+///
+/// `accent` and nothing else: the sections are five readings of one figure —
+/// where the money went — and a second hue would say they are two kinds of
+/// thing.
+const SECTION_SERIES: readonly ChartSeries[] = [
+  { key: "total", label: "For the period", tone: "accent" },
+]
 
 /// What the books say: the balance sheet and the profit and loss, from the
 /// client's own root classes — and the balance sheet read across locations.
@@ -169,11 +181,11 @@ export function Reports() {
             aria-label="Location"
           />
         )}
-        <Check
+        <Checkbox
           label="Per location"
           checked={spread}
           disabled={kind === "PROFIT_LOSS"}
-          onChange={(event) => setPerLocation(event.target.checked)}
+          onChange={(next) => setPerLocation(next)}
           // The gap is on the server and not here. `GET /balances` takes
           // `family` + `as_of` only — `MatrixQuery` in
           // `backend/src/cloud/http/finance.rs` has no `from`, and a balance at
@@ -185,7 +197,10 @@ export function Reports() {
           // P&L needs the endpoint to take a window.
           hint={
             kind === "PROFIT_LOSS"
-              ? "Balances are a moment, not a window — the endpoint behind this takes only a family and an as-of date."
+              ? // Short enough to sit on the toolbar’s one row. The whole
+                // reason is in the comment above and in the doc at the top of
+                // this file; the page needs the fact, not the argument.
+                "A balance is a moment, not a window."
               : undefined
           }
         />
@@ -195,7 +210,16 @@ export function Reports() {
             is what tells them which report they are looking at. */}
         <span className="text-[0.71875rem] text-mute">
           {kind === "PROFIT_LOSS" ? range.chip : asOf.chip}
-          {spread ? " · every location, broken out" : ""}
+          {spread ? (
+            " · every location, broken out"
+          ) : site === "" ? (
+            " · every location"
+          ) : (
+            <>
+              {" · "}
+              <SiteName id={site} />
+            </>
+          )}
         </span>
       </Toolbar>
 
@@ -236,22 +260,96 @@ export function Reports() {
                 </Card>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {/* The client's own name for the location and not the id it
-                      is filed under — `<SiteName>` keeps `store-02` in `title`,
-                      because that is what the account codes carry and what a
-                      support call will be about. */}
-                  <p className="text-[0.71875rem] text-mute">
-                    {data.from ? `${day(data.from)} – ` : "As at "}
-                    {day(data.to)}
-                    {data.site_id ? (
-                      <>
-                        {" · "}
-                        <SiteName id={data.site_id} />
-                      </>
-                    ) : (
-                      " · every location"
-                    )}
-                  </p>
+                  {/* The shape of the period, before the detail of it. Only
+                      on the profit and loss: a balance sheet's three classes
+                      are assets against liabilities and equity, and drawing
+                      them as three bars of one series would invite somebody
+                      to read a total across the accounting identity. */}
+                  {data.kind === "PROFIT_LOSS" && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>By class</CardTitle>
+                        <span className="text-[0.71875rem] text-mute">
+                          The client's own root classes, as the report prints
+                          them
+                        </span>
+                      </CardHeader>
+                      <div className="grid gap-x-6 gap-y-4 px-4 pb-3.5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+                        <BarSeries
+                          rows={data.sections.map((section) => ({
+                            bucket: section.root_class,
+                            total: asPresented(
+                              section.total_minor,
+                              section.root_class
+                            ),
+                          }))}
+                          series={SECTION_SERIES}
+                          format={money}
+                          // The client's own name for the class, shortened, on
+                          // the axis — and the whole of it in the tooltip. The
+                          // bare class number was here, which is a chart of the
+                          // chart of accounts' internal numbering rather than
+                          // of the business: "7" is not a thing anybody spends
+                          // money on.
+                          labelOf={(bucket) =>
+                            ROOT_CLASSES_SHORT[bucket] ?? bucket
+                          }
+                          titleOf={(bucket) =>
+                            data.sections.find(
+                              (section) => section.root_class === bucket
+                            )?.title ??
+                            ROOT_CLASSES[bucket] ??
+                            bucket
+                          }
+                          className="h-[9.5rem]"
+                        />
+                        <TotalsLadder
+                          rows={data.sections.map((section) => ({
+                            label: (
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                <span className="font-mono text-id text-mute">
+                                  {section.root_class}
+                                </span>
+                                <span className="truncate">
+                                  {section.title}
+                                </span>
+                              </span>
+                            ),
+                            value: money(
+                              asPresented(
+                                section.total_minor,
+                                section.root_class
+                              )
+                            ),
+                          }))}
+                          // The server's own bottom line, not a sum of the
+                          // bars beside it. It is computed from the journal
+                          // rather than by adding the sections up, so a
+                          // disagreement here is a bug showing itself instead
+                          // of hiding inside the figure that should catch it.
+                          //
+                          // Negated and named by its sign, because the wire
+                          // speaks debits-positive: a loss arrives POSITIVE,
+                          // and this card printed a 33-million loss as though
+                          // it were a profit. See `periodResult`.
+                          total={{
+                            label: periodResult(data.result_minor).label,
+                            value: (
+                              <span
+                                className={
+                                  periodResult(data.result_minor).loss
+                                    ? "text-bad-fg"
+                                    : undefined
+                                }
+                              >
+                                {money(periodResult(data.result_minor).minor)}
+                              </span>
+                            ),
+                          }}
+                        />
+                      </div>
+                    </Card>
+                  )}
 
                   {data.sections.map((section) => (
                     <Section key={section.root_class} section={section} />
@@ -260,16 +358,29 @@ export function Reports() {
                   {data.kind === "BALANCE_SHEET" && (
                     <Card>
                       <CardHeader>
-                        <CardTitle>Result for the period</CardTitle>
-                        <span className="text-[0.9375rem] font-semibold text-ink tabular-nums">
-                          {money(data.result_minor)}
+                        {/* Named by its sign and negated for display, exactly
+                            as on the other tab: the wire speaks
+                            debits-positive, so a loss arrives POSITIVE and
+                            printing it raw calls a loss a profit. */}
+                        <CardTitle>
+                          {periodResult(data.result_minor).label}
+                        </CardTitle>
+                        <span
+                          className={cn(
+                            "text-[0.9375rem] font-semibold tabular-nums",
+                            periodResult(data.result_minor).loss
+                              ? "text-bad-fg"
+                              : "text-ink"
+                          )}
+                        >
+                          {money(periodResult(data.result_minor).minor)}
                         </span>
                       </CardHeader>
                       <p className="px-4 pb-3.5 text-[0.71875rem] text-body">
-                        Income less expenses, classes 4 through 8 netted. It is
-                        what makes classes 1, 2 and 3 add up — profit earned and
-                        not yet closed to equity. The client's own line for it
-                        is{" "}
+                        Income less expenses, classes 4 through 8 netted, and
+                        measured inception to date. It is what makes classes 1,
+                        2 and 3 add up — profit earned and not yet closed to
+                        equity. The client's own line for it is{" "}
                         <AppLink
                           to="/finance/ledger"
                           sheet={{ key: "account", value: "3013001003" }}
@@ -334,7 +445,13 @@ interface Crumb {
 /// match up by name. A column total belongs at the top of its column. It is
 /// still the server's figure and never a sum of what is on screen — the grand
 /// total below says so for both.
-function LocationSpread({ rootCode, asOf }: { rootCode: string; asOf: string }) {
+function LocationSpread({
+  rootCode,
+  asOf,
+}: {
+  rootCode: string
+  asOf: string
+}) {
   // Where the reader has walked to below the root class, deepest last; empty is
   // the root itself. Component state and not the URL: three of these are on
   // screen at once and three descents in the address bar would be a link
@@ -438,35 +555,33 @@ function LocationSpread({ rootCode, asOf }: { rootCode: string; asOf: string }) 
           </span>
         ),
       },
-      ...locations.map(
-        (site, index): ColumnDef<TableSetup, BalanceRow> => ({
-          id: `site-${site}`,
-          // The cells are read by index and not by key, because that is how the
-          // server sends them: aligned with `locations`, so a location with
-          // nothing posted is a zero and never a gap. "No cash at store 07" and
-          // "we never asked about store 07" look the same in a sparse map and
-          // are very different things to an accountant.
-          accessorFn: (row) => row.cells[index] ?? 0,
-          // The client's own name for the location — "Store 07", not
-          // `store-07`. The id is what the account codes carry and what a
-          // support call will be about, so `<SiteName>` keeps it in `title`
-          // rather than dropping it. Under the name, the server's total for
-          // the column.
-          header: () => (
-            <span className="inline-flex flex-col items-end leading-tight">
-              <SiteName id={site} />
-              <span className="text-[0.625rem] font-normal text-faint tabular-nums">
-                {money(columnTotals[index] ?? 0)}
-              </span>
+      ...locations.map((site, index): ColumnDef<TableSetup, BalanceRow> => ({
+        id: `site-${site}`,
+        // The cells are read by index and not by key, because that is how the
+        // server sends them: aligned with `locations`, so a location with
+        // nothing posted is a zero and never a gap. "No cash at store 07" and
+        // "we never asked about store 07" look the same in a sparse map and
+        // are very different things to an accountant.
+        accessorFn: (row) => row.cells[index] ?? 0,
+        // The client's own name for the location — "Store 07", not
+        // `store-07`. The id is what the account codes carry and what a
+        // support call will be about, so `<SiteName>` keeps it in `title`
+        // rather than dropping it. Under the name, the server's total for
+        // the column.
+        header: () => (
+          <span className="inline-flex flex-col items-end leading-tight">
+            <SiteName id={site} />
+            <span className="text-[0.625rem] font-normal text-faint tabular-nums">
+              {money(columnTotals[index] ?? 0)}
             </span>
-          ),
-          size: 130,
-          meta: { align: "right" },
-          cell: ({ row }) => (
-            <Amount minor={row.original.cells[index] ?? 0} muteZero />
-          ),
-        })
-      ),
+          </span>
+        ),
+        size: 130,
+        meta: { align: "right" },
+        cell: ({ row }) => (
+          <Amount minor={row.original.cells[index] ?? 0} muteZero />
+        ),
+      })),
       {
         accessorKey: "total_minor",
         header: "Total",
@@ -617,19 +732,16 @@ function LocationSpread({ rootCode, asOf }: { rootCode: string; asOf: string }) 
 ///
 /// # Why a bar and not a chart
 ///
-/// `<Meter>` is what this app already has for "how much of the biggest": a
-/// horizontal track, the accent fill, no axis. The shared `<BarSeries>` next
-/// door is vertical, and fourteen vertical categories means fourteen tick
-/// labels that Recharts thins out — "Store 07" disappearing is the one thing a
-/// per-location comparison cannot afford.
+/// `<RankedBars>` is what this module has for "how much of the biggest": a
+/// horizontal `<Meter>` track, the accent fill, no axis. The shared
+/// `<BarSeries>` next door is vertical, and fourteen vertical categories means
+/// fourteen tick labels that Recharts thins out — "Store 07" disappearing is
+/// the one thing a per-location comparison cannot afford.
 ///
-/// # Why the bar is a magnitude and the figure is signed
-///
-/// The ledger sends credit-natured classes negative, and classes 2 and 3 come
-/// back wholly negative. A track cannot draw a negative, and flipping the sign
-/// here would print a figure the column head above it does not. So the bar is
-/// scaled on the largest magnitude and the number keeps its sign, exactly as
-/// the grid shows it.
+/// This function had the track, the ranking and the peak written out inside
+/// it, and then the asset register wanted the same three things. They now live
+/// in `parts.tsx` and this is what is left: turning a pair of parallel arrays
+/// into named rows, which is the only part of it that was ever about balances.
 function LocationBars({
   locations,
   totals,
@@ -637,47 +749,24 @@ function LocationBars({
   locations: readonly string[]
   totals: readonly number[]
 }) {
-  const ranked = useMemo(
+  const rows = useMemo(
     () =>
-      locations
-        .map((site, index) => ({ site, value: totals[index] ?? 0 }))
-        .sort((a, b) => Math.abs(b.value) - Math.abs(a.value)),
+      locations.map((site, index) => ({
+        key: site,
+        // The client's own name for the shop, with the id in `title` — the
+        // same reading every other location on every other finance screen
+        // gets.
+        label: <SiteName id={site} className="text-mute" />,
+        value: totals[index] ?? 0,
+      })),
     [locations, totals]
   )
 
-  const peak = Math.max(...ranked.map((row) => Math.abs(row.value)), 0)
-
-  // Nothing posted anywhere at this level. A row of empty tracks would say
-  // "fourteen shops hold nothing" in fourteen lines; the grid says it once.
-  if (peak === 0) {
-    return (
-      <p className="text-[0.71875rem] text-mute">
-        Nothing at any location under this heading.
-      </p>
-    )
-  }
-
   return (
-    <div className="flex flex-col gap-1">
-      {ranked.map((row) => (
-        <div
-          key={row.site}
-          className="flex items-center gap-2.5 text-[0.71875rem]"
-        >
-          <SiteName
-            id={row.site}
-            className="w-20 shrink-0 truncate text-mute"
-          />
-          <Meter
-            value={Math.abs(row.value) / peak}
-            className="min-w-0 flex-1"
-          />
-          <span className="w-32 shrink-0 text-right text-ink tabular-nums">
-            {money(row.value)}
-          </span>
-        </div>
-      ))}
-    </div>
+    <RankedBars
+      rows={rows}
+      empty="Nothing at any location under this heading."
+    />
   )
 }
 

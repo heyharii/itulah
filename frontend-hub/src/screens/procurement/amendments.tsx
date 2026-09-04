@@ -192,7 +192,6 @@ export function PriceAmendments() {
         }
       />
 
-
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Waiting on an answer" value={rows.length} />
         <Kpi label="Billed above the order" value={over} />

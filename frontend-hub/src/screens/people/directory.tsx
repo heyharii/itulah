@@ -7,6 +7,7 @@ import { useMemo, useState } from "react"
 import { CalendarClock } from "lucide-react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
@@ -34,16 +35,24 @@ import {
   amendPersonalData,
   applyTransition,
   assignToPlace,
+  boundedTo,
   clearable,
   correctCode,
   daysUntil,
+  leaveBalances,
+  leaveKeys,
+  leaveRequestsOf,
+  leaveStateLabel,
   linkAccount,
   listEmployees,
+  releaseAccount,
   expiringContracts,
   peopleKeys,
   readContracts,
   readEmployee,
+  readDays,
   statusLabel,
+  useReach,
   TRANSITIONS,
   type AmendableField,
   type ContractKind,
@@ -52,7 +61,11 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import type { EmployeeSummary, ProfileAmendmentView } from "@itulah/contract"
+import type {
+  AccountBinding,
+  EmployeeSummary,
+  ProfileAmendmentView,
+} from "@itulah/contract"
 import { Quiet } from "@/screens/people/parts"
 
 /// The workforce: who works here, under what contract, and where they are
@@ -202,6 +215,12 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
 
 export function Directory() {
   const [query, setQuery] = useState("")
+  // Whose list this is. The server has already bounded it — a supervisor posted
+  // to one shop is served their shop and nothing else — so the screen's job is
+  // to say so. A directory that silently showed eight people where the company
+  // has ninety would read as a company of eight.
+  const reach = useReach()
+  const bounded = boundedTo(reach.data)
   const employee = useSheet("employee")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "expiry", desc: false },
@@ -274,7 +293,11 @@ export function Directory() {
       <PageHeader
         crumb="People"
         title="Directory"
-        sub="Who works here, under what contract, and where they are posted. Personal data is a different question and a different privilege."
+        sub={
+          bounded === null
+            ? "Who works here, under what contract, and where they are posted. Personal data is a different question and a different privilege."
+            : `${bounded} only — your own posting is what you may read. Personal data is a different question and a different privilege.`
+        }
         actions={
           <Input
             value={query}
@@ -325,6 +348,7 @@ export function Directory() {
 
 const TABS = [
   { value: "record", label: "Record" },
+  { value: "leave", label: "Leave" },
   { value: "contracts", label: "Contracts" },
   { value: "change", label: "Change" },
 ] as const
@@ -365,13 +389,34 @@ function EmployeeSheet({
               {!person.selectable && (
                 <Pill tone="neutral">Not available for new work</Pill>
               )}
+              {person.status !== "ACTIVE" &&
+                person.status !== "CANDIDATE" &&
+                person.account !== null &&
+                person.account.active && (
+                  // Ending or suspending employment closes the login as part of
+                  // the same act, so this is either a binding made before that
+                  // was true or a close that failed. Both are a working
+                  // credential for somebody who is not working, which is the
+                  // one thing on this sheet worth interrupting somebody about.
+                  <Pill tone="bad">Login still open</Pill>
+                )}
             </div>
 
             <Facts>
               <Fact term="Posted to">
                 {person.current_place_name ?? person.current_place_id ?? "—"}
               </Fact>
-              <Fact term="Login">{listed?.username ?? "None"}</Fact>
+              <Fact term="Login">
+                {person.account === null ? (
+                  "None"
+                ) : person.account.active ? (
+                  person.account.username
+                ) : (
+                  <span className="text-mute">
+                    {person.account.username} · closed
+                  </span>
+                )}
+              </Fact>
               <Fact term="Job">{listed?.position ?? "—"}</Fact>
               <Fact term="Registered">{day(person.created_at)}</Fact>
             </Facts>
@@ -469,11 +514,18 @@ function EmployeeSheet({
                 </div>
               )}
 
+              {tab === "leave" && <LeaveTab employeeId={person.employee_id} />}
+
               {tab === "contracts" && (
                 <Contracts employeeId={person.employee_id} />
               )}
 
-              {tab === "change" && <Changes employeeId={person.employee_id} />}
+              {tab === "change" && (
+                <Changes
+                  employeeId={person.employee_id}
+                  account={person.account}
+                />
+              )}
             </div>
           </div>
         ),
@@ -546,7 +598,7 @@ const ACTIONS = [
   { value: "posting", label: "Where they are posted" },
   { value: "contract", label: "Add a contract" },
   { value: "code", label: "Correct the employee number" },
-  { value: "account", label: "Link a login" },
+  { value: "account", label: "The login" },
   { value: "personal", label: "Amend personal data" },
 ] as const
 
@@ -555,16 +607,19 @@ const ACTIONS = [
 /// Six forms stacked would be six ways to click the wrong Save in a panel
 /// 27.5rem wide. Picking the change first also makes the reason field mean
 /// something specific — it is recorded against that decision and no other.
-function Changes({ employeeId }: { employeeId: string }) {
+function Changes({
+  employeeId,
+  account,
+}: {
+  employeeId: string
+  account: AccountBinding | null
+}) {
   const [action, setAction] = useState<string>("employment")
 
   return (
     <div className="flex flex-col gap-4">
       <Field label="What are you changing?">
-        <Select
-          value={action}
-          onChange={(event) => setAction(event.target.value)}
-        >
+        <Select value={action} onChange={(next) => setAction(next)}>
           {ACTIONS.map((one) => (
             <option key={one.value} value={one.value}>
               {one.label}
@@ -577,7 +632,9 @@ function Changes({ employeeId }: { employeeId: string }) {
       {action === "posting" && <PostingForm employeeId={employeeId} />}
       {action === "contract" && <ContractForm employeeId={employeeId} />}
       {action === "code" && <CodeForm employeeId={employeeId} />}
-      {action === "account" && <AccountForm employeeId={employeeId} />}
+      {action === "account" && (
+        <AccountForm employeeId={employeeId} account={account} />
+      )}
       {action === "personal" && <AmendmentForm employeeId={employeeId} />}
     </div>
   )
@@ -710,9 +767,7 @@ function TransitionForm({ employeeId }: { employeeId: string }) {
           <Field label="Transition">
             <Select
               value={field.state.value}
-              onChange={(event) =>
-                field.handleChange(event.target.value as Transition)
-              }
+              onChange={(next) => field.handleChange(next as Transition)}
             >
               {TRANSITIONS.map((one) => (
                 <option key={one} value={one}>
@@ -730,11 +785,10 @@ function TransitionForm({ employeeId }: { employeeId: string }) {
             label="Effective on"
             hint="The day it takes effect, which is rarely the day it is typed."
           >
-            <Input
-              type="date"
+            <Day
               value={field.state.value}
               onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value)}
+              onChange={field.handleChange}
             />
           </Field>
         )}
@@ -846,11 +900,10 @@ function PostingForm({ employeeId }: { employeeId: string }) {
         <form.Field name="validFrom">
           {(field) => (
             <Field label="From">
-              <Input
-                type="date"
+              <Day
                 value={field.state.value}
                 onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
+                onChange={field.handleChange}
               />
             </Field>
           )}
@@ -858,11 +911,10 @@ function PostingForm({ employeeId }: { employeeId: string }) {
         <form.Field name="validTo">
           {(field) => (
             <Field label="Until" hint="Open-ended if blank">
-              <Input
-                type="date"
+              <Day
                 value={field.state.value}
                 onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
+                onChange={field.handleChange}
               />
             </Field>
           )}
@@ -979,9 +1031,7 @@ function ContractForm({ employeeId }: { employeeId: string }) {
           <Field label="Kind">
             <Select
               value={field.state.value}
-              onChange={(event) =>
-                field.handleChange(event.target.value as ContractKind)
-              }
+              onChange={(next) => field.handleChange(next as ContractKind)}
             >
               <option value="PKWT">PKWT — fixed term</option>
               <option value="PKWTT">PKWTT — permanent</option>
@@ -994,11 +1044,10 @@ function ContractForm({ employeeId }: { employeeId: string }) {
         <form.Field name="startsOn">
           {(field) => (
             <Field label="Starts on">
-              <Input
-                type="date"
+              <Day
                 value={field.state.value}
                 onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
+                onChange={field.handleChange}
               />
             </Field>
           )}
@@ -1018,12 +1067,11 @@ function ContractForm({ employeeId }: { employeeId: string }) {
                     needsEnd(draft) ? "A PKWT is a fixed term." : undefined
                   }
                 >
-                  <Input
-                    type="date"
+                  <Day
                     value={field.state.value}
                     disabled={draft.kind === "PKWTT"}
                     onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
+                    onChange={field.handleChange}
                   />
                 </Field>
               )}
@@ -1124,21 +1172,84 @@ function CodeForm({ employeeId }: { employeeId: string }) {
   )
 }
 
-function AccountForm({ employeeId }: { employeeId: string }) {
+/// The login this record signs in with: bound here, and released here.
+///
+/// Two acts behind one entry rather than two, because they are the same
+/// decision made in opposite directions and a person who has picked "the login"
+/// wants to see the one they have before choosing. What this form deliberately
+/// cannot do is *close* an account: a release says the credential is not this
+/// person's, and closing somebody's login is either ending their employment —
+/// which does it as part of the same act — or an administrator's decision in
+/// System > Accounts.
+function AccountForm({
+  employeeId,
+  account,
+}: {
+  employeeId: string
+  account: AccountBinding | null
+}) {
   const client = useQueryClient()
   const [username, setUsername] = useState("")
+  const [reason, setReason] = useState("")
+
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: peopleKeys.employee(employeeId) })
+    client.invalidateQueries({
+      queryKey: peopleKeys.employees({ limit: 1000 }),
+    })
+    setUsername("")
+    setReason("")
+  }
 
   const link = useMutation({
-    mutationFn: () => linkAccount(employeeId, username.trim()),
-    onSuccess: () => {
-      // The directory row carries the login; the record itself does not.
-      client.invalidateQueries({ queryKey: peopleKeys.employee(employeeId) })
-      client.invalidateQueries({
-        queryKey: peopleKeys.employees({ limit: 1000 }),
-      })
-      setUsername("")
-    },
+    mutationFn: () => linkAccount(employeeId, username.trim(), reason.trim()),
+    onSuccess: refresh,
   })
+  const release = useMutation({
+    mutationFn: () => releaseAccount(employeeId, reason.trim()),
+    onSuccess: refresh,
+  })
+
+  if (account !== null) {
+    return (
+      <div className="flex flex-col gap-4">
+        {release.isError && <ErrorState error={release.error} />}
+        {release.isSuccess && (
+          <Banner tone="ok">
+            Released. The account still exists and still signs in — it is simply
+            nobody&rsquo;s until it is bound again.
+          </Banner>
+        )}
+
+        <Facts>
+          <Fact term="Username">{account.username}</Fact>
+          <Fact term="Signs in">{account.active ? "Yes" : "No — closed"}</Fact>
+          <Fact term="Bound by">
+            {account.linked_by === null ? (
+              // 0097 did not backfill provenance for bindings made before it
+              // existed, and naming somebody who never decided it would be
+              // worse than saying nothing.
+              <span className="text-mute">Recorded before this was kept</span>
+            ) : (
+              `${account.linked_by} · ${day(account.linked_at)}`
+            )}
+          </Fact>
+          {account.link_reason !== null && (
+            <Fact term="Because">{account.link_reason}</Fact>
+          )}
+        </Facts>
+
+        <Reason value={reason} onChange={setReason} />
+
+        <Submit
+          label="Release the login"
+          busy={release.isPending}
+          disabled={reason.trim() === ""}
+          onClick={() => release.mutate()}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -1149,7 +1260,7 @@ function AccountForm({ employeeId }: { employeeId: string }) {
 
       <Field
         label="Username"
-        hint="An account that already exists. Creating one is a different privilege and a different screen."
+        hint="An account that already exists, and that nobody else is. Creating one is a different privilege and a different screen."
       >
         <Input
           value={username}
@@ -1158,10 +1269,12 @@ function AccountForm({ employeeId }: { employeeId: string }) {
         />
       </Field>
 
+      <Reason value={reason} onChange={setReason} />
+
       <Submit
         label="Link the login"
         busy={link.isPending}
-        disabled={username.trim() === ""}
+        disabled={username.trim() === "" || reason.trim() === ""}
         onClick={() => link.mutate()}
       />
     </div>
@@ -1255,8 +1368,8 @@ function AmendmentForm({ employeeId }: { employeeId: string }) {
           <Field label="Field">
             <Select
               value={field.state.value}
-              onChange={(event) => {
-                field.handleChange(event.target.value as AmendableField)
+              onChange={(next) => {
+                field.handleChange(next as AmendableField)
                 // A phone number left in the box is not an email address.
                 form.setFieldValue("value", "")
               }}
@@ -1296,11 +1409,10 @@ function AmendmentForm({ employeeId }: { employeeId: string }) {
             <form.Field name="birthDate">
               {(field) => (
                 <Field label="Date of birth">
-                  <Input
-                    type="date"
+                  <Day
                     value={field.state.value}
                     onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
+                    onChange={field.handleChange}
                   />
                 </Field>
               )}
@@ -1341,5 +1453,115 @@ function AmendmentForm({ employeeId }: { employeeId: string }) {
         </div>
       )}
     </form>
+  )
+}
+
+/// What this person is owed, and what they have asked for.
+///
+/// Two reads rather than one, because they are two questions with two lifetimes:
+/// a balance changes when somebody is granted days or takes them, and the
+/// request list changes every time anybody files one. Folding them into a single
+/// endpoint would mean re-reading the whole history to learn that a balance
+/// moved.
+///
+/// Amounts arrive as **centidays** and are divided here and nowhere else. A
+/// half day is 50 on the wire for the same reason money is an integer of the
+/// smallest unit: `0.1 + 0.2 !== 0.3`, and a balance off by 2⁻⁵² fails an
+/// equality check nobody can explain.
+///
+/// Only balance-backed kinds appear. Sick leave is absent rather than shown as
+/// zero, and that is the honest answer: UU 13/2003 art. 93 gives it for as long
+/// as the certificate says, so "how many are left" is a malformed question
+/// rather than one whose answer is none — and `0` is a number somebody can
+/// refuse leave with.
+function LeaveTab({ employeeId }: { employeeId: string }) {
+  const balances = useQuery({
+    queryKey: leaveKeys.balances(employeeId),
+    queryFn: ({ signal }) => leaveBalances(employeeId, signal),
+  })
+  const requests = useQuery({
+    queryKey: leaveKeys.requests(employeeId),
+    queryFn: ({ signal }) => leaveRequestsOf(employeeId, signal),
+  })
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div>
+        <SubHead>Balances</SubHead>
+        {queryState(balances, {
+          loading: "Reading the ledger…",
+          render: (rows) =>
+            rows.length === 0 ? (
+              <Quiet>
+                No kind of leave draws on a balance yet, so there is none to
+                report.
+              </Quiet>
+            ) : (
+              <MiniTable
+                head={["Kind", { label: "Pending", align: "right" }, "Left"]}
+              >
+                {rows.map((row) => (
+                  <MiniRow key={row.leave_type}>
+                    <MiniCell>
+                      <span className="block text-[0.8125rem] text-ink">
+                        {row.name}
+                      </span>
+                      <span className="font-mono text-[0.65625rem] text-mute">
+                        {row.leave_type}
+                      </span>
+                    </MiniCell>
+                    {/* Asked for and not yet decided. Not deducted, and the
+                        number somebody actually plans around. */}
+                    <MiniCell align="right">
+                      {row.pending_centidays === 0
+                        ? "—"
+                        : readDays(row.pending_centidays)}
+                    </MiniCell>
+                    <MiniCell align="right">{readDays(row.centidays)}</MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+            ),
+        })}
+      </div>
+
+      <div>
+        <SubHead>Requests</SubHead>
+        {queryState(requests, {
+          loading: "Reading the requests…",
+          render: (rows) =>
+            rows.length === 0 ? (
+              <Quiet>Never asked for a day off.</Quiet>
+            ) : (
+              <MiniTable
+                head={[
+                  "Kind",
+                  { label: "From", align: "left" },
+                  { label: "Charged", align: "right" },
+                ]}
+              >
+                {rows.map((row) => (
+                  <MiniRow key={row.id}>
+                    <MiniCell>
+                      <span className="block text-[0.8125rem] text-ink">
+                        {row.leave_type_name}
+                      </span>
+                      <span className="font-mono text-[0.65625rem] text-mute">
+                        {leaveStateLabel(row.state)}
+                        {row.decided_by !== null && ` · ${row.decided_by}`}
+                      </span>
+                    </MiniCell>
+                    <MiniCell>{day(row.from_date)}</MiniCell>
+                    {/* Not the length of the span: a holiday inside it is
+                        already charged by the calendar, and charging it again
+                        would take the same day off twice. */}
+                    <MiniCell align="right">{row.chargeable_days}</MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+            ),
+        })}
+      </div>
+    </div>
   )
 }

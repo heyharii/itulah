@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { ArrowLeft, Minus, Plus, ShoppingBasket, Store } from "lucide-react"
+import { ArrowLeft, Plus, ShoppingBasket, Store } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,7 @@ import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import { Tag } from "@/components/ui/tag"
+import { colourKeys, listColours, type ColourTerm } from "@/lib/queries/colours"
 import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, money } from "@/lib/format"
 import {
@@ -24,7 +25,6 @@ import {
   readBasket,
   scopeFromFilters,
   searchSupplierItems,
-  setBasketQuantity,
   supplierItemDetail,
   type SourcingScope,
 } from "@/lib/queries/procurement"
@@ -33,7 +33,10 @@ import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { BasketSheet } from "@/screens/procurement/basket"
 import { ItemDetail } from "@/screens/procurement/item-detail"
-import { termLabel } from "@/screens/procurement/shared"
+import { ItemFormSheet } from "@/screens/procurement/item-form"
+import { Swatches } from "@/components/ui/swatch"
+import { Thumbnail } from "@/components/ui/thumbnail"
+import { sizeSpan, termLabel } from "@/screens/procurement/shared"
 import type {
   CatalogueVocabulary,
   FacetCount,
@@ -71,6 +74,10 @@ export function Sourcing() {
   const search = useSheet("q")
   const item = useSheet("item")
   const cart = useSheet("cart")
+  /// Adding to the catalogue this screen browses. Here as well as on
+  /// Catalogue, because this is where somebody is standing when they discover
+  /// a supplier sells something we have never written down.
+  const adding = useSheet("new-item")
   /// Relevance is the absence of a sort rather than a value, so the plain URL
   /// is the plain catalogue and there is one spelling of "no order chosen".
   const sort = useSheet("sort")
@@ -101,6 +108,31 @@ export function Sourcing() {
     [supplierList.data]
   )
 
+  /// The colour master, for the filter's labels.
+  ///
+  /// Read from `/api/v1/colours` rather than folded into the catalogue
+  /// vocabulary, and the same way `master/articles` reads it: colour is an
+  /// editable master with its own screen, and a second half-copy of it
+  /// travelling on another endpoint is the exact split the master was created
+  /// to prevent.
+  ///
+  /// The CARDS do not need this. Every item carries its own colours with their
+  /// labels and hexes already on them, so a card draws its swatches from the
+  /// row it was handed — this is only for the picker, which has to name
+  /// colours no item on this page happens to be offered in.
+  const colourMaster = useQuery({
+    queryKey: colourKeys.list(),
+    queryFn: ({ signal }) => listColours(signal),
+    staleTime: 30 * 60 * 1000,
+  })
+  const colourTerms = useMemo(
+    () =>
+      new Map<string, ColourTerm>(
+        (colourMaster.data?.colours ?? []).map((term) => [term.code, term])
+      ),
+    [colourMaster.data]
+  )
+
   /// How each facet's codes are read out loud. Callbacks rather than inline
   /// arrows because the field list memoises on them.
   const divisionLabel = useCallback(
@@ -114,6 +146,15 @@ export function Sourcing() {
   const supplierLabel = useCallback(
     (id: string) => supplierNames.get(id) ?? id,
     [supplierNames]
+  )
+  const colourLabel = useCallback(
+    (code: string) => colourTerms.get(code)?.label ?? code,
+    [colourTerms]
+  )
+  const sizeLabelOf = useCallback(
+    (code: string) =>
+      vocabulary.data?.sizes.find((term) => term.code === code)?.label ?? code,
+    [vocabulary.data]
   )
 
   /// What this catalogue can be narrowed by.
@@ -154,6 +195,34 @@ export function Sourcing() {
           operators: ["includesAnyOf", "excludes", "isEmpty", "isNotEmpty"],
         },
       },
+      // What it comes in, as two more facets. `multi` and not `option`,
+      // because an item is offered in several colours at once and "is navy"
+      // would be a chip that lies about a tee sold in five — the same reason
+      // Tag is a multi and Division is not.
+      //
+      // No `includesAllOf` on either, for the same reason Tag has none: the
+      // server ANDs nothing here, and a chip reading "include all of" over an
+      // OR is a chip a buyer would trust and should not.
+      {
+        column: "colour",
+        label: "Colour",
+        spec: {
+          kind: "multi",
+          format: colourLabel,
+          single: true,
+          operators: ["includesAnyOf", "excludes", "isEmpty", "isNotEmpty"],
+        },
+      },
+      {
+        column: "size",
+        label: "Size",
+        spec: {
+          kind: "multi",
+          format: sizeLabelOf,
+          single: true,
+          operators: ["includesAnyOf", "excludes", "isEmpty", "isNotEmpty"],
+        },
+      },
       {
         column: "price",
         label: "Price",
@@ -179,7 +248,7 @@ export function Sourcing() {
     // and a clause already in `?f=` is left in the address bar untouched, so
     // leaving the shop brings it back.
     if (!shop.value) {
-      list.splice(2, 0, {
+      list.splice(4, 0, {
         column: "supplier",
         label: "Supplier",
         spec: {
@@ -191,7 +260,14 @@ export function Sourcing() {
       })
     }
     return list
-  }, [divisionLabel, tagLabel, supplierLabel, shop.value])
+  }, [
+    divisionLabel,
+    tagLabel,
+    colourLabel,
+    sizeLabelOf,
+    supplierLabel,
+    shop.value,
+  ])
 
   const filters = useFilterState(fields)
 
@@ -255,6 +331,8 @@ export function Sourcing() {
     const source: Record<string, readonly FacetCount[] | undefined> = {
       division: facets?.divisions,
       tag: facets?.tags,
+      colour: facets?.colours,
+      size: facets?.sizes,
       supplier: facets?.suppliers,
     }
     return fields.map((field) => {
@@ -294,18 +372,14 @@ export function Sourcing() {
 
   /// Picking up from the grid, one piece at a time.
   ///
-  /// `POST` adds to whatever is already on the line, `PATCH` says exactly how
-  /// many — so "one more" and "one fewer" are two different routes rather than
-  /// one route the browser does arithmetic for. Zero removes the line, which
-  /// is what the minus button reaching one more press means.
+  /// `POST` adds to whatever is already on the line, which is the only thing
+  /// this screen does to a basket. Saying exactly how many is `PATCH`, and it
+  /// belongs to the basket sheet: a grid is where things are taken, and a
+  /// screen that also corrected quantities would be asking a buyer to do their
+  /// arithmetic in the middle of the shop.
   const pick = useMutation({
     mutationFn: (id: string) =>
       addToBasket({ supplier_item_id: id, quantity: 1 }),
-    onSuccess: settleBasket,
-  })
-  const nudge = useMutation({
-    mutationFn: ({ id, quantity }: { id: string; quantity: number }) =>
-      setBasketQuantity(id, quantity),
     onSuccess: settleBasket,
   })
 
@@ -372,13 +446,18 @@ export function Sourcing() {
                 : `of ${count(searchable)} shown`}
             </span>
             <div className="ml-auto flex items-center gap-1">
-              <span className="mr-1 text-[0.71875rem] text-mute">Urutkan</span>
+              {/* In the app's own language. These four read Indonesian while
+                  the heading above them, the filter bar beside them and every
+                  other control on the screen read English — one screen
+                  speaking two languages is a screen somebody stopped halfway
+                  through. */}
+              <span className="mr-1 text-[0.71875rem] text-mute">Sort</span>
               {(
                 [
-                  [undefined, "Paling cocok"],
-                  ["newest", "Terbaru"],
-                  ["price_low", "Termurah"],
-                  ["price_high", "Termahal"],
+                  [undefined, "Best match"],
+                  ["newest", "Newest"],
+                  ["price_low", "Price low"],
+                  ["price_high", "Price high"],
                 ] as const
               ).map(([value, labelText]) => (
                 <button
@@ -398,6 +477,10 @@ export function Sourcing() {
                 </button>
               ))}
             </div>
+            <Button onClick={() => adding.open(true)}>
+              <Plus />
+              Add item
+            </Button>
             <Button
               variant={picked > 0 ? "dark" : "ghost"}
               onClick={() => cart.open(true)}
@@ -436,21 +519,12 @@ export function Sourcing() {
                         // is in flight, and a buyer picking quickly would spend
                         // the whole page waiting on other people's rows.
                         busy={
-                          (pick.isPending &&
-                            pick.variables === row.item.supplier_item_id) ||
-                          (nudge.isPending &&
-                            nudge.variables?.id === row.item.supplier_item_id)
+                          pick.isPending &&
+                          pick.variables === row.item.supplier_item_id
                         }
                         onOpen={() => item.open(row.item.supplier_item_id)}
                         onSupplier={() => shop.open(row.supplier.supplier_id)}
                         onAdd={() => pick.mutate(row.item.supplier_item_id)}
-                        onLess={() =>
-                          nudge.mutate({
-                            id: row.item.supplier_item_id,
-                            quantity:
-                              (held.get(row.item.supplier_item_id) ?? 0) - 1,
-                          })
-                        }
                       />
                     ))}
                   </div>
@@ -481,7 +555,13 @@ export function Sourcing() {
         }
         onClose={item.close}
       />
-      <BasketSheet open={cart.isOpen} onClose={cart.close} />
+      <ItemFormSheet open={adding.value === true} onClose={adding.close} />
+
+      <BasketSheet
+        open={cart.isOpen}
+        onClose={cart.close}
+        onReopen={() => cart.open(true)}
+      />
     </div>
   )
 }
@@ -498,7 +578,6 @@ function ProductCard({
   onOpen,
   onSupplier,
   onAdd,
-  onLess,
 }: {
   row: SourcedItem
   vocabulary?: CatalogueVocabulary
@@ -508,15 +587,8 @@ function ProductCard({
   onOpen: () => void
   onSupplier: () => void
   onAdd: () => void
-  onLess: () => void
 }) {
   const { item, supplier } = row
-  // A URL is not a photograph. Most of this catalogue points at images that no
-  // longer resolve, and a broken-image glyph reads as a defect in the app
-  // rather than a gap in the data — so a failed load falls back to the same
-  // sentence a missing URL gets.
-  const [broken, setBroken] = useState(false)
-  const shown = item.image_url !== null && !broken
 
   return (
     <div className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft transition duration-150 hover:-translate-y-0.5 hover:shadow-pop">
@@ -526,20 +598,16 @@ function ProductCard({
         className="block w-full text-left"
         aria-label={item.name}
       >
-        <div className="relative h-[9.875rem] overflow-hidden bg-soft-2">
-          {shown ? (
-            <img
-              src={item.image_url!}
-              alt=""
-              loading="lazy"
-              onError={() => setBroken(true)}
-              className="size-full object-cover object-[center_15%]"
-            />
-          ) : (
-            <span className="grid size-full place-items-center text-[0.71875rem] text-mute">
-              No photograph
-            </span>
-          )}
+        {/* The same thumbnail the article grid draws, rather than a second
+            hand-rolled `onError` beside it: a URL is not a photograph, most of
+            this catalogue points at images that no longer resolve, and one
+            component deciding what a missing one looks like is what keeps the
+            two catalogues looking like one app. */}
+        <Thumbnail
+          url={item.image_url}
+          fallback="No photograph"
+          className="h-[9.875rem] w-full"
+        >
           {/* The division rides on the photograph, the way a marketplace puts
               its category badge there: it is what the picture IS, so it belongs
               with the picture rather than in a list of facts under it. */}
@@ -548,28 +616,52 @@ function ProductCard({
               {termLabel(vocabulary?.divisions, item.division_code)}
             </span>
           )}
-        </div>
+          {/* How many are already in the basket, opposite the division and in
+              the same shape — inverted, because this one is about what the
+              buyer has done rather than about what the thing is. Absent at
+              zero: a badge every card wears is a badge that says nothing. */}
+          {held > 0 && (
+            <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-ink/90 px-2 py-[0.1875rem] text-[0.625rem] font-semibold text-white tabular-nums backdrop-blur-[5px]">
+              <ShoppingBasket className="size-2.5" />
+              {count(held)}
+            </span>
+          )}
+        </Thumbnail>
         <div className="px-[0.9375rem] pt-3 pb-1">
           <div className="truncate text-[0.875rem] font-medium text-ink">
             {item.name}
           </div>
-          <div className="mt-[0.1875rem] truncate font-mono text-[0.6875rem] text-mute">
-            {item.supplier_item_code}
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-[1rem] font-semibold text-ink tabular-nums">
-              {money(item.unit_price_minor)}
-            </span>
-            {/* What this business has already committed to. The marketplace
-                equivalent is "10RB+ terjual", and the difference matters: we
-                are the buyer here, so the number that helps is what WE bought,
-                not what anybody sold. Hidden at zero rather than shown as "0
-                bought" — a first order is not a warning. */}
-            {row.bought !== undefined && row.bought.units > 0 && (
-              <span className="text-[0.71875rem] text-mute tabular-nums">
-                {count(row.bought.units)} dibeli
-              </span>
-            )}
+
+          {/* What it comes in: the dots, then the size range beside them.
+              Together they are one phrase — "navy or black, S to XXL" — and
+              pushing the sizes to the far edge made a card read as two
+              unrelated columns with a gap down the middle.
+
+              The supplier's own item code used to sit above this. It is gone
+              from the card: eleven digits nobody recognises, in mono, directly
+              under the one line somebody actually reads. It is still on the
+              sheet, under "Supplier code", which is where somebody goes when
+              they need to type it into something else.
+
+              Drawn only when there is something to say. Most of a scraped
+              supplier feed has no variants recorded, and a row of em dashes on
+              two thousand cards is a page-long apology for a gap. The item
+              carries its own labels and hexes, so no lookup happens here. */}
+          {(item.colours.length > 0 || item.size_codes.length > 0) && (
+            <div className="mt-2 flex min-w-0 items-center gap-2">
+              {item.colours.length > 0 && (
+                <Swatches colours={item.colours} cap={5} />
+              )}
+              {item.size_codes.length > 0 && (
+                <span className="min-w-0 truncate text-[0.71875rem] text-body">
+                  {sizeSpan(vocabulary?.sizes, item.size_codes)}
+                </span>
+              )}
+            </div>
+          )}
+
+          <div className="mt-2 text-[1rem] font-semibold text-ink tabular-nums">
+            {money(item.unit_price_minor)}
           </div>
         </div>
       </button>
@@ -587,59 +679,12 @@ function ProductCard({
           <span className="truncate">{supplier.name}</span>
         </button>
 
-        {/* Picking something out is one click from the grid.
-
-            A buyer walking a catalogue picks a dozen things and reads none of
-            them: making every pick pass through the detail sheet costs an open
-            and a close per item, and the sheet is where you go to READ, not to
-            buy. So the card carries the basket control and the rest of the card
-            still opens the sheet — both, rather than a choice between them.
-
-            Once something is held the button becomes a stepper, because the
-            second press of "add" is nearly always a correction. */}
-        {held === 0 ? (
-          <Button
-            size="sm"
-            className="mt-2.5 w-full"
-            disabled={busy}
-            onClick={onAdd}
-            aria-label={`Put ${item.name} in the basket`}
-          >
-            <ShoppingBasket />
-            Add
-          </Button>
-        ) : (
-          <div className="mt-2.5 flex items-center gap-1 rounded-full bg-soft-2 p-0.5">
-            <Button
-              variant="quiet"
-              className="size-[1.625rem] rounded-full p-0 [&_svg]:size-3"
-              disabled={busy}
-              onClick={onLess}
-              aria-label={`One fewer ${item.name}`}
-            >
-              <Minus />
-            </Button>
-            <span className="flex-1 text-center text-[0.78125rem] font-medium text-ink tabular-nums">
-              {count(held)}
-            </span>
-            <Button
-              variant="quiet"
-              className="size-[1.625rem] rounded-full p-0 [&_svg]:size-3"
-              disabled={busy}
-              onClick={onAdd}
-              aria-label={`One more ${item.name}`}
-            >
-              <Plus />
-            </Button>
-          </div>
-        )}
-
         {/* What the item is filed under. Capped at three with a count for the
             rest: a card is a glance, and an item wearing nine tags would push
             every other card down the page to say something no buyer reads at
             this size. The full set is in the sheet. */}
         {item.tags.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <div className="mt-2 flex flex-wrap items-center gap-1">
             {item.tags.slice(0, 3).map((code) => (
               <Tag key={code}>{termLabel(vocabulary?.tags, code)}</Tag>
             ))}
@@ -650,6 +695,63 @@ function ProductCard({
             )}
           </div>
         )}
+
+        {/* Picking something out is one click from the grid.
+
+            A buyer walking a catalogue picks a dozen things and reads none of
+            them: making every pick pass through the detail sheet costs an open
+            and a close per item, and the sheet is where you go to READ, not to
+            buy. So the card carries the basket control and the rest of the card
+            still opens the sheet — both, rather than a choice between them.
+
+            One button, and it stays a button. A card that turned into a
+            [− 50 +] stepper the moment something was picked up put what looked
+            like a form field in the middle of a picture, on a card whose whole
+            job is to be glanced at — and it did it to whichever cards happened
+            to be in the basket, so a page of forty read as two different
+            designs. How many were taken is now SAID, on the photograph, beside
+            the other thing the photograph says; correcting the number is done
+            in the basket, which is the screen that exists for exactly that and
+            already has a field per line. */}
+        <div className="mt-2.5 flex items-center gap-2">
+          {/* What this business has already committed to, and the one number
+              on the card that is about US rather than about the supplier —
+              so it is the one thing wearing a colour. The marketplace
+              equivalent is "10RB+ terjual", and the difference matters: we are
+              the buyer here, so the number that helps is what WE bought, not
+              what anybody sold.
+
+              It was grey, beside the price, where it read as a footnote to the
+              money. Level with the button instead: "we have bought this
+              before" and "take another one" are the same thought, and putting
+              them on one line is what lets a buyer act on it without moving
+              their eyes. Hidden at zero rather than shown as "0 bought" — a
+              first order is not a warning. */}
+          {row.bought !== undefined && row.bought.units > 0 && (
+            <span className="min-w-0 flex-1 truncate rounded-full bg-info-bg px-2 py-[0.1875rem] text-center text-[0.6875rem] font-medium text-info-fg tabular-nums">
+              {count(row.bought.units)} bought
+            </span>
+          )}
+          {/* A third of the width, not all of it. A full-width button is what
+              a card ends with when the card has nothing else to say, and this
+              one does — it made "Add" the loudest thing in a grid whose job is
+              to be browsed, and it left the history above it nowhere to sit. */}
+          <Button
+            size="sm"
+            variant={held > 0 ? "soft" : undefined}
+            className="ml-auto w-1/3 shrink-0"
+            disabled={busy}
+            onClick={onAdd}
+            aria-label={
+              held === 0
+                ? `Put ${item.name} in the basket`
+                : `One more ${item.name}`
+            }
+          >
+            <ShoppingBasket />
+            Add
+          </Button>
+        </div>
       </div>
     </div>
   )

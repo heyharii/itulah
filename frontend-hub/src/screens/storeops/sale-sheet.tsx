@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Input, Textarea } from "@/components/ui/field"
+import { Input, Money, Textarea } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import {
   MiniCell,
@@ -625,12 +625,11 @@ function RefundPanel({ sale }: { sale: SaleDetail }) {
           {(suggested) => (
             <form.Field name="amount">
               {(field) => (
-                <Input
+                <Money
                   value={field.state.value}
                   onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onChange={field.handleChange}
                   placeholder={`Refund ${money(suggested)}`}
-                  inputMode="numeric"
                 />
               )}
             </form.Field>
@@ -848,13 +847,16 @@ function OpenSaleComposer({ sale }: { sale: SaleDetail }) {
           value={method}
           onChange={setMethod}
         />
-        <Input
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-          placeholder={money(owing)}
-          inputMode="numeric"
-          className="h-8 min-w-0 flex-1"
-        />
+        {/* `<Money>` fills the slot it is given, so the slot is what has to
+            flex — the box itself only carries its height. */}
+        <span className="flex min-w-0 flex-1">
+          <Money
+            value={amount}
+            onChange={setAmount}
+            placeholder={money(owing)}
+            className="h-8"
+          />
+        </span>
         <Button
           variant="soft"
           disabled={

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
 ///
 /// Sourcing and Articles ask the same question of two different datasets — what
 /// is in here, and how much of it — so they draw the same column. It lived
-/// twice, once file-local in Sourcing and once in `screens/articles/shared`,
+/// twice, once file-local in Sourcing and once in `screens/master/shared`,
 /// and the two had already drifted: one had a box to sift a long list, the
 /// other did not. One copy is why "make Articles behave like Sourcing" is now a
 /// thing that cannot be half-done.

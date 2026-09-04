@@ -69,7 +69,7 @@ export function Picklist() {
               aria-label="Rack"
               className="w-56"
               value={source ?? ""}
-              onChange={(event) => rack.open(event.target.value)}
+              onChange={(next) => rack.open(next)}
             >
               {racks.map((pool) => (
                 <option key={pool.id} value={pool.id}>

@@ -751,7 +751,7 @@ function GrantSheet({
                 <Field label="Node">
                   <Select
                     value={field.state.value}
-                    onChange={(event) => field.handleChange(event.target.value)}
+                    onChange={(next) => field.handleChange(next)}
                   >
                     <option value="">Choose a node…</option>
                     {(origins.data ?? []).map((origin) => (
@@ -768,7 +768,7 @@ function GrantSheet({
                 <Field label="Person">
                   <Select
                     value={field.state.value}
-                    onChange={(event) => field.handleChange(event.target.value)}
+                    onChange={(next) => field.handleChange(next)}
                   >
                     <option value="">Choose somebody…</option>
                     {(users.data ?? []).map((user) => (
@@ -791,9 +791,7 @@ function GrantSheet({
             >
               <Select
                 value={field.state.value ?? existing?.role ?? "CASHIER"}
-                onChange={(event) =>
-                  field.handleChange(event.target.value as Role)
-                }
+                onChange={(next) => field.handleChange(next as Role)}
               >
                 {roles.map((option) => (
                   <option key={option} value={option}>
@@ -979,7 +977,7 @@ function RegisterReaderSheet({
             <Field label="Node">
               <Select
                 value={field.state.value}
-                onChange={(event) => field.handleChange(event.target.value)}
+                onChange={(next) => field.handleChange(next)}
               >
                 <option value="">Choose a node…</option>
                 {(origins.data ?? []).map((origin) => (

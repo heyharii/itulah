@@ -17,6 +17,11 @@ import type { AppModule } from "@/lib/navigation"
 /// Giving it a sub-item would imply a coupon can exist without a promotion to
 /// unlock, and one cannot.
 ///
+/// **Margin arrived here 2026-09-03** when the Analytics module was dissolved.
+/// What is left once the tax comes off, and what each garment actually brought
+/// in, is the question a price is set to answer — so it belongs three rows from
+/// the pricelist that sets it, not in a module named after the chart it draws.
+///
 /// A voucher, by contrast, earns its own row precisely because it is *not* one
 /// of the other three. It carries money — it is tender, sitting beside cash and
 /// a card at the counter — where the first three all describe what something

@@ -48,6 +48,34 @@ export function termLabel(
   return terms?.find((term) => term.code === code)?.label ?? code
 }
 
+/// `03` → "M", using the size table the server sent.
+///
+/// Falls back to the code, like `termLabel` does and for the same reason. It
+/// replaces a hardcoded map transcribed from the `size_code` seed, which was
+/// correct on the day it was written and silently read `21` for anything added
+/// after it.
+export function sizeLabel(
+  sizes: readonly VocabularyTerm[] | undefined,
+  code: string
+): string {
+  return sizes?.find((term) => term.code === code)?.label ?? code
+}
+
+/// "XS–XXL", or the one size when there is only one.
+///
+/// The ends rather than the whole list: something carrying eight sizes would
+/// spend a card's width saying what its two ends already say. The server sends
+/// size codes in size order, so the ends are the first and the last rather
+/// than a sort every caller has to redo.
+export function sizeSpan(
+  sizes: readonly VocabularyTerm[] | undefined,
+  codes: readonly string[]
+): string {
+  if (codes.length === 0) return "—"
+  if (codes.length === 1) return sizeLabel(sizes, codes[0])
+  return `${sizeLabel(sizes, codes[0])}–${sizeLabel(sizes, codes[codes.length - 1])}`
+}
+
 /// Toggle one value in a facet selection.
 ///
 /// A facet is a set: a buyer looking at kids and footwear is looking at both,
@@ -60,4 +88,3 @@ export function toggle(
     ? values.filter((each) => each !== value)
     : [...values, value]
 }
-

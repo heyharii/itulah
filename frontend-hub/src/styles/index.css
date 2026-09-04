@@ -14,20 +14,39 @@
 
    Source of truth: ~/Documents/retail/cloud-app/ollama/DESIGN.md (v0.5),
    with the shell lifted from `inventory-prototype.html` — the workbench whose
-   topbar is deliberately `hidden`, leaving the 58px icon rail plus a 248px
-   sidebar to carry navigation.
+   topbar is deliberately `hidden`, leaving the left-hand column to carry all
+   navigation. The prototype's icon rail is folded into that one 248px sidebar;
+   58px is what it narrows to, not a second strip beside it.
 
    Where DESIGN.md and the prototypes disagreed, the rulings recorded in
    CLOUDHUB-BRIEF.md apply and are not re-litigated here.
    ───────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Density, baked. The prototypes render the whole shell at `zoom:0.9` and
-     write declared px on top of it; DESIGN.md is explicit that the zoom must
-     never ship. 16 × 0.9 = 14.4, so a value written as `declared/16` rem
-     lands on exactly the pixel the prototype paints — and unlike `zoom` it
-     survives a browser's own text scaling. Never write a raw px type size. */
-  font-size: 14.4px;
+  /* Density, at 1.0. The prototypes render the whole shell at `zoom:0.9` and
+     write declared px on top of it, and this app reproduced that faithfully:
+     root at 14.4px (16 × 0.9), so a `declared/16` rem landed on the pixel the
+     prototype painted.
+
+     Faithful, and too small to read. The 0.9 costs a tenth off every size at
+     once, and the scale it shrinks already bottoms out at 10px — micro-caps
+     came out at 9, the mono id under an article name at 9.45, and a grid cell
+     of money at 11.25. A prototype is looked at; a pricelist is worked in for
+     an afternoon.
+
+     So the density knob goes back to 1.0 and every `declared/16` rem in the
+     app now renders at exactly the pixel it is named for — 12.5 is 12.5. This
+     is the one number that sets the whole app's size; reach for it before
+     touching any individual size. Never write a raw px type size. */
+  font-size: 16px;
+
+  /* Prose, the size the base layer sets on `<body>`. It lives out here rather
+     than in `@theme` on purpose: DESIGN.md gives the name "body" to a size AND
+     to a grey, Tailwind emits both declarations for the one class `.text-body`,
+     and the winner is decided by stylesheet order rather than by class order.
+     Keeping the size out of the namespace leaves `text-body` meaning the
+     colour and nothing else, and prose simply inherits this. */
+  --size-body: 0.875rem;          /* 14 */
 
   /* text — four greys, in descending emphasis, plus two non-text marks */
   --ink: #1d1d1f;
@@ -143,6 +162,16 @@
    keeps px literals out of components: there is a `text-ink` and a
    `rounded-card`, so nobody reaches for `text-[#1d1d1f]`. */
 @theme inline {
+  /* The touch floor, as a spacing token: generates `h-tap`, `min-h-tap`,
+     `size-tap`, `w-tap`.
+
+     Most of this app is read at a desk with a mouse and has no use for it. The
+     Operations module is not: it is worked standing up, on a handheld, often
+     in gloves, and there a control too small to hit is not a density
+     preference but a mis-scan. Named rather than written as a length at each
+     call site so the floor is one edit if a device ever argues with it. */
+  --spacing-tap: 44px;
+
   --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
 
@@ -216,18 +245,24 @@
   --text-kpi: 1.4375rem;          /* 23 */
   --text-kpi--letter-spacing: -0.02em;
   --text-metric: 0.9375rem;       /* 15 */
-  --text-nav: 0.84375rem;         /* 13.5 */
+  /* 13 — the same size as `meta` and `cell`, and that is the point: the
+     sidebar is chrome. At 13.5 it was set larger than every number and
+     label on the page it navigates to and as large as a list row's own
+     title, so the shell read as the loudest thing on screen. Nav never
+     outranks content. */
+  --text-nav: 0.8125rem;          /* 13 */
   --text-section: 0.78125rem;     /* 12.5 */
-  --text-eyebrow: 0.625rem;       /* 10 — uppercase micro-caps */
+  --text-eyebrow: 0.6875rem;      /* 11 — uppercase micro-caps */
   --text-eyebrow--letter-spacing: 0.04em;
   /* NOTE: there is deliberately no `--text-body`. `--color-body` already
      compiles to `.text-body`, Tailwind kept the colour, and the size token
      generated nothing at all — a declared token that reads as working and is
-     not. Prose takes its size from the base layer, which is the same 14. */
-  --text-meta: 0.78125rem;        /* 12.5 */
+     not. Prose takes its size from the base layer, via `--size-body` below,
+     which is deliberately outside this namespace for that reason. */
+  --text-meta: 0.8125rem;         /* 13 */
   --text-pill: 0.6875rem;         /* 11 */
-  --text-id: 0.71875rem;          /* 11.5 — mono ids */
-  --text-cell: 0.78125rem;        /* 12.5 — dense table body */
+  --text-id: 0.75rem;             /* 12 — mono ids */
+  --text-cell: 0.8125rem;         /* 13 — dense table body */
 }
 
 @layer base {
@@ -239,13 +274,21 @@
   body,
   #root {
     height: 100%;
+    /* A phone's viewport is not a constant: mobile browsers grow and shrink
+       the visible area as their toolbars slide, and `100%` here resolves
+       against the taller of the two — so the shell stands a toolbar's height
+       below the glass and the bottom of every screen sits under the chrome.
+       `dvh` is the height that is visible right now. Declared second so a
+       browser without it keeps the percentage; on the desk the two are the
+       same number. */
+    height: 100dvh;
   }
 
   body {
     background: var(--canvas);
     color: var(--ink);
     font-family: var(--font-sans);
-    font-size: var(--text-body);
+    font-size: var(--size-body);
     line-height: 1.45;
     letter-spacing: -0.006em;
     -webkit-font-smoothing: antialiased;
@@ -330,5 +373,40 @@
   }
   ::-webkit-scrollbar-track {
     background: transparent;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   The assistant's two pieces of motion, and there are only two.
+
+   Everything else in this app settles with the one hover transition above.
+   These exist because a streamed answer has states nothing else here has: a
+   model working with nothing yet to show, and a line of text arriving after
+   the paragraph above it has already been read.
+
+   `shimmer` is the label that says work is happening — a light sweeping
+   across the word, not a spinner, because a spinner claims to know how long
+   something takes and this does not. `rise` is the four pixels a tool chip
+   travels as it appears, so a trace that grows while somebody watches reads
+   as accumulating rather than jumping.
+
+   Both are switched off by the reduced-motion block above: `shimmer` loses
+   its iteration and settles on a flat colour, `rise` collapses to its end
+   state. Neither carries meaning that only the movement conveys.
+   ───────────────────────────────────────────────────────────────────────── */
+@keyframes assistant-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes assistant-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }

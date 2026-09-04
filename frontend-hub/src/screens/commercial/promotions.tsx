@@ -33,14 +33,16 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { PerformanceHeader } from "@/screens/commercial/performance-header"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { Switch } from "@/screens/commercial/parts"
+import { Switch } from "@/components/ui/form"
 import { RuleForm } from "@/screens/commercial/rule-form"
+import { Terms } from "@/screens/commercial/controls"
 import {
   consumed,
   describeCustomers,
   describeEffect,
   describeScope,
   percent,
+  termsOf,
   useActor,
 } from "@/screens/commercial/shared"
 
@@ -96,7 +98,6 @@ interface PromotionLine {
   /// interesting case: published, and reaching no till.
   readonly reached: number
 }
-
 
 /// The spend meter, drawn the one way this app draws a proportion.
 function Spend({ usage }: { usage: PromotionUsage | null }) {
@@ -278,7 +279,6 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
   },
 ]
 
-
 export function Promotions() {
   const client = useQueryClient()
   const actor = useActor()
@@ -321,8 +321,6 @@ export function Promotions() {
       })),
     [catalogue.data, byKey]
   )
-
-
 
   /// Pause and resume, through the one function that knows how a status is
   /// written. There is no status route on the node, so this publishes a
@@ -424,7 +422,6 @@ export function Promotions() {
         }
       />
 
-
       {/* What the offers below actually did, over a window. The list says which
           exist and what they may spend; this says what they spent. */}
       <PerformanceHeader of="rules" />
@@ -509,15 +506,13 @@ export function Promotions() {
         // Where the list comes from, and the one rule worth knowing about it.
         <p className="mt-2.5 text-[0.71875rem] text-mute">
           Drawn from {count(catalogue.data.book_count)} published book
-          {catalogue.data.book_count === 1 ? "" : "s"}. Where one rule appears in
-          several books the newest wins, which is what a shop does too.
+          {catalogue.data.book_count === 1 ? "" : "s"}. Where one rule appears
+          in several books the newest wins, which is what a shop does too.
         </p>
       )}
 
       <PromotionSheet
-        line={
-          promotions.find((one) => one.row.rule_id === sheet.value) ?? null
-        }
+        line={promotions.find((one) => one.row.rule_id === sheet.value) ?? null}
         onClose={sheet.close}
       />
 
@@ -588,7 +583,10 @@ function PromotionSheet({
   const spent = line?.usage?.spent_minor ?? 0
   const share = consumed(spent, line?.usage?.budget_minor ?? null)
   const rule = line?.row.definition
-  const conditions = rule?.conditions
+  // Codes rather than words: a published rule carries what it matches on, and
+  // the master list that turns `MENSWEAR` into "Menswear" is not fetched for a
+  // panel — so the code is shown, which is also what a shop's own log says.
+  const reading = rule === undefined ? null : termsOf(rule)
 
   return (
     <Sheet
@@ -597,10 +595,12 @@ function PromotionSheet({
       id={line?.row.rule_id}
       title={line?.row.name ?? "Promotion"}
     >
-      {line === null || rule === undefined ? null : (
+      {line === null || rule === undefined || reading === null ? null : (
         <div className="flex flex-col gap-5">
           <div className="flex flex-wrap items-center gap-2">
-            <Pill tone={toneFor(line.row.status)}>{label(line.row.status)}</Pill>
+            <Pill tone={toneFor(line.row.status)}>
+              {label(line.row.status)}
+            </Pill>
             {rule.coupon_code ? (
               <Tag tone="warn">Needs code {rule.coupon_code}</Tag>
             ) : (
@@ -618,10 +618,17 @@ function PromotionSheet({
             <Fact term="Shoppers">
               {rule.scope.customers.who === "MEMBERS" ? "Members" : "Everyone"}
             </Fact>
+            {/* The counter's figure first, the rule's own where nothing has
+                been counted yet. A promotion that has never fired has no usage
+                row at all, and reading only that made a rule capped at five
+                million report "Unlimited" — beside terms, on this same panel,
+                that say it stops at five million. The list column already had
+                the fallback; this did not. */}
             <Fact term="Budget">
-              {line.usage?.budget_minor == null
+              {(line.usage?.budget_minor ?? rule.caps.budget?.minor ?? null) ===
+              null
                 ? "Unlimited"
-                : money(line.usage.budget_minor)}
+                : money(line.usage?.budget_minor ?? rule.caps.budget!.minor)}
             </Fact>
             <Fact term="Spent">{money(spent)}</Fact>
             <Fact term="Used">{count(line.usage?.uses ?? 0)}</Fact>
@@ -642,36 +649,25 @@ function PromotionSheet({
             </div>
           )}
 
-          {/* What has to be true before it fires. A promotion that has never
-              fired is explained here far more often than by its scope. */}
+          {/* What has to be true before it fires, in the same words the
+              composer showed while it was being written — one `termsOf`, read
+              here and previewed there, so "what did I publish" and "what does
+              this do" cannot answer differently.
+
+              It replaces a four-row table of the same conditions. The table
+              was honest and unreadable: a promotion that never fired is
+              explained by the COMBINATION — a minimum, a window and a coupon,
+              each unremarkable on its own — and four rows of figures is the
+              one shape that hides a combination. */}
           <div>
-            <SubHead>Before it applies</SubHead>
-            <MiniTable head={["Condition", { label: "Value", align: "left" }]}>
-              <MiniRow>
-                <MiniCell>Least units in the basket</MiniCell>
-                <MiniCell>{count(conditions?.min_quantity ?? 0)}</MiniCell>
-              </MiniRow>
-              <MiniRow>
-                <MiniCell>Least basket value</MiniCell>
-                <MiniCell>{money(conditions?.min_amount?.minor ?? 0)}</MiniCell>
-              </MiniRow>
-              <MiniRow>
-                <MiniCell>Runs from</MiniCell>
-                <MiniCell>
-                  {conditions?.effective_from
-                    ? day(conditions.effective_from)
-                    : "Always"}
-                </MiniCell>
-              </MiniRow>
-              <MiniRow>
-                <MiniCell>Until</MiniCell>
-                <MiniCell>
-                  {conditions?.effective_to
-                    ? day(conditions.effective_to)
-                    : "Open"}
-                </MiniCell>
-              </MiniRow>
-            </MiniTable>
+            <SubHead aside="as it reads">Its terms</SubHead>
+            <Terms
+              headline={describeEffect(rule.effect)}
+              name={line.row.name}
+              clauses={reading.clauses}
+              hidden={reading.hidden}
+              empty="This rule names nothing it applies to."
+            />
           </div>
 
           <div>

@@ -8,8 +8,9 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { Field, Input, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { PickMany } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
@@ -724,28 +725,23 @@ function IssueSheet({
           {(field) => (
             <Field
               label="Targets"
-              hint="Select none to send it to the whole registered fleet."
+              hint="Pick none to send it to the whole registered fleet."
             >
-              <Select
-                multiple
-                size={5}
-                className="h-auto rounded-inner py-2"
-                value={field.state.value}
-                onChange={(event) =>
-                  field.handleChange(
-                    Array.from(
-                      event.target.selectedOptions,
-                      (option) => option.value
-                    )
-                  )
-                }
-              >
-                {(origins.data ?? []).map((origin) => (
-                  <option key={origin.origin_id} value={origin.origin_id}>
-                    {origin.label ?? origin.origin_id}
-                  </option>
-                ))}
-              </Select>
+              {/* Several out of a list, so `<PickMany>` rather than the
+                  ctrl-click multi-select this used to be — a control almost
+                  nobody knows how to add a second node to, and one that gave
+                  no reading at all of which three were picked without
+                  scrolling the box. */}
+              <PickMany
+                label="Targets"
+                placeholder="The whole fleet"
+                choices={(origins.data ?? []).map((origin) => ({
+                  value: origin.origin_id,
+                  label: origin.label ?? origin.origin_id,
+                }))}
+                values={field.state.value}
+                onChange={(picked) => field.handleChange([...picked])}
+              />
             </Field>
           )}
         </form.Field>

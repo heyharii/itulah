@@ -28,5 +28,24 @@ declare module "@tanstack/react-table" {
     /// `lib/filters.ts` for why the declaration does not live in a list beside
     /// the table.
     readonly filter?: FilterSpec
+    /// Where this column goes when the viewport is too narrow to be a table at
+    /// all, and `<DataTable>` relays the same rows as cards.
+    ///
+    /// Declared on the column, beside its header and its cell, so one column
+    /// definition serves both shapes and they cannot drift: a phone that shows
+    /// a different set of facts from the desk is two screens with one name.
+    /// Omitted, a sensible role is inferred — see `roleOf` in `data-table.tsx`
+    /// — so a list nobody has thought about on a phone is still readable on
+    /// one.
+    readonly card?: "id" | "title" | "status" | "metric" | "meta" | "hide"
+    /// What to drop first when the table fits the screen but its columns do
+    /// not. `1` (the default) never drops; `3` goes first.
+    ///
+    /// This is the tablet's problem, and only the tablet's: a phone gets cards
+    /// and a desk gets everything. DESIGN.md's rule that every column is a
+    /// decision metric is what makes the ordering possible to state — a column
+    /// somebody has to have is a 1, a column that helps is a 2, a column that
+    /// is context is a 3.
+    readonly priority?: 1 | 2 | 3
   }
 }

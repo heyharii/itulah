@@ -18,8 +18,8 @@ the reference implementation and every part of it is there on purpose.
 
 ## The rules that are not negotiable
 
-1. **No raw px type sizes, ever.** The root is `14.4px`, so `rem = declared/16`
-   lands on exactly the pixel the prototype paints. Prefer the named scale
+1. **No raw px type sizes, ever.** The root is `16px`, so `rem = declared/16`
+   lands on exactly the pixel it is named for. Prefer the named scale
    (`text-hero`, `text-card-title`, `text-nav`, `text-meta`, `text-pill`,
    `text-id`, `text-cell`, `text-eyebrow`) over arbitrary values.
 2. **Colour comes from tokens.** `text-ink text-body text-mute bg-soft
@@ -109,6 +109,57 @@ DESIGN.md governs what goes in a column: every column is a computed business
 metric that drives a decision or a comparison. Identifiers and contact facts —
 phone, address, tax id, internal ids — do **not** occupy list columns. They live
 one click away in the sheet.
+
+## Three widths, one screen
+
+A screen is written once and works on a phone, an iPad, a laptop and a big
+monitor. There is no mobile screen, no mobile route and no second component:
+three primitives carry it, and a screen's whole contribution is two more keys on
+the columns it already declares.
+
+| Where | What changes | Who does it |
+|---|---|---|
+| Shell | Sidebar becomes a drawer under 64rem, and the topbar `inventory-prototype.html` switched off comes back to carry its handle, ⌘K and ⌘J — the buttons a tablet has no keyboard for | `components/shell/app-shell.tsx` |
+| List | Columns are shed one at a time until the table fits the card it stands in; under 48rem the rows are relaid as cards | `<DataTable>` |
+| Detail | Under 48rem the floating rail arrives from the bottom instead; from 96rem up it stops covering the list and stands beside it — the shell hands it 29.5rem and the page narrows into what is left | `<Sheet>` + `lib/sheet-space.ts` |
+| Hit targets | 44px rows, nav rows and icon buttons when the POINTER is coarse | `pointer-coarse:` + `touch` |
+
+**A monitor buys the list AND the record, not a wider margin — and nothing new
+is drawn to fill it.** A permanent right-hand rail would have to be filled with
+something, and both candidates are already ruled out here: the filter rail was
+taken off every screen for spending 248px on a control people touch twice a day,
+and a record's history already lives inside the panel. So the rail IS the
+record: same `<Sheet>`, same place on the glass, `modal={false}` and no veil, so
+every row stays clickable and clicking another one swaps the record instead of
+closing it.
+
+So a screen declares two things per column and nothing else:
+
+```ts
+meta: {
+  align: "right",
+  filter: { kind: "number", unit: "pcs" },
+  card: "metric",   // id · title · status · metric · meta · hide
+  priority: 1,      // 1 never drops · 3 goes first
+}
+```
+
+Both are optional. A column with no `card` role is guessed at — first column is
+the title, right-aligned columns are metrics, the rest are the meta line — so a
+list nobody has thought about on a phone is still readable on one.
+
+**Width decides the layout; the pointer decides the size of what you press.**
+They are different questions and the answers live in different places
+(`lib/layout.ts`). An iPad in landscape is 1180px, wider than most laptops, and
+its rows are still pressed with a thumb.
+
+**Never measure the window to decide a card's contents.** `useLayout()` exists
+for the shell, which really is the window. Everything inside a card is decided
+by the card: the article and sourcing grids use container queries, and
+`<DataTable>` measures its own box with a `ResizeObserver`. A `lg:` breakpoint
+cannot tell an iPad in landscape (872px of table) from a laptop window of the
+same width with the sidebar collapsed (1100px), and the first of those is the
+one that clips the figure the list is sorted by.
 
 ## Detail — sheets live in the URL
 

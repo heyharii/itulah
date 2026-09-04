@@ -1,17 +1,32 @@
+import { Select } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
-/// The two controls this module needed and `components/ui` does not have yet.
+/// The two controls this module needed.
 ///
-/// Kept here rather than added to the shared layer on purpose: a primitive is
-/// a decision for the whole app, and these are one module's stopgap. If a
-/// second module wants either, that is the moment it moves.
+/// `Metric` is still a stopgap kept out of the shared layer on purpose — a
+/// primitive is a decision for the whole app, and if a second module wants it,
+/// that is the moment it moves. `Choice` already made that trip in the other
+/// direction: the picker it used to be is now `<Select>` in `components/ui`,
+/// and what is left here is only the filter-row shape of it.
 
 /// A picker.
 ///
-/// There is no `<Select>` in `components/ui`, and every inventory screen needs
-/// one: a pool, a site, an origin, a status. It wears the `<Input>` chrome —
-/// pill, `{soft-2}` fill, hairline on hover — so a row of filters does not have
-/// one control from a different app in the middle of it.
+/// Every inventory screen needs one — a pool, a site, an origin, a status —
+/// and this is the toolbar-shaped wrapper round the kit's `<Select>`: shorter
+/// (`h-8`), quieter type, and an `options` array instead of `<option>`
+/// children, because a filter row builds its list from a query.
+///
+/// It used to be a native `<select>`, written when `components/ui` had no
+/// picker at all. It is not one any more, for the reason the kit gives: the
+/// panel of a native dropdown belongs to the operating system, so the same
+/// filter row is one control on a Mac and a different one on the Windows
+/// machines these screens are actually read on.
+///
+/// The one thing the native control did for free and this does not: it sized
+/// itself to the LONGEST option, so the toolbar never moved when the filter
+/// changed. A button is as wide as the answer it is showing, so keep the
+/// `max-w-*` caps — they are what stops a long store name pushing the search
+/// box off the row.
 export function Choice({
   value,
   onChange,
@@ -29,15 +44,11 @@ export function Choice({
   className?: string
 }) {
   return (
-    <select
+    <Select
       value={value}
       disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-      className={cn(
-        "h-8 max-w-56 rounded-full border border-transparent bg-soft-2 px-3 text-[0.78125rem] text-ink transition-colors outline-none",
-        "hover:border-hairline-2 hover:bg-soft-3 disabled:opacity-50",
-        className
-      )}
+      onChange={onChange}
+      className={cn("h-8 w-auto max-w-56 px-3 text-[0.78125rem]", className)}
     >
       {placeholder !== undefined && <option value="">{placeholder}</option>}
       {options.map((option) => (
@@ -45,7 +56,7 @@ export function Choice({
           {option.label}
         </option>
       ))}
-    </select>
+    </Select>
   )
 }
 

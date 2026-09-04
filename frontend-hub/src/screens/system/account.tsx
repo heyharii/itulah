@@ -27,6 +27,7 @@ import {
   systemKeys,
   type UserRow,
 } from "@/lib/queries/system"
+import { statusLabel } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useIdentity } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
@@ -70,6 +71,30 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
     ),
   },
   {
+    id: "person",
+    accessorFn: (row) => row.employee_name ?? row.employee_code ?? "",
+    header: "Employment record",
+    size: 210,
+    // An account list that shows only usernames cannot answer the two questions
+    // somebody opens it with: which of these are people, and which belong to
+    // somebody who no longer works here. Both are one join away and the console
+    // did not have it.
+    cell: ({ row }) =>
+      row.original.employee_id === null ? (
+        // A machine account moving stock between nodes, or a login HR has not
+        // finished the paperwork for. The two read the same from here, and
+        // saying so is better than an empty cell that reads as a fault.
+        <span className="text-mute">Nobody — machine or unbound</span>
+      ) : (
+        <span className="text-ink">
+          {row.original.employee_name ?? row.original.employee_code}
+          {row.original.place_name && (
+            <span className="text-mute"> · {row.original.place_name}</span>
+          )}
+        </span>
+      ),
+  },
+  {
     accessorKey: "role",
     header: "Role",
     size: 130,
@@ -81,14 +106,26 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
   },
   {
     id: "state",
-    accessorFn: (row) => (row.active ? "Active" : "Suspended"),
+    accessorFn: (row) =>
+      row.active && row.employee_status === "TERMINATED"
+        ? "Left, still open"
+        : row.active
+          ? "Active"
+          : "Suspended",
     header: "State",
-    size: 120,
-    cell: ({ row }) => (
-      <Pill tone={row.original.active ? "ok" : "bad"}>
-        {row.original.active ? "Active" : "Suspended"}
-      </Pill>
-    ),
+    size: 140,
+    // Ending somebody's employment closes their login as part of the same act,
+    // so this pairing means one of two things: a binding made before that was
+    // true, or a close that failed. Either way it is a working credential for
+    // somebody who has left, and it is the row on this screen worth finding.
+    cell: ({ row }) =>
+      row.original.active && row.original.employee_status === "TERMINATED" ? (
+        <Pill tone="bad">Left, still open</Pill>
+      ) : (
+        <Pill tone={row.original.active ? "ok" : "bad"}>
+          {row.original.active ? "Active" : "Suspended"}
+        </Pill>
+      ),
   },
   {
     id: "last_login",
@@ -328,6 +365,28 @@ function UserSheet({
           {failure && <Banner tone="bad">{saying(failure)}</Banner>}
 
           <Facts>
+            <Fact term="Belongs to">
+              {user.employee_id === null ? (
+                <span className="text-mute">
+                  Nobody. A machine account, or a login HR has not bound yet.
+                </span>
+              ) : (
+                <AppLink
+                  to="/people"
+                  sheet={{ key: "employee", value: user.employee_id }}
+                  className="text-accent hover:underline"
+                >
+                  {user.employee_name ?? user.employee_code}
+                </AppLink>
+              )}
+            </Fact>
+            {user.employee_status !== null && (
+              <Fact term="Employment">
+                {user.employee_status === "TERMINATED" && user.active
+                  ? "Left — and this login still signs in"
+                  : statusLabel(user.employee_status)}
+              </Fact>
+            )}
             <Fact term="Created">{day(user.created_at)}</Fact>
             <Fact term="Created by">{user.created_by}</Fact>
             <Fact term="Last sign-in">
@@ -354,7 +413,7 @@ function UserSheet({
                 <Select
                   value={chosen}
                   disabled={self}
-                  onChange={(event) => setRole(event.target.value as Role)}
+                  onChange={(next) => setRole(next as Role)}
                 >
                   {roles.map((option) => (
                     <option key={option} value={option}>
@@ -592,9 +651,7 @@ function AddUserSheet({
             >
               <Select
                 value={field.state.value}
-                onChange={(event) =>
-                  field.handleChange(event.target.value as Role)
-                }
+                onChange={(next) => field.handleChange(next as Role)}
               >
                 {roles.map((option) => (
                   <option key={option} value={option}>

@@ -288,8 +288,7 @@ function Sparkline({
   const height = 260
   const pad = 8
   const highest = Math.max(...points.map((one) => one.value), 1)
-  const step =
-    points.length === 1 ? 0 : (width - pad * 2) / (points.length - 1)
+  const step = points.length === 1 ? 0 : (width - pad * 2) / (points.length - 1)
   const plot = points.map((one, index) => ({
     ...one,
     x: pad + index * step,

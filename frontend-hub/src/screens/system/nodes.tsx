@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
-import { Field, Input, Select } from "@/components/ui/field"
+import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
@@ -31,7 +31,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { Check, Secret, Section } from "@/screens/system/shared"
+import { Secret, Section } from "@/screens/system/shared"
 import { saying, span } from "@/screens/system/units"
 
 /// The nodes this centre knows about.
@@ -644,7 +644,7 @@ function RegisterSheet({
               <Field label="Node role">
                 <Select
                   value={field.state.value}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onChange={(next) => field.handleChange(next)}
                 >
                   <option value="STORE">STORE</option>
                   <option value="DC">DC</option>
@@ -672,10 +672,10 @@ function RegisterSheet({
 
         <form.Field name="inventory">
           {(field) => (
-            <Check
+            <Checkbox
               label="Accepts inventory snapshots"
               checked={field.state.value}
-              onChange={(event) => field.handleChange(event.target.checked)}
+              onChange={(next) => field.handleChange(next)}
             />
           )}
         </form.Field>

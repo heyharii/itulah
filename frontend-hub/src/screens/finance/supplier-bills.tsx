@@ -5,23 +5,34 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Day } from "@/components/ui/day"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { BarSeries, type ChartSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Textarea } from "@/components/ui/field"
-import { TotalsLadder } from "@/components/ui/rows"
+import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import {
+  MiniCell,
+  MiniRow,
+  MiniTable,
+  SubHead,
+  TotalsLadder,
+} from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-
+import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, Problem } from "@/components/ui/states"
+import { Tag } from "@/components/ui/tag"
 import { count, day, label, money, toneFor } from "@/lib/format"
 import {
+  billDetail,
   financeKeys,
   listBills,
+  listPayments,
+  payablesAging,
   postBill,
   recordBill,
   unbilledReceipts,
@@ -29,9 +40,27 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { parseMinor, todayIso } from "@/screens/finance/chart"
-import { LocationSelect, SiteName } from "@/screens/finance/parts"
-import type { SupplierBill, UnbilledReceipt } from "@itulah/contract"
+import {
+  EXPENSE_LINE_CLASSES,
+  parseMinor,
+  todayIso,
+} from "@/screens/finance/chart"
+import { useAsOf, useSupplierName } from "@/screens/finance/hooks"
+import {
+  AccountPicker,
+  AsOfControl,
+  LocationSelect,
+  SiteName,
+  SupplierName,
+  SupplierPicker,
+} from "@/screens/finance/parts"
+import { ApiError } from "@itulah/contract/client"
+import type {
+  PayablesAgingRow,
+  RecordBillLine,
+  SupplierBill,
+  UnbilledReceipt,
+} from "@itulah/contract"
 
 /// What is late, and what has arrived that nobody has been billed for.
 ///
@@ -58,36 +87,72 @@ function isLate(bill: SupplierBill): boolean {
 
 /// How old the money is, in the buckets an accountant already thinks in.
 ///
-/// # Which bills are in it
+/// # Why this is the server's report and no longer the browser's
 ///
-/// The ones still open — recorded and not yet posted. That is the same
-/// judgement `isLate()` makes for the Overdue column and the same population
-/// the overview counts as past due: posting is the act of accepting a bill into
-/// the books, so a posted bill is a decision somebody already took and its age
-/// is history rather than exposure. Charting every row the table holds would
-/// have built the tallest bar out of settled business, and an ageing chart
-/// exists to be acted on.
+/// The five bars used to be `listBills({})` bucketed here on `days_overdue`,
+/// and they were wrong in two ways that looked right. They aged the *whole
+/// invoice* rather than what is still outstanding on it, so a bill nine
+/// tenths paid stood as tall as one nobody had touched. And they could only
+/// ever report today: an ageing asked "as at the end of last month" has to
+/// un-count every payment made since, which needs a query over both sides and
+/// cannot be done from a list of bills alone.
 ///
-/// That makes the chart a subset of the table beneath it, so the card says
-/// which subset on the page and not only here.
+/// `GET /payables-aging` answers both, and it answers them the same way the
+/// books do — the total agrees with `trade_payable` because both move only
+/// when a bill or a payment posts.
 ///
-/// Nothing new is fetched: this is the `listBills({})` rows the table is
-/// already built from, bucketed in the browser.
-const AGE_BUCKETS = ["Not due", "1–30", "31–60", "61–90", "90+"] as const
-
-/// `days_overdue` is negative until the due date passes, so "not due" is
-/// everything at or below zero — a bill due today is not late today.
-function ageBucket(days: number): (typeof AGE_BUCKETS)[number] {
-  if (days <= 0) return "Not due"
-  if (days <= 30) return "1–30"
-  if (days <= 60) return "31–60"
-  if (days <= 90) return "61–90"
-  return "90+"
-}
-
+/// # Why it lives here and not in Reports
+///
+/// It is the list somebody works *from* when deciding who to pay this week,
+/// not a statement of the books. It is filed with the workflow that produces
+/// it, one screen away from the payment it leads to.
 const AGE_SERIES: readonly ChartSeries[] = [
-  { key: "total", label: "Recorded, not posted", tone: "accent" },
+  { key: "total", label: "Outstanding", tone: "accent" },
 ]
+
+/// The five buckets, in the order they are read, and where each one lives on
+/// the wire. Declared once so the bars, the table's columns and its cells
+/// cannot drift apart.
+const AGE_BUCKETS: readonly {
+  readonly key: keyof AgingBucketFigures
+  readonly label: string
+  readonly title: string
+}[] = [
+  { key: "not_due_minor", label: "Not due", title: "Not due yet" },
+  { key: "days_1_30_minor", label: "1–30", title: "1–30 days late" },
+  { key: "days_31_60_minor", label: "31–60", title: "31–60 days late" },
+  { key: "days_61_90_minor", label: "61–90", title: "61–90 days late" },
+  { key: "days_over_90_minor", label: "90+", title: "More than 90 days late" },
+]
+
+/// The bucket fields alone, so the table above can be indexed with a key the
+/// compiler has checked rather than with a string.
+type AgingBucketFigures = Omit<PayablesAgingRow["buckets"], "total_minor">
+
+/// How many suppliers the ageing card shows before it asks.
+///
+/// Five, because the point of the card is "who to pay this week" and nobody
+/// pays the fourteenth-heaviest supplier this week. The rest are one press
+/// away.
+const SUPPLIERS_SHOWN = 5
+
+/// How late a supplier's oldest open bill is.
+///
+/// Negative until the due date passes, exactly as `days_overdue` is on a bill
+/// — so "in 11 days" and "29 days late" are two readings of one number, and
+/// neither is drawn as the other.
+function OldestDays({ days }: { days: number }) {
+  if (days <= 0) {
+    return (
+      <span className="text-mute tabular-nums">
+        {days === 0 ? "due today" : `in ${-days}d`}
+      </span>
+    )
+  }
+  return (
+    <span className="font-medium text-bad-fg tabular-nums">{count(days)}d</span>
+  )
+}
 
 const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
   {
@@ -104,11 +169,17 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     id: "supplier",
     accessorFn: (row) => row.supplier_name ?? row.supplier_id,
     header: "Supplier",
-    size: 260,
+    size: 240,
+    // The id stays in `title`, the way a site id does: it is what a support
+    // conversation and every cross-screen link will be about. `<SupplierName>`
+    // and not the raw field, so a bill recorded before the name was carried
+    // resolves out of the supplier list instead of drawing its uuid.
     cell: ({ row }) => (
-      <span className="font-medium text-ink">
-        {row.original.supplier_name ?? row.original.supplier_id}
-      </span>
+      <SupplierName
+        id={row.original.supplier_id}
+        name={row.original.supplier_name}
+        className="block truncate font-medium text-ink"
+      />
     ),
   },
   {
@@ -141,15 +212,59 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     size: 150,
     meta: { align: "right" },
     cell: ({ row }) => (
-      <span className="font-medium text-ink tabular-nums">
+      <span className="text-body tabular-nums">
         {money(row.original.total_minor)}
       </span>
     ),
   },
   {
+    accessorKey: "paid_minor",
+    header: "Paid",
+    size: 140,
+    meta: { align: "right" },
+    // What has actually left the bank against this bill — POSTED payments
+    // only, summed on read. A bill nobody has paid draws a dash rather than
+    // "Rp 0" fourteen rows in a row.
+    cell: ({ row }) =>
+      row.original.paid_minor === 0 ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span className="text-body tabular-nums">
+          {money(row.original.paid_minor)}
+        </span>
+      ),
+  },
+  {
+    accessorKey: "outstanding_minor",
+    header: "Outstanding",
+    size: 150,
+    meta: { align: "right" },
+    // The figure this screen is about, so it is the one drawn in ink. A bill
+    // with a draft payment against it shows the draft's reservation under the
+    // number rather than in a tooltip — it is why the bill will not take
+    // another allocation, and a bill that looks payable and is not reads as
+    // broken.
+    cell: ({ row }) => {
+      const bill = row.original
+      const reserved = bill.allocated_minor - bill.paid_minor
+      return (
+        <span className="inline-flex flex-col items-end">
+          <span className="font-medium text-ink tabular-nums">
+            {money(bill.outstanding_minor)}
+          </span>
+          {reserved > 0 && (
+            <span className="text-[0.65625rem] text-warn-fg tabular-nums">
+              {money(reserved)} in draft
+            </span>
+          )}
+        </span>
+      )
+    },
+  },
+  {
     accessorKey: "days_overdue",
     header: "Overdue",
-    size: 120,
+    size: 110,
     meta: { align: "right" },
     // The decision metric, and the reason this list overrides the server's
     // order: the invoice date is when the bill was recorded, not the order it
@@ -172,6 +287,71 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
   },
 ]
 
+/// One bill's own read, held under its own key.
+///
+/// `GET /bills` sends `lines: null` on every row on purpose — a hundred rows
+/// drawing a hundred and one queries is how a list gets slow without anybody
+/// being able to point at the reason — so what an expense bill was *for* is
+/// only ever readable one bill at a time.
+///
+/// `enabled` is the whole cost control: this is called for expense rows and for
+/// an open sheet, never for the merchandise list, and an expense bill is a
+/// small minority of the book. `retry: false` because the two ways this fails
+/// are a bill that is not there and a node that does not answer the per-bill
+/// read, and asking either of them three times changes nothing.
+function useBill(id: string | null, enabled = true) {
+  return useQuery({
+    queryKey: financeKeys.bill(id ?? ""),
+    queryFn: ({ signal }) => billDetail(id!, signal),
+    enabled: id !== null && enabled,
+    retry: false,
+    staleTime: 60_000,
+  })
+}
+
+/// Whether a failure is "this node does not serve that read yet".
+///
+/// A 404 on the per-bill read is not an error to put in front of somebody: it
+/// is a capability this deployment has not got, and the screen says so quietly
+/// once rather than drawing a red banner per row. Anything else is a real
+/// failure and is shown as one.
+function isMissingRead(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404
+}
+
+/// How many things an expense bill was for.
+///
+/// A component and not a column value, for the same reason `<SiteName>` is one:
+/// the figure needs a read, a cell is a React element, and this keeps the
+/// column definitions module-level constants. A dash while it is loading and a
+/// dash when the node cannot answer — the count is a convenience, and a table
+/// that refuses to draw because one column could not be filled is worse than
+/// one that admits the gap.
+function LineCount({ id }: { id: string }) {
+  const bill = useBill(id)
+  const lines = bill.data?.lines
+  if (lines === undefined || lines === null) {
+    return <span className="text-faint">—</span>
+  }
+  return <span className="text-body tabular-nums">{count(lines.length)}</span>
+}
+
+/// The expense list: the same columns as merchandise, plus what the bill was
+/// for. Spliced in before Status rather than appended, so the two figures a
+/// reader compares — what it was for, and what it came to — are not at opposite
+/// ends of a wide row.
+const expenseColumns: ColumnDef<TableSetup, SupplierBill>[] = [
+  ...billColumns.slice(0, 3),
+  {
+    id: "lines",
+    header: "Lines",
+    size: 80,
+    meta: { align: "right" },
+    cell: ({ row }) => <LineCount id={row.original.invoice_id} />,
+  },
+  ...billColumns.slice(3),
+]
+
 const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
   {
     accessorKey: "receipt_number",
@@ -186,9 +366,17 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
   {
     accessorKey: "supplier_id",
     header: "Supplier",
-    size: 200,
+    size: 220,
+    // A delivery carries no supplier name on the wire, only the id — and a
+    // uuid in a column headed "Supplier" is a cell nobody can read.
+    // `<SupplierName>` looks it up out of the bill list this screen already
+    // holds and falls back to the id for a supplier we have never been billed
+    // by, which is the only honest thing to draw for one.
     cell: ({ row }) => (
-      <span className="font-medium text-ink">{row.original.supplier_id}</span>
+      <SupplierName
+        id={row.original.supplier_id}
+        className="font-medium text-ink"
+      />
     ),
   },
   {
@@ -244,12 +432,33 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
   },
 ]
 
+/// Which of the three lists is on screen.
+///
+/// Merchandise and Expenses are two *datasets* and not two filters on one, which
+/// is why they are sub-tabs: they are settled out of different payables, they
+/// are posted by different rules, and only one of them says what it was for. A
+/// segmented control here would have claimed they were one list narrowed.
+type BillTab = "merchandise" | "expenses" | "unbilled"
+
 export function SupplierBills() {
-  const [tab, setTab] = useState<"bills" | "unbilled">("bills")
+  const [tab, setTab] = useState<BillTab>("merchandise")
   const [query, setQuery] = useState("")
+  const [site, setSite] = useState("")
   const [recording, setRecording] = useState(false)
+  /// Whether the ageing's supplier table is showing all of them.
+  ///
+  /// It had an inner scroll region with a fixed height, which cut the fifth row
+  /// through the middle — a table that ends in half a row reads as broken
+  /// rather than as scrollable, and the scrollbar it depends on is invisible on
+  /// a Mac until somebody starts scrolling. Five whole rows and a count is the
+  /// same restraint without the lie.
+  const [allSuppliers, setAllSuppliers] = useState(false)
   const bill = useSheet("bill")
+  const asOf = useAsOf()
   const [billSort, setBillSort] = useState<SortingState>([
+    { id: "days_overdue", desc: true },
+  ])
+  const [expenseSort, setExpenseSort] = useState<SortingState>([
     { id: "days_overdue", desc: true },
   ])
   const [waitSort, setWaitSort] = useState<SortingState>([
@@ -264,9 +473,41 @@ export function SupplierBills() {
     queryKey: financeKeys.unbilled(),
     queryFn: ({ signal }) => unbilledReceipts(signal),
   })
+  const aging = useQuery({
+    queryKey: financeKeys.payablesAging(asOf.value, site || null),
+    queryFn: ({ signal }) =>
+      payablesAging({ as_of: asOf.value, site: site || undefined }, signal),
+  })
 
-  const billRows = useMemo(() => bills.data ?? [], [bills.data])
-  const waitRows = useMemo(() => unbilled.data ?? [], [unbilled.data])
+  // The location filter is applied here and not on the wire: `GET /bills`
+  // takes a status, a supplier and a limit, and no site. The ageing beside it
+  // *is* narrowed on the server, which is why one control drives two things
+  // that look the same and are not — and why the chip says which date and
+  // which location the report on screen belongs to.
+  // Both bill lists come out of one read and one cache key. `GET /bills` takes
+  // no `kind`, and asking for one would be a second loading state and a second
+  // cache entry for a partition of a list already in memory — the same argument
+  // that took `?unassessed=true` off the asset register.
+  const atSite = useMemo(
+    () =>
+      (bills.data ?? []).filter((row) => site === "" || row.site_id === site),
+    [bills.data, site]
+  )
+  const billRows = useMemo(
+    () => atSite.filter((row) => row.kind !== "EXPENSE"),
+    [atSite]
+  )
+  const expenseRows = useMemo(
+    () => atSite.filter((row) => row.kind === "EXPENSE"),
+    [atSite]
+  )
+  const waitRows = useMemo(
+    () =>
+      (unbilled.data ?? []).filter(
+        (row) => site === "" || row.site_id === site
+      ),
+    [unbilled.data, site]
+  )
 
   const billTable = useTable(
     useMemo(
@@ -280,6 +521,21 @@ export function SupplierBills() {
         onGlobalFilterChange: setQuery,
       }),
       [billRows, query, billSort]
+    )
+  )
+
+  const expenseTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: expenseRows,
+        columns: expenseColumns,
+        getRowId: (row: SupplierBill) => row.invoice_id,
+        state: { globalFilter: query, sorting: expenseSort },
+        onSortingChange: setExpenseSort,
+        onGlobalFilterChange: setQuery,
+      }),
+      [expenseRows, query, expenseSort]
     )
   )
 
@@ -307,21 +563,22 @@ export function SupplierBills() {
   // payables, not a reason to close the space up and let the eye read the
   // remaining bars as if they were adjacent ages.
   const ageing = useMemo(() => {
-    const open = billRows.filter((row) => row.status.toUpperCase() !== "POSTED")
-    const sums = new Map<string, number>(AGE_BUCKETS.map((name) => [name, 0]))
-    for (const row of open) {
-      const bucket = ageBucket(row.days_overdue)
-      sums.set(bucket, (sums.get(bucket) ?? 0) + row.total_minor)
-    }
+    const total = aging.data?.total
+    const suppliers = aging.data?.suppliers ?? []
     return {
-      bills: open.length,
-      owed: open.reduce((sum, row) => sum + row.total_minor, 0),
+      owed: total?.total_minor ?? 0,
+      suppliers,
+      // The server's own order — heaviest first — so the five that are shown
+      // are the five worth acting on.
+      shownSuppliers: allSuppliers
+        ? suppliers
+        : suppliers.slice(0, SUPPLIERS_SHOWN),
       rows: AGE_BUCKETS.map((bucket) => ({
-        bucket,
-        total: sums.get(bucket) ?? 0,
+        bucket: bucket.label,
+        total: total?.[bucket.key] ?? 0,
       })),
     }
-  }, [billRows])
+  }, [aging.data, allSuppliers])
 
   return (
     <PageContent>
@@ -344,13 +601,38 @@ export function SupplierBills() {
         }
       />
 
-      {/* Two datasets, not two slices of one: a bill is a document the supplier
-          sent, an unbilled receipt is a document they have not. */}
+      <Toolbar>
+        <AsOfControl asOf={asOf} />
+        <LocationSelect
+          value={site}
+          onChange={setSite}
+          className="h-8 w-44"
+          aria-label="Location"
+        />
+        <Toolbar.Spacer />
+        {/* The effective answer, in words, always. A date box filled with
+            today and one left blank look identical to a reader; the sentence
+            is what says which report is on screen. */}
+        <span className="text-[0.71875rem] text-mute">
+          {asOf.chip}
+          {site === "" ? " · every location" : " · "}
+          {site !== "" && <SiteName id={site} />}
+        </span>
+      </Toolbar>
+
+      {/* Three datasets, not three slices of one. Goods for resale and the
+          electricity bill are settled out of different payables and posted by
+          different rules; an unbilled receipt is a document the supplier has
+          not sent at all. */}
       <SubTabs
         value={tab}
-        onChange={(next) => setTab(next as "bills" | "unbilled")}
+        onChange={(next) => setTab(next as BillTab)}
         tabs={[
-          { value: "bills", label: "Bills" },
+          { value: "merchandise", label: "Merchandise" },
+          {
+            value: "expenses",
+            label: `Expenses${expenseRows.length > 0 ? ` · ${expenseRows.length}` : ""}`,
+          },
           {
             value: "unbilled",
             label: `Unbilled deliveries${waitRows.length > 0 ? ` · ${waitRows.length}` : ""}`,
@@ -358,18 +640,23 @@ export function SupplierBills() {
         ]}
       />
 
-      {tab === "bills" ? (
+      {tab === "merchandise" ? (
         <>
-          {/* Only when there is something open. With every bill posted the
-              chart would be five empty buckets announcing that there is
-              nothing to age, which the table below says on its own. */}
-          {ageing.bills > 0 && (
+          {/* Only when something is owed. With every bill settled the chart
+              would be five empty buckets announcing that there is nothing to
+              age, which the table below says on its own. */}
+          {ageing.owed > 0 && (
             <Card className="mb-3">
               <CardHeader>
                 <CardTitle>Ageing</CardTitle>
+                {/* Which population, said on the card. The sidebar badge
+                    beside "Supplier bills" counts something else — bills that
+                    are past due and *not posted* — and two numbers on one
+                    screen that disagree without saying why is how somebody
+                    stops trusting both. */}
                 <span className="text-[0.71875rem] text-mute">
-                  {count(ageing.bills)} of {count(billRows.length)} bills —
-                  recorded, not yet posted ·{" "}
+                  Every bill with something still owed on it, posted and draft,
+                  across {count(ageing.suppliers.length)} suppliers ·{" "}
                   <span className="font-medium text-ink tabular-nums">
                     {money(ageing.owed)}
                   </span>
@@ -382,10 +669,102 @@ export function SupplierBills() {
                   format={money}
                   labelOf={(bucket) => bucket}
                   titleOf={(bucket) =>
-                    bucket === "Not due" ? "Not due yet" : `${bucket} days late`
+                    AGE_BUCKETS.find((row) => row.label === bucket)?.title ??
+                    bucket
                   }
                   className="h-[9.5rem]"
                 />
+
+                {/* The same report, supplier by supplier — the half of an
+                    ageing somebody actually acts on. Heaviest first, which is
+                    the server's own order and the order it is read in. */}
+                <div className="mt-3 border-t border-hairline pt-3">
+                  <SubHead aside="Heaviest first">By supplier</SubHead>
+                  {/* Five rows, then a count. An ageing runs to as many rows
+                      as there are suppliers and a card that grows with the
+                      list pushes the bills table off the bottom of the screen
+                      — but the fix for that is to stop early on a row
+                      boundary, not to cut the list mid-row behind a scrollbar
+                      nobody can see until they scroll. */}
+                  <div>
+                    <MiniTable
+                      head={[
+                        "Supplier",
+                        "Oldest",
+                        ...AGE_BUCKETS.map((bucket) => bucket.label),
+                        "Total",
+                      ]}
+                    >
+                      {ageing.shownSuppliers.map((row) => (
+                        <MiniRow key={row.supplier_id}>
+                          <MiniCell>
+                            <SupplierName
+                              id={row.supplier_id}
+                              name={row.supplier_name}
+                              className="block truncate text-ink"
+                            />
+                            <span className="text-[0.65625rem] text-mute">
+                              {count(row.bill_count)}{" "}
+                              {row.bill_count === 1 ? "bill" : "bills"}
+                            </span>
+                          </MiniCell>
+                          <MiniCell align="right">
+                            <OldestDays days={row.oldest_days} />
+                          </MiniCell>
+                          {AGE_BUCKETS.map((bucket) => (
+                            <MiniCell key={bucket.key} align="right">
+                              {row.buckets[bucket.key] === 0 ? (
+                                <span className="text-faint">—</span>
+                              ) : (
+                                money(row.buckets[bucket.key])
+                              )}
+                            </MiniCell>
+                          ))}
+                          <MiniCell
+                            align="right"
+                            className="font-medium text-ink"
+                          >
+                            {money(row.buckets.total_minor)}
+                          </MiniCell>
+                        </MiniRow>
+                      ))}
+                    </MiniTable>
+                  </div>
+                  {ageing.suppliers.length > ageing.shownSuppliers.length && (
+                    <Button
+                      size="sm"
+                      variant="quiet"
+                      className="mt-1.5"
+                      onClick={() => setAllSuppliers(true)}
+                    >
+                      Show all {count(ageing.suppliers.length)} suppliers
+                    </Button>
+                  )}
+                  {allSuppliers &&
+                    ageing.suppliers.length > SUPPLIERS_SHOWN && (
+                      <Button
+                        size="sm"
+                        variant="quiet"
+                        className="mt-1.5"
+                        onClick={() => setAllSuppliers(false)}
+                      >
+                        Show the heaviest {count(SUPPLIERS_SHOWN)}
+                      </Button>
+                    )}
+                  <p className="mt-2 text-[0.71875rem] text-mute">
+                    The server's own ageing, wound back to the date above: what
+                    is still outstanding on each bill, not what the invoice was
+                    for. It agrees with{" "}
+                    <AppLink
+                      to="/finance/account-map"
+                      className="text-accent hover:underline"
+                    >
+                      trade payable
+                    </AppLink>{" "}
+                    in the books, because both move only when a bill or a
+                    payment posts.
+                  </p>
+                </div>
               </div>
             </Card>
           )}
@@ -396,7 +775,9 @@ export function SupplierBills() {
               render: () =>
                 billRows.length === 0 ? (
                   <EmptyState>
-                    No supplier invoice has been recorded yet.
+                    {site === ""
+                      ? "No supplier invoice has been recorded yet."
+                      : "No supplier invoice has been recorded at this location. Widen the location filter to see the rest."}
                   </EmptyState>
                 ) : (
                   <DataTable<SupplierBill>
@@ -404,14 +785,56 @@ export function SupplierBills() {
                     onRowClick={(row) => bill.open(row.invoice_id)}
                     isSelected={(row) => row.invoice_id === bill.value}
                     empty="No bill matches that search."
-                    // The chart takes about fourteen rem off the top of the
-                    // page, so the table's own scroll region gives it back
-                    // rather than running off the bottom of the window.
+                    // The ageing card takes the top of the page, so the
+                    // table's own scroll region gives it back rather than
+                    // running off the bottom of the window.
                     className={
-                      ageing.bills > 0
-                        ? "max-h-[calc(100vh-32rem)]"
-                        : "max-h-[calc(100vh-18rem)]"
+                      ageing.owed > 0
+                        ? "max-h-[calc(100vh-38rem)]"
+                        : "max-h-[calc(100vh-21rem)]"
                     }
+                  />
+                ),
+            })}
+          </Card>
+        </>
+      ) : tab === "expenses" ? (
+        <>
+          {/* What the tab is for, said once. An expense bill is the only bill
+              on this screen that says what it was for, and the only one whose
+              posting debits an account somebody chose rather than one a rule
+              decided. */}
+          <Banner tone="info" className="mb-3">
+            Costs rather than goods for resale — rent, electricity, a repair,
+            and the capital purchases an asset is bought by. Each one names the
+            accounts its cost belongs to, and those lines are what the posting
+            debits. They settle out of{" "}
+            <AppLink
+              to="/finance/account-map"
+              sheet={{ key: "mapping", value: "non_merchandise_payable" }}
+              className="text-accent hover:underline"
+            >
+              non-merchandise payable
+            </AppLink>
+            , not trade payable.
+          </Banner>
+          <Card className="overflow-hidden">
+            {queryState(bills, {
+              loading: "Loading the bills…",
+              render: () =>
+                expenseRows.length === 0 ? (
+                  <EmptyState>
+                    {site === ""
+                      ? "No expense bill has been recorded yet. Record one with “Record bill” and switch its kind to Expense."
+                      : "No expense bill has been recorded at this location. Widen the location filter to see the rest."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<SupplierBill>
+                    table={expenseTable}
+                    onRowClick={(row) => bill.open(row.invoice_id)}
+                    isSelected={(row) => row.invoice_id === bill.value}
+                    empty="No expense bill matches that search."
+                    className="max-h-[calc(100vh-25rem)]"
                   />
                 ),
             })}
@@ -435,14 +858,15 @@ export function SupplierBills() {
               render: () =>
                 waitRows.length === 0 ? (
                   <EmptyState>
-                    Every delivery has a bill against it. Nothing is sitting in
-                    the warehouse that the books do not know about.
+                    {site === ""
+                      ? "Every delivery has a bill against it. Nothing is sitting in the warehouse that the books do not know about."
+                      : "Every delivery to this location has a bill against it. Widen the location filter to see the rest."}
                   </EmptyState>
                 ) : (
                   <DataTable<UnbilledReceipt>
                     table={waitTable}
                     empty="No delivery matches that search."
-                    className="max-h-[calc(100vh-22rem)]"
+                    className="max-h-[calc(100vh-25rem)]"
                   />
                 ),
             })}
@@ -469,6 +893,9 @@ function BillSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  // The sheet's title is a string and not an element, so the one place in this
+  // module that cannot use `<SupplierName>` calls what it calls.
+  const supplierName = useSupplierName()
 
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
@@ -476,7 +903,38 @@ function BillSheet({
     enabled: id !== null,
   })
 
+  // What has been paid against it. The whole register under the key the
+  // Payments screen owns, filtered here — there is no per-bill payments
+  // endpoint, and asking for one supplier's payments would still not answer
+  // "this invoice" because a payment can settle several bills at once.
+  const payments = useQuery({
+    queryKey: financeKeys.payments(null, null, null),
+    queryFn: ({ signal }) => listPayments({ limit: 200 }, signal),
+    enabled: id !== null,
+  })
+
   const bill = bills.data?.find((row) => row.invoice_id === id)
+
+  // What the bill was for, read one bill at a time. Only for an expense bill:
+  // a merchandise bill has no lines by construction — what it debits is decided
+  // by the posting rule, not by the person keying it — so asking would be a
+  // request whose only possible answer is an empty array.
+  const detail = useBill(id, bill?.kind === "EXPENSE")
+  const lines = detail.data?.lines ?? bill?.lines ?? null
+
+  const against = (payments.data ?? [])
+    .map((payment) => ({
+      payment,
+      allocation: payment.allocations.find((row) => row.invoice_id === id),
+    }))
+    .filter(
+      (
+        row
+      ): row is {
+        payment: (typeof row)["payment"]
+        allocation: NonNullable<(typeof row)["allocation"]>
+      } => row.allocation !== undefined
+    )
 
   const post = useMutation({
     mutationFn: () => postBill(id!),
@@ -495,7 +953,11 @@ function BillSheet({
       subject={id === null ? undefined : { kind: "bill", id }}
       onOpenChange={(next) => !next && onClose()}
       id={bill?.invoice_number}
-      title={bill?.supplier_name ?? bill?.supplier_id ?? "Bill"}
+      title={
+        bill === undefined
+          ? "Bill"
+          : (bill.supplier_name ?? supplierName(bill.supplier_id))
+      }
       footer={
         bill && !posted ? (
           <div className="flex items-center justify-between gap-3">
@@ -532,6 +994,12 @@ function BillSheet({
 
               <div className="flex flex-wrap gap-1.5">
                 <Pill tone={toneFor(bill.status)}>{label(bill.status)}</Pill>
+                {/* Which kind, always — it decides what the posting debits,
+                    and a bill that says nothing about it reads as merchandise
+                    to anybody who has met only merchandise. */}
+                <Pill tone={bill.kind === "EXPENSE" ? "info" : "neutral"}>
+                  {bill.kind === "EXPENSE" ? "Expense" : "Merchandise"}
+                </Pill>
                 {isLate(bill) && (
                   <Pill tone="bad">
                     {count(bill.days_overdue)} days overdue
@@ -539,8 +1007,81 @@ function BillSheet({
                 )}
               </div>
 
+              {/* Above the facts, because on an expense bill this IS the
+                  document: the accounts these name are exactly what the
+                  posting will debit, and the header below is the paperwork
+                  around them. */}
+              {bill.kind === "EXPENSE" && (
+                <div>
+                  <SubHead
+                    aside={
+                      lines === null
+                        ? undefined
+                        : `${count(lines.length)} ${lines.length === 1 ? "line" : "lines"}`
+                    }
+                  >
+                    What it was for
+                  </SubHead>
+                  {lines === null ? (
+                    <p className="text-[0.71875rem] text-mute">
+                      {detail.isPending
+                        ? "Reading the lines…"
+                        : isMissingRead(detail.error)
+                          ? "This node does not answer the per-bill read yet, so what the bill was for cannot be shown here. The posting on the journal entry says the same thing, account by account."
+                          : "The lines could not be read."}
+                    </p>
+                  ) : (
+                    <MiniTable head={["Account", "Location", "Amount"]}>
+                      {lines.map((line) => (
+                        <MiniRow key={line.line_id}>
+                          <MiniCell>
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              {/* The code opens the ledger — what has
+                                  happened in this account — and the client's
+                                  own name for it is never translated. */}
+                              <AppLink
+                                to="/finance/ledger"
+                                sheet={{
+                                  key: "account",
+                                  value: line.account_code,
+                                }}
+                                className="shrink-0 font-mono text-[0.65625rem] text-mute hover:text-accent hover:underline"
+                              >
+                                {line.account_code}
+                              </AppLink>
+                              <span className="truncate text-ink">
+                                {line.account_name}
+                              </span>
+                            </span>
+                            {line.memo && (
+                              <span className="block text-[0.65625rem] text-mute">
+                                {line.memo}
+                              </span>
+                            )}
+                          </MiniCell>
+                          <MiniCell>
+                            <SiteName id={line.site_id} />
+                          </MiniCell>
+                          <MiniCell align="right">
+                            {money(line.amount_minor)}
+                          </MiniCell>
+                        </MiniRow>
+                      ))}
+                    </MiniTable>
+                  )}
+                </div>
+              )}
+
               <Facts>
-                <Fact term="Supplier">{bill.supplier_id}</Fact>
+                {/* The client's own name for them, with the id in `title`.
+                    A uuid was here, which is the id the URL and a support
+                    call are about and not a thing anybody reads. */}
+                <Fact term="Supplier">
+                  <SupplierName
+                    id={bill.supplier_id}
+                    name={bill.supplier_name}
+                  />
+                </Fact>
                 <Fact term="Location">
                   <SiteName id={bill.site_id} />
                 </Fact>
@@ -572,10 +1113,85 @@ function BillSheet({
                 rows={[
                   { label: "Subtotal", value: money(bill.subtotal_minor) },
                   { label: "Tax", value: money(bill.tax_minor) },
-                  { label: "Discount", value: money(-bill.discount_minor) },
+                  // `-0` is a real JavaScript value and `Intl` renders it as
+                  // "-Rp 0", so a bill with no discount and nothing paid drew
+                  // two negative zeroes. Negated only when there is something
+                  // to negate.
+                  // An expense bill cannot carry one — the client's only
+                  // discount account is Potongan Pembelian, which is for
+                  // purchases — so the row is not drawn rather than drawn as a
+                  // permanent zero.
+                  ...(bill.kind === "EXPENSE"
+                    ? []
+                    : [
+                        {
+                          label: "Discount",
+                          value: money(
+                            bill.discount_minor === 0 ? 0 : -bill.discount_minor
+                          ),
+                        },
+                      ]),
+                  { label: "Total", value: money(bill.total_minor) },
+                  {
+                    label: "Paid",
+                    value: money(bill.paid_minor === 0 ? 0 : -bill.paid_minor),
+                  },
                 ]}
-                total={{ label: "Total", value: money(bill.total_minor) }}
+                total={{
+                  label: "Outstanding",
+                  value: money(bill.outstanding_minor),
+                }}
               />
+
+              {/* No dead ends: what has been paid against this bill is one
+                  click away. Drawn only when there is something — a heading
+                  over an empty table says "no payments" twice. */}
+              {against.length > 0 && (
+                <div>
+                  <SubHead
+                    aside={
+                      bill.allocated_minor > bill.paid_minor
+                        ? `${money(bill.allocated_minor - bill.paid_minor)} of it still in draft`
+                        : undefined
+                    }
+                  >
+                    Paid by
+                  </SubHead>
+                  <MiniTable head={["Payment", "Status", "Amount"]}>
+                    {against.map(({ payment, allocation }) => (
+                      <MiniRow key={payment.payment_id}>
+                        <MiniCell>
+                          {/* The payment itself, not the register it is on.
+                              `payment` is a key in `lib/sheets.ts` now, so
+                              this opens the record rather than landing
+                              somebody on a list with a number to find. */}
+                          <AppLink
+                            to="/finance/payments"
+                            sheet={{
+                              key: "payment",
+                              value: payment.payment_id,
+                            }}
+                            className="block font-mono text-[0.75rem] text-accent hover:underline"
+                          >
+                            {payment.payment_number}
+                          </AppLink>
+                          <span className="text-[0.65625rem] text-mute">
+                            {day(payment.payment_date)}
+                          </span>
+                        </MiniCell>
+                        <MiniCell>
+                          <Pill tone={toneFor(payment.status)}>
+                            {label(payment.status)}
+                          </Pill>
+                        </MiniCell>
+                        <MiniCell align="right">
+                          {money(allocation.amount_minor)}
+                        </MiniCell>
+                      </MiniRow>
+                    ))}
+                  </MiniTable>
+                </div>
+              )}
             </div>
           ),
       })}
@@ -583,9 +1199,33 @@ function BillSheet({
   )
 }
 
+/// One thing an expense bill was for, as somebody keys it.
+///
+/// The account is held as a code *and* a name even though only the code is
+/// sent: the picker answers with both, and splitting the pair would let a row
+/// show one account's name over another's code. The same reason the bank
+/// statement composer keeps both.
+///
+/// There is no `site` here, and that is the point. 0098 forces an expense line
+/// to sit at its bill's own location — every 6* and 7* leaf in this client's
+/// chart is already a per-location account, so a DC bill carrying a store-01
+/// line would debit store 01 with no credit anywhere in store 01's books. A
+/// control offering the choice would be a control whose every other answer is
+/// refused.
+interface ExpenseLineDraft {
+  accountCode: string
+  accountName: string
+  amount: string
+  memo: string
+}
+
 /// The bill as it is typed — every amount is text until it is submitted,
 /// because a half-typed number is not a number.
 interface BillDraft {
+  /// `MERCHANDISE` or `EXPENSE`. What decides which payable the posting
+  /// credits, which accounts it debits, and therefore whether `lines` means
+  /// anything at all.
+  kind: string
   invoiceNumber: string
   supplierId: string
   supplierName: string
@@ -596,20 +1236,59 @@ interface BillDraft {
   tax: string
   discount: string
   note: string
+  lines: ExpenseLineDraft[]
 }
 
-/// What the three amounts add up to, from whatever is typed so far.
+/// What the amounts add up to, from whatever is typed so far — and, on an
+/// expense bill, whether the lines agree with the figure on the paper.
 ///
 /// A blank tax or discount is zero rather than a refusal — most invoices carry
 /// neither — but a *misread* one stays `null`, which is what stops the form.
+///
+/// The lines are checked against `subtotal` and never used to compute it. The
+/// subtotal is what the supplier printed; the lines are somebody's account
+/// coding of it, and a form that quietly made the two agree by deriving one
+/// from the other would hide the keying error this comparison exists to catch.
+/// The database makes the same comparison at COMMIT and names the difference.
 function billTotals(draft: BillDraft) {
+  const expense = draft.kind === "EXPENSE"
   const subtotalMinor = parseMinor(draft.subtotal)
   const taxMinor = draft.tax.trim() === "" ? 0 : parseMinor(draft.tax)
-  const discountMinor =
-    draft.discount.trim() === "" ? 0 : parseMinor(draft.discount)
+  // Refused outright on an expense bill: the client's only discount account is
+  // Potongan Pembelian, which is for purchases. So it is zero here rather than
+  // whatever is left in a box the form has stopped drawing.
+  const discountMinor = expense
+    ? 0
+    : draft.discount.trim() === ""
+      ? 0
+      : parseMinor(draft.discount)
   // Integer minor units throughout — a float rupiah is a rounding error waiting
   // for a total to disagree with the ledger.
   const total = (subtotalMinor ?? 0) + (taxMinor ?? 0) - (discountMinor ?? 0)
+
+  let linesMinor: number | null = 0
+  for (const line of draft.lines) {
+    const amount = parseMinor(line.amount)
+    // A line with no account, no amount or a negative one is not a line. The
+    // server says the same of each, one at a time and by number.
+    if (
+      linesMinor === null ||
+      amount === null ||
+      amount <= 0 ||
+      line.accountCode === ""
+    ) {
+      linesMinor = null
+      break
+    }
+    linesMinor += amount
+  }
+
+  const agree =
+    !expense ||
+    (draft.lines.length > 0 &&
+      linesMinor !== null &&
+      subtotalMinor !== null &&
+      linesMinor === subtotalMinor)
 
   const ready =
     draft.invoiceNumber.trim() !== "" &&
@@ -618,13 +1297,32 @@ function billTotals(draft: BillDraft) {
     draft.invoiceDate !== "" &&
     subtotalMinor !== null &&
     taxMinor !== null &&
-    discountMinor !== null
+    discountMinor !== null &&
+    agree
 
-  return { subtotalMinor, taxMinor, discountMinor, total, ready }
+  return {
+    expense,
+    subtotalMinor,
+    taxMinor,
+    discountMinor,
+    linesMinor,
+    total,
+    agree,
+    ready,
+  }
 }
 
 /// Writing a supplier's invoice down. It does not post: recording and posting
 /// are two acts, and this is only the first.
+///
+/// # Why one composer and not two
+///
+/// A merchandise bill and an expense bill share nine of their eleven fields —
+/// the supplier, the location, the dates, the invoice number, the amounts. Two
+/// sheets would be nine fields written twice and two "Record bill" buttons in a
+/// toolbar, and the reader would have to know which kind of thing they were
+/// holding before they could start typing it. The kind is a switch at the top,
+/// where it belongs: it is the first decision, and everything below it follows.
 function RecordSheet({
   open,
   onClose,
@@ -641,29 +1339,51 @@ function RecordSheet({
     // the second argument, which is not the `AbortSignal` the fetcher expects.
     mutationFn: (draft: BillDraft) => {
       const totals = billTotals(draft)
+      const site = draft.siteId.trim()
       return recordBill({
         invoice_number: draft.invoiceNumber.trim(),
         supplier_id: draft.supplierId.trim(),
         supplier_name:
           draft.supplierName.trim() === "" ? null : draft.supplierName.trim(),
-        site_id: draft.siteId.trim(),
+        site_id: site,
         invoice_date: draft.invoiceDate,
         due_date: draft.dueDate === "" ? null : draft.dueDate,
         subtotal_minor: totals.subtotalMinor ?? 0,
         tax_minor: totals.taxMinor ?? 0,
         discount_minor: totals.discountMinor ?? 0,
         note: draft.note.trim() === "" ? null : draft.note.trim(),
+        kind: draft.kind,
+        // Absent and not `[]` on a merchandise bill: the server refuses a
+        // merchandise bill that carries any, and an empty array is a claim
+        // about lines rather than the absence of one.
+        lines: totals.expense
+          ? draft.lines.map((line): RecordBillLine => ({
+              account_code: line.accountCode,
+              // The bill's own location, always. See `ExpenseLineDraft`.
+              site_id: site,
+              amount_minor: parseMinor(line.amount) ?? 0,
+              memo: line.memo.trim() === "" ? null : line.memo.trim(),
+            }))
+          : undefined,
       })
     },
     onSuccess: (saved) => {
       setReceipt(saved.invoice_number)
+      // The answer carries its lines, so the sheet somebody opens next reads
+      // them out of the cache instead of asking for a bill this browser just
+      // wrote.
+      client.setQueryData(financeKeys.bill(saved.invoice_id), saved)
       // Only the fields that differ from invoice to invoice are cleared: the
       // supplier, the site and the dates are almost always the next bill's too.
+      // The lines go with the amount — they are this invoice's coding of this
+      // invoice, and carrying them forward is how the electricity gets booked
+      // twice.
       form.setFieldValue("invoiceNumber", "")
       form.setFieldValue("subtotal", "")
       form.setFieldValue("tax", "")
       form.setFieldValue("discount", "")
       form.setFieldValue("note", "")
+      form.setFieldValue("lines", [])
       // Recording writes no journal entry, so only the bill list moved.
       client.invalidateQueries({ queryKey: financeKeys.bills(null) })
     },
@@ -671,6 +1391,7 @@ function RecordSheet({
 
   const form = useForm({
     defaultValues: {
+      kind: "MERCHANDISE",
       invoiceNumber: "",
       supplierId: "",
       supplierName: "",
@@ -681,15 +1402,24 @@ function RecordSheet({
       tax: "",
       discount: "",
       note: "",
+      lines: [],
     } as BillDraft,
     onSubmit: ({ value }) => record.mutate(value),
   })
+
+  /// Append, edit and drop one line, without the form having to know it is a
+  /// list. TanStack Form's array helpers would do this too; a plain setter is
+  /// three lines and does not put a second way of writing to the same field
+  /// beside the nine `<form.Field>`s above it.
+  const setLines = (next: (lines: ExpenseLineDraft[]) => ExpenseLineDraft[]) =>
+    form.setFieldValue("lines", next(form.state.values.lines))
 
   return (
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title="Record a supplier bill"
+      className="w-[34rem]"
       footer={
         /* The screen's black CTA opens this sheet and is behind the veil while
            it is up, so the two are never on screen together. */
@@ -699,7 +1429,9 @@ function RecordSheet({
               <span className="text-[0.71875rem] text-mute tabular-nums">
                 {totals.ready
                   ? money(totals.total)
-                  : "Fill in the invoice and the amount"}
+                  : totals.expense && totals.subtotalMinor !== null
+                    ? "The lines have to add up to the subtotal"
+                    : "Fill in the invoice and the amount"}
               </span>
               <Button
                 variant="dark"
@@ -730,13 +1462,37 @@ function RecordSheet({
             {receipt} recorded. It is not in the books until somebody posts it.
           </Banner>
         )}
-        {record.isError && (
-          <Banner tone="bad">
-            {record.error instanceof Error
-              ? record.error.message
-              : "The bill was refused."}
-          </Banner>
-        )}
+        {/* The server's own sentence, verbatim. Every refusal this endpoint
+            has is written to be read by the person who typed the bill — which
+            line is in the wrong class, which location the cost was put at,
+            what the difference between the lines and the subtotal comes to —
+            and paraphrasing any of them would lose the number they name. */}
+        <Problem error={record.error} />
+
+        {/* The first decision, at the top, because everything below follows
+            from it. A segmented control and not sub-tabs: this is one form
+            with two shapes, not two documents. */}
+        <form.Field name="kind">
+          {(field) => (
+            <Field
+              label="Kind"
+              hint={
+                field.state.value === "EXPENSE"
+                  ? "A cost: rent, electricity, a repair, a capital purchase. It says what it was for, account by account."
+                  : "Goods for resale. What the posting debits is decided by the rule, not by the person keying it."
+              }
+            >
+              <Segmented
+                value={field.state.value}
+                onChange={(next) => field.handleChange(next)}
+                options={[
+                  { value: "MERCHANDISE", label: "Merchandise" },
+                  { value: "EXPENSE", label: "Expense" },
+                ]}
+              />
+            </Field>
+          )}
+        </form.Field>
 
         <div className="grid grid-cols-2 gap-3">
           <form.Field name="invoiceNumber">
@@ -764,27 +1520,21 @@ function RecordSheet({
               </Field>
             )}
           </form.Field>
+          {/* One field, across the row, where two stood: a uuid box headed
+              "Supplier id" and a free-text one for the name beside it. See
+              `<SupplierPicker>` for why that pair could file an invoice under
+              the right name and the wrong debt. The name still goes on the
+              wire — it is what the bill is recorded under — but it is now the
+              master list's rather than somebody's typing. */}
           <form.Field name="supplierId">
             {(field) => (
-              <Field label="Supplier id">
-                <Input
+              <Field label="Supplier" className="col-span-2">
+                <SupplierPicker
                   value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                />
-              </Field>
-            )}
-          </form.Field>
-          <form.Field name="supplierName">
-            {(field) => (
-              <Field
-                label="Supplier name"
-                hint="Optional; for reading the list."
-              >
-                <Input
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onPick={(supplier) => {
+                    field.handleChange(supplier?.supplier_id ?? "")
+                    form.setFieldValue("supplierName", supplier?.name ?? "")
+                  }}
                 />
               </Field>
             )}
@@ -792,11 +1542,10 @@ function RecordSheet({
           <form.Field name="invoiceDate">
             {(field) => (
               <Field label="Invoice date">
-                <Input
-                  type="date"
+                <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onChange={field.handleChange}
                 />
               </Field>
             )}
@@ -804,11 +1553,10 @@ function RecordSheet({
           <form.Field name="dueDate">
             {(field) => (
               <Field label="Due date" hint="Optional.">
-                <Input
-                  type="date"
+                <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onChange={field.handleChange}
                 />
               </Field>
             )}
@@ -824,11 +1572,10 @@ function RecordSheet({
                     : undefined
                 }
               >
-                <Input
-                  inputMode="numeric"
+                <Money
                   value={field.state.value}
                   onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onChange={field.handleChange}
                   placeholder="0"
                 />
               </Field>
@@ -837,30 +1584,60 @@ function RecordSheet({
           <form.Field name="tax">
             {(field) => (
               <Field label="Tax">
-                <Input
-                  inputMode="numeric"
+                <Money
                   value={field.state.value}
                   onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onChange={field.handleChange}
                   placeholder="0"
                 />
               </Field>
             )}
           </form.Field>
-          <form.Field name="discount">
-            {(field) => (
-              <Field label="Discount">
-                <Input
-                  inputMode="numeric"
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="0"
-                />
-              </Field>
-            )}
-          </form.Field>
+          {/* Not drawn at all on an expense bill, rather than drawn and
+              disabled: the client's only discount account is Potongan
+              Pembelian and it is for purchases, so there is no answer this box
+              could take. The server refuses one in the same words. */}
+          <form.Subscribe selector={(state) => state.values.kind}>
+            {(kind) =>
+              kind === "EXPENSE" ? null : (
+                <form.Field name="discount">
+                  {(field) => (
+                    <Field label="Discount">
+                      <Money
+                        value={field.state.value}
+                        onBlur={field.handleBlur}
+                        onChange={field.handleChange}
+                        placeholder="0"
+                      />
+                    </Field>
+                  )}
+                </form.Field>
+              )
+            }
+          </form.Subscribe>
         </div>
+
+        <form.Subscribe
+          selector={(state) => ({
+            expense: state.values.kind === "EXPENSE",
+            lines: state.values.lines,
+            site: state.values.siteId,
+            totals: billTotals(state.values),
+          })}
+        >
+          {(state) =>
+            state.expense && (
+              <ExpenseLines
+                lines={state.lines}
+                site={state.site}
+                linesMinor={state.totals.linesMinor}
+                subtotalMinor={state.totals.subtotalMinor}
+                agree={state.totals.agree}
+                onChange={setLines}
+              />
+            )
+          }
+        </form.Subscribe>
 
         <form.Field name="note">
           {(field) => (
@@ -881,10 +1658,19 @@ function RecordSheet({
               rows={[
                 { label: "Subtotal", value: money(totals.subtotalMinor ?? 0) },
                 { label: "Tax", value: money(totals.taxMinor ?? 0) },
-                {
-                  label: "Discount",
-                  value: money(-(totals.discountMinor ?? 0)),
-                },
+                ...(totals.expense
+                  ? []
+                  : [
+                      {
+                        label: "Discount",
+                        // Same negative zero as the sheet's ladder: an
+                        // untouched discount box drew "-Rp 0" under every
+                        // invoice.
+                        value: money(
+                          totals.discountMinor ? -totals.discountMinor : 0
+                        ),
+                      },
+                    ]),
               ]}
               total={{ label: "Total", value: money(totals.total) }}
             />
@@ -892,5 +1678,174 @@ function RecordSheet({
         </form.Subscribe>
       </form>
     </Sheet>
+  )
+}
+
+/// What an expense bill was for, being keyed.
+///
+/// # Why the ladder is two figures and not one
+///
+/// "Lines Rp X · Before tax Rp Y" says both halves of the comparison the server
+/// is about to make, so a mismatch is read as *which one is wrong* rather than
+/// as a form refusing to submit. The database makes the same comparison at
+/// COMMIT and names the difference; this is what stops anybody meeting it.
+function ExpenseLines({
+  lines,
+  site,
+  linesMinor,
+  subtotalMinor,
+  agree,
+  onChange,
+}: {
+  lines: readonly ExpenseLineDraft[]
+  site: string
+  linesMinor: number | null
+  subtotalMinor: number | null
+  agree: boolean
+  onChange: (next: (lines: ExpenseLineDraft[]) => ExpenseLineDraft[]) => void
+}) {
+  const edit = (index: number, patch: Partial<ExpenseLineDraft>) =>
+    onChange((current) =>
+      current.map((line, at) => (at === index ? { ...line, ...patch } : line))
+    )
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <SubHead
+        aside={
+          lines.length === 0
+            ? undefined
+            : `${count(lines.length)} ${lines.length === 1 ? "line" : "lines"}`
+        }
+      >
+        What it was for
+      </SubHead>
+
+      <p className="text-[0.71875rem] text-mute">
+        A cost — class 6 or 7 — or something that becomes one: prepaid expense,
+        an advance, or a capital purchase under <code>10215</code>. Every line
+        sits at the bill's own location:{" "}
+        {site === "" ? (
+          <span className="text-warn-fg">choose a location above first.</span>
+        ) : (
+          <>
+            <SiteName id={site} className="text-ink" />. A cost at another
+            location needs an inter-unit credit and no rule writes one yet, so
+            it is refused — record one bill per location instead.
+          </>
+        )}
+      </p>
+
+      {lines.map((line, index) => (
+        <div
+          key={index}
+          className="flex flex-col gap-2 rounded-inner border border-hairline p-3"
+        >
+          <div className="flex items-start gap-2">
+            <span className="min-w-0 flex-1">
+              {line.accountCode === "" ? (
+                <AccountPicker
+                  placeholder="Which account does this cost belong to"
+                  // The chart is theirs and the refusals are the server's:
+                  // an inactive account has been retired and cannot take new
+                  // costs, and a class outside 1, 6 and 7 is not a cost at
+                  // all. Both are shown and disabled rather than hidden — an
+                  // accountant who cannot find the account they are holding
+                  // an invoice for assumes the search is broken.
+                  accept={(account) =>
+                    !account.is_active
+                      ? "retired"
+                      : !EXPENSE_LINE_CLASSES.includes(account.root_class)
+                        ? `class ${account.root_class}`
+                        : null
+                  }
+                  onPick={(account) =>
+                    edit(index, {
+                      accountCode: account.account_code,
+                      accountName: account.name,
+                    })
+                  }
+                />
+              ) : (
+                <span className="flex min-w-0 items-center gap-2">
+                  <Tag>{line.accountCode}</Tag>
+                  <span className="min-w-0 flex-1 truncate text-[0.78125rem] text-ink">
+                    {line.accountName}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    onClick={() =>
+                      edit(index, { accountCode: "", accountName: "" })
+                    }
+                  >
+                    Change
+                  </Button>
+                </span>
+              )}
+            </span>
+            <Button
+              size="sm"
+              variant="quiet"
+              onClick={() =>
+                onChange((current) => current.filter((_, at) => at !== index))
+              }
+            >
+              Remove
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-[10rem_minmax(0,1fr)] gap-2">
+            <Field
+              label="Amount"
+              problem={
+                line.amount.trim() !== "" && parseMinor(line.amount) === null
+                  ? "Not a number."
+                  : undefined
+              }
+            >
+              <Money
+                value={line.amount}
+                onChange={(next) => edit(index, { amount: next })}
+                placeholder="0"
+              />
+            </Field>
+            <Field label="Memo" hint="Optional; what this line was.">
+              <Input
+                value={line.memo}
+                onChange={(event) => edit(index, { memo: event.target.value })}
+              />
+            </Field>
+          </div>
+        </div>
+      ))}
+
+      <div className="flex items-center justify-between gap-3">
+        <Button
+          size="sm"
+          variant="soft"
+          onClick={() =>
+            onChange((current) => [
+              ...current,
+              { accountCode: "", accountName: "", amount: "", memo: "" },
+            ])
+          }
+        >
+          Add a line
+        </Button>
+        {/* Both halves of the comparison, always — a single "out by" figure
+            would say something is wrong without saying which number to fix. */}
+        <span className="text-[0.71875rem] text-mute tabular-nums">
+          Lines{" "}
+          <span className={agree ? "text-ink" : "font-medium text-bad-fg"}>
+            {linesMinor === null ? "—" : money(linesMinor)}
+          </span>{" "}
+          · Before tax{" "}
+          <span className="text-ink">
+            {subtotalMinor === null ? "—" : money(subtotalMinor)}
+          </span>
+        </span>
+      </div>
+    </div>
   )
 }

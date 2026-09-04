@@ -13,6 +13,13 @@ import { defineConfig } from "vite"
 // to succeed and immediately fail.
 const apiTarget = process.env.VITE_API_TARGET ?? "https://itulah-cloud.onrender.com"
 
+// And to a DC EDGE node, for the Operations module.
+//
+// A warehouse console reads the machine standing in the warehouse, so this is
+// a second backend and there is no hosted one to fall back to — a DC runs in
+// the building it belongs to. Default to a node on this machine.
+const edgeTarget = process.env.VITE_EDGE_TARGET ?? "http://127.0.0.1:8080"
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -43,6 +50,21 @@ export default defineConfig({
     port: 5273,
     proxy: {
       "/api": { target: apiTarget, changeOrigin: true, secure: true },
+      // The edge node's own `/api/v1/*`, reached under a prefix this origin
+      // owns and stripped before it is forwarded. The prefix is what keeps the
+      // two backends apart in one app: `/api` is the centre, `/edge/api` is
+      // the warehouse, and neither client has to know the other exists.
+      //
+      // `cookieDomainRewrite`/`cookiePathRewrite` are deliberately absent. The
+      // edge session is a bearer token (see `lib/api.ts`), and the cookies this
+      // node sets are named exactly as the cloud's are — letting them land on
+      // this origin is what would sign the operator out of the centre.
+      "/edge": {
+        target: edgeTarget,
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/edge/, ""),
+      },
     },
     fs: {
       // The shared contract package lives beside this app, not inside it.

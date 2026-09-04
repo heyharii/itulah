@@ -1,32 +1,5 @@
 import { cn } from "@/lib/utils"
 
-/// The three parts the System screens need that `components/ui` does not carry
-/// yet, plus one formatter.
-///
-/// Inlined here rather than added to the shared layer: this module is being
-/// written alongside eight others and the shared layer is not its to widen. If
-/// a second module reaches for `<Select>` or `<Secret>`, that is the moment
-/// they graduate — until then they live where they are used.
-
-/// A yes/no that is not a state change until the form is submitted.
-export function Check({
-  label,
-  className,
-  ...props
-}: React.InputHTMLAttributes<HTMLInputElement> & { label: React.ReactNode }) {
-  return (
-    <label
-      className={cn(
-        "flex items-center gap-2 text-[0.78125rem] text-text",
-        className
-      )}
-    >
-      <input type="checkbox" className="size-3.5 accent-accent" {...props} />
-      {label}
-    </label>
-  )
-}
-
 /// A secret on its way to the server, and nowhere else.
 ///
 /// No reveal toggle and no `defaultValue`: this control is write-only by

@@ -24,6 +24,57 @@ export const ROOT_CLASSES: Readonly<Record<string, string>> = {
   "8": "BEBAN  NON OPERASIONAL",
 }
 
+/// The same eight, short enough to sit under a bar.
+///
+/// The client's own words, abbreviated rather than translated: "BIAYA / BEBAN
+/// POKOK" is nineteen characters and there are five of them across one axis, so
+/// the axis printed the bare class number instead — `4`, `5`, `6`, `7`, `8` —
+/// which is a chart of the chart of accounts' internal numbering and not a
+/// chart of the business. The full name stays in the tooltip.
+export const ROOT_CLASSES_SHORT: Readonly<Record<string, string>> = {
+  "1": "Aset",
+  "2": "Kewajiban",
+  "3": "Modal",
+  "4": "Pendapatan",
+  "5": "Beban pokok",
+  "6": "Beban usaha",
+  "7": "Usaha lainnya",
+  "8": "Non operasional",
+}
+
+/// The period's result, as a report prints it.
+///
+/// # Which sign the server speaks
+///
+/// `result_minor` is classes 4 through 8 netted **in the ledger's own signs:
+/// debits positive**. Income is credit-natured, so it arrives negative;
+/// expenses are debit-natured and arrive positive. A month that spent 33
+/// million and earned nothing therefore comes back as `+33,409,475` — a
+/// *positive* number for a loss. That is the right storage convention and the
+/// same one every other figure on the wire uses, which is exactly why it must
+/// not be printed raw: "Result for the period Rp 33.409.475" reads as a profit
+/// to everybody who has ever seen a profit and loss.
+///
+/// So a report prints income less expenses, which is the negation, and says
+/// which of the two it is in words rather than leaving a minus sign to carry
+/// the whole meaning.
+///
+/// `-0` is a real JavaScript value and `Intl` renders it as "-Rp 0", so a month
+/// with nothing in it is returned unflipped.
+export function periodResult(resultMinor: number): {
+  /// Income less expenses: a profit is positive, a loss negative.
+  readonly minor: number
+  readonly loss: boolean
+  readonly label: string
+} {
+  const minor = resultMinor === 0 ? 0 : -resultMinor
+  return {
+    minor,
+    loss: minor < 0,
+    label: minor < 0 ? "Loss for the period" : "Profit for the period",
+  }
+}
+
 /// Which side of the books a class sits on.
 ///
 /// Assets and expenses are debit-natured; liabilities, equity and income are
@@ -82,6 +133,74 @@ export function monthLabel(year: number, month: number): string {
     year: "numeric",
   })
 }
+
+/// A month the server named by its first day — `2026-08-01` — read as a month.
+///
+/// Sliced rather than parsed, for the reason `isoDay` exists: `new Date(iso)`
+/// treats a bare date as UTC, and in Jakarta that names the previous month for
+/// the first seven hours of every first-of-the-month. A depreciation charge
+/// shown against July when it was posted in August is exactly the kind of
+/// off-by-one that surfaces at a period close.
+export function monthOf(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined || iso === "") return "—"
+  const year = Number.parseInt(iso.slice(0, 4), 10)
+  const month = Number.parseInt(iso.slice(5, 7), 10)
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return iso
+  return monthLabel(year, month)
+}
+
+/// The classes a cost may be booked to, and the sentence the server refuses
+/// with when it is not one of them.
+///
+/// 6 BEBAN USAHA and 7 BEBAN USAHA LAINNYA are costs; class 1 is admitted for
+/// the two families that hold a cost until it is earned — prepaid expense and
+/// an advance — and for the `10215*` capital purchases an asset is bought by.
+/// The database is the guarantee (0094's `assert_expense_line_account`); this
+/// is what stops anybody meeting the refusal.
+export const EXPENSE_LINE_CLASSES: readonly string[] = ["1", "6", "7"]
+
+/// The four families a money account falls into, in the order a treasurer reads
+/// them, and the meanings under each.
+///
+/// The keys are the account map's own `semantic_key`s, so a meaning added to a
+/// posting rule appears on the screen the day it is mapped. The grouping is
+/// this app's: `GET /money` sends one flat list, and fourteen locations times
+/// nine meanings is a hundred and twenty rows in which cash and card
+/// receivables sit next to each other with nothing to say they are different
+/// kinds of thing. Giro outstanding gets a family of its own because it is a
+/// *liability* — a cheque written and not yet cleared — and putting it under
+/// "Bank" would invite somebody to add it to the balances above it.
+export const MONEY_FAMILIES: readonly {
+  readonly id: string
+  readonly label: string
+  readonly note: string
+  readonly keys: readonly string[]
+}[] = [
+  {
+    id: "cash",
+    label: "Cash",
+    note: "Notes in a drawer, at a location.",
+    keys: ["cash", "petty_cash", "cashier_float"],
+  },
+  {
+    id: "bank",
+    label: "Bank",
+    note: "What a bank holds for us, per account.",
+    keys: ["bank_giro", "bank_savings"],
+  },
+  {
+    id: "giro",
+    label: "Giro outstanding",
+    note: "Written and not yet cleared — a liability, so it reads negative.",
+    keys: ["giro_outstanding"],
+  },
+  {
+    id: "cards",
+    label: "Cards",
+    note: "Taken at the till and not yet settled by the scheme.",
+    keys: ["card_receivable_credit", "card_receivable_debit"],
+  },
+]
 
 /// A typed figure as integer minor units, or `null` when it is not a number.
 ///

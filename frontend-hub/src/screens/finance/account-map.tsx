@@ -7,10 +7,11 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input } from "@/components/ui/field"
+import { Checkbox, Field, Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
@@ -131,6 +132,7 @@ const columns: ColumnDef<TableSetup, KeyRow>[] = [
 
 export function AccountMap() {
   const [query, setQuery] = useState("")
+  const [onlyGaps, setOnlyGaps] = useState(false)
   const mapping = useSheet("mapping")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "missing", desc: true },
@@ -149,20 +151,29 @@ export function AccountMap() {
 
   const rows = useMemo<KeyRow[]>(() => {
     if (map.data === undefined) return []
-    return map.data.required_keys.map((doc) => {
-      const missing = gaps.missingByKey.get(doc.key) ?? []
-      return {
-        key: doc.key,
-        label: doc.label,
-        expects: doc.expects,
-        qualified: doc.qualified,
-        needed_for: doc.needed_for,
-        set: gaps.sites.length - missing.length,
-        locations: gaps.sites.length,
-        missing,
-      }
-    })
-  }, [map.data, gaps])
+    return map.data.required_keys
+      .filter(
+        (doc) =>
+          // The whole list, or only what is left to do. Filtered here and not
+          // on the server: the map arrives whole in one response, and asking
+          // for a subset of a list already in memory is a second loading state
+          // for a checkbox.
+          !onlyGaps || (gaps.missingByKey.get(doc.key)?.length ?? 0) > 0
+      )
+      .map((doc) => {
+        const missing = gaps.missingByKey.get(doc.key) ?? []
+        return {
+          key: doc.key,
+          label: doc.label,
+          expects: doc.expects,
+          qualified: doc.qualified,
+          needed_for: doc.needed_for,
+          set: gaps.sites.length - missing.length,
+          locations: gaps.sites.length,
+          missing,
+        }
+      })
+  }, [map.data, gaps, onlyGaps])
 
   const total = gaps.required
   const done = gaps.set
@@ -198,6 +209,21 @@ export function AccountMap() {
         }
       />
 
+      <Toolbar>
+        <Checkbox
+          label="Only meanings with gaps"
+          checked={onlyGaps}
+          onChange={(next) => setOnlyGaps(next)}
+        />
+        <Toolbar.Spacer />
+        {/* The effective answer, in words, like every other toolbar here: how
+            much of the bridge is built, in the unit the table counts. */}
+        <span className="text-[0.71875rem] text-mute">
+          {count(done)} of {count(total)} meaning-and-location pairs mapped
+          {onlyGaps ? " · showing only what is left" : ""}
+        </span>
+      </Toolbar>
+
       {map.data && (
         <>
           {total > done && (
@@ -225,8 +251,9 @@ export function AccountMap() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                The posting rules ask for no meanings at all, which means none
-                of them is loaded.
+                {onlyGaps
+                  ? "Every meaning is mapped at every location. Nothing is left to do here."
+                  : "The posting rules ask for no meanings at all, which means none of them is loaded."}
               </EmptyState>
             ) : (
               <DataTable<KeyRow>

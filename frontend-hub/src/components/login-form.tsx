@@ -24,10 +24,31 @@ export function LoginForm({
   /// Which node this console is talking to. Worth showing before anybody types:
   /// signing into the wrong node is a mistake you want to catch early.
   node = null,
+  /// How to sign in, for a surface that talks to more than one node.
+  ///
+  /// Defaults to the cloud, which is what the app's own login screen wants.
+  /// Operations passes the edge node's instead: the two backends keep separate
+  /// accounts, and the form has no business knowing which one it is serving —
+  /// only that a username and a password go somewhere and a session comes
+  /// back. Storing whatever the answer carries is the caller's job.
+  signIn: signInWith = (username: string, password: string) =>
+    auth.login(username, password),
+  /// What this box is the door to. Defaults to the centre.
+  ///
+  /// Said rather than implied, because the hub now has two doors and they look
+  /// identical: an operator asked for a password in the middle of the
+  /// warehouse screens, under a heading saying "Cloud Hub", would reasonably
+  /// type the one they have already used — and be told it is wrong, by a
+  /// machine they were not told they were talking to.
+  title = "Cloud Hub",
+  caption = "Sign in to the central console.",
 }: {
   onSignedIn: (session: LoginResponse) => void
   problem?: string | null
   node?: NodeIdentity | null
+  signIn?: (username: string, password: string) => Promise<LoginResponse>
+  title?: string
+  caption?: string
 }) {
   const [revealed, setRevealed] = useState(false)
 
@@ -36,7 +57,7 @@ export function LoginForm({
   /// was typed.
   const signIn = useMutation({
     mutationFn: (credentials: { username: string; password: string }) =>
-      auth.login(credentials.username, credentials.password),
+      signInWith(credentials.username, credentials.password),
     onSuccess: onSignedIn,
   })
 
@@ -70,10 +91,8 @@ export function LoginForm({
           className="w-full max-w-[21rem]"
         >
           <Mark className="mb-5 h-9 w-8 text-ink lg:hidden" />
-          <h1 className="text-hero font-semibold text-ink">Cloud Hub</h1>
-          <p className="mt-1 mb-6 text-meta text-body">
-            Sign in to the central console.
-          </p>
+          <h1 className="text-hero font-semibold text-ink">{title}</h1>
+          <p className="mt-1 mb-6 text-meta text-body">{caption}</p>
 
           <div className="flex flex-col gap-3.5">
             <form.Field name="username">

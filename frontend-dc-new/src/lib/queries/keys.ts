@@ -44,6 +44,7 @@ export const keys = {
     jobId: string,
     widthMm: number,
     heightMm: number,
+    offsetMm: number,
     skuCode: string | undefined,
     language: string
   ) =>
@@ -54,6 +55,7 @@ export const keys = {
       "label-preview",
       widthMm,
       heightMm,
+      offsetMm,
       skuCode ?? "first",
       language,
     ] as const,

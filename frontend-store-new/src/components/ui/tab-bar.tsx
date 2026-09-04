@@ -29,12 +29,16 @@ import { cn } from "@/lib/utils"
 export function TabBar({
   items,
   activePath,
+  className,
 }: {
   items: readonly TabItem[]
   activePath: string | null
+  /// Where the bar does not belong. The desk carries its own destinations, so
+  /// the counter hides this rather than stacking two navigations.
+  className?: string
 }) {
   return (
-    <>
+    <div className={className}>
       {/* The list fades out beneath the bar rather than being cut off by it —
           DESIGN.md calls the last card clipping under the bar a scroll cue, and
           the gradient is what makes it read as one instead of as a bug. */}
@@ -71,6 +75,6 @@ export function TabBar({
           )
         })}
       </nav>
-    </>
+    </div>
   )
 }

@@ -1,21 +1,27 @@
 import type { LucideIcon } from "lucide-react"
 
-import { analyticsNav } from "@/screens/analytics/nav"
-import { articlesNav } from "@/screens/articles/nav"
+import { assistantNav } from "@/screens/assistant/nav"
 import { commercialNav } from "@/screens/commercial/nav"
+import { distributionNav } from "@/screens/distribution/nav"
 import { financeNav } from "@/screens/finance/nav"
+import { homeNav } from "@/screens/home/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
+import { masterNav } from "@/screens/master/nav"
+import { membersNav } from "@/screens/members/nav"
+import { operationsNav } from "@/screens/operations/nav"
 import { peopleNav } from "@/screens/people/nav"
 import { procurementNav } from "@/screens/procurement/nav"
+import { reportsNav } from "@/screens/reports/nav"
+import { salesNav } from "@/screens/sales/nav"
 import { storeopsNav } from "@/screens/storeops/nav"
 import { systemNav } from "@/screens/system/nav"
-import { workplaceNav } from "@/screens/workplace/nav"
+import { chatNav, discussionsNav, filesNav } from "@/screens/workplace/nav"
 
 /// The navigation registry — one declaration the whole app reads.
 ///
-/// The rail draws `modules`, the sidebar draws the active module's `sections`,
-/// the command palette flattens the lot, and `routes.tsx` builds its tree from
-/// the same array. That single source is the point: this app covers ~147 cloud
+/// The sidebar draws `modules` as its rows and the active module's `sections`
+/// as the sub-items under it, the command palette flattens the lot, and
+/// `routes.tsx` builds its tree from the same array. That single source is the point: this app covers ~147 cloud
 /// endpoints, and the way a surface that size goes wrong is a screen that
 /// exists but is reachable from nowhere, or a nav entry pointing at a route
 /// somebody renamed. Both become impossible when there is one list.
@@ -23,6 +29,25 @@ import { workplaceNav } from "@/screens/workplace/nav"
 /// A module maps to a family of endpoints on the cloud node, so "does every
 /// backend function have a home?" is answered by reading this file against
 /// `src/cloud/http/mod.rs`.
+
+/// Whom a nav item is for, when it is not for everyone.
+///
+/// One value, and only one, because the split the business actually has is
+/// binary: head office is the **employer** — contracts, pay, and every rule the
+/// places are measured against — and a store or DC manager runs a place inside
+/// those rules. There is no third audience, and a screen only a place manager
+/// needs does not exist: everything they do, head office also reads.
+///
+/// The caller's rung is deliberately NOT part of this. Whether an HR assistant
+/// may *set* the attendance policy as well as read it is `required_role`'s
+/// answer, re-checked on the route; encoding it here as well would be a second
+/// copy of the ladder, kept in a file the server never reads.
+///
+/// **This hides rows; it does not grant anything.** Every bound is enforced
+/// server-side, and ⌘K can still reach a hidden path — where the screen shows
+/// the server's refusal, which is the honest outcome. A menu filtered to what
+/// somebody can use is a convenience; the route that refuses is the control.
+export type Audience = "employer"
 
 export interface NavItem {
   /// Absolute path. Must match a route in `routes.tsx` — the router is built
@@ -46,14 +71,20 @@ export interface NavItem {
   /// is loading. Return `null` for "not asked yet" — distinct from `0`, which
   /// means asked and answered "nothing", and both draw nothing.
   readonly useCount?: () => number | null | undefined
-  /// Routed, but not a row in the sidebar.
+  /// Who this item is for. Absent means everyone who can see the module.
   ///
-  /// For a screen a module reaches by its own in-page tabs. The path still has
-  /// to be declared here — that is what makes it exist, and what keeps the
-  /// router and the palette from drifting from the screens — but listing it in
-  /// the sidebar as well would say the same thing twice, once as a rail item
-  /// and once as a tab, with two different highlights fighting over which is
-  /// current.
+  /// Unlike `hidden`, which is a fixed property of the screen, this is answered
+  /// per caller by the module's `useAudience`. A module that declares neither
+  /// is unaffected by any of it.
+  readonly audience?: Audience
+  /// Routed and findable, but not a sub-item in the sidebar.
+  ///
+  /// For a screen its module reaches by a link from another screen rather than
+  /// by navigating to it cold — a price amendment opened from a notification,
+  /// a supplier item opened from the catalogue it belongs to. The path still
+  /// has to be declared here — that is what routes it, what makes `AppLink`
+  /// accept it and what puts it in ⌘K — but a sidebar is a list of places
+  /// somebody sets out for, and these are places somebody arrives at.
   readonly hidden?: boolean
 }
 
@@ -63,78 +94,186 @@ export interface NavSection {
   readonly items: readonly NavItem[]
 }
 
-/// The two stops a rail tile is painted between.
-///
-/// A Mac app icon is one hue lit from above: a light tint at the top falling to
-/// a saturated version of the same colour at the bottom, and nothing else. The
-/// earlier tiles here were a three-blob pastel mesh, which is a different
-/// tradition — it reads soft and web-ish beside the Dock, and at 30px the three
-/// blobs muddle into a single washed colour anyway. Two stops of one hue is
-/// what survives being that small.
-///
-/// Both stops are the SAME hue. A ramp that drifts across hues is the "mesh"
-/// look again wearing a linear gradient, and it is the thing that stops a row
-/// of tiles reading as one set.
-export interface RailTint {
-  /// Lit. Roughly the hue at 70% lightness.
-  readonly top: string
-  /// Saturated. The colour the tile is actually remembered as.
-  readonly bottom: string
-}
-
 export interface AppModule {
   readonly id: string
   readonly label: string
   readonly icon: LucideIcon
-  readonly tint: RailTint
-  /// Where the rail tile lands. Always the first item of the first section.
+  /// Where the module's own row lands. Always the first item of the first
+  /// section, so the row and its first sub-item are the same screen.
   readonly home: string
+  /// The URL prefix this module owns, when that is not the same as `home`.
+  ///
+  /// For most modules the two are one string: `/finance` is both where the row
+  /// lands and the prefix every finance screen sits under. Procurement is the
+  /// exception. Its first screen is Sourcing, and naming that screen's URL
+  /// `/procurement` — the shape every other module uses — put a word on the
+  /// address bar that is the name of the DEPARTMENT rather than of the page,
+  /// so the one screen in the module whose URL did not say what it was was the
+  /// one people arrived at first.
+  ///
+  /// Splitting the two is what lets Sourcing live at `/procurement/sourcing`
+  /// while `/procurement/orders` still draws the procurement sidebar:
+  /// `moduleForPath` matches on this, and only the sidebar's row reads `home`.
+  readonly base?: string
+  /// Paths this module used to be reachable at, redirected to `home`.
+  ///
+  /// A screen that is retired or absorbed leaves its URL behind in people's
+  /// history, in their bookmarks and in the links they have sent each other,
+  /// and a 404 is a worse answer than the screen they wanted. `/documents` is
+  /// the one today: Files absorbed it, so `/documents` lands on `/files` and
+  /// the `?document=` that came with it opens the same sheet it always did.
+  ///
+  /// Not nav entries — `routes.tsx` generates redirects from these, and a row
+  /// in ⌘K that opens a redirect is a row that names a page nobody can point
+  /// at any more.
+  readonly moved?: readonly string[]
   readonly sections: readonly NavSection[]
+  /// The count on the module's own row, drawn only while the module is
+  /// collapsed — expanded, its sub-items carry their own and the same number
+  /// twice is noise.
+  ///
+  /// Declared on the module rather than summed from its items, and that is a
+  /// hooks rule and not a preference: summing would mean calling one hook per
+  /// item inside a loop, and the sidebar draws ten modules of differing
+  /// lengths. One hook, called unconditionally by one row. The module composes
+  /// its own hooks inside it, where calling three in a fixed order is ordinary.
+  readonly useCount?: () => number | null | undefined
+  /// Which tint that count wears. Worst wins: a module holding one stoppage and
+  /// four backlogs is red.
+  readonly badge?: "bad" | "warn"
+  /// Who the caller is, as far as this module's items are concerned.
+  ///
+  /// A hook and not a value, for the reason `useCount` is one: the answer comes
+  /// from the server and this file is a static declaration read by four
+  /// different things. Called unconditionally by the one component that draws
+  /// a module row, exactly like `useCount`, so it is never a hook in a loop.
+  ///
+  /// Return `null` for "not answered yet" — distinct from an answer, and read
+  /// as *not yet* rather than as *no*: an item that appears a moment after the
+  /// menu is drawn is better than one that vanishes from under the cursor.
+  readonly useAudience?: () => Audience | null
+  /// Drawn as an icon in the strip above the module list, not as a row in it.
+  ///
+  /// For the screens that are not part of the business: a conversation, a file,
+  /// a report you pull from wherever you are standing. The module list is a map
+  /// of what the company does — bought, held, sold, what it cost, who did it —
+  /// and a chat window is not one of those. Filed among them, "Workplace" read
+  /// as a department nobody works in.
+  ///
+  /// It changes only where the sidebar draws the row. Routing, ⌘K,
+  /// `moduleForPath` and the active highlight treat an aside exactly like any
+  /// other module, which is the point: one flag, not a second kind of nav
+  /// entry that four readers would each have to learn.
+  readonly aside?: boolean
   /// Drawn desaturated and inert. Honest about what is not built yet, rather
   /// than a live tile that opens an empty screen.
   readonly soon?: boolean
+  /// Routed and findable, but not a row in the sidebar.
+  ///
+  /// The module-level twin of `NavItem.hidden`, and for the same reason: the
+  /// screens are still built and still reachable — by a pasted URL, by ⌘K, by
+  /// a link from a notification — but the module is not a place the sidebar
+  /// invites anyone into. Everything except the sidebar's own layout keeps
+  /// treating it as an ordinary module, so nothing about routing changes.
+  readonly hidden?: boolean
 }
 
-/// The rail, left to right. Order is the reading order of the business:
-/// what is bought, what is held, what is sold, what it cost, who did it.
+/// The rail, left to right. Home first — it is where `/` lands and the one
+/// page that belongs to no department — then the reading order of the
+/// business: what is bought, what is held, what is sold, what it cost, who did
+/// it.
 export const modules: readonly AppModule[] = [
+  homeNav,
   commercialNav,
-  articlesNav,
+  masterNav,
   inventoryNav,
+  distributionNav,
   procurementNav,
+  salesNav,
   storeopsNav,
+  operationsNav,
+  membersNav,
   financeNav,
   peopleNav,
-  workplaceNav,
-  analyticsNav,
   systemNav,
 ]
+
+/// The icon strip above those rows.
+///
+/// Six screens that are not places in the business: the assistant, four ways
+/// of talking to each other about it, and the reports somebody kept. Each is a single
+/// destination, so each is declared as a one-screen module — which the shell
+/// already knows not to unfold. See `aside` on `AppModule`.
+export const asides: readonly AppModule[] = [
+  assistantNav,
+  discussionsNav,
+  chatNav,
+  filesNav,
+  reportsNav,
+]
+
+/// Modules and asides together, which is what everything except the sidebar's
+/// own layout actually wants: the router builds from this, ⌘K flattens it, and
+/// `moduleForPath` resolves against it. An aside differs from a module in one
+/// respect only — where its row is drawn — so nothing else here distinguishes
+/// them.
+const everyModule: readonly AppModule[] = [...modules, ...asides]
+
+/// The sub-items the sidebar draws under a module, in declaration order.
+///
+/// One definition, because three things ask the question — the sub-list, the
+/// count that rides on the module's own row, and the check that a module has
+/// anything to expand at all — and three spellings of `filter(!hidden)` drift
+/// the day somebody adds a fourth.
+export function visibleItems(
+  module: AppModule,
+  audience?: Audience | null
+): readonly NavItem[] {
+  return module.sections.flatMap((section) =>
+    section.items.filter(shown(audience))
+  )
+}
+
+/// One item's visibility, so the module row's "does this unfold" and the
+/// sub-list it unfolds into cannot answer differently.
+///
+/// They already had: the row asked `visibleItems`, the list re-spelled
+/// `filter(!hidden)` inline. Two spellings of one rule is what this function's
+/// own doc warned about, and adding a second dimension to it is exactly when
+/// the drift would have started to matter.
+export function shown(audience?: Audience | null): (item: NavItem) => boolean {
+  return (item) =>
+    !item.hidden && (item.audience === undefined || item.audience === audience)
+}
 
 /// Every nav item, flattened — the command palette's list, and the assertion
 /// that a path appears exactly once across the whole registry.
 export const allNavItems: readonly (NavItem & { module: AppModule })[] =
-  modules.flatMap((module) =>
+  everyModule.flatMap((module) =>
     module.sections.flatMap((section) =>
       section.items.map((item) => ({ ...item, module }))
     )
   )
 
-/// Which module owns a path, by longest matching `home`. Used by the shell to
-/// light the right rail tile and draw the right sidebar for a URL that was
-/// pasted in rather than clicked to.
+/// Which module owns a path, by longest matching `home`. Used by the sidebar to
+/// light the right row and unfold the right module for a URL that was pasted in
+/// rather than clicked to.
 export function moduleForPath(pathname: string): AppModule {
-  // Longest matching `home` wins, so a module at `/finance/assets` would beat
+  // Longest matching base wins, so a module at `/finance/assets` would beat
   // one at `/finance`. The comparison runs only among modules that actually
   // match: seeding `best` with `modules[0]` and comparing lengths against it
   // meant a short home like `/finance` could never displace a longer
   // non-matching one like `/commercial`, and every finance URL drew the
   // commercial sidebar.
   let best: AppModule | null = null
-  for (const module of modules) {
-    const matches =
-      pathname === module.home || pathname.startsWith(module.home + "/")
+  for (const module of everyModule) {
+    // The prefix the module OWNS, which is `home` for every module that has
+    // not had to separate the two — see `AppModule.base`.
+    const base = module.base ?? module.home
+    const matches = pathname === base || pathname.startsWith(base + "/")
     if (!matches) continue
-    if (best === null || module.home.length > best.home.length) best = module
+    const incumbent = best === null ? "" : (best.base ?? best.home)
+    if (base.length > incumbent.length) best = module
   }
   return best ?? modules[0]
 }

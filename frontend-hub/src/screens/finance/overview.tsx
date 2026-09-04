@@ -16,21 +16,26 @@ import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { KeyValue } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
+import { Toolbar } from "@/components/ui/segmented"
 import { count, day, money } from "@/lib/format"
 import {
   accountMap,
+  acquisitionGap,
   balanceMatrix,
   financeKeys,
   listAssets,
   listBankStatements,
   listBills,
   listPeriods,
+  statement,
   trialBalance,
   unbilledReceipts,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { accountMapGaps } from "@/screens/finance/badges"
-import { monthLabel } from "@/screens/finance/chart"
+import { asPresented, monthLabel } from "@/screens/finance/chart"
+import { useWindow } from "@/screens/finance/hooks"
+import { RankedBars, WindowControl } from "@/screens/finance/parts"
 
 /// What finance has to deal with, led by what is stopping it.
 ///
@@ -44,6 +49,7 @@ import { monthLabel } from "@/screens/finance/chart"
 /// page warms those screens and closing it costs nothing.
 export function FinanceOverview() {
   const navigate = useNavigate()
+  const range = useWindow()
 
   const periods = useQuery({
     queryKey: financeKeys.periods(),
@@ -66,7 +72,7 @@ export function FinanceOverview() {
     queryFn: ({ signal }) => unbilledReceipts(signal),
   })
   const unassessed = useQuery({
-    queryKey: financeKeys.assets(true),
+    queryKey: financeKeys.assets(true, null),
     queryFn: ({ signal }) => listAssets({ unassessed: true }, signal),
   })
   const statements = useQuery({
@@ -76,6 +82,38 @@ export function FinanceOverview() {
   const cash = useQuery({
     queryKey: financeKeys.balances("10110", null),
     queryFn: ({ signal }) => balanceMatrix("10110", undefined, signal),
+  })
+
+  /// Where the money went, for the window in the toolbar.
+  ///
+  /// The profit and loss under the exact key the Reports screen owns, so
+  /// opening this page warms that one and arriving there finds the answer
+  /// already in hand — the same bargain every other read on this board makes.
+  /// It is the ninth read and the only one that is not already on some
+  /// screen’s critical path, which is why it is a chart under the queue and
+  /// not a tile above it: nothing on this page waits for it.
+  const result = useQuery({
+    queryKey: financeKeys.statement("PROFIT_LOSS", range.from, range.to, null),
+    queryFn: ({ signal }) =>
+      statement("PROFIT_LOSS", { from: range.from, to: range.to }, signal),
+  })
+
+  /// Assets the books never bought.
+  ///
+  /// `fixed_asset` has no acquisition posting rule and never will — an asset is
+  /// bought by a supplier bill — so a capitalised asset with no bill line
+  /// behind it is a cost that is being depreciated out of a balance nothing
+  /// ever put in. It is the one exception on this board that no other screen
+  /// can derive, which is why it is worth a tenth read.
+  ///
+  /// Outside the `board` aggregate below, and `retry: false`: a node that does
+  /// not serve this read yet answers 404, and a whole overview that refused to
+  /// draw because one exception report is missing would be a worse failure than
+  /// the gap it is reporting. An absent answer simply adds no row.
+  const unbacked = useQuery({
+    queryKey: financeKeys.acquisitionGap(),
+    queryFn: ({ signal }) => acquisitionGap(signal),
+    retry: false,
   })
 
   /// Eight reads, one loading sentence and one error sentence.
@@ -273,6 +311,19 @@ export function FinanceOverview() {
       }
     }
 
+    if (unbacked.data && unbacked.data.assets_without_a_line.length > 0) {
+      found.push({
+        id: "unbacked",
+        title: `${count(unbacked.data.assets_without_a_line.length)} capitalised assets the books never bought`,
+        detail:
+          "An asset is bought by a supplier bill. These have no bill line behind them, so a cost is being depreciated out of a balance nothing put in.",
+        amount: money(unbacked.data.assets_total_minor),
+        severity: "medium",
+        icon: <Archive className="size-4" />,
+        onOpen: go("/finance/assets"),
+      })
+    }
+
     if (unassessed.data && unassessed.data.length > 0) {
       found.push({
         id: "unassessed",
@@ -297,6 +348,7 @@ export function FinanceOverview() {
     unbilled.data,
     statements.data,
     unassessed.data,
+    unbacked.data,
     thisYear,
     thisMonth,
   ])
@@ -309,6 +361,33 @@ export function FinanceOverview() {
     0
   )
 
+  /// The cost classes of the profit and loss, in the client’s own words.
+  ///
+  /// Classes 5 through 8 and never class 4: income is not an expense, and a
+  /// mix that put the two on one track would be answering "how big is the
+  /// business" rather than "where did the money go". `asPresented` is what
+  /// turns a ledger figure into the one a report prints — the cost classes are
+  /// debit-natured, so it is the identity here, and calling it anyway is what
+  /// stops this chart being the one place in the module that knows better.
+  const expenses = (result.data?.sections ?? [])
+    .filter((section) => section.root_class >= "5")
+    // A class that spent nothing is not part of a mix, and an empty track
+    // beside a full one says "this family is worthless" rather than "nothing
+    // was booked here this month". The statement itself is where a reader goes
+    // to see that a class did not move — it says so in words, per class.
+    .filter((section) => section.total_minor !== 0)
+    .map((section) => ({
+      key: section.root_class,
+      label: section.title,
+      // The client's class names run to "BEBAN USAHA LAINNYA", which the label
+      // column was cutting to "BEBAN USAHA LAIN…". The column is wider now and
+      // this is what covers the ones it still cannot hold.
+      title: section.title,
+      value: asPresented(section.total_minor, section.root_class),
+    }))
+
+  const spend = expenses.reduce((sum, section) => sum + section.value, 0)
+
   return (
     <PageContent>
       <PageHeader
@@ -316,6 +395,18 @@ export function FinanceOverview() {
         title="Overview"
         sub="What is stopping the books, and what they are holding."
       />
+
+      <Toolbar>
+        <WindowControl range={range} />
+        <Toolbar.Spacer />
+        {/* The window belongs to the expense chart at the bottom and to
+            nothing else on this page — the queue and the strip are about
+            today, and a control that silently rewrote them would be worse
+            than one that says what it moves. */}
+        <span className="text-[0.71875rem] text-mute">
+          {range.chip} · the window the expense mix is read over
+        </span>
+      </Toolbar>
 
       {queryState(board, {
         loading: "Reading the books…",
@@ -353,6 +444,42 @@ export function FinanceOverview() {
                 tone={balance.data?.balanced ? "up" : "down"}
               />
             </KpiStrip>
+
+            {/* Below the queue, never above it. A board opens with what is
+                stopping somebody, and a chart of ordinary spending above that
+                is the vanity tile DESIGN.md is blunt about. */}
+            <Card className="mb-3">
+              <CardHeader>
+                <CardTitle>Expense mix</CardTitle>
+                <span className="text-[0.71875rem] text-mute">
+                  {range.chip}
+                  {result.data && (
+                    <>
+                      {" · "}
+                      <span className="font-medium text-ink tabular-nums">
+                        {money(spend)}
+                      </span>
+                    </>
+                  )}
+                </span>
+              </CardHeader>
+              <div className="px-4 pb-3.5">
+                {result.isPending ? (
+                  <p className="text-[0.71875rem] text-mute">
+                    Reading the profit and loss…
+                  </p>
+                ) : result.isError ? (
+                  <p className="text-[0.71875rem] text-mute">
+                    The profit and loss could not be read for this window.
+                  </p>
+                ) : (
+                  <RankedBars
+                    rows={expenses}
+                    empty="Nothing was spent in this window, in any class."
+                  />
+                )}
+              </div>
+            </Card>
 
             <Card>
               <CardHeader>

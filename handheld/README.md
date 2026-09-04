@@ -43,6 +43,66 @@ carries `device_key` exactly once — then fill Setelan:
 One build serves both. Which node a handheld belongs to is a deployment fact,
 not a code fact.
 
+## Power is a floor decision
+
+Everything else in Setelan is set once at commissioning. **Reader power is not**:
+a fader in Setelan moves the antenna between 5 and 30 dBm, and the figure above
+it is what the module reported back after the change, not what the finger asked
+for.
+
+Full power reaches the back of a rack — and, in a shop, the rack on the other
+side of the wall. That is how a floor count quietly acquires the stockroom, and
+it is wrong in the one way nobody checks, because a count that is too high looks
+like a count. Turn it down when the sweep is supposed to mean the aisle you are
+standing in.
+
+### What power actually buys, measured
+
+Two relationships, easy to confuse, both true:
+
+| | law | rule of thumb |
+|---|---|---|
+| **Read range** — can the tag power up at all | `r ∝ √P` | **+6 dB doubles the distance** |
+| **RSSI** — how loud the answer comes back | `P_rx ∝ P_tx / r⁴` | **1 dB per dB**; −12 dB per doubling of distance |
+
+Measured on a C5 against a fixed set of tags, ten seconds per step:
+
+| dBm | tags read |
+|---|---|
+| 30 | 7 |
+| 28 | 4 |
+| 26 | 2 |
+| 25 | 1 |
+| 24 and below | 0 |
+
+The best-sampled tag gave peaks of −71.6 / −74.2 / −75.9 dBm at 30 / 28 / 26 —
+a slope of **1.08 dB per dB**, which is the round-trip law above. Tags with few
+reads scattered by several dB; that is multipath, and it is why a reading has to
+be averaged over many sightings before it means anything.
+
+Two things worth knowing before trusting any of it:
+
+**A tag does not fade, it vanishes.** RSSI slides gently with power, then the
+tag stops answering the moment it can no longer power up. Every tag has its own
+cliff, set by its distance. That is why the table above is an extinction curve
+rather than a gradient.
+
+**Range is chip sensitivity, not signal strength.** The tag still readable alone
+at 25 dBm was the *weakest* of the set at −83 dBm, while tags answering at −72
+had already dropped out. How far a tag reads and how loud it answers are
+different parameters, so you cannot infer distance from RSSI across tag types.
+
+It is reachable from both places it is needed. **Setelan** has the full card,
+with the prose. On the **sweep screen** the reading in the corner of the count
+card is itself the control: tap it and the fader unfolds under the count, which
+costs the list no room until somebody wants it. Changing it mid-sweep stops
+inventory, moves the power and starts it again — a tenth of a second, and
+nothing is lost, because the collector is not the radio.
+
+The choice is kept in prefs under `reader_power` (0 = nobody has chosen) and
+pushed to the module at the start of every sweep, so a handheld turned down last
+night is still turned down in the morning.
+
 ## Shared sessions
 
 More than one handheld can work the same count. They do not need a coordinator,
@@ -82,9 +142,24 @@ format has already paid for once — see `backend/src/cloud/domain/identity.rs`.
 - `setInventoryCallback` never fires on the E710. `startInventoryTag()` fills a
   buffer and `readTagFromBuffer()` drains it; that path works on every firmware
   this estate has met.
-- The module comes up at **14 dBm**. Reading is fine there, writing is not —
-  `Reader.init` asks for 30. The power getter returns 0 while inventory runs, so
-  the figure shown is the one taken at rest.
+- The module comes up at **14 dBm**. Reading is fine there, writing is not, so
+  with no preference stored `Reader.init` takes as much as the module will give.
+  The power getter returns 0 while inventory runs, so every figure this app
+  shows is one taken at rest — including the one the fader snaps back to.
+- There is **no API to ask the module its range**. `MIN_POWER`/`MAX_POWER` are
+  the 5–30 dBm window this hardware accepts; a refused figure walks down rather
+  than giving up, and the screen reports what came back, never what was asked.
+- **`setPower` on an already-open module is silently unradiated.** It returns
+  true, `getPower` echoes the new figure, and the antenna stops transmitting.
+  Measured on a C5 (E710_V7.10.1) against fixed tags: 40 reads at 30 dBm became
+  **zero at 29 dBm** — not something one decibel can do to a tag sitting at
+  −78 dBm. Applying the figure during `init` is the only order that moves the
+  radio, so `Reader.setPower` closes and re-opens the module. Same species of
+  trap as `setFilter` above: the call succeeds, the read-back agrees, the
+  hardware does not do it.
+- That re-open costs **about seven seconds** of dead antenna, measured from the
+  gap between tag reads. Mid-sweep the screen therefore goes `busy` and stops
+  offering Finish — seven silent seconds is a rack walked past.
 - `setFilter()` is **silently ignored** by `writeDataToEpc(pwd, epc)` on this
   module. Any write must carry its filter inline:
   `writeDataToEpc(pwd, bank, ptr, len, filter, epc)`. This app does not write

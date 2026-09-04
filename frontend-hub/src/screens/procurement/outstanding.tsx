@@ -187,7 +187,6 @@ export function Outstanding() {
         }
       />
 
-
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Orders behind" value={count(rows.length)} />
         <Kpi label="Suppliers to chase" value={count(suppliers)} />

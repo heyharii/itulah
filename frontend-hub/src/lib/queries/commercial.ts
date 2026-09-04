@@ -1,5 +1,7 @@
 import type { Rule, RuleStatus } from "@itulah/contract"
 
+import type { Filter } from "@/lib/filters"
+
 import { node } from "@/lib/api"
 
 /// Commercial is pricing, and nothing else.
@@ -158,6 +160,14 @@ export interface BookCampaign {
   readonly budget_minor: number | null
   readonly max_uses: number | null
   readonly max_uses_per_customer: number | null
+  /// The poster a shop puts in front of a shopper.
+  ///
+  /// The only part of a price book a customer is meant to read, and the only
+  /// part that stays editable after publication — a banner is not a price, and
+  /// a typo in one must be fixable without cutting a new book.
+  readonly image_url: string | null
+  readonly headline: string | null
+  readonly terms: string | null
 }
 
 export interface BookTaxRule {
@@ -215,6 +225,18 @@ export interface MarkdownInput {
   readonly priority: number
   readonly effective_from: string
   readonly effective_to?: string | null
+  /// The days and the hours it is actually down, read in the shop's own time.
+  ///
+  /// Absent means all day, every day, which is what every price drop meant
+  /// before one could be scheduled. Present is a flash sale: one row that comes
+  /// on at noon and goes off at two, rather than one row per slot.
+  ///
+  /// A price that switches off mid-afternoon is a price that disagrees with the
+  /// ticket stapled to the garment for the rest of the day. The system will not
+  /// make that decision for anybody, and the sheet says so where it is set.
+  readonly iso_weekdays?: readonly number[]
+  readonly from_minute?: number | null
+  readonly to_minute?: number | null
 }
 
 /// A base price. Keyed by `sku_id` and not by a code, which is the whole reason
@@ -256,7 +278,25 @@ export interface CampaignInput {
   readonly valid_to?: string | null
   readonly budget_minor?: number | null
   readonly max_uses?: number | null
+  /// What the shop floor shows. `headline` is what a shopper reads when the
+  /// campaign's own name is a filing code; `terms` is the small print.
+  readonly image_url?: string | null
+  readonly headline?: string | null
+  readonly terms?: string | null
 }
+
+/// Stop a campaign, restart it, or move its dates — and tell every shop.
+///
+/// `PATCH /api/v1/commercial/campaigns/{id}`, and it is the ONLY thing about a
+/// published campaign that may change. Everything else in a book is frozen; a
+/// status is the lever the business pulls, and until this endpoint existed
+/// pulling it changed Postgres and nothing at any counter — a shop learned a
+/// campaign's status only from the publication that carried it, and books are
+/// seasonal.
+///
+/// The dispatch happens server-side in the same call, so a pause is on its way
+/// to the fleet before this resolves.
+/// `setCampaignStatus` below is the one caller of it.
 
 /// One publication, as the command that writes it.
 ///
@@ -607,8 +647,16 @@ export const commercialKeys = {
   catalogue: () => ["commercial", "catalogue"] as const,
   /// Article-level prices. The channel and the moment are part of the key
   /// because a different question has a different answer.
-  articlePrices: (channel: string, at: string | null) =>
-    ["commercial", "article-prices", channel, at] as const,
+  articlePrices: (
+    channel: string,
+    at: string | null,
+    scope?: ArticlePriceScope
+  ) =>
+    // The narrowing belongs in the key. It is the server that applies it, so
+    // two different filters are two different answers — keyed without it they
+    // would share one cache entry and the second filter would show the first
+    // one's rows until something else invalidated them.
+    ["commercial", "article-prices", channel, at, scope ?? null] as const,
   /// The product picker's search. Keyed by the words typed, so backspacing
   /// re-uses the answer it already had.
   products: (query: string) => ["commercial", "products", query] as const,
@@ -820,6 +868,11 @@ export async function promotionCatalogue(
         budget_minor: row.budget_minor,
         max_uses: row.max_uses,
         max_uses_per_customer: row.max_uses_per_customer ?? null,
+        // The shopper-facing half, and the only half that is still editable
+        // after the book is published.
+        image_url: row.image_url ?? null,
+        headline: row.headline ?? null,
+        terms: row.terms ?? null,
       },
       book: carriedBy(row),
     })),
@@ -983,29 +1036,37 @@ export function setRuleStatus(
 /// it — a rule is live only when both it and its campaign are — which is what
 /// somebody means by "stop the Lebaran promo", and is the reason this exists
 /// rather than six visits to `setRuleStatus`.
+///
+/// **It no longer publishes a book.** It used to, because the node had no
+/// status route, and the cost of that workaround was real in two ways: pausing
+/// a promotion burned a price-book version, and — worse — the shops learned
+/// about it only if that book reached them, which is the very thing a pause
+/// cannot afford to depend on. `PATCH /commercial/campaigns/{id}` writes the
+/// status and dispatches it on the switch lane in one call, and it is what
+/// stops a campaign's markdowns as well as its rules.
 export function setCampaignStatus(
   input: {
     readonly campaign: CampaignInput
     readonly status: string
-    readonly version: number
     readonly actorId: string
-    readonly idempotencyKey: string
+    /// The poster, when this call is editing it. Omitted fields are left
+    /// alone by the server, so a pause never blanks a banner.
+    readonly headline?: string
+    readonly image_url?: string
+    readonly terms?: string
   },
   signal?: AbortSignal
-): Promise<PublishReceipt> {
-  const verb = input.status === "ACTIVE" ? "Resume" : "Pause"
-  return writeAndPublish(
+): Promise<unknown> {
+  return node.patch<unknown>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(input.campaign.campaign_id)}`,
     {
-      ...NOTHING_TO_PUBLISH,
-      version: input.version,
-      name: `${verb} ${input.campaign.name}`,
-      effective_from: new Date().toISOString(),
-      effective_to: null,
-      campaigns: [{ ...input.campaign, status: input.status }],
       actor_id: input.actorId,
-      idempotency_key: input.idempotencyKey,
+      status: input.status,
+      headline: input.headline,
+      image_url: input.image_url,
+      terms: input.terms,
     },
-    signal
+    { signal }
   )
 }
 
@@ -1070,6 +1131,24 @@ export function minorOf(text: string): number | null {
 /// An instant a person typed into a `datetime-local` box, as the server wants
 /// it. The box has no timezone; the browser's own is the honest reading of what
 /// somebody sitting in front of it meant.
+/// Minutes since local midnight, from a `<input type="time">`.
+///
+/// The engine counts a schedule in minutes rather than in a clock string,
+/// because a window may wrap past midnight — 22:00 to 02:00 is a late-night
+/// sale and not an error — and comparing wrapped clock strings is where that
+/// stops working.
+///
+/// Empty is `null`, which the server reads as "no hours given". It never
+/// becomes 0, which would be midnight and a real instruction.
+export function minutesOf(value: string): number | null {
+  const [hours, minutes] = value.split(":")
+  const h = Number.parseInt(hours ?? "", 10)
+  const m = Number.parseInt(minutes ?? "", 10)
+  if (!Number.isInteger(h) || !Number.isInteger(m)) return null
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null
+  return h * 60 + m
+}
+
 export function instantOf(value: string): string | null {
   if (value.trim() === "") return null
   const parsed = new Date(value)
@@ -1170,21 +1249,97 @@ export interface ArticlePrices {
   /// How many articles exist, against how many came back — so the screen can
   /// say it is showing a slice rather than implying it is showing everything.
   readonly total_article_count: number
+  /// What the whole catalogue holds, for the filter pickers — counted over
+  /// everything rather than over what came back, so ticking a second box shows
+  /// what it would add rather than reading zero.
+  readonly facets?: {
+    readonly divisions: readonly FacetCount[]
+    readonly tags: readonly FacetCount[]
+  }
   readonly items: readonly ArticlePriceRow[]
 }
 
+/// One option and how many styles carry it. Shaped like `FilterSpec.counted`
+/// on purpose, so `facets.divisions` assigns straight into a field's spec.
+export interface FacetCount {
+  readonly value: string
+  readonly count: number
+}
+
+/// How the pricelist is narrowed.
+///
+/// Every field is answered by the SERVER. That is not an optimisation detail
+/// worth hiding: pricing is styles times shops, so five hundred styles across
+/// thirteen shops is seconds of work and megabytes of answer, and a filter the
+/// browser applied afterwards would have paid for all of it. Narrowing here is
+/// what makes the screen answer at all.
+export interface ArticlePriceScope {
+  readonly q?: string
+  readonly divisions?: readonly string[]
+  readonly tags?: readonly string[]
+  readonly minPrice?: number
+  readonly maxPrice?: number
+}
+
 export function articlePrices(
-  options: { channel?: string; at?: string; limit?: number } = {},
+  options: {
+    channel?: string
+    at?: string
+    limit?: number
+  } & ArticlePriceScope = {},
   signal?: AbortSignal
 ): Promise<ArticlePrices> {
   const params = new URLSearchParams()
   if (options.channel) params.set("channel", options.channel)
   if (options.at) params.set("at", options.at)
   params.set("limit", String(options.limit ?? 200))
+  if (options.q) params.set("q", options.q)
+  // Left off entirely when empty rather than sent blank: `?divisions=` is a
+  // list holding one empty string, which matches no division and would empty
+  // the screen on a filter nobody set.
+  if (options.divisions?.length)
+    params.set("divisions", options.divisions.join(","))
+  if (options.tags?.length) params.set("tags", options.tags.join(","))
+  if (options.minPrice !== undefined)
+    params.set("min_price", String(options.minPrice))
+  if (options.maxPrice !== undefined)
+    params.set("max_price", String(options.maxPrice))
   return node.get<ArticlePrices>(
     `/api/v1/commercial/article-prices?${params.toString()}`,
     { signal }
   )
+}
+
+/// The filter bar's clauses as the request they mean.
+///
+/// The operator list each field offers is cut to what this endpoint can
+/// answer — see the fields declared in `pricelist.tsx` — so there is no case
+/// here for an operator a chip could show and the server could not honour.
+export function priceScopeFromFilters(
+  filters: readonly Filter[]
+): ArticlePriceScope {
+  const scope: {
+    -readonly [K in keyof ArticlePriceScope]: ArticlePriceScope[K]
+  } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0) continue
+    if (column === "division" && operator === "isAnyOf")
+      scope.divisions = values
+    else if (column === "tag" && operator === "includesAnyOf")
+      scope.tags = values
+    else if (column === "price") {
+      // Sent as typed. `unit_price_minor` is whole rupiah despite its name, so
+      // a bound needs no conversion — and scaling it by a hundred, which the
+      // name invites, is the mistake that already cost seven other columns.
+      const at = (index: number) => {
+        const parsed = Number(values[index])
+        return Number.isFinite(parsed) ? Math.round(parsed) : undefined
+      }
+      if (operator === "gte") scope.minPrice = at(0)
+      else if (operator === "lte") scope.maxPrice = at(0)
+    }
+  }
+  return scope
 }
 
 /// A sellable thing, for the pickers that author prices and promotions.

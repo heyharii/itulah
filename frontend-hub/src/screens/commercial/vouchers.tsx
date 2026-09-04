@@ -1,20 +1,23 @@
+import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
-import { Segmented } from "@/components/ui/segmented"
+import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, day, money, moment } from "@/lib/format"
 import {
@@ -34,199 +37,204 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 
-/// Vouchers — value a customer already holds, and the one Commercial surface
-/// that is not pricing.
+/// Vouchers — value a customer already holds and can pay with.
 ///
-/// A voucher carries money. It is **tender**: it sits beside cash, a card and a
-/// transfer at the counter, and it is spent rather than applied. The other
-/// three surfaces all answer "what does this cost"; this one answers "what did
-/// they pay with". The engine says so itself, in `pricing-engine/src/lib.rs`:
-/// *a voucher carries money. It is tender, not pricing.*
+/// **This is the one Commercial screen that is not pricing.** The other three
+/// all answer "what does this cost": a price, a markdown coming off it, a
+/// promotion running over several. A voucher answers "what did they pay with".
+/// It is tender — it sits beside cash and a card at the counter — and it is
+/// *spent*, never *applied*. The engine says so itself in
+/// `pricing-engine/src/lib.rs`.
 ///
-/// Keeping the distinction is not pedantry. The system this replaces filed both
-/// under one voucher table — `percent_off` and `free_item` beside
-/// `stored_value` — and booked a gift card settled at the till as a discount
-/// against margin. The shop's margin therefore looked worse every time somebody
-/// spent money the shop was already holding. The discount half of that table is
-/// what this app calls a **coupon**: a code that unlocks a promotion, which
-/// never carries a balance and lives on the Promotions list.
+/// The distinction is not pedantry, and the system this replaces is the proof:
+/// it filed both under one voucher table, `percent_off` beside `stored_value`,
+/// and booked a gift card settled at the till as a discount against margin. So
+/// the shop's margin got worse every time somebody spent money the shop was
+/// already holding. The discount half of that table is what this app calls a
+/// **coupon** — a code that unlocks a promotion and never carries a balance —
+/// and it lives on the Promotions screen, where it belongs.
 ///
-/// # What the strip leads with, and why it is not a count
+/// **The strip above the list is a liability, and it never moves with the
+/// filter.** `outstanding_minor` is what the shop owes: money taken for cards
+/// that have not been spent yet. The server computes it over every voucher
+/// rather than over the query, deliberately, because a liability that changed
+/// because somebody typed in a search box is a figure nobody could repeat to
+/// an accountant.
 ///
-/// **Outstanding** — what the shop owes in goods it has already been paid for.
-/// It is the only figure here that appears in the accounts, and it is the
-/// reason a list of cards is not enough on its own. The server computes it over
-/// the whole book and never over the filter, so it does not move when somebody
-/// types in the search box; a liability that changed with a search term is one
-/// nobody could quote.
+/// **Redeeming here is the exception, not the rule.** Ordinarily a voucher is
+/// spent at a till as a tender line on a sale. The redeem action on the sheet
+/// exists for the cases a till cannot reach — a telephone order, a card the
+/// shop is settling by hand — and it writes the same movement the till does.
 
-const STATUSES = [
-  { value: "" as const, label: "All" },
-  { value: "ACTIVE" as const, label: "Live" },
-  { value: "SPENT" as const, label: "Spent" },
-  { value: "VOIDED" as const, label: "Stopped" },
-]
-
-const KINDS: readonly { value: VoucherKind; label: string; why: string }[] = [
-  {
-    value: "GIFT_CARD",
-    label: "Gift card",
-    why: "Somebody paid for this. The shop is holding their money until they come back for it.",
-  },
-  {
-    value: "REFUND",
-    label: "Refund",
-    why: "A sale being unwound in credit rather than in cash.",
-  },
-  {
-    value: "GOODWILL",
-    label: "Goodwill",
-    why: "Given away. Nothing came in, so it costs the shop the day it is issued.",
-  },
-]
-
-/// Where a card stands, said in one badge.
-///
-/// Expired is drawn as a status even though the server does not store one, and
-/// that is deliberate: a shopper presenting a card that is past its date meets
-/// a refusal, so "live but expired" is a distinction only the database cares
-/// about. The row keeps `ACTIVE` underneath; only the word here changes.
-function Standing({ row }: { row: VoucherRow }) {
-  if (row.status === "VOIDED") return <Pill tone="bad">Stopped</Pill>
-  if (row.status === "SPENT") return <Pill tone="neutral">Spent</Pill>
-  if (row.expired) return <Pill tone="warn">Expired</Pill>
-  return <Pill tone="ok">Live</Pill>
+/// Live, spent, stopped. `expired` is not among them on purpose: a card past
+/// its date is still ACTIVE with a balance on it — what changed is the clock,
+/// not the record — so it is drawn as a second mark rather than a fourth
+/// status. Conflating the two would mean a card could be "un-expired" by
+/// editing a status, which is exactly backwards.
+function statusTone(status: VoucherStatus) {
+  switch (status) {
+    case "ACTIVE":
+      return "ok" as const
+    case "SPENT":
+      return "neutral" as const
+    case "VOIDED":
+      return "bad" as const
+  }
 }
 
-/// How much of the card is gone, as a number rather than a bar.
-///
-/// A meter was the obvious choice and is the wrong one: what matters about a
-/// voucher is the money left on it, not the proportion. Half of 20,000 and half
-/// of 5,000,000 draw the same bar and are not the same fact.
-function Balance({ row }: { row: VoucherRow }) {
-  return (
-    <span className="tabular-nums">
-      <span className="font-medium text-ink">{money(row.balance_minor)}</span>
-      {row.spent_minor > 0 && (
-        <span className="text-mute"> of {money(row.issued_minor)}</span>
-      )}
-    </span>
-  )
+function statusWord(status: VoucherStatus): string {
+  switch (status) {
+    case "ACTIVE":
+      return "Live"
+    case "SPENT":
+      return "Spent"
+    case "VOIDED":
+      return "Stopped"
+  }
 }
 
-const voucherColumns: ColumnDef<TableSetup, VoucherRow>[] = [
+/// Who is holding it, in the words the shop would use.
+///
+/// A voucher with no member is not an incomplete record: a gift card is bought
+/// *for somebody else*, and the shop legitimately does not know who will
+/// present it. "Bearer" is the accurate word for that and is the reason the
+/// column is never blank.
+function holder(row: VoucherRow): string {
+  if (row.member_id === null) return "Bearer"
+  return row.member_name ?? row.member_id
+}
+
+const columns: ColumnDef<TableSetup, VoucherRow>[] = [
   {
     id: "code",
-    accessorFn: (row) => row.code,
-    header: "Code",
-    size: 140,
-    meta: { filter: { kind: "text" } },
+    accessorFn: (row) =>
+      `${row.code} ${row.member_name ?? ""} ${row.member_id ?? ""}`,
+    header: "Card",
+    size: 200,
     cell: ({ row }) => (
-      <span className="font-mono text-id text-ink">{row.original.code}</span>
+      <span className="flex min-w-0 items-center gap-2">
+        <Tag>{row.original.code}</Tag>
+        <span className="truncate text-[0.78125rem] text-mute">
+          {describeKind(row.original.kind)}
+        </span>
+      </span>
     ),
   },
   {
-    id: "status",
-    accessorFn: (row) => (row.expired ? "EXPIRED" : row.status),
-    header: "Standing",
-    size: 100,
-    meta: { filter: { kind: "option" } },
-    cell: ({ row }) => <Standing row={row.original} />,
+    id: "holder",
+    accessorFn: (row) => holder(row),
+    header: "Holder",
+    size: 180,
+    cell: ({ row }) =>
+      row.original.member_id === null ? (
+        <span className="text-mute">Bearer</span>
+      ) : (
+        <span className="truncate text-[0.8125rem] text-ink">
+          {holder(row.original)}
+        </span>
+      ),
   },
   {
-    id: "kind",
-    accessorFn: (row) => row.kind,
-    header: "Kind",
-    size: 110,
-    meta: { filter: { kind: "option", format: describeKind } },
+    id: "face",
+    accessorFn: (row) => row.issued_minor,
+    header: "Face value",
+    size: 130,
+    meta: { align: "right" },
     cell: ({ row }) => (
-      <span className="text-text">{describeKind(row.original.kind)}</span>
+      <span className="text-body tabular-nums">
+        {money(row.original.issued_minor)}
+      </span>
     ),
   },
   {
     id: "balance",
     accessorFn: (row) => row.balance_minor,
     header: "Left on it",
-    size: 170,
+    size: 190,
     meta: { align: "right" },
-    cell: ({ row }) => <Balance row={row.original} />,
+    // The balance and how much of the card it is, together. A number alone
+    // does not say whether 50,000 is most of a card or the last of one, and
+    // that is the difference between a customer who will be back and one who
+    // will not.
+    cell: ({ row }) => {
+      const left = row.original.issued_minor
+        ? row.original.balance_minor / row.original.issued_minor
+        : 0
+      return (
+        <span className="flex items-center justify-end gap-2">
+          <Meter
+            value={left}
+            tone={left === 0 ? "bad" : left < 0.25 ? "warn" : "ok"}
+            className="w-14"
+          />
+          <span className="w-24 text-right text-ink tabular-nums">
+            {money(row.original.balance_minor)}
+          </span>
+        </span>
+      )
+    },
   },
   {
-    id: "holder",
-    accessorFn: (row) => row.member_name ?? row.member_id ?? "",
-    header: "Held by",
-    size: 170,
-    meta: { filter: { kind: "text" } },
-    // A gift card bought off the shelf belongs to whoever is holding it, and
-    // that is the ordinary case rather than missing data — hence a sentence
-    // and not a dash.
-    cell: ({ row }) =>
-      row.original.member_id === null ? (
-        <span className="text-mute">Bearer</span>
-      ) : (
-        <span className="text-text">
-          {row.original.member_name ?? row.original.member_id}
-        </span>
-      ),
-  },
-  {
-    id: "expires",
-    accessorFn: (row) => row.expires_at ?? "",
-    header: "Expires",
-    size: 120,
-    cell: ({ row }) =>
-      row.original.expires_at === null ? (
-        <span className="text-mute">No end</span>
-      ) : (
-        <span className={row.original.expired ? "text-bad-fg" : "text-text"}>
-          {day(row.original.expires_at)}
-        </span>
-      ),
+    id: "status",
+    accessorFn: (row) => (row.expired ? "EXPIRED" : row.status),
+    header: "Status",
+    size: 150,
+    cell: ({ row }) => (
+      <span className="flex items-center gap-1.5">
+        <Pill tone={statusTone(row.original.status)}>
+          {statusWord(row.original.status)}
+        </Pill>
+        {/* Two marks, not one word, because they are two facts: the card is
+            live and it is past its date. A single "Expired" pill would hide
+            the balance still sitting on it. */}
+        {row.original.expired && <Pill tone="warn">Past date</Pill>}
+      </span>
+    ),
   },
   {
     id: "issued",
     accessorFn: (row) => row.issued_at,
     header: "Issued",
-    size: 120,
-    cell: ({ row }) => <span className="text-text">{day(row.original.issued_at)}</span>,
+    size: 130,
+    meta: { align: "right" },
+    cell: ({ row }) => (
+      <span className="text-body tabular-nums">
+        {day(row.original.issued_at)}
+      </span>
+    ),
   },
 ]
 
-export function Vouchers() {
-  const client = useQueryClient()
-  const sheet = useSheet("voucher")
-  const [status, setStatus] = useState<VoucherStatus | "">("")
-  const [query, setQuery] = useState("")
-  const [issuing, setIssuing] = useState(false)
-  const [issued, setIssued] = useState<VoucherRow | null>(null)
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "issued", desc: true },
-  ])
+type Shown = "ALL" | VoucherStatus
 
-  const filter = useMemo(
-    () => (status === "" ? {} : { status }),
-    [status]
-  )
+export function Vouchers() {
+  const search = useSheet("q")
+  const open = useSheet("voucher")
+  const [shown, setShown] = useState<Shown>("ALL")
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [issuing, setIssuing] = useState(false)
 
   const list = useQuery({
-    queryKey: voucherKeys.list(filter),
-    queryFn: ({ signal }) => listVouchers(filter, signal),
+    queryKey: voucherKeys.list({
+      status: shown === "ALL" ? undefined : shown,
+    }),
+    queryFn: ({ signal }) =>
+      listVouchers({ status: shown === "ALL" ? undefined : shown }, signal),
   })
 
-  const vouchers = useMemo(() => list.data?.vouchers ?? [], [list.data])
+  const rows = useMemo(() => list.data?.vouchers ?? [], [list.data])
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
-        data: vouchers as VoucherRow[],
-        columns: voucherColumns,
+        data: rows,
+        columns,
         getRowId: (row: VoucherRow) => row.code,
-        state: { globalFilter: query, sorting },
+        state: { globalFilter: search.value ?? "", sorting },
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [vouchers, query, sorting]
+      [rows, search.value, sorting]
     )
   )
 
@@ -241,9 +249,13 @@ export function Vouchers() {
         actions={
           <>
             <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search a code or a name"
+              value={search.value ?? ""}
+              onChange={(event) =>
+                event.target.value === ""
+                  ? search.close()
+                  : search.open(event.target.value)
+              }
+              placeholder="Card code or holder"
               className="h-8 w-52"
             />
             <Button variant="dark" onClick={() => setIssuing(true)}>
@@ -255,152 +267,147 @@ export function Vouchers() {
 
       {ledger && (
         <KpiStrip>
+          {/* Outstanding leads, because it is the only figure here that is a
+              number on the balance sheet: money taken for cards nobody has
+              spent yet. */}
           <Kpi
             label="Outstanding"
             value={money(ledger.outstanding_minor)}
             delta={`${count(ledger.outstanding_count)} live`}
           />
-          <Kpi label="Issued, ever" value={money(ledger.issued_minor)} />
+          <Kpi label="Issued" value={money(ledger.issued_minor)} />
+          <Kpi label="Cards issued" value={count(ledger.issued_count)} />
           <Kpi label="Spent" value={money(ledger.redeemed_minor)} />
           <Kpi label="Written off" value={money(ledger.voided_minor)} />
           <Kpi
-            label="Expired"
+            label="Past date"
             value={money(ledger.expired_minor)}
-            delta={`${count(ledger.expired_count)} card${ledger.expired_count === 1 ? "" : "s"}`}
+            delta={`${count(ledger.expired_count)} cards`}
             tone={ledger.expired_count > 0 ? "down" : "flat"}
           />
-          <Kpi label="Cards" value={count(ledger.issued_count)} />
         </KpiStrip>
       )}
 
-      {ledger !== undefined && ledger.expired_count > 0 && (
-        <Banner tone="warn" className="mb-4">
-          {count(ledger.expired_count)} card
-          {ledger.expired_count === 1 ? " is" : "s are"} past their date with{" "}
-          {money(ledger.expired_minor)} still on{" "}
-          {ledger.expired_count === 1 ? "it" : "them"}. Nothing has happened to{" "}
-          {ledger.expired_count === 1 ? "it" : "them"} automatically — the money
-          is still counted as owed until somebody writes it off, which is a
-          decision and not a sweep.
-        </Banner>
-      )}
-
-      {issued && (
-        <Banner tone="ok" className="mb-4" onDismiss={() => setIssued(null)}>
-          {describeKind(issued.kind)} for {money(issued.issued_minor)} issued as{" "}
-          <span className="font-mono text-id">{issued.code}</span>. Write the
-          code on the card before this message is dismissed — it is not a
-          secret, but it is the only handle the shopper has.
-        </Banner>
-      )}
-
-      <div className="mb-3.5 flex items-center gap-2">
+      <Toolbar>
         <Segmented
-          options={STATUSES}
-          value={status}
-          onChange={(next) => setStatus(next)}
+          options={[
+            { value: "ALL", label: "Everything" },
+            { value: "ACTIVE", label: "Live" },
+            { value: "SPENT", label: "Spent" },
+            { value: "VOIDED", label: "Stopped" },
+          ]}
+          value={shown}
+          onChange={setShown}
         />
-        <span className="text-[0.71875rem] text-mute">
-          The figures above cover every voucher, whichever slice is shown here.
+        <Toolbar.Spacer />
+        <span className="text-[0.75rem] text-mute tabular-nums">
+          {count(rows.length)} cards
+          {ledger && ` · ${money(ledger.outstanding_minor)} outstanding`}
         </span>
-      </div>
+      </Toolbar>
 
       <Card className="overflow-hidden">
         {queryState(list, {
           loading: "Reading the voucher book…",
           render: (data) =>
             data.vouchers.length === 0 ? (
-              <EmptyState>
-                {status === ""
-                  ? "No voucher has been issued. A voucher is money a customer is holding — a gift card they paid for, credit from a return, or goodwill after something went wrong — and it is spent at the till rather than applied to a price."
-                  : "No voucher in that state. The counts above cover the whole book."}
+              <EmptyState
+                action={
+                  shown === "ALL" ? (
+                    <Button variant="dark" onClick={() => setIssuing(true)}>
+                      New voucher
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {shown === "ALL"
+                  ? "No voucher has been issued. Issuing one takes money the shop is holding and puts it on a card the customer can spend — which is why it is a liability from the moment it exists."
+                  : "No card is in that state."}
               </EmptyState>
             ) : (
               <DataTable<VoucherRow>
                 table={table}
-                onRowClick={(row) => sheet.open(row.code)}
-                isSelected={(row) => row.code === sheet.value}
-                empty="No voucher matches that search."
+                onRowClick={(row) => open.open(row.code)}
+                isSelected={(row) => row.code === open.value}
+                empty="No card matches that search."
                 className="max-h-[calc(100vh-24rem)]"
               />
             ),
         })}
       </Card>
 
-      <VoucherSheet
-        code={sheet.value ?? null}
-        onClose={sheet.close}
-        onChanged={() =>
-          client.invalidateQueries({ queryKey: voucherKeys.all })
-        }
-      />
-
-      <IssueForm
+      <VoucherSheet code={open.value ?? null} onClose={() => open.close()} />
+      <IssueSheet
         open={issuing}
         onClose={() => setIssuing(false)}
-        onIssued={(voucher) => {
-          setIssued(voucher)
+        onIssued={(code) => {
           setIssuing(false)
-          client.invalidateQueries({ queryKey: voucherKeys.all })
+          open.open(code)
         }}
       />
     </PageContent>
   )
 }
 
-/// One card, whole: what is on it, and everything that has happened to it.
+// ---------------------------------------------------------------------------
+
+/// A key held across retries and rotated after a success.
 ///
-/// The history is the point of the sheet. "How much is left" is the cheap
-/// question and the list already answers it; "where did it go" is the one that
-/// gets asked, and a single balance cannot answer it at all.
+/// The point of an idempotency key is that a retry carries the SAME one, so the
+/// server replays its first answer instead of writing a second record. It
+/// matters more here than anywhere else in this app: a retried issue is a
+/// second gift card the shop never sold, and a retried redemption spends the
+/// same money twice.
+function useIdempotencyKey(): {
+  readonly key: string
+  readonly rotate: () => void
+} {
+  const [key, setKey] = useState(() => crypto.randomUUID())
+  const rotate = useCallback(() => setKey(crypto.randomUUID()), [])
+  return { key, rotate }
+}
+
+/// The server's own sentence about why a write was refused. It knows things
+/// this form cannot — that the card is stopped, that the amount is more than
+/// the balance — and "Could not save" throws all of it away.
+function said(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : "The server could not be reached."
+}
+
+/// Rupiah as typed, in minor units.
+///
+/// IDR has no minor unit in practice, so what somebody types IS the minor
+/// amount and there is no multiplication to get wrong. Digits only: a
+/// thousands separator pasted in from a spreadsheet should not become part of
+/// the number.
+function minorFrom(typed: string): number {
+  const digits = typed.replace(/[^\d]/g, "")
+  return digits === "" ? 0 : Number(digits)
+}
+
+// ---------------------------------------------------------------------------
+
+/// One card and everything that has happened to it.
+///
+/// Read by code rather than by uuid, because the code is what exists outside
+/// this system: it is printed on the card, and somebody reading it out over a
+/// telephone should be able to reach this.
 function VoucherSheet({
   code,
   onClose,
-  onChanged,
 }: {
   code: string | null
   onClose: () => void
-  onChanged: () => void
 }) {
-  const [spending, setSpending] = useState("")
-  const [stopping, setStopping] = useState(false)
-  const [reason, setReason] = useState("")
-
   const detail = useQuery({
     queryKey: voucherKeys.detail(code ?? ""),
-    queryFn: ({ signal }) => voucherDetail(code ?? "", signal),
+    queryFn: ({ signal }) => voucherDetail(code as string, signal),
     enabled: code !== null,
   })
 
-  const spend = useMutation({
-    mutationFn: (amount_minor: number) =>
-      redeemVoucher(
-        code ?? "",
-        { amount_minor },
-        // A fresh key per attempt: two spends of the same card an hour apart
-        // are two events, not one retried. A retry of THIS attempt reuses it,
-        // which is the whole point — the same money must not come off twice.
-        crypto.randomUUID()
-      ),
-    onSuccess: () => {
-      setSpending("")
-      void detail.refetch()
-      onChanged()
-    },
-  })
-
-  const stop = useMutation({
-    mutationFn: () => voidVoucher(code ?? "", { reason }, crypto.randomUUID()),
-    onSuccess: () => {
-      setStopping(false)
-      setReason("")
-      void detail.refetch()
-      onChanged()
-    },
-  })
-
-  const voucher = detail.data?.voucher
-  const live = voucher?.status === "ACTIVE"
+  const voucher = detail.data?.voucher ?? null
 
   return (
     <Sheet
@@ -408,323 +415,530 @@ function VoucherSheet({
       onOpenChange={(next) => !next && onClose()}
       id={code ?? undefined}
       title={
-        voucher === undefined
+        voucher === null
           ? "Voucher"
           : `${describeKind(voucher.kind)} · ${money(voucher.balance_minor)}`
       }
       subject={code === null ? undefined : { kind: "voucher", id: code }}
     >
-      {voucher === undefined ? null : (
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Standing row={voucher} />
-            {voucher.member_id === null ? (
-              <Tag>Bearer</Tag>
-            ) : (
-              <Tag tone="info">
-                {voucher.member_name ?? voucher.member_id}
-              </Tag>
-            )}
-            <span className="text-[0.71875rem] text-mute">
-              issued by {voucher.issued_by}
-            </span>
-          </div>
-
-          <Facts>
-            <Fact term="Left on it">{money(voucher.balance_minor)}</Fact>
-            <Fact term="Face value">{money(voucher.issued_minor)}</Fact>
-            <Fact term="Spent">{money(voucher.spent_minor)}</Fact>
-            <Fact term="Currency">{voucher.currency}</Fact>
-            <Fact term="Issued">{day(voucher.issued_at)}</Fact>
-            <Fact term="Expires">
-              {voucher.expires_at === null ? "No end" : day(voucher.expires_at)}
-            </Fact>
-            <Fact term="Issued at">{voucher.issued_site ?? "Not recorded"}</Fact>
-            <Fact term="Movements">{count(voucher.movement_count)}</Fact>
-          </Facts>
-
-          {voucher.note && (
-            <div>
-              <SubHead>Why it was issued</SubHead>
-              <p className="py-1.5 text-meta text-text">{voucher.note}</p>
+      {queryState(detail, {
+        loading: "Reading the card…",
+        render: (data) => (
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Pill tone={statusTone(data.voucher.status)}>
+                {statusWord(data.voucher.status)}
+              </Pill>
+              {data.voucher.expired && <Pill tone="warn">Past date</Pill>}
+              {data.voucher.member_id === null && (
+                <Pill tone="neutral">Bearer</Pill>
+              )}
             </div>
-          )}
 
-          {/* Spending, from here rather than only from a till. A supervisor
-              settling something over the telephone is an ordinary act, and the
-              alternative is somebody editing a balance in a database. */}
-          {live && (
-            <div>
-              <SubHead>Spend against a basket</SubHead>
-              <div className="flex items-center gap-2 pt-1.5">
-                <Input
-                  value={spending}
-                  inputMode="numeric"
-                  onChange={(event) => setSpending(event.target.value)}
-                  placeholder={`Up to ${money(voucher.balance_minor)}`}
-                  className="w-44"
-                />
-                <Button
-                  variant="soft"
-                  disabled={spend.isPending || !isAmount(spending)}
-                  onClick={() => spend.mutate(Number(spending))}
-                >
-                  {spend.isPending ? "Spending…" : "Spend"}
-                </Button>
-              </div>
-              <p className="mt-1.5 text-[0.71875rem] text-mute">
-                Partial by design: {money(voucher.balance_minor)} on the card
-                against a smaller basket leaves the difference on the card. A
-                voucher never gives change — only cash can do that.
+            <Facts>
+              <Fact term="Left on it">{money(data.voucher.balance_minor)}</Fact>
+              <Fact term="Face value">{money(data.voucher.issued_minor)}</Fact>
+              <Fact term="Spent">{money(data.voucher.spent_minor)}</Fact>
+              <Fact term="Holder">{holder(data.voucher)}</Fact>
+              <Fact term="Issued">{day(data.voucher.issued_at)}</Fact>
+              <Fact term="Issued by">{data.voucher.issued_by}</Fact>
+              <Fact term="At">{data.voucher.issued_site ?? "—"}</Fact>
+              <Fact term="Expires">
+                {data.voucher.expires_at === null
+                  ? "Never"
+                  : day(data.voucher.expires_at)}
+              </Fact>
+            </Facts>
+
+            {data.voucher.note && (
+              <p className="text-[0.78125rem] leading-relaxed text-body">
+                {data.voucher.note}
               </p>
-              {spend.isError && (
-                <div className="mt-2">
-                  <ErrorState error={spend.error} />
-                </div>
-              )}
-            </div>
-          )}
+            )}
 
-          {live && (
+            {data.voucher.status === "ACTIVE" && (
+              <Actions voucher={data.voucher} />
+            )}
+
             <div>
-              <SubHead>Stop this card</SubHead>
-              {stopping ? (
-                <div className="flex flex-col gap-2 pt-1.5">
-                  <Textarea
-                    rows={2}
-                    value={reason}
-                    onChange={(event) => setReason(event.target.value)}
-                    placeholder="Why — lost card, issued in error, written off"
-                  />
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="danger"
-                      disabled={stop.isPending || reason.trim() === ""}
-                      onClick={() => stop.mutate()}
-                    >
-                      {stop.isPending
-                        ? "Stopping…"
-                        : `Stop and write off ${money(voucher.balance_minor)}`}
-                    </Button>
-                    <Button variant="quiet" onClick={() => setStopping(false)}>
-                      Cancel
-                    </Button>
-                  </div>
-                  {stop.isError && <ErrorState error={stop.error} />}
-                </div>
-              ) : (
-                <div className="pt-1.5">
-                  <Button variant="ghost" onClick={() => setStopping(true)}>
-                    Stop this card
-                  </Button>
-                  <p className="mt-1.5 text-[0.71875rem] text-mute">
-                    Takes {money(voucher.balance_minor)} away from whoever is
-                    holding it, so it needs a reason. The write-off is recorded
-                    as a movement rather than as a balance that changed by
-                    itself.
-                  </p>
-                </div>
-              )}
+              <SubHead aside={`${count(data.movements.length)} entries`}>
+                What has happened to it
+              </SubHead>
+              {/* Signed, so the history reads as arithmetic. A column of
+                  positives where some of them mean the opposite is the shape
+                  that makes a balance impossible to check by eye. */}
+              <MiniTable
+                head={[
+                  { label: "When", align: "left" },
+                  { label: "What", align: "left" },
+                  { label: "Amount", align: "right" },
+                  { label: "Left", align: "right" },
+                ]}
+              >
+                {data.movements.map((movement) => (
+                  <MiniRow key={movement.movement_id}>
+                    <MiniCell>{moment(movement.occurred_at)}</MiniCell>
+                    <MiniCell>
+                      <span className="text-body">
+                        {describeMovement(movement.kind)}
+                      </span>
+                    </MiniCell>
+                    <MiniCell align="right">
+                      <span
+                        className={
+                          movement.amount_minor < 0 ? "text-bad" : "text-ok"
+                        }
+                      >
+                        {movement.amount_minor < 0 ? "−" : "+"}
+                        {money(Math.abs(movement.amount_minor))}
+                      </span>
+                    </MiniCell>
+                    <MiniCell align="right">
+                      {money(movement.balance_after_minor)}
+                    </MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
             </div>
-          )}
-
-          <div>
-            <SubHead aside={count(detail.data?.movements.length ?? 0)}>
-              Everything that happened
-            </SubHead>
-            <MiniTable
-              head={[
-                "When",
-                "What",
-                { label: "Amount", align: "right" },
-                { label: "Left", align: "right" },
-              ]}
-            >
-              {(detail.data?.movements ?? []).map((movement) => (
-                <MiniRow key={movement.movement_id}>
-                  <MiniCell>{moment(movement.occurred_at)}</MiniCell>
-                  <MiniCell>
-                    {describeMovement(movement.kind)}
-                    <span className="text-mute"> · {movement.actor}</span>
-                    {movement.note && (
-                      <span className="text-mute"> · {movement.note}</span>
-                    )}
-                  </MiniCell>
-                  <MiniCell align="right">
-                    <span
-                      className={
-                        movement.amount_minor < 0 ? "text-bad-fg" : "text-ok"
-                      }
-                    >
-                      {movement.amount_minor < 0 ? "−" : "+"}
-                      {money(Math.abs(movement.amount_minor))}
-                    </span>
-                  </MiniCell>
-                  <MiniCell align="right">
-                    {money(movement.balance_after_minor)}
-                  </MiniCell>
-                </MiniRow>
-              ))}
-            </MiniTable>
           </div>
-        </div>
-      )}
+        ),
+      })}
     </Sheet>
   )
 }
 
-/// Whole rupiah, typed. Refused rather than coerced: `Number("")` is zero and
-/// `Number("1,000")` is `NaN`, and both would reach the server as a request
-/// that means something other than what was typed.
-function isAmount(raw: string): boolean {
-  const trimmed = raw.trim()
-  return /^\d+$/.test(trimmed) && Number(trimmed) > 0
+/// Spend some of a card, or stop it.
+///
+/// Both are on the sheet rather than the row, and both take a sentence: a
+/// redemption that no basket explains and a stoppage with no reason are the
+/// two entries a reconciliation cannot resolve six months later.
+function Actions({ voucher }: { voucher: VoucherRow }) {
+  const [doing, setDoing] = useState<"REDEEM" | "VOID" | null>(null)
+
+  return (
+    <div className="flex flex-col gap-3 rounded-inner border border-hairline-2 p-3.5">
+      <div className="flex items-center gap-2">
+        <Button
+          variant={doing === "REDEEM" ? "dark" : "ghost"}
+          onClick={() => setDoing(doing === "REDEEM" ? null : "REDEEM")}
+        >
+          Spend against a sale
+        </Button>
+        <Button
+          variant={doing === "VOID" ? "dark" : "ghost"}
+          onClick={() => setDoing(doing === "VOID" ? null : "VOID")}
+        >
+          Stop the card
+        </Button>
+      </div>
+
+      {doing === "REDEEM" && (
+        <RedeemForm voucher={voucher} onDone={() => setDoing(null)} />
+      )}
+      {doing === "VOID" && (
+        <VoidForm voucher={voucher} onDone={() => setDoing(null)} />
+      )}
+    </div>
+  )
 }
 
-/// Put a voucher into the world.
+function RedeemForm({
+  voucher,
+  onDone,
+}: {
+  voucher: VoucherRow
+  onDone: () => void
+}) {
+  const client = useQueryClient()
+  const idempotency = useIdempotencyKey()
+
+  const spend = useMutation({
+    mutationFn: (value: { amount: string; sale: string; note: string }) =>
+      redeemVoucher(
+        voucher.code,
+        {
+          amount_minor: minorFrom(value.amount),
+          sale_id: value.sale.trim() === "" ? undefined : value.sale.trim(),
+          note: value.note.trim() === "" ? undefined : value.note.trim(),
+        },
+        idempotency.key
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: voucherKeys.all })
+      idempotency.rotate()
+      onDone()
+    },
+  })
+
+  const form = useForm({
+    defaultValues: { amount: "", sale: "", note: "" },
+    onSubmit: ({ value }) => spend.mutate(value),
+  })
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        form.handleSubmit()
+      }}
+      className="flex flex-col gap-3"
+    >
+      {spend.isError && <Banner tone="bad">{said(spend.error)}</Banner>}
+
+      <form.Field name="amount">
+        {(field) => (
+          <Field
+            label="Amount"
+            hint={`Partial is normal — ${money(voucher.balance_minor)} is on the card, and whatever is left stays on it.`}
+            problem={
+              minorFrom(field.state.value) > voucher.balance_minor
+                ? `Only ${money(voucher.balance_minor)} is left on this card.`
+                : undefined
+            }
+          >
+            <Money
+              value={field.state.value}
+              onBlur={field.handleBlur}
+              onChange={field.handleChange}
+              placeholder="150.000"
+            />
+          </Field>
+        )}
+      </form.Field>
+
+      <form.Field name="sale">
+        {(field) => (
+          <Field
+            label="Sale"
+            hint="The basket it paid for, if there is one. Optional: a sale may still be at a till the centre has not received yet, and a redemption that waited for it would fail with a queue watching."
+          >
+            <Input
+              value={field.state.value}
+              onBlur={field.handleBlur}
+              onChange={(event) => field.handleChange(event.target.value)}
+              placeholder="Sale id"
+            />
+          </Field>
+        )}
+      </form.Field>
+
+      <form.Field name="note">
+        {(field) => (
+          <Field
+            label="Note"
+            hint="Why this was settled by hand rather than at a till."
+          >
+            <Textarea
+              rows={2}
+              value={field.state.value}
+              onBlur={field.handleBlur}
+              onChange={(event) => field.handleChange(event.target.value)}
+            />
+          </Field>
+        )}
+      </form.Field>
+
+      <form.Subscribe selector={(state) => state.values.amount}>
+        {(amount) => (
+          <Button
+            variant="dark"
+            type="submit"
+            disabled={
+              spend.isPending ||
+              minorFrom(amount) <= 0 ||
+              minorFrom(amount) > voucher.balance_minor
+            }
+            className="self-start"
+          >
+            {spend.isPending
+              ? "Spending…"
+              : `Spend ${money(minorFrom(amount))}`}
+          </Button>
+        )}
+      </form.Subscribe>
+    </form>
+  )
+}
+
+function VoidForm({
+  voucher,
+  onDone,
+}: {
+  voucher: VoucherRow
+  onDone: () => void
+}) {
+  const client = useQueryClient()
+  const idempotency = useIdempotencyKey()
+
+  const stop = useMutation({
+    mutationFn: (reason: string) =>
+      voidVoucher(voucher.code, { reason: reason.trim() }, idempotency.key),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: voucherKeys.all })
+      idempotency.rotate()
+      onDone()
+    },
+  })
+
+  const form = useForm({
+    defaultValues: { reason: "" },
+    onSubmit: ({ value }) => stop.mutate(value.reason),
+  })
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        form.handleSubmit()
+      }}
+      className="flex flex-col gap-3"
+    >
+      {stop.isError && <Banner tone="bad">{said(stop.error)}</Banner>}
+
+      {voucher.balance_minor > 0 && (
+        // Said before the field, not after the click. Stopping a card with
+        // money on it takes value away from a customer, and the amount is the
+        // part somebody needs to see while deciding.
+        <Banner tone="warn">
+          {money(voucher.balance_minor)} is still on this card. Stopping it
+          writes that off — the balance goes to nothing and the customer cannot
+          spend it.
+        </Banner>
+      )}
+
+      <form.Field name="reason">
+        {(field) => (
+          <Field
+            label="Reason"
+            hint="Required, and required in words: this is the whole record of somebody deciding to take value back."
+          >
+            <Textarea
+              rows={2}
+              value={field.state.value}
+              onBlur={field.handleBlur}
+              onChange={(event) => field.handleChange(event.target.value)}
+              placeholder="Reported stolen; replacement issued as …"
+            />
+          </Field>
+        )}
+      </form.Field>
+
+      <form.Subscribe selector={(state) => state.values.reason}>
+        {(reason) => (
+          <Button
+            variant="dark"
+            type="submit"
+            disabled={stop.isPending || reason.trim().length < 4}
+            className="self-start"
+          >
+            {stop.isPending ? "Stopping…" : "Stop the card"}
+          </Button>
+        )}
+      </form.Subscribe>
+    </form>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/// Issue one.
 ///
-/// The kind is asked first and is not a detail: it decides what the shop owes
-/// because of this card. A gift card was paid for and is a liability; goodwill
-/// was given away and costs the shop today. Nothing in finance posts either yet
-/// — there is no voucher rule in the ledger — but the kind is knowable only
-/// here, and a backfill that guessed it later would be guessing at which
-/// account the money belonged in.
-function IssueForm({
+/// The three kinds are not decoration: the accounting differs at the moment of
+/// issue. A gift card was paid for and is a liability; goodwill was given away
+/// and is an expense that day; a refund voucher is a sale being unwound. That
+/// is why the kind is asked first and cannot be changed afterwards.
+function IssueSheet({
   open,
   onClose,
   onIssued,
 }: {
   open: boolean
   onClose: () => void
-  onIssued: (voucher: VoucherRow) => void
+  onIssued: (code: string) => void
 }) {
-  const [kind, setKind] = useState<VoucherKind>("GIFT_CARD")
-  const [value, setValue] = useState("")
-  const [code, setCode] = useState("")
-  const [member, setMember] = useState("")
-  const [expires, setExpires] = useState("")
-  const [note, setNote] = useState("")
+  const client = useQueryClient()
+  const idempotency = useIdempotencyKey()
 
   const issue = useMutation({
-    mutationFn: () =>
+    mutationFn: (value: {
+      kind: VoucherKind
+      amount: string
+      code: string
+      member: string
+      expires: string
+      note: string
+    }) =>
       issueVoucher(
         {
-          kind,
-          value_minor: Number(value),
-          ...(code.trim() === "" ? {} : { code: code.trim() }),
-          ...(member.trim() === "" ? {} : { member_id: member.trim() }),
-          ...(expires === ""
-            ? {}
-            : // A date input gives a day; a voucher dies at the end of it
-              // rather than at the stroke of midnight that opens it.
-              { expires_at: new Date(`${expires}T23:59:59`).toISOString() }),
-          ...(note.trim() === "" ? {} : { note: note.trim() }),
+          kind: value.kind,
+          value_minor: minorFrom(value.amount),
+          // Blank means "mint one", which is the ordinary case. A code is only
+          // supplied for pre-printed stock, where the card already exists in
+          // the physical world.
+          code: value.code.trim() === "" ? undefined : value.code.trim(),
+          member_id:
+            value.member.trim() === "" ? undefined : value.member.trim(),
+          // A date input gives a day; the wire takes an instant. End of that
+          // day in the browser's zone, because "expires on the 31st" means the
+          // 31st is still good.
+          expires_at:
+            value.expires === ""
+              ? undefined
+              : new Date(`${value.expires}T23:59:59`).toISOString(),
+          note: value.note.trim() === "" ? undefined : value.note.trim(),
         },
-        crypto.randomUUID()
+        idempotency.key
       ),
     onSuccess: (voucher) => {
-      setValue("")
-      setCode("")
-      setMember("")
-      setExpires("")
-      setNote("")
-      onIssued(voucher)
+      void client.invalidateQueries({ queryKey: voucherKeys.all })
+      idempotency.rotate()
+      onIssued(voucher.code)
     },
   })
 
-  const chosen = KINDS.find((one) => one.value === kind)
+  const form = useForm({
+    defaultValues: {
+      kind: "GIFT_CARD" as VoucherKind,
+      amount: "",
+      code: "",
+      member: "",
+      expires: "",
+      note: "",
+    },
+    onSubmit: ({ value }) => issue.mutate(value),
+  })
 
   return (
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title="New voucher"
-      footer={
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="dark"
-            disabled={issue.isPending || !isAmount(value)}
-            onClick={() => issue.mutate()}
-          >
-            {issue.isPending ? "Issuing…" : "Issue"}
-          </Button>
-        </div>
-      }
     >
-      <div className="flex flex-col gap-4">
-        <Field label="Kind" hint={chosen?.why}>
-          <Select
-            value={kind}
-            onChange={(event) => setKind(event.target.value as VoucherKind)}
-          >
-            {KINDS.map((one) => (
-              <option key={one.value} value={one.value}>
-                {one.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
+      <form
+        // Keyed on nothing: the sheet unmounts on close, so a second card is
+        // always started from empty rather than from the last one's values.
+        onSubmit={(event) => {
+          event.preventDefault()
+          form.handleSubmit()
+        }}
+        className="flex flex-col gap-3.5"
+      >
+        {issue.isError && <Banner tone="bad">{said(issue.error)}</Banner>}
 
-        <Field
-          label="Value"
-          hint="In whole rupiah. Frozen once issued — what a card was worth never changes, which is what makes the balance answerable by subtraction."
-        >
-          <Input
-            value={value}
-            inputMode="numeric"
-            onChange={(event) => setValue(event.target.value)}
-            placeholder="200000"
-          />
-        </Field>
+        <form.Field name="kind">
+          {(field) => (
+            <Field
+              label="Kind"
+              hint="What this is, in accounting terms — a gift card was paid for, goodwill was given away, a refund is a sale being unwound."
+            >
+              <Select
+                value={field.state.value}
+                onChange={(next) => field.handleChange(next as VoucherKind)}
+              >
+                <option value="GIFT_CARD">
+                  Gift card — bought by somebody
+                </option>
+                <option value="REFUND">Refund — a sale being unwound</option>
+                <option value="GOODWILL">Goodwill — given away</option>
+              </Select>
+            </Field>
+          )}
+        </form.Field>
 
-        <Field
-          label="Code"
-          hint="Leave blank and one is minted, without the four characters people misread off a card. Fill it in only for pre-printed stock, where the card exists before this record does."
-        >
-          <Input
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-            placeholder="Minted"
-            className="font-mono"
-          />
-        </Field>
+        <form.Field name="amount">
+          {(field) => (
+            <Field
+              label="Value"
+              hint="In rupiah. Frozen at issue: the face value never changes, only the balance does."
+            >
+              <Money
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={field.handleChange}
+                placeholder="200.000"
+              />
+            </Field>
+          )}
+        </form.Field>
 
-        <Field
-          label="Held by"
-          hint="A member's card number, when the shop knows whose it is. Blank means bearer — whoever is holding the card can spend it, which is how a gift card bought off the shelf works."
-        >
-          <Input
-            value={member}
-            onChange={(event) => setMember(event.target.value)}
-            placeholder="Bearer"
-          />
-        </Field>
+        <form.Field name="member">
+          {(field) => (
+            <Field
+              label="Holder"
+              hint="A card number, if this belongs to somebody in particular. Left blank it is a bearer card — which is what a gift card usually is, because it is bought for somebody else."
+            >
+              <Input
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+                placeholder="Member id"
+              />
+            </Field>
+          )}
+        </form.Field>
 
-        <Field
-          label="Expires"
-          hint="Blank means no end. A paid gift card with an expiry is a shop keeping money for goods it never handed over, which is a decision worth making on purpose rather than by default."
-        >
-          <Input
-            type="date"
-            value={expires}
-            onChange={(event) => setExpires(event.target.value)}
-          />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <form.Field name="code">
+            {(field) => (
+              <Field
+                label="Code"
+                hint="Only for pre-printed stock."
+                className="min-w-0"
+              >
+                <Input
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="Minted for you"
+                />
+              </Field>
+            )}
+          </form.Field>
 
-        <Field label="Why" hint="Shown on the card's history.">
-          <Textarea
-            rows={2}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Sold at the till, service recovery, return credit…"
-          />
-        </Field>
+          <form.Field name="expires">
+            {(field) => (
+              <Field label="Expires" hint="Optional." className="min-w-0">
+                <Day
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={field.handleChange}
+                />
+              </Field>
+            )}
+          </form.Field>
+        </div>
 
-        {issue.isError && <ErrorState error={issue.error} />}
-      </div>
+        <form.Field name="note">
+          {(field) => (
+            <Field
+              label="Note"
+              hint="Why it was issued. The one thing an audit six months from now cannot reconstruct."
+            >
+              <Textarea
+                rows={2}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Subscribe selector={(state) => state.values.amount}>
+          {(amount) => (
+            <Button
+              variant="dark"
+              type="submit"
+              disabled={issue.isPending || minorFrom(amount) <= 0}
+              className="self-start"
+            >
+              {issue.isPending
+                ? "Issuing…"
+                : `Issue ${money(minorFrom(amount))}`}
+            </Button>
+          )}
+        </form.Subscribe>
+      </form>
     </Sheet>
   )
 }

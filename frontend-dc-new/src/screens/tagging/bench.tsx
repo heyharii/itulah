@@ -167,6 +167,7 @@ function Preview({ jobId }: { jobId: string }) {
       jobId,
       printer.widthMm,
       printer.heightMm,
+      printer.offsetMm,
       sku,
       printer.language
     ),
@@ -176,6 +177,7 @@ function Preview({ jobId }: { jobId: string }) {
         {
           label_width_mm: printer.widthMm,
           label_height_mm: printer.heightMm,
+          label_offset_mm: printer.offsetMm,
           sku_code: sku ?? null,
           language: printer.language,
         },
@@ -309,6 +311,7 @@ function Run({ jobId }: { jobId: string }) {
         printer_port: printer.port,
         label_width_mm: printer.widthMm,
         label_height_mm: printer.heightMm,
+        label_offset_mm: printer.offsetMm,
         chunk_size: printer.chunk,
         language: printer.language,
         actor_id: actor,
@@ -782,6 +785,24 @@ function PrinterCard() {
                 savePrinter({
                   ...printer,
                   heightMm: Number(event.target.value) || 0,
+                })
+              }
+            />
+          </Field>
+          {/* Not part of the tag size, which is why it is not one of the
+              presets: two benches on the same 50 × 30 stock can hold reels
+              whose tags start at different insets. Wrong here, the tag prints
+              with its left column on the liner and looks like a layout fault
+              nobody can find. The picture on the left is what says it is
+              right. */}
+          <Field label="Left inset" hint="mm" className="flex-1">
+            <Input
+              inputMode="numeric"
+              value={String(printer.offsetMm)}
+              onChange={(event) =>
+                savePrinter({
+                  ...printer,
+                  offsetMm: Number(event.target.value) || 0,
                 })
               }
             />

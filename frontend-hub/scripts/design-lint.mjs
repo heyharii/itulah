@@ -5,7 +5,8 @@
  * Prose in a markdown file is not a gate. These four are the ones that silently
  * break the language rather than the build:
  *
- *  - a raw px type size defeats the baked 0.9 density, and it is the single most
+ *  - a raw px type size escapes the root the whole scale hangs off, and it is
+ *    the single most
  *    common defect in the app this one replaces (128 literals in one folder);
  *  - a hex colour is a value nobody can retheme;
  *  - `font-bold` is the fourth weight DESIGN.md forbids;

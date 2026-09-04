@@ -6,6 +6,7 @@ import {
   listAssets,
   listBills,
   listJournal,
+  listPayments,
   searchAccounts,
 } from "@/lib/queries/finance"
 import { inventoryKeys, listAllotments } from "@/lib/queries/inventory"
@@ -34,7 +35,7 @@ import type { SheetKey } from "@/lib/sheets"
 /// server-side search instead.
 ///
 /// Three have already crossed that line and take a `q` on the server —
-/// finance's accounts, workplace's discussions, and the article master. A chart
+/// finance's accounts, the discussion board, and the article master. A chart
 /// of accounts of 7.528 rows and a garment catalogue are simply too large to
 /// hold in a palette, and those endpoints take a `q` precisely so they do not
 /// have to be. The difference is confined to the `run` below, which is why the
@@ -104,7 +105,7 @@ export const searchSources: readonly SearchSource[] = [
     label: "Journal entries",
     run: async (query, client, signal) => {
       const entries = await client.fetchQuery({
-        queryKey: financeKeys.journal(null, null, null),
+        queryKey: financeKeys.journal(null, null, null, null),
         queryFn: () => listJournal({ limit: 200 }, signal),
       })
       return entries
@@ -150,10 +151,48 @@ export const searchSources: readonly SearchSource[] = [
   },
   {
     module: "finance",
+    label: "Payments",
+    /// A payment is found by its own number, by the bank reference somebody
+    /// is holding, and by who was paid — which lives on the allocations,
+    /// because one bank line settling two suppliers is an ordinary Friday.
+    ///
+    /// It opens the record, now that `payment` is a key in `lib/sheets.ts` —
+    /// it was the one gap in this module's findability, where a hit landed on
+    /// the register and left somebody to find the number again by eye.
+    run: async (query, client, signal) => {
+      const payments = await client.fetchQuery({
+        queryKey: financeKeys.payments(null, null, null),
+        queryFn: () => listPayments({ limit: 200 }, signal),
+      })
+      return payments
+        .filter((payment) =>
+          matches(
+            query,
+            payment.payment_number,
+            payment.reference,
+            ...payment.allocations.map((row) => row.supplier_name),
+            ...payment.allocations.map((row) => row.invoice_number)
+          )
+        )
+        .slice(0, 8)
+        .map((payment) => ({
+          id: payment.payment_id,
+          title: payment.payment_number,
+          subtitle:
+            payment.allocations[0]?.supplier_name ??
+            payment.allocations[0]?.invoice_number ??
+            payment.method,
+          to: "/finance/payments",
+          sheet: { key: "payment" as const, value: payment.payment_id },
+        }))
+    },
+  },
+  {
+    module: "finance",
     label: "Assets",
     run: async (query, client, signal) => {
       const assets = await client.fetchQuery({
-        queryKey: financeKeys.assets(false),
+        queryKey: financeKeys.assets(false, null),
         queryFn: () => listAssets({}, signal),
       })
       return assets
@@ -192,7 +231,7 @@ export const searchSources: readonly SearchSource[] = [
     },
   },
   {
-    module: "procurement",
+    module: "master",
     label: "Suppliers",
     run: async (query, client, signal) => {
       const suppliers = await client.fetchQuery({
@@ -208,7 +247,7 @@ export const searchSources: readonly SearchSource[] = [
           id: supplier.supplier_id,
           title: supplier.name,
           subtitle: supplier.supplier_code,
-          to: "/procurement/suppliers",
+          to: "/master/suppliers",
           sheet: { key: "supplier" as const, value: supplier.supplier_id },
         }))
     },
@@ -240,7 +279,7 @@ export const searchSources: readonly SearchSource[] = [
   // anybody navigates to — and the grid's own search reaches articles, which
   // is what a merchandiser actually types.
   {
-    module: "articles",
+    module: "master",
     label: "Articles",
     /// Server-side, like finance's accounts and workplace's discussions: the
     /// catalogue is far too large to hold in a palette, and the endpoint takes
@@ -279,7 +318,7 @@ export const searchSources: readonly SearchSource[] = [
         ]
           .filter(Boolean)
           .join(" · "),
-        to: "/articles",
+        to: "/master",
         sheet: { key: "article" as const, value: article.article_code },
       }))
     },
@@ -314,7 +353,7 @@ export const searchSources: readonly SearchSource[] = [
     },
   },
   {
-    module: "workplace",
+    module: "discussions",
     label: "Discussions",
     /// Server-side, like finance's accounts and the article master: the
     /// discussions endpoint takes a `q`, and a thread body is not something a
@@ -328,7 +367,7 @@ export const searchSources: readonly SearchSource[] = [
         id: thread.thread_id,
         title: thread.title,
         subtitle: thread.subject_kind,
-        to: "/workplace",
+        to: "/discussions",
         sheet: { key: "thread" as const, value: thread.thread_id },
       }))
     },

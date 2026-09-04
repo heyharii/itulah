@@ -1,18 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { MessageSquarePlus } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/field"
+import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
+import { Segmented } from "@/components/ui/segmented"
+import { Sheet } from "@/components/ui/sheet"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
+import { listUsers, systemKeys } from "@/lib/queries/system"
 import {
   chatAttachmentUrl,
   conversationFiles,
@@ -21,6 +28,7 @@ import {
   readConversation,
   readMessages,
   sendMessage,
+  startConversation,
   workplaceKeys,
 } from "@/lib/queries/workplace"
 import { useIdentity } from "@/lib/session"
@@ -64,6 +72,12 @@ import type { ChatConversation, ChatMessage } from "@itulah/contract"
 export function Chat() {
   const conversation = useSheet("conversation")
   const [search, setSearch] = useState("")
+  // Not a sheet key, for the reason the Discussions composer is not one
+  // either: `?conversation=` names a room that exists, and a half-filled form
+  // naming nobody is not a room. What it produces goes in the URL the moment
+  // the server answers.
+  const [starting, setStarting] = useState(false)
+  const layout = useLayout()
   const identity = useIdentity()
   const me = identity.data?.username
 
@@ -97,7 +111,6 @@ export function Chat() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Workplace"
         title="Chat"
         sub="Correspondence between people, not a record of a decision."
         actions={
@@ -113,6 +126,14 @@ export function Chat() {
                 {count(unread)} unread
               </Pill>
             )}
+            {/* One word on a phone. The row beside it is a search field and,
+                some of the time, an unread pill; at 375px the three of them
+                and a spelt-out label do not fit, and the label is the part
+                the icon already says. */}
+            <Button variant="dark" onClick={() => setStarting(true)}>
+              <MessageSquarePlus />
+              {layout === "phone" ? "New" : "New conversation"}
+            </Button>
           </>
         }
       />
@@ -123,7 +144,15 @@ export function Chat() {
             loading: "Loading the rooms…",
             render: () =>
               rooms.length === 0 ? (
-                <EmptyState>
+                <EmptyState
+                  action={
+                    search.trim() === "" ? (
+                      <Button variant="ghost" onClick={() => setStarting(true)}>
+                        Start one
+                      </Button>
+                    ) : undefined
+                  }
+                >
                   {search.trim() === ""
                     ? "You are not in any conversation yet."
                     : "No room matches that."}
@@ -162,7 +191,206 @@ export function Chat() {
           <Room key={conversation.value} id={conversation.value} me={me} />
         )}
       </Card>
+
+      <StartSheet
+        open={starting}
+        onClose={() => setStarting(false)}
+        me={me}
+        // Pushes, like clicking a room in the list: the room now exists, and
+        // arriving at it is somewhere `back` should return from.
+        onStarted={(id) => conversation.open(id)}
+      />
     </PageContent>
+  )
+}
+
+/// Starting one.
+///
+/// A rail, not the `wide` sheet the thread composer takes: `wide` exists for a
+/// form whose widest control is a paragraph somebody writes, and this is a
+/// choice of people and at most a name. Nothing is typed into a conversation
+/// here — the room opens and the composer at the foot of it is where the first
+/// message gets written, which is also why nothing is sent if this is
+/// abandoned.
+///
+/// People are PICKED rather than typed. `/api/v1/auth/users` sits behind
+/// nothing but `require_auth`, and everybody holding an account here is staff
+/// — the ladder is CASHIER, SUPERVISOR, ADMIN. The old app on `frontend-cloud`
+/// made you type a username because it also served buyers, who must not be
+/// handed the staff list; that constraint is gone and typing a colleague's
+/// login from memory should go with it.
+function StartSheet({
+  open,
+  onClose,
+  me,
+  onStarted,
+}: {
+  open: boolean
+  onClose: () => void
+  me: string | undefined
+  onStarted: (conversationId: string) => void
+}) {
+  const client = useQueryClient()
+  const [kind, setKind] = useState<"DIRECT" | "GROUP">("DIRECT")
+  const [title, setTitle] = useState("")
+  const [people, setPeople] = useState<readonly string[]>([])
+
+  // Only while the sheet is up. The account list is a hundred rows of roles and
+  // last-login times, and Chat is not the screen that should be fetching it in
+  // the background all day.
+  const users = useQuery({
+    queryKey: systemKeys.users(),
+    queryFn: ({ signal }) => listUsers(signal),
+    enabled: open,
+  })
+
+  /// Everybody but the reader. The server adds them itself, and a list you can
+  /// pick yourself out of makes "a direct conversation is between exactly two
+  /// people" arrive as a 400 instead of as a control that never offered it.
+  ///
+  /// Suspended accounts are dropped for the same reason: `known_users` accepts
+  /// them, so the room would be started onto somebody who cannot sign in.
+  const choices = useMemo<Choice[]>(
+    () =>
+      (users.data ?? [])
+        .filter((user) => user.active && user.username !== me)
+        .map((user) => ({
+          value: user.username,
+          label:
+            user.display_name.trim() === "" ? user.username : user.display_name,
+        })),
+    [users.data, me]
+  )
+
+  const start = useMutation({
+    mutationFn: () =>
+      startConversation({
+        kind,
+        title: kind === "GROUP" ? title.trim() : null,
+        participants: [...people],
+      }),
+    onSuccess: (room) => {
+      // The room is on the list now — and for a DIRECT one it may have been
+      // there all along, since the server answers with the existing pair
+      // rather than a second copy of it.
+      void client.invalidateQueries({ queryKey: workplaceKeys.conversations() })
+      client.setQueryData(
+        workplaceKeys.conversation(room.conversation_id),
+        room
+      )
+      // Emptied on the way out, not on the way in. A form cleared when it
+      // opens is cleared by an effect watching a prop; this one is cleared by
+      // the thing that actually finished it.
+      setTitle("")
+      setPeople([])
+      onStarted(room.conversation_id)
+      onClose()
+    },
+  })
+
+  /// Shutting it. The picks are deliberately left alone — somebody who closed
+  /// this to go and check a colleague's username should find their half-made
+  /// room where they left it. The failed attempt is not: a sentence about a
+  /// name that no longer stands typed is stale the moment the sheet shuts.
+  const close = () => {
+    start.reset()
+    onClose()
+  }
+
+  const ready =
+    kind === "DIRECT"
+      ? people.length === 1
+      : people.length >= 1 && title.trim() !== ""
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && close()}
+      title="New conversation"
+      footer={
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-pill text-mute">
+            Private to whoever is in it.
+          </span>
+          <Button
+            variant="dark"
+            disabled={!ready || start.isPending}
+            onClick={() => start.mutate()}
+          >
+            {start.isPending ? "Starting…" : "Start"}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        <p className="text-[0.78125rem] leading-relaxed text-body">
+          Correspondence, and nothing more. An argument about a purchase order
+          belongs in a discussion instead — that one hangs off the record, and
+          everybody who comes to the order later can read it.
+        </p>
+
+        <Segmented
+          options={[
+            { value: "DIRECT" as const, label: "One person" },
+            { value: "GROUP" as const, label: "A group" },
+          ]}
+          value={kind}
+          onChange={(next) => {
+            setKind(next)
+            // Narrowing to a direct conversation keeps the first person picked
+            // rather than clearing the field: it is the one the room would be
+            // with, and dropping it silently would be the sheet undoing work.
+            if (next === "DIRECT") setPeople((chosen) => chosen.slice(0, 1))
+          }}
+        />
+
+        {kind === "GROUP" && (
+          <Field
+            label="Name"
+            hint="A group needs one. A direct conversation does not — it is named by whoever else is in it, which depends on who is looking."
+          >
+            <Input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Receiving DC-01"
+            />
+          </Field>
+        )}
+
+        <Field
+          label={kind === "DIRECT" ? "Who" : "Who else"}
+          hint={
+            kind === "DIRECT"
+              ? "One person. Somebody you have already written to opens the room you are both already in, rather than a second one."
+              : "Everybody else in the room. You are in it either way."
+          }
+        >
+          {kind === "DIRECT" ? (
+            <PickOne
+              label="Who"
+              choices={choices}
+              value={people[0] ?? null}
+              onChange={(person) => setPeople(person === null ? [] : [person])}
+              placeholder={users.isPending ? "Loading…" : "Nobody yet"}
+            />
+          ) : (
+            <PickMany
+              label="Who else"
+              choices={choices}
+              values={people}
+              onChange={setPeople}
+              placeholder={users.isPending ? "Loading…" : "Nobody yet"}
+              leading={(name) => <Avatar name={name} size="sm" />}
+            />
+          )}
+        </Field>
+
+        {/* The picker would otherwise just be empty, which reads as "there is
+            nobody here" rather than "the list did not arrive". */}
+        <Problem error={users.error} />
+        <Problem error={start.error} />
+      </div>
+    </Sheet>
   )
 }
 
@@ -421,7 +649,7 @@ function Room({ id, me }: { id: string; me: string | undefined }) {
                                 screen is this conversation, so the two cross
                                 into each other rather than dead-ending. */}
                             <AppLink
-                              to="/workplace/files"
+                              to="/files"
                               sheet={{ key: "file", value: file.file_id }}
                               className="block truncate text-[0.8125rem] text-ink hover:text-accent"
                             >

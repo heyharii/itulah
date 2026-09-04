@@ -5,6 +5,7 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
@@ -148,12 +149,7 @@ export function AttendancePolicy() {
         sub="The tolerances a month of arrivals is judged against. Anybody signed in may read them; only head office may change them."
         actions={
           <Field label="" className="w-52">
-            <Input
-              type="date"
-              value={asOf}
-              aria-label="As at"
-              onChange={(event) => setAsOf(event.target.value)}
-            />
+            <Day value={asOf} label="As at" onChange={setAsOf} />
           </Field>
         }
       />
@@ -374,13 +370,10 @@ function NewVersion({
                     hint="The first day the new tolerances apply."
                     problem={problems.from}
                   >
-                    <Input
-                      type="date"
+                    <Day
                       value={field.state.value}
                       onBlur={field.handleBlur}
-                      onChange={(event) =>
-                        field.handleChange(event.target.value)
-                      }
+                      onChange={field.handleChange}
                     />
                   </Field>
                 )}

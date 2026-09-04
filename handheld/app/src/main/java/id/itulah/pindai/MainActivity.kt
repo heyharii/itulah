@@ -113,7 +113,7 @@ private fun Shell(reader: Reader, store: ConfigStore) {
                 label = "tab",
             ) { (current, _) ->
                 when {
-                    current == Tab.SETTINGS -> SettingsScreen(store, onSaved = {})
+                    current == Tab.SETTINGS -> SettingsScreen(store, reader, onSaved = {})
                     showSessions -> SessionsScreen(vm, state) { showSessions = false }
                     else -> SweepScreen(vm, state) { showSessions = true }
                 }

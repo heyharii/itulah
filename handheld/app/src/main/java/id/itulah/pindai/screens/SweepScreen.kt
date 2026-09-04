@@ -1,9 +1,15 @@
 package id.itulah.pindai.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
@@ -15,17 +21,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import id.itulah.pindai.core.Reader
 import id.itulah.pindai.ui.kit.*
 import id.itulah.pindai.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +54,10 @@ import kotlinx.coroutines.withContext
 fun SweepScreen(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Unit) {
     val lines = state.lines
     val foreign = state.foreignCount
+    // Held here rather than inside the hero item: a LazyColumn discards the
+    // state of a row it has scrolled past, and a panel that closes itself
+    // because somebody looked further down the list is a panel nobody trusts.
+    var powerOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(Surface.canvas)) {
         LazyColumn(
@@ -51,7 +65,9 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Uni
             contentPadding = PaddingValues(Space.lg),
             verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
-            item(key = "hero") { HeroCount(state) }
+            item(key = "hero") {
+                HeroCount(state, vm, powerOpen) { powerOpen = !powerOpen }
+            }
             item(key = "session") { SessionRow(state, onOpenSessions) }
             item(key = "extras") { ModeExtras(vm, state) }
 
@@ -62,7 +78,7 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Uni
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        SectionLabel("${lines.size} products · ${state.seen.size} tags")
+                        SectionLabel("${lines.size} products · ${state.tagCount} tags")
                         state.resolveNote?.let {
                             Text(it, style = Type.micro, color = Ink.text(.60f))
                         }
@@ -137,7 +153,7 @@ private fun BottomActions(vm: SweepViewModel, state: SweepState) {
                 PrimaryButton(
                     text = state.mode.verb,
                     onClick = vm::commit,
-                    enabled = state.seen.isNotEmpty() && !state.busy,
+                    enabled = state.tagCount > 0 && !state.busy,
                     loading = state.busy,
                 )
             } else {
@@ -156,14 +172,28 @@ private fun BottomActions(vm: SweepViewModel, state: SweepState) {
  * holding a garment, so it is the only thing on screen at hero size.
  */
 @Composable
-private fun HeroCount(state: SweepState) {
+private fun HeroCount(
+    state: SweepState,
+    vm: SweepViewModel,
+    powerOpen: Boolean,
+    onTogglePower: () -> Unit,
+) {
+    // With nothing stored and the module never opened, the honest figure is the
+    // one Reader would take anyway — it asks for the ceiling first. The read-back
+    // replaces it the moment the radio is actually open.
+    val settled = state.readerPower.takeIf { it > 0 } ?: Reader.MAX_POWER
+    // Re-keyed on the settled value, so a module that lands two dBm short of the
+    // request pulls the fader to where the antenna actually is.
+    var draft by remember(settled) { mutableIntStateOf(settled) }
+    val motion = LocalMotion.current
+
     PlanetCard {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top) {
             Column {
                 SectionLabel("Swept")
                 RollingNumber(
-                    value = state.seen.size,
+                    value = state.tagCount,
                     style = Type.hero,
                     color = if (state.sweeping) Success else Ink.text(),
                 )
@@ -179,6 +209,7 @@ private fun HeroCount(state: SweepState) {
                 state.readerInfo?.let {
                     Text(it, style = Type.micro, color = Ink.text(.60f))
                 }
+                PowerPill(settled, state.readerPower > 0, powerOpen, onTogglePower)
                 state.filingNote?.let {
                     Text(it, style = Type.micro, color = Ink.text(.60f))
                 }
@@ -189,6 +220,70 @@ private fun HeroCount(state: SweepState) {
             Text(it, style = Type.caption,
                 color = if (state.failed) Destructive else Ink.text(.74f))
         }
+        AnimatedVisibility(
+            visible = powerOpen,
+            enter = expandVertically(tween(if (motion) 200 else 0)) +
+                fadeIn(tween(if (motion) 150 else 0)),
+            exit = shrinkVertically(tween(if (motion) 160 else 0)) +
+                fadeOut(tween(if (motion) 100 else 0)),
+        ) {
+            Column {
+                Spacer(Modifier.height(Space.md))
+                Fader(
+                    value = draft,
+                    range = Reader.MIN_POWER..Reader.MAX_POWER,
+                    onChange = { draft = it },
+                    onCommit = { vm.setPower(draft) },
+                )
+                Spacer(Modifier.height(Space.sm))
+                Row(Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("${Reader.MIN_POWER} · this shelf",
+                        style = Type.micro, color = Ink.text(.60f))
+                    Text("${Reader.MAX_POWER} · the whole aisle",
+                        style = Type.micro, color = Ink.text(.60f))
+                }
+                state.powerNote?.let {
+                    Spacer(Modifier.height(Space.xs))
+                    Text(it, style = Type.micro, color = Ink.text(.60f))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The figure that reports the power is the control that changes it.
+ *
+ * Power is chosen per aisle, not per commissioning, so the sweep screen has to
+ * carry it — but it must not cost the count any room. A chevron on the reading
+ * already in the corner costs none until somebody wants it, and it puts the
+ * control on the number it moves rather than three taps away in Setelan.
+ */
+@Composable
+private fun PowerPill(value: Int, known: Boolean, open: Boolean, onClick: () -> Unit) {
+    val motion = LocalMotion.current
+    val turn by animateFloatAsState(
+        targetValue = if (open) 180f else 0f,
+        animationSpec = if (motion) {
+            spring(dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow)
+        } else tween(0),
+        label = "chevron",
+    )
+    Row(
+        Modifier.heightIn(min = 32.dp).clip(ControlShape).clickable(onClick = onClick)
+            .background(Ink.fill(if (open) .08f else .06f))
+            .padding(horizontal = Space.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        // Before the module has ever answered there is no reading to show, and
+        // inventing one is exactly what this control exists to stop.
+        Text(if (known) "$value dBm" else "set power",
+            style = Type.micro, color = Ink.text(.74f))
+        Icon(Icons.Outlined.ExpandMore, contentDescription = null,
+            modifier = Modifier.size(14.dp).rotate(turn), tint = Ink.text(.60f))
     }
 }
 

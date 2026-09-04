@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 
 import { AppLink } from "@/components/ui/app-link"
 import { Fact, Facts } from "@/components/ui/sheet"
+import { ColourSwatch } from "@/components/ui/swatch"
 import { Tag } from "@/components/ui/tag"
 import { count, day, money } from "@/lib/format"
 import {
@@ -9,7 +10,7 @@ import {
   supplierDetail,
   supplierItemImage,
 } from "@/lib/queries/procurement"
-import { termLabel } from "@/screens/procurement/shared"
+import { sizeLabel, termLabel } from "@/screens/procurement/shared"
 import type {
   CatalogueVocabulary,
   PurchaseHistory,
@@ -80,7 +81,7 @@ export function ItemDetail({
           {/* No dead ends: the supplier this is offered by is one click away,
               and the same link works in the other direction from there. */}
           <AppLink
-            to="/procurement/suppliers"
+            to="/master/suppliers"
             sheet={{ key: "supplier", value: item.supplier_id }}
             className="text-accent hover:underline"
           >
@@ -114,6 +115,51 @@ export function ItemDetail({
       {item.description && (
         <p className="text-[0.8125rem] text-body">{item.description}</p>
       )}
+
+      {/* What it comes in. The full lists here, where the card shows five
+          dots and the ends of the size range — the sheet is where somebody
+          goes to READ, so it is the one place that should not abbreviate.
+
+          Colours carry their own labels and hexes on the item, so nothing is
+          looked up. Sizes carry codes, and the words come from the vocabulary
+          the sheet was already handed. */}
+      <div>
+        <h4 className="mb-2 text-card-title font-semibold text-ink">
+          Comes in
+        </h4>
+        {item.colours.length === 0 && item.size_codes.length === 0 ? (
+          <p className="text-meta text-mute">
+            Nobody has said what colours or sizes this is offered in.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {item.colours.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {item.colours.map((colour) => (
+                  <span
+                    key={colour.colour_code}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-2 py-[0.1875rem] text-[0.71875rem] text-body"
+                  >
+                    <ColourSwatch
+                      hex={colour.hex_code}
+                      label={colour.label}
+                      className="size-2.5"
+                    />
+                    {colour.label}
+                  </span>
+                ))}
+              </div>
+            )}
+            {item.size_codes.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {item.size_codes.map((code) => (
+                  <Tag key={code}>{sizeLabel(vocabulary?.sizes, code)}</Tag>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div>
         <h4 className="mb-2 text-card-title font-semibold text-ink">Tags</h4>

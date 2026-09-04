@@ -1,0 +1,234 @@
+import { useQuery } from "@tanstack/react-query"
+
+import { AppLink } from "@/components/ui/app-link"
+import { MiniTable, TotalsLadder } from "@/components/ui/rows"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Banner } from "@/components/ui/states"
+import { Tag } from "@/components/ui/tag"
+import { count, money, moment } from "@/lib/format"
+import { analyticsKeys, salesWindow } from "@/lib/queries/analytics"
+import { queryState } from "@/lib/query-state"
+
+/// One shop over the span the screen is set to, down to the receipts.
+///
+/// The counterpart to a cell in the fleet chart: the chart says a shop took
+/// nineteen million in September, this says across how many sales, in what
+/// tenders, what came back, and which receipts they were. Shared by every screen
+/// that draws a shop's takings, because it answers the same follow-up on each —
+/// a screen that showed one set of words on Sales and another on Margin would
+/// be teaching two vocabularies for one thing. It lives in the Sales module for
+/// that reason, and Store ops opens the same sheet.
+///
+/// Every receipt here is a centre `sale`, so each one crosses to its own record
+/// on the sales list. That is not decoration: a figure somebody disputes is
+/// only settled by the receipt underneath it.
+export function WindowSheet({
+  siteId,
+  from,
+  to,
+  spanText,
+  onClose,
+}: {
+  siteId: string | null
+  from: string
+  to: string
+  /// What the span is called in words, for the sheet's heading.
+  spanText: string
+  onClose: () => void
+}) {
+  const window = useQuery({
+    queryKey: analyticsKeys.window(siteId ?? "", from, to),
+    queryFn: ({ signal }) => salesWindow({ siteId: siteId!, from, to }, signal),
+    enabled: siteId !== null,
+  })
+
+  return (
+    <Sheet
+      open={siteId !== null}
+      onOpenChange={(open) => !open && onClose()}
+      id={spanText}
+      title={window.data?.site_name ?? siteId ?? "Shop"}
+      actions={
+        siteId !== null ? (
+          <AppLink
+            to="/storeops/sales"
+            sheet={{ key: "store", value: siteId }}
+            className="inline-flex h-[1.625rem] shrink-0 items-center rounded-full bg-soft-2 px-2.5 text-[0.71875rem] font-medium text-text transition-colors hover:bg-hairline"
+          >
+            Receipts
+          </AppLink>
+        ) : undefined
+      }
+    >
+      {queryState(window, {
+        loading: "Reading the shop's trade…",
+        render: (report) => (
+          <div className="flex flex-col gap-5">
+            <Facts>
+              <Fact term="Sales">{count(report.sales.count)}</Fact>
+              <Fact term="Units">{count(report.sales.units_sold)}</Fact>
+              <Fact term="Average basket">
+                {money(report.sales.average_minor)}
+              </Fact>
+              <Fact term="Voided">{count(report.sales.voided_count)}</Fact>
+            </Facts>
+
+            {report.sales.voided_count > 0 && (
+              <Banner tone="warn">
+                {count(report.sales.voided_count)} sale
+                {report.sales.voided_count === 1 ? " was" : "s were"} voided in
+                this span. A voided sale is one that did not happen, so it is in
+                neither the takings nor the average.
+              </Banner>
+            )}
+
+            {report.tenders.length > 0 && (
+              <div>
+                <h4 className="mb-2 text-card-title font-semibold text-ink">
+                  Taken in
+                </h4>
+                <MiniTable head={["Method", "Tenders", "Amount"]}>
+                  {report.tenders.map((tender) => (
+                    <tr
+                      key={tender.method}
+                      className="border-t border-hairline"
+                    >
+                      <td className="py-2 pr-2">
+                        <Tag>{tender.method}</Tag>
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {count(tender.count)}
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {money(tender.amount_minor)}
+                      </td>
+                    </tr>
+                  ))}
+                </MiniTable>
+              </div>
+            )}
+
+            <div>
+              <h4 className="mb-2 text-card-title font-semibold text-ink">
+                The drawer
+              </h4>
+              {/* The server's own identity, drawn as the subtraction it is:
+                  cash_expected = cash_tendered − change − cash_refunds. */}
+              <TotalsLadder
+                rows={[
+                  {
+                    label: "Cash tendered",
+                    value: money(report.cash.cash_tendered_minor),
+                  },
+                  {
+                    label: "Change given",
+                    value: `− ${money(report.cash.change_given_minor)}`,
+                  },
+                  {
+                    label: "Cash refunded",
+                    value: `− ${money(report.cash.cash_refunded_minor)}`,
+                  },
+                ]}
+                total={{
+                  label: "Expected in the drawer",
+                  value: money(report.cash.cash_expected_minor),
+                }}
+              />
+            </div>
+
+            {report.returns.count > 0 && (
+              <div>
+                <h4 className="mb-2 text-card-title font-semibold text-ink">
+                  Came back
+                </h4>
+                <MiniTable head={["Refunded with", "Amount"]}>
+                  {report.returns.by_method.map((entry) => (
+                    <tr key={entry.method} className="border-t border-hairline">
+                      <td className="py-2 pr-2">
+                        <Tag>{entry.method}</Tag>
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {money(entry.amount_minor)}
+                      </td>
+                    </tr>
+                  ))}
+                </MiniTable>
+                <p className="mt-2 text-[0.6875rem] text-mute">
+                  {count(report.returns.count)} return
+                  {report.returns.count === 1 ? "" : "s"},{" "}
+                  {money(report.returns.refund_total_minor)} altogether.
+                </p>
+              </div>
+            )}
+
+            <div>
+              <h4 className="mb-2 text-card-title font-semibold text-ink">
+                Receipts
+              </h4>
+              {report.transactions_truncated && (
+                <Banner tone="info" className="mb-2">
+                  The list stops at {count(report.transactions_limit)}. The
+                  totals above are computed over the whole span regardless, so
+                  nothing here makes the summary lie.
+                </Banner>
+              )}
+              <MiniTable head={["Sale", "Paid with", "Units", "Total"]}>
+                {report.transactions.map((sale) => (
+                  <tr key={sale.id} className="border-t border-hairline">
+                    <td className="py-2 pr-2">
+                      <AppLink
+                        to="/storeops/sales"
+                        sheet={{ key: "sale", value: sale.id }}
+                        className="block font-mono text-[0.65625rem] text-accent hover:underline"
+                      >
+                        {sale.sale_number}
+                      </AppLink>
+                      <span className="text-[0.65625rem] text-mute">
+                        {moment(sale.completed_at)}
+                      </span>
+                    </td>
+                    <td className="py-2 text-right">
+                      {/* More than one is a split tender, which is the row a
+                          supervisor opens this list to find. */}
+                      <span className="inline-flex flex-wrap justify-end gap-1">
+                        {sale.methods.map((method) => (
+                          <Tag
+                            key={method}
+                            tone={sale.methods.length > 1 ? "info" : "neutral"}
+                          >
+                            {method}
+                          </Tag>
+                        ))}
+                      </span>
+                    </td>
+                    <td className="py-2 text-right tabular-nums">
+                      {count(sale.units)}
+                    </td>
+                    <td className="py-2 text-right tabular-nums">
+                      {money(sale.total_minor)}
+                    </td>
+                  </tr>
+                ))}
+              </MiniTable>
+            </div>
+
+            <TotalsLadder
+              rows={[
+                { label: "Net", value: money(report.sales.net_minor) },
+                { label: "Tax", value: money(report.sales.tax_minor) },
+                {
+                  label: "Refunded",
+                  value: `− ${money(report.returns.refund_total_minor)}`,
+                },
+              ]}
+              total={{
+                label: "Takings",
+                value: money(report.sales.gross_minor),
+              }}
+            />
+          </div>
+        ),
+      })}
+    </Sheet>
+  )
+}

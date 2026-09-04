@@ -15,6 +15,14 @@ export interface Printer {
   readonly port: number
   readonly widthMm: number
   readonly heightMm: number
+  /// How far in from the left edge of the liner the die-cut tag starts.
+  ///
+  /// A reel is not all label. On RFID stock the tag is inset, and ink placed
+  /// at x=0 lands on the backing paper — the tag comes out with its left
+  /// column missing, which looks like a layout fault and is not one. Held per
+  /// bench for the same reason the size is: it is a fact about the reel in
+  /// this machine.
+  readonly offsetMm: number
   /// How many labels one pass hands over. A smaller chunk is a longer wait
   /// between presses; a larger one is more to reprint when the ribbon jams.
   readonly chunk: number
@@ -37,6 +45,9 @@ const DEFAULT_PRINTER: Printer = {
   port: 9100,
   widthMm: 50,
   heightMm: 30,
+  // The node's own default, so a bench that has never said otherwise draws
+  // and prints the same label.
+  offsetMm: 6,
   chunk: 25,
   // Every tag in the field so far was written in ZPL. A bench that has not
   // chosen must not be guessed into the other one.

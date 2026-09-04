@@ -5,7 +5,8 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
-import { Card, CardStrip } from "@/components/ui/card"
+import { Card, CardHeader, CardStrip, CardTitle } from "@/components/ui/card"
+import { LineSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { TotalsLadder } from "@/components/ui/rows"
@@ -14,11 +15,7 @@ import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { day, label, money } from "@/lib/format"
-import {
-  accountLedger,
-  financeKeys,
-  trialBalance,
-} from "@/lib/queries/finance"
+import { accountLedger, financeKeys, trialBalance } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -220,10 +217,7 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
   const balance = useQuery({
     queryKey: financeKeys.trialBalance(asOf.value, site || null),
     queryFn: ({ signal }) =>
-      trialBalance(
-        { as_of: asOf.value, site: site || undefined },
-        signal
-      ),
+      trialBalance({ as_of: asOf.value, site: site || undefined }, signal),
   })
 
   const rows = useMemo(() => balance.data?.rows ?? [], [balance.data])
@@ -490,6 +484,50 @@ function AccountMovements({
 
   const rows = useMemo(() => ledger.data?.rows ?? [], [ledger.data])
 
+  /// Where this account stood, day by day, across the window.
+  ///
+  /// # Why a line and not bars
+  ///
+  /// A running balance is a *level*. Bars invite the eye to add adjacent
+  /// values together, and adding two running balances is meaningless — the
+  /// second already contains the first. The movements below are the
+  /// quantities; this is the shape they add up to.
+  ///
+  /// # One point per day, not per movement
+  ///
+  /// A busy account takes several entries on one date and the axis has one
+  /// tick for it, so the point is the balance the day *closed* on — the last
+  /// running figure the server sent for that date. The rows arrive in
+  /// posting order, so "last wins" is the closing figure and not an arbitrary
+  /// one of several.
+  ///
+  /// The opening balance is prepended when nothing moved on the first day of
+  /// the window, and deliberately not when something did: on a day with
+  /// movements the point already carries the opening plus that day’s
+  /// activity, and drawing both would put two values on one tick.
+  ///
+  /// Nothing is fetched for this. It is the response the table is built from,
+  /// including the `running_minor` the server computed — this chart adds no
+  /// figure of its own.
+  const running = useMemo(() => {
+    if (ledger.data === undefined) return []
+    const byDay = new Map<string, number>()
+    for (const row of ledger.data.rows) {
+      byDay.set(row.posting_date, row.running_minor)
+    }
+    const points = [...byDay.entries()].map(([bucket, balance]) => ({
+      bucket,
+      balance,
+    }))
+    if (!byDay.has(ledger.data.from)) {
+      points.unshift({
+        bucket: ledger.data.from,
+        balance: ledger.data.opening_minor,
+      })
+    }
+    return points
+  }, [ledger.data])
+
   const table = useTable(
     useMemo(
       () => ({
@@ -544,6 +582,35 @@ function AccountMovements({
         </button>
       </Toolbar>
 
+      {/* Two points is a line segment and not a shape; one is a dot. Below
+          that the movements table says everything the chart could. */}
+      {running.length > 2 && (
+        <Card className="mb-3">
+          <CardHeader>
+            <CardTitle>Running balance</CardTitle>
+            <span className="text-[0.71875rem] text-mute">
+              Where the account closed on each day that moved
+            </span>
+          </CardHeader>
+          <div className="px-4 pb-3.5">
+            <LineSeries
+              rows={running}
+              dataKey="balance"
+              label="Balance"
+              format={money}
+              labelOf={(bucket) =>
+                new Date(`${bucket}T00:00:00`).toLocaleDateString("id-ID", {
+                  day: "2-digit",
+                  month: "short",
+                })
+              }
+              titleOf={(bucket) => day(bucket)}
+              className="h-[9.5rem]"
+            />
+          </div>
+        </Card>
+      )}
+
       <Card className="overflow-hidden">
         {queryState(ledger, {
           loading: "Reading the account…",
@@ -576,7 +643,11 @@ function AccountMovements({
                 <DataTable<GeneralLedgerRow>
                   table={table}
                   empty="No movement matches that search."
-                  className="max-h-[calc(100vh-26rem)]"
+                  className={
+                    running.length > 2
+                      ? "max-h-[calc(100vh-40rem)]"
+                      : "max-h-[calc(100vh-26rem)]"
+                  }
                 />
               )}
             </>

@@ -279,7 +279,7 @@ function Correction() {
             <Field label="From">
               <Select
                 value={field.state.value}
-                onChange={(event) => field.handleChange(event.target.value)}
+                onChange={(next) => field.handleChange(next)}
               >
                 <option value="">Choose a pool</option>
                 {pools.map((pool) => (
@@ -297,7 +297,7 @@ function Correction() {
             <Field label="To">
               <Select
                 value={field.state.value}
-                onChange={(event) => field.handleChange(event.target.value)}
+                onChange={(next) => field.handleChange(next)}
               >
                 <option value="">Choose a pool</option>
                 {pools.map((pool) => (
@@ -327,7 +327,7 @@ function Correction() {
               <Field label="Cause" className="flex-1">
                 <Select
                   value={field.state.value}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onChange={(next) => field.handleChange(next)}
                 >
                   {CAUSES.map((cause) => (
                     <option key={cause} value={cause}>

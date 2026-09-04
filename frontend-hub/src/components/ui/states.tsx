@@ -1,6 +1,7 @@
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { Button } from "@/components/ui/button"
+import { problemOf } from "@/lib/problem"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 
@@ -112,5 +113,45 @@ export function Banner({
         </button>
       )}
     </div>
+  )
+}
+
+/// A failed write, said where the write was attempted.
+///
+/// Not a toast: a toast confirms an action that did not change the screen, and
+/// this is an action that did not happen at all. Renders nothing when there is
+/// nothing wrong, so a caller can drop it under any form unconditionally.
+export function Problem({
+  error,
+  className,
+}: {
+  error: unknown
+  className?: string
+}) {
+  const message = problemOf(error)
+  if (message === null) return null
+  return (
+    <Banner tone="bad" className={className}>
+      {message}
+    </Banner>
+  )
+}
+
+/// A write that worked, said in the same place.
+///
+/// The counterpart, and it exists because half the writes here produce a
+/// receipt worth reading — how many pieces were tagged, which allotment lines
+/// a box was attributed to, how many cartons actually followed the paperwork.
+export function Receipt({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <Banner tone="ok" className={className}>
+      {children}
+    </Banner>
   )
 }

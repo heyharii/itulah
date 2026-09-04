@@ -1,8 +1,15 @@
 import { useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
-import { day } from "@/lib/format"
-import { accountMap, financeKeys, listPeriods } from "@/lib/queries/finance"
+import { day, label } from "@/lib/format"
+import {
+  accountMap,
+  financeKeys,
+  listBills,
+  listPeriods,
+  type AccountMapView,
+} from "@/lib/queries/finance"
+import { listSuppliers, procurementKeys } from "@/lib/queries/procurement"
 import { isoDay, todayIso } from "@/screens/finance/chart"
 
 /// The module's shared reads, and the two shapes of date question it asks.
@@ -55,6 +62,174 @@ export function useSiteName(): (siteId: string | null | undefined) => string {
       ? "—"
       : (byId.get(siteId) ?? siteId)
 }
+
+// ---------------------------------------------------------------------------
+// Suppliers
+// ---------------------------------------------------------------------------
+
+/// Who the client buys from — the master list, not the ones finance happens to
+/// hold a bill for.
+///
+/// This module used to read supplier names off the bill list and nothing else,
+/// on the argument that it already had them. It did, for the suppliers it had
+/// been billed by; every other screen holding a bare `supplier_id` — an
+/// unbilled delivery, a payment's allocations — drew the uuid instead. And a
+/// form asking somebody to *choose* a supplier cannot be built out of a list of
+/// the ones already invoiced at all.
+///
+/// `GET /suppliers` is thirty rows and answers both. Under Procurement's own
+/// key, because it is Procurement's list: a supplier picked here and a supplier
+/// edited there are one cache entry, and finance does not get a second, staler
+/// copy of the same thirty names.
+///
+/// Held for five minutes: the client adds a supplier about once a month.
+export function useSuppliers() {
+  return useQuery({
+    queryKey: procurementKeys.suppliers(),
+    queryFn: ({ signal }) => listSuppliers(undefined, signal),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/// A `supplier_id` as the client says it.
+///
+/// The master list first, then the bill list, then the id. The second is not
+/// redundant: a bill carries the name it was recorded under, which is the name
+/// on the paper, and it is the right answer for a supplier that has since been
+/// archived out of the list. The id is the last resort and, with `GET
+/// /suppliers` behind this, one that no longer happens in practice — it stays
+/// because inventing a label for an id nothing recognises would be worse than
+/// showing the id.
+export function useSupplierName(): (
+  supplierId: string | null | undefined
+) => string {
+  const suppliers = useSuppliers()
+  const bills = useQuery({
+    queryKey: financeKeys.bills(null),
+    queryFn: ({ signal }) => listBills({}, signal),
+    staleTime: 60_000,
+  })
+
+  const byId = useMemo(() => {
+    const table = new Map<string, string>()
+    for (const bill of bills.data ?? []) {
+      if (bill.supplier_name !== null)
+        table.set(bill.supplier_id, bill.supplier_name)
+    }
+    for (const supplier of suppliers.data ?? []) {
+      table.set(supplier.supplier_id, supplier.name)
+    }
+    return table
+  }, [bills.data, suppliers.data])
+
+  return (supplierId) =>
+    supplierId === null || supplierId === undefined || supplierId === ""
+      ? "—"
+      : (byId.get(supplierId) ?? supplierId)
+}
+
+// ---------------------------------------------------------------------------
+// Meanings
+// ---------------------------------------------------------------------------
+
+/// A `semantic_key` as a person says it: "Bank — giro", not `bank_giro`.
+///
+/// The labels are the server's own, generated from the posting rules and
+/// carried in `required_keys`, so a meaning added to a rule is readable here
+/// without anybody remembering to add it to a list in the browser. Falls back
+/// to `label()`, which turns the key into a sentence — an honest last resort
+/// for a key the rules stopped requiring but a stored payment still names.
+export function useMeaningLabel(): (key: string | null | undefined) => string {
+  const map = useLocations()
+  const byKey = useMemo(() => {
+    const table = new Map<string, string>()
+    for (const doc of map.data?.required_keys ?? [])
+      table.set(doc.key, doc.label)
+    return table
+  }, [map.data])
+
+  return (key) =>
+    key === null || key === undefined || key === ""
+      ? "—"
+      : (byKey.get(key) ?? label(key))
+}
+
+/// The meanings money can leave a location by, and which accounts they resolve
+/// to there.
+///
+/// Derived from the mappings rather than from a hard-coded list of four keys,
+/// so a payment can only be offered an account somebody has actually mapped —
+/// the alternative is a select full of meanings whose posting will be refused
+/// the moment it is tried, which is the refusal the account map exists to stop
+/// anybody meeting.
+///
+/// The qualifier is part of the identity and not a note: `bank_savings` at one
+/// site legitimately has one mapping per bank, and "which bank the money left
+/// by" is exactly what somebody recording a payment is choosing.
+export interface MoneyAccount {
+  readonly account_key: string
+  readonly account_qualifier: string
+  readonly account_code: string
+  readonly account_name: string
+}
+
+/// The four the payment endpoint accepts. Hard-coded because it is the
+/// server's own list — `RecordPaymentRequest` names them — and a fifth meaning
+/// appearing here without the server accepting it would be a select that can
+/// only 400.
+const MONEY_KEYS: readonly string[] = [
+  "bank_giro",
+  "bank_savings",
+  "cash",
+  "petty_cash",
+]
+
+export function useMoneyAccounts(siteId: string): readonly MoneyAccount[] {
+  const map = useLocations()
+  return useMemo(() => {
+    if (siteId === "") return []
+    return (map.data?.mappings ?? [])
+      .filter(
+        (row) => row.site_id === siteId && MONEY_KEYS.includes(row.semantic_key)
+      )
+      .map((row) => ({
+        account_key: row.semantic_key,
+        account_qualifier: row.qualifier,
+        account_code: row.account_code,
+        account_name: row.account_name,
+      }))
+      .sort(
+        (a, b) =>
+          MONEY_KEYS.indexOf(a.account_key) -
+            MONEY_KEYS.indexOf(b.account_key) ||
+          a.account_qualifier.localeCompare(b.account_qualifier)
+      )
+  }, [map.data, siteId])
+}
+
+/// The value a `<Select>` carries for one of these, and the way back.
+///
+/// A select's value is a string, and this pair is two. Joined on a tab because
+/// a qualifier is the client's own text — a bank's name — and every other
+/// separator worth reading is a character a bank name can contain.
+export function moneyAccountValue(account: {
+  account_key: string
+  account_qualifier: string
+}): string {
+  return `${account.account_key}\t${account.account_qualifier}`
+}
+
+export function parseMoneyAccountValue(value: string): {
+  account_key: string
+  account_qualifier: string
+} {
+  const [key, qualifier = ""] = value.split("\t")
+  return { account_key: key, account_qualifier: qualifier }
+}
+
+/// Re-exported so a screen can name the shape `useLocations()` answers with
+/// without reaching into `lib/queries` for a type it only holds.
+export type { AccountMapView }
 
 // ---------------------------------------------------------------------------
 // Dates

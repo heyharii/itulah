@@ -1,7 +1,8 @@
 import { useNavigate } from "@tanstack/react-router"
 import type { Effect, Rule } from "@itulah/contract"
 
-import { money } from "@/lib/format"
+import { count, day, money } from "@/lib/format"
+import { oxford } from "@/screens/commercial/compose"
 import { allNavItems } from "@/lib/navigation"
 import { useIdentity } from "@/lib/session"
 
@@ -144,4 +145,123 @@ export function describeCustomers(rule: Rule): string {
 /// components loses fast refresh for the file.
 export function cellKey(articleCode: string, siteId: string): string {
   return `${articleCode}@${siteId}`
+}
+
+// ── the offer, as somebody will have to read it ─────────────────────────────
+
+/// A rule's terms, in the shape a shopper meets an offer in.
+///
+/// **One reader, two callers.** The composer previews the document it is about
+/// to send; the promotion sheet reads the document that was sent. Two readings
+/// would drift, and the one that drifted would be the composer's — which is the
+/// one somebody trusts before pressing Publish.
+///
+/// Split in two, and the split is the point. `clauses` are terms: things a
+/// shopper could be told and would have to satisfy. `hidden` are true and
+/// invisible — nobody at the counter is told the offer stopped because a
+/// number in the centre ran out. The console this replaces previewed a rule by
+/// calculating it against a sample product, which answers a question the author
+/// already knows the answer to; what they cannot hold in their head is the
+/// combination, and a promotion that never fires is nearly always a combination
+/// nobody read back.
+export function termsOf(
+  rule: Rule,
+  /// A code as a person reads it. The composer has the labels it just picked
+  /// from; a published rule carries only codes, and a code is what is shown.
+  named: (code: string) => string = (code) => code
+): {
+  clauses: readonly (string | false)[]
+  hidden: readonly (string | false)[]
+} {
+  const on = rule.scope.applicability
+  const conditions = rule.conditions
+  const least = conditions.min_quantity
+  const spend = conditions.min_amount.minor
+  const cart = on === null || on.on === "WHOLE_CART"
+
+  return {
+    clauses: [
+      appliesTo(rule, named),
+      rule.scope.customers.who === "MEMBERS" &&
+        "The shopper has to be identified at the till as a member.",
+      conditions.effective_from !== null && conditions.effective_to !== null
+        ? `It runs from ${day(conditions.effective_from)} to ${day(conditions.effective_to)}, both days included.`
+        : conditions.effective_from !== null
+          ? `It runs from ${day(conditions.effective_from)}, with no end date.`
+          : conditions.effective_to !== null
+            ? `It runs until the end of ${day(conditions.effective_to)}.`
+            : "It starts the moment it is published and does not stop on its own.",
+      // Both thresholds are summed over the lines the rule MATCHED, not over
+      // the basket — `check_conditions` in `engine.rs` adds up `quantity` and
+      // `gross_total` for `matched` alone. Said as "the basket has to reach
+      // Rp 150.000", a rule scoped to two divisions promised something it does
+      // not do: a basket of a million rupiah of footwear does not open a
+      // menswear offer. Whole-cart is the one scope where matched IS the
+      // basket, and only there is the shorter sentence true.
+      least > 0 &&
+        (cart
+          ? `The basket has to hold at least ${count(least)} items.`
+          : `At least ${count(least)} of the items it applies to have to be in the basket.`),
+      spend > 0 &&
+        (cart
+          ? `The basket has to reach ${money(spend)}.`
+          : `Those items have to come to ${money(spend)} between them — the rest of the basket does not count towards it.`),
+      rule.coupon_code !== null &&
+        rule.coupon_code !== "" &&
+        `The code ${rule.coupon_code} has to be presented at the till.`,
+      // Said as the engine behaves rather than as the word suggests: `Alone`
+      // is "applies on its own, but loses to a better combination"
+      // (`pricing-engine/src/rule.rs`). No control on the form writes it, which
+      // is why an offer nobody realised was exclusive is easy to publish.
+      rule.stacking === "ALONE"
+        ? "It applies on its own — never added to another offer — and the till uses it only when it beats every other combination."
+        : rule.stacking === "EXCLUSIVE"
+          ? "If it applies, nothing else does."
+          : "It combines with every other offer that also shares.",
+    ],
+    hidden: [
+      rule.caps.budget !== null &&
+        `it stops once ${money(rule.caps.budget.minor)} has been given away`,
+      rule.caps.max_uses !== null &&
+        `it stops after ${count(rule.caps.max_uses)} baskets`,
+      rule.priority > 0 &&
+        `it is ranked ${count(rule.priority)} where two offers cannot both apply`,
+    ],
+  }
+}
+
+/// What a rule matches, in the words its scope promised.
+///
+/// Each arm says the thing that distinguishes it from the one above — an
+/// article carries its colourways and sizes with it, a SKU does not — because
+/// "it applies to Kemeja Katun" is the clause somebody reads without noticing
+/// they scoped it to one size.
+function appliesTo(
+  rule: Rule,
+  named: (code: string) => string
+): string | false {
+  const on = rule.scope.applicability
+  if (on === null || on.on === "WHOLE_CART")
+    return "It applies to the sale itself, not to any particular item."
+  switch (on.on) {
+    case "ARTICLE": {
+      if (on.article_codes.length === 0) return false
+      const some = oxford(on.article_codes.map(named))
+      return `It applies to ${some} — every colourway and every size of ${on.article_codes.length === 1 ? "it" : "them"}.`
+    }
+    case "SKU": {
+      if (on.sku_codes.length === 0) return false
+      return `It applies to ${oxford(on.sku_codes.map(named))} and nothing else — that colourway in that size, not the whole article.`
+    }
+    case "DIVISION": {
+      if (on.divisions.length === 0) return false
+      return `It applies to everything filed under ${oxford(on.divisions.map(named))}.`
+    }
+    case "TAG": {
+      if (on.tags.length === 0) return false
+      return `It applies to anything tagged ${oxford(on.tags.map(named))}, however it is filed.`
+    }
+    default:
+      return false
+  }
 }

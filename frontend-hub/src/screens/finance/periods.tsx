@@ -32,7 +32,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { accountMapGaps } from "@/screens/finance/badges"
-import { isoDay, monthLabel } from "@/screens/finance/chart"
+import { isoDay, monthLabel, monthOf } from "@/screens/finance/chart"
 import type { DepreciationRun, FiscalPeriod } from "@itulah/contract"
 
 /// Which months are open, and what closing one seals.
@@ -185,36 +185,52 @@ export function Periods() {
       />
 
       <Toolbar>
-        <Select
-          value={String(month)}
-          onChange={(event) => setMonth(Number(event.target.value))}
-          aria-label="Month"
-          className="w-40"
-        >
-          {Array.from({ length: 12 }, (_, index) => index + 1).map((value) => (
-            <option key={value} value={value}>
-              {monthLabel(year, value)}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={String(year)}
-          onChange={(event) => setYear(Number(event.target.value))}
-          aria-label="Year"
-          className="w-28"
-        >
-          {Array.from(
-            { length: 5 },
-            (_, index) => now.getFullYear() - 2 + index
-          ).map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </Select>
+        {/* Wrapped for the reason `<LocationSelect>` is: `<Select>` draws a
+            `w-full` span around the native control, and in a wrapping toolbar
+            that claims the whole row — which is why these two sat on two lines
+            with their chevrons out at the edge of the page. */}
+        <span className="inline-flex w-40 shrink-0">
+          <Select
+            value={String(month)}
+            onChange={(next) => setMonth(Number(next))}
+            aria-label="Month"
+            className="h-8 w-40"
+          >
+            {Array.from({ length: 12 }, (_, index) => index + 1).map(
+              (value) => (
+                <option key={value} value={value}>
+                  {monthLabel(year, value)}
+                </option>
+              )
+            )}
+          </Select>
+        </span>
+        <span className="inline-flex w-28 shrink-0">
+          <Select
+            value={String(year)}
+            onChange={(next) => setYear(Number(next))}
+            aria-label="Year"
+            className="h-8 w-28"
+          >
+            {Array.from(
+              { length: 5 },
+              (_, index) => now.getFullYear() - 2 + index
+            ).map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </Select>
+        </span>
         <Toolbar.Spacer />
+        {/* The effective answer, like every other toolbar in this module: what
+            the two selects add up to, and how much calendar there is. The
+            caution that was here — "closing is not undoable" — is now said in
+            the sheet where closing actually happens, which is where somebody
+            about to do it will read it. */}
         <span className="text-[0.71875rem] text-mute">
-          Opening a month is safe and undoable by closing it. Closing is not.
+          {monthLabel(year, month)} · {count(rows.length)} months opened
+          {already ? "" : " · this one is not"}
         </span>
       </Toolbar>
 
@@ -615,7 +631,11 @@ function Checklist({ period }: { period: FiscalPeriod }) {
         <div className="mt-3 rounded-inner border border-hairline p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h5 className="text-[0.78125rem] font-semibold text-ink">
-              Depreciation · {report.period_month}
+              {/* The month the run charged, as a month. The server names it
+                  by its first day — `2026-09-01` — and printing that raw put
+                  an ISO date under a heading nothing else on this screen dates
+                  that way. */}
+              Depreciation · {monthOf(report.period_month)}
             </h5>
             {/* The run wrote one journal entry per asset and the report does
                 not say which: `DepreciationLine` carries the asset, the charge

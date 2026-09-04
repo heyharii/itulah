@@ -160,7 +160,6 @@ export function Destinations() {
         }
       />
 
-
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Places a delivery can go" value={count(rows.length)} />
         <Kpi label="Warehouses" value={count(warehouses)} />

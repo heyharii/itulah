@@ -6,11 +6,12 @@ import { Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Day } from "@/components/ui/day"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Textarea } from "@/components/ui/field"
+import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -53,6 +54,34 @@ import type { JournalEntryRow } from "@itulah/contract"
 ///
 /// So the list carries the *fact* that an entry has been answered, and the
 /// sheet carries which entry answered it.
+///
+/// # Why the source filter is a select and not a segmented control
+///
+/// A segment filters one dataset, which is exactly what this does, and six
+/// pills would have been the right shape on a bare toolbar. This toolbar
+/// already carries two date boxes and a location select, and six more pills
+/// wrap onto a second row — a filter bar that reflows as somebody reads it is
+/// worse than one control that does not. The kinds are also not a closed set
+/// of six: the schema allows `SALE_DAY`, `STOCK_COUNT` and `TRANSFER` too, and
+/// the day the till starts writing them a select grows an option where a
+/// segmented control needs a redesign.
+
+/// What wrote an entry. The values are the schema's own — `journal_entry`
+/// carries a CHECK over exactly these — and the labels are what a person
+/// calls them.
+///
+/// Five of the eight, and the three that are missing are missing on purpose:
+/// `SALE_DAY`, `STOCK_COUNT` and `TRANSFER` are written by the till and the
+/// warehouse and none of them has ever appeared in these books. An option
+/// that always answers "nothing" is a filter that reads as broken.
+const SOURCE_KINDS: readonly { value: string; label: string }[] = [
+  { value: "", label: "Every source" },
+  { value: "MANUAL", label: "Manual" },
+  { value: "SUPPLIER_INVOICE", label: "Supplier invoice" },
+  { value: "PAYMENT", label: "Payment" },
+  { value: "DEPRECIATION", label: "Depreciation" },
+  { value: "REVERSAL", label: "Reversal" },
+]
 
 const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
   {
@@ -131,6 +160,8 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
 
 export function Journal() {
   const [query, setQuery] = useState("")
+  const [kind, setKind] = useState("")
+  const [site, setSite] = useState("")
   const [composing, setComposing] = useState(false)
   const entry = useSheet("entry")
   const range = useWindow()
@@ -138,11 +169,26 @@ export function Journal() {
     { id: "posting_date", desc: true },
   ])
 
+  // Both filters go on the wire and neither is applied here. A register
+  // narrowed in the browser is a slice of the newest 200 entries of *every*
+  // kind, which answers a different question than the newest 200 payments —
+  // and the difference is invisible until somebody trusts it.
   const entries = useQuery({
-    queryKey: financeKeys.journal(range.from, range.to, null),
+    queryKey: financeKeys.journal(
+      range.from,
+      range.to,
+      kind || null,
+      site || null
+    ),
     queryFn: ({ signal }) =>
       listJournal(
-        { from: range.from, to: range.to, limit: 200 },
+        {
+          from: range.from,
+          to: range.to,
+          kind: kind || undefined,
+          site: site || undefined,
+          limit: 200,
+        },
         signal
       ),
   })
@@ -187,12 +233,41 @@ export function Journal() {
 
       <Toolbar>
         <WindowControl range={range} />
+        {/* Wrapped for the reason `<LocationSelect>` is: `<Select>` draws a
+            `w-full` span around the native control, and in a wrapping toolbar
+            that claims the whole row. */}
+        <span className="inline-flex w-48 shrink-0">
+          <Select
+            value={kind}
+            onChange={(next) => setKind(next)}
+            className="h-8 w-48"
+            aria-label="Source"
+          >
+            {SOURCE_KINDS.map((source) => (
+              <option key={source.value} value={source.value}>
+                {source.label}
+              </option>
+            ))}
+          </Select>
+        </span>
+        <LocationSelect
+          value={site}
+          onChange={setSite}
+          className="h-8 w-44"
+          aria-label="Location"
+        />
         <Toolbar.Spacer />
-        {/* The window is stated rather than implied. The cap is not: 200 is the
+        {/* The window is stated rather than implied, and so is everything else
+            narrowing the list. The cap is not the window's: 200 is the
             server's, and a reader who has narrowed to a fortnight should still
             be told the list can be truncated. */}
         <span className="text-[0.71875rem] text-mute">
-          {range.chip} · the newest 200 entries in it
+          {range.chip}
+          {kind !== "" &&
+            ` · ${SOURCE_KINDS.find((row) => row.value === kind)?.label}`}
+          {site !== "" && " · "}
+          {site !== "" && <SiteName id={site} />}
+          {" · the newest 200 entries in it"}
         </span>
       </Toolbar>
 
@@ -203,8 +278,10 @@ export function Journal() {
             rows.length === 0 ? (
               <EmptyState>
                 No entry was posted between {day(range.from)} and{" "}
-                {day(range.to)}. The window is always set now, so this does not
-                say the books are empty — widen it to tell the two apart.
+                {day(range.to)}
+                {kind === "" ? "" : " by that source"}. The window is always set
+                now, so this does not say the books are empty — widen it to tell
+                the two apart.
               </EmptyState>
             ) : (
               <DataTable<JournalEntryRow>
@@ -618,11 +695,10 @@ function ComposerSheet({
           <form.Field name="postingDate">
             {(field) => (
               <Field label="Posting date">
-                <Input
-                  type="date"
+                <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onChange={field.handleChange}
                 />
               </Field>
             )}
@@ -727,12 +803,9 @@ function ComposerSheet({
                     <form.Field name={`lines[${index}].debit`}>
                       {(field) => (
                         <Field label="Debit">
-                          <Input
-                            inputMode="numeric"
+                          <Money
                             value={field.state.value}
-                            onChange={(event) =>
-                              field.handleChange(event.target.value)
-                            }
+                            onChange={field.handleChange}
                             placeholder="0"
                           />
                         </Field>
@@ -741,12 +814,9 @@ function ComposerSheet({
                     <form.Field name={`lines[${index}].credit`}>
                       {(field) => (
                         <Field label="Credit">
-                          <Input
-                            inputMode="numeric"
+                          <Money
                             value={field.state.value}
-                            onChange={(event) =>
-                              field.handleChange(event.target.value)
-                            }
+                            onChange={field.handleChange}
                             placeholder="0"
                           />
                         </Field>

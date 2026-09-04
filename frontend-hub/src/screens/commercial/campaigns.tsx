@@ -7,7 +7,8 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Select } from "@/components/ui/field"
+import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { Day } from "@/components/ui/day"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -20,7 +21,6 @@ import {
   BookWrittenNotPublished,
   commercialKeys,
   commercialUsage,
-  instantOf,
   minorOf,
   NOTHING_TO_PUBLISH,
   promotionCatalogue,
@@ -36,12 +36,15 @@ import { queryState } from "@/lib/query-state"
 import { PerformanceHeader } from "@/screens/commercial/performance-header"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { Named, Quiet, Switch } from "@/screens/commercial/parts"
+import { Switch } from "@/components/ui/form"
+import { Named, Quiet } from "@/screens/commercial/parts"
+import { endOfDay, shift, startOfDay, today } from "@/lib/calendar"
+import { Choices, Section, Stepper, type Tile } from "@/components/ui/form"
+import { Terms } from "@/screens/commercial/controls"
 import {
   consumed,
   describeEffect,
   describeScope,
-  localInput,
   percent,
   useActor,
 } from "@/screens/commercial/shared"
@@ -84,14 +87,29 @@ const UNLIMITED = -1
 /// The lifecycle the engine actually models. A superset of the four a
 /// dashboard usually shows, and worth keeping whole: "cancelled" and "expired"
 /// are different endings and only one of them was somebody's decision.
-const STATUSES = [
-  "DRAFT",
-  "SCHEDULED",
-  "ACTIVE",
-  "PAUSED",
-  "EXPIRED",
-  "CANCELLED",
-] as const
+///
+/// Each carries the line that distinguishes it from the one beside it. As six
+/// rows of a dropdown they were six shouted enum names with nothing to choose
+/// between them; as six tiles the difference is on the glass, which is the
+/// whole reason the distinction was kept.
+const CAMPAIGN_STATES = [
+  { value: "DRAFT", label: "Draft", note: "Written down. Running nowhere." },
+  {
+    value: "SCHEDULED",
+    label: "Scheduled",
+    note: "Waits for the day it starts.",
+  },
+  { value: "ACTIVE", label: "Active", note: "Live the moment it lands." },
+  { value: "PAUSED", label: "Paused", note: "Published, and held." },
+  { value: "EXPIRED", label: "Expired", note: "Its window has passed." },
+  {
+    value: "CANCELLED",
+    label: "Cancelled",
+    note: "Called off. Not the same as expired.",
+  },
+] as const satisfies readonly Tile<string>[]
+
+type CampaignState = (typeof CAMPAIGN_STATES)[number]["value"]
 
 interface CampaignLine {
   readonly row: CampaignRow
@@ -377,7 +395,6 @@ export function Campaigns() {
         }
       />
 
-
       {/* What the offers did, above what declares them. The list below says
           which campaigns exist and what they are allowed to spend; this says
           what they actually spent and what came back with it. */}
@@ -562,11 +579,17 @@ function Poster({ line }: { line: CampaignLine }) {
             placeholder="https://…"
           />
         </Field>
+        {/* A block, not a line. `CommercialCampaignInput.terms` is one block
+            of text on purpose — "terms differ per promotion, per season and per
+            regulator, and a schema that modelled them would be wrong on
+            arrival" — and a single-line box made that field look like a
+            sentence when a shop prints a paragraph. */}
         <Field label="Terms">
-          <Input
+          <Textarea
             value={terms}
+            rows={3}
             onChange={(event) => setTerms(event.target.value)}
-            placeholder="Selama persediaan masih ada."
+            placeholder="Selama persediaan masih ada. Tidak dapat digabung dengan promo lain."
           />
         </Field>
       </div>
@@ -772,6 +795,12 @@ function CampaignSheet({
 /// A campaign-only book is a legal book: the server's "must change something"
 /// check counts campaigns as well as prices, so an envelope can be published
 /// before anything is put in it — which is the order people actually work in.
+///
+/// It asks four questions and used to ask them as five identical pills, two of
+/// which were `datetime-local` boxes whose panel belongs to the operating
+/// system. It now asks them the way the promotion form does — the six states as
+/// tiles that each say what they mean, the two days off a calendar, the two
+/// figures with their unit inside the field. See `controls.tsx`.
 function CampaignForm({
   open,
   nextVersion,
@@ -786,14 +815,26 @@ function CampaignForm({
   const client = useQueryClient()
   const actor = useActor()
   const [name, setName] = useState("")
-  const [status, setStatus] = useState<string>("ACTIVE")
-  const [from, setFrom] = useState(() => localInput(new Date()))
+  const [status, setStatus] = useState<CampaignState>("ACTIVE")
+  const [from, setFrom] = useState(() => today())
   const [to, setTo] = useState("")
   const [budget, setBudget] = useState("")
   const [maxUses, setMaxUses] = useState("")
+  // The three a SHOPPER reads. They ride on the campaign and nowhere else —
+  // `PublicationCampaign` says so in as many words: a price rule describes a
+  // number, a markdown describes a garment, a campaign describes an event, and
+  // a shop cannot put "Lebaran Sale, ends Sunday" on a screen out of an id and
+  // a percentage. Until now nothing wrote them at creation, so every campaign
+  // reached thirty shops with a blank banner and had to be opened again to fix
+  // it.
+  const [headline, setHeadline] = useState("")
+  const [image, setImage] = useState("")
+  const [terms, setTerms] = useState("")
 
-  const validFrom = from === "" ? null : instantOf(from)
-  const validTo = to === "" ? null : instantOf(to)
+  // A whole day each end, so "until 30 September" includes the thirtieth. A
+  // `datetime-local` left at 00:00 quietly meant it did not.
+  const validFrom = from === "" ? null : startOfDay(from)
+  const validTo = to === "" ? null : endOfDay(to)
   const windowBroken =
     validFrom !== null &&
     validTo !== null &&
@@ -830,6 +871,12 @@ function CampaignForm({
             valid_to: validTo,
             budget_minor: budgetMinor,
             max_uses: maxUses.trim() === "" ? null : Number(maxUses),
+            // Empty is `null`, never "". A shop draws the campaign's internal
+            // name when there is no headline, and an empty string is a headline
+            // that happens to be blank.
+            image_url: image.trim() === "" ? null : image.trim(),
+            headline: headline.trim() === "" ? null : headline.trim(),
+            terms: terms.trim() === "" ? null : terms.trim(),
           },
         ],
         actor_id: actor,
@@ -846,15 +893,23 @@ function CampaignForm({
       setName("")
       setBudget("")
       setMaxUses("")
+      setTo("")
+      setHeadline("")
+      setImage("")
+      setTerms("")
     },
   })
 
-  const ready =
-    actor !== "" &&
-    name.trim() !== "" &&
-    !windowBroken &&
-    (budget.trim() === "") === (budgetMinor === null) &&
-    !publish.isPending
+  const problem =
+    actor === ""
+      ? "Nobody is signed in, so no command can name who did this."
+      : name.trim() === ""
+        ? "A campaign needs a name — it is what every offer inside it is filed under."
+        : windowBroken
+          ? "The end has to come after the start."
+          : budget.trim() !== "" && budgetMinor === null
+            ? "A budget is whole rupiah. No decimals, and nothing but digits."
+            : undefined
 
   const halted =
     publish.error instanceof BookWrittenNotPublished ? publish.error : null
@@ -865,14 +920,33 @@ function CampaignForm({
       onOpenChange={(next) => !next && onClose()}
       title="New campaign"
       id={`v${nextVersion}`}
+      width="wide"
+      // Two thirds of the glass, and the same panel the promotion form gets:
+      // the two are written together and joined to each other, and a campaign
+      // opening half the width of the offer it holds reads as a lesser thing.
+      className="md:w-[clamp(32rem,66vw,58rem)]"
       footer={
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.71875rem] text-mute">
-            Published and sent to every shop the moment you press this.
+          <span className="min-w-0 text-[0.71875rem] leading-relaxed">
+            {problem !== undefined ? (
+              <span className="text-bad">{problem}</span>
+            ) : (
+              <span className="text-mute">
+                <span className="text-text">
+                  {readsCampaign(
+                    status,
+                    from === "" ? null : from,
+                    to === "" ? null : to,
+                    budgetMinor
+                  )}
+                </span>{" "}
+                — published and sent to every shop the moment you press this.
+              </span>
+            )}
           </span>
           <Button
             variant="dark"
-            disabled={!ready}
+            disabled={problem !== undefined || publish.isPending}
             onClick={() => publish.mutate()}
           >
             {publish.isPending ? "Publishing…" : "Publish"}
@@ -880,93 +954,248 @@ function CampaignForm({
         </div>
       }
     >
-      <div className="flex flex-col gap-4">
-        {halted !== null ? (
-          <Banner tone="bad">{halted.message}</Banner>
-        ) : publish.isError ? (
+      {halted !== null ? (
+        <Banner tone="bad" className="mb-4">
+          {halted.message}
+        </Banner>
+      ) : publish.isError ? (
+        <div className="mb-4">
           <ErrorState error={publish.error} />
-        ) : null}
-
-        <Field
-          label="What it is called"
-          hint="Lebaran, End of season — the name the business uses for the whole thing."
-        >
-          <Input
-            value={name}
-            autoFocus
-            placeholder="Lebaran"
-            onChange={(event) => setName(event.target.value)}
-          />
-        </Field>
-
-        <Field
-          label="Status"
-          hint="Six states, not four: cancelled and expired are different endings, and only one of them was a decision."
-        >
-          <Select
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            {STATUSES.map((one) => (
-              <option key={one} value={one}>
-                {label(one)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Runs from">
-            <Input
-              type="datetime-local"
-              value={from}
-              onChange={(event) => setFrom(event.target.value)}
-            />
-          </Field>
-          <Field
-            label="Until"
-            problem={
-              windowBroken ? "The end has to come after the start." : undefined
-            }
-          >
-            <Input
-              type="datetime-local"
-              value={to}
-              onChange={(event) => setTo(event.target.value)}
-            />
-          </Field>
         </div>
+      ) : null}
 
-        <Field
-          label="Budget for the whole window"
-          hint="Not a daily figure — this is the total every offer inside the campaign shares between the two dates. Leave empty for unlimited."
-        >
-          <Input
-            value={budget}
-            inputMode="numeric"
-            placeholder="Unlimited"
-            onChange={(event) => setBudget(event.target.value)}
-          />
-        </Field>
+      {/* Measured on the sheet, not on the window — this panel is 66vw at a
+          desk and the whole glass on a phone. */}
+      <div className="@container">
+        <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] @3xl:gap-x-8">
+          <div className="flex flex-col gap-6">
+            <Section title="The envelope">
+              <Field
+                label="What it is called"
+                hint="Lebaran, End of season — the name the business uses for the whole thing."
+              >
+                <Input
+                  value={name}
+                  autoFocus
+                  placeholder="Lebaran"
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </Field>
+            </Section>
 
-        <Field label="Most baskets" hint="Shared across every offer inside it.">
-          <Input
-            value={maxUses}
-            inputMode="numeric"
-            placeholder="Unlimited"
-            onChange={(event) => setMaxUses(event.target.value)}
-          />
-        </Field>
+            <Section title="What a shopper reads" aside="the only part they do">
+              <Field
+                label="Headline"
+                hint="A campaign is the ONE thing in a price book meant for a shopper — the name above is a filing code, and this is what goes on the screen."
+              >
+                <Input
+                  value={headline}
+                  placeholder={
+                    name.trim() === ""
+                      ? "Diskon Lebaran — sampai 30 September"
+                      : name.trim()
+                  }
+                  onChange={(event) => setHeadline(event.target.value)}
+                />
+              </Field>
+              <Field
+                label="Terms"
+                hint="The small print, printed as written. One block of text on purpose: terms differ per promotion, per season and per regulator."
+              >
+                <Textarea
+                  value={terms}
+                  rows={3}
+                  placeholder={
+                    "Selama persediaan masih ada.\nTidak dapat digabung dengan promo lain."
+                  }
+                  onChange={(event) => setTerms(event.target.value)}
+                />
+              </Field>
+              <Field
+                label="Banner image"
+                hint="A catalogue-media key or a URL — the same shape an article's picture carries, so one proxy serves both."
+              >
+                <Input
+                  value={image}
+                  placeholder="https://…"
+                  onChange={(event) => setImage(event.target.value)}
+                />
+              </Field>
+            </Section>
 
-        <p className="text-[0.71875rem] leading-relaxed text-mute">
-          Offers join a campaign from the promotion form, by naming it. A
-          per-customer limit is not offered here: the server refuses one,
-          because nothing counts a customer&rsquo;s own history and the limit
-          would never bite.
-        </p>
+            <Section title="What state it starts in" aside="six, not four">
+              <Choices
+                options={CAMPAIGN_STATES}
+                value={status}
+                onChange={setStatus}
+                columns={3}
+                label="The state this campaign is published in"
+              />
+              <p className="text-[0.71875rem] leading-relaxed text-mute">
+                Six states and not four: cancelled and expired are different
+                endings, and only one of them was a decision. A rule is live
+                only when both it and its campaign are, so publishing this
+                paused holds every offer inside it without touching any of them.
+              </p>
+            </Section>
+          </div>
+
+          <div className="flex flex-col gap-6">
+            <Section title="When it runs" aside="days, not minutes">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Runs from">
+                  <Day
+                    value={from}
+                    onChange={setFrom}
+                    placeholder="Straight away"
+                    label="The day this campaign starts"
+                    presets={[
+                      { label: "Today", value: today() },
+                      { label: "Tomorrow", value: shift(today(), 1) },
+                      { label: "In a week", value: shift(today(), 7) },
+                    ]}
+                  />
+                </Field>
+                <Field
+                  label="Until"
+                  problem={
+                    windowBroken
+                      ? "The end has to come after the start."
+                      : undefined
+                  }
+                >
+                  <Day
+                    value={to}
+                    onChange={setTo}
+                    placeholder="Open ended"
+                    label="The last day this campaign runs"
+                    notBefore={from}
+                    presets={[
+                      { label: "In a week", value: shift(from ?? today(), 7) },
+                      {
+                        label: "In a month",
+                        value: shift(from === "" ? today() : from, 30),
+                      },
+                    ]}
+                  />
+                </Field>
+              </div>
+            </Section>
+
+            <Section title="How far it may go" aside="shared by every offer">
+              <Field
+                label="Budget for the whole window"
+                hint="Not a daily figure — this is the total every offer inside the campaign shares between the two days. Leave it empty for unlimited."
+              >
+                <Money
+                  value={budget}
+                  onChange={setBudget}
+                  prefix="Rp"
+                  placeholder="Unlimited"
+                  label="Budget for the whole window"
+                />
+              </Field>
+              {/* Narrower than the column it sits in: a stepper stretched to
+                  full width puts its two buttons a hand apart, which is the
+                  one thing a stepper is supposed to save you. */}
+              <Field
+                label="Most baskets"
+                hint="Shared across every offer inside it."
+                className="max-w-[13rem]"
+              >
+                <Stepper
+                  value={maxUses}
+                  onChange={setMaxUses}
+                  min={1}
+                  placeholder="Unlimited"
+                  label="Most baskets"
+                />
+              </Field>
+              <p className="text-[0.71875rem] leading-relaxed text-mute">
+                Offers join a campaign from the promotion form, by naming it. A
+                per-customer limit is not offered here: the server refuses one,
+                because nothing counts a customer&rsquo;s own history and the
+                limit would never bite.
+              </p>
+            </Section>
+
+            {/* Deliberately NOT the promotion's terms, and not for the reason
+                it first looks.
+
+                A campaign carries no scope and no effect, so it has no "20%
+                off" of its own to state. But it is emphatically NOT invisible
+                to a shopper — the opposite: `PublicationCampaign` says a
+                campaign is the ONE thing in a price book a shopper is meant to
+                read, which is why the banner, the headline and the small print
+                ride on it and on nothing else. A price rule describes a number;
+                a campaign describes an event.
+
+                So this reads back both halves: the poster as the shop will
+                print it, and under it what the envelope does to whatever is
+                filed inside — the half people get wrong, because a campaign
+                looks like a bigger promotion and is not one. */}
+            <Section title="How it will read" aside="poster, then effect">
+              <Terms
+                headline={
+                  headline.trim() !== ""
+                    ? headline.trim()
+                    : validFrom === null
+                      ? "Open ended"
+                      : validTo === null
+                        ? `From ${day(validFrom)}`
+                        : `${day(validFrom)} – ${day(validTo)}`
+                }
+                name={name}
+                prose={terms}
+                empty="Name it, and what it does to the offers filed under it will be written here."
+                clauses={[
+                  headline.trim() !== "" &&
+                    validFrom !== null &&
+                    `It shows from ${day(validFrom)}${validTo === null ? " onwards" : ` to ${day(validTo)}`}.`,
+                  name.trim() !== "" &&
+                    `An offer filed under it is live only while this is ${label(status)} — and only while the offer itself is live too.`,
+                  validFrom !== null &&
+                    validTo !== null &&
+                    "An offer inside it cannot run outside those two days, whatever its own dates say.",
+                  budgetMinor !== null &&
+                    `${money(budgetMinor)} is shared by every offer inside it — not given to each of them.`,
+                  maxUses.trim() !== "" &&
+                    `${count(Number(maxUses))} baskets across every offer inside it, together.`,
+                  "Nothing is in it yet. An offer joins from the promotion form, by naming this campaign.",
+                ]}
+                foot={
+                  headline.trim() === "" && terms.trim() === ""
+                    ? "No headline and no small print: every shop will draw this campaign under its filing name, with nothing under it."
+                    : undefined
+                }
+              />
+            </Section>
+          </div>
+        </div>
       </div>
     </Sheet>
   )
+}
+
+/// The envelope in one line, for the foot of the sheet.
+///
+/// Read off the same four answers the campaign will carry, so it cannot
+/// describe something the button will not publish.
+function readsCampaign(
+  status: CampaignState,
+  from: string | null,
+  to: string | null,
+  budgetMinor: number | null
+): string {
+  const window =
+    from === null
+      ? to === null
+        ? "open ended"
+        : `until ${day(endOfDay(to))}`
+      : `${day(startOfDay(from))} → ${to === null ? "open" : day(endOfDay(to))}`
+  return `${label(status)} · ${window} · ${
+    budgetMinor === null ? "unlimited" : money(budgetMinor)
+  }`
 }
 
 /// A campaign id somebody can read off a shelf ticket.

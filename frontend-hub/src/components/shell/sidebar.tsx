@@ -6,13 +6,16 @@ import {
   PanelLeft,
   Search,
   Sparkles,
+  X,
 } from "lucide-react"
 
 import { Mark } from "@/components/shell/mark"
 import { count } from "@/lib/format"
 import {
+  asides,
   modules,
   moduleForPath,
+  shown,
   visibleItems,
   type AppModule,
   type NavItem,
@@ -40,15 +43,23 @@ import { cn } from "@/lib/utils"
 /// and they are sub-items now like everyone else's.
 export function Sidebar({
   open,
+  variant = "flow",
   onToggle,
   onOpenPalette,
   onOpenAssistant,
 }: {
   open: boolean
+  /// Whether this is the column in the layout or the drawer over it. One
+  /// component for both, because they are the same navigation: a second file
+  /// for the narrow one is a second place to add a module to, and the version
+  /// where somebody forgets is the version where a screen is reachable on a
+  /// desk and not on an iPad. The shell decides which — see `app-shell.tsx`.
+  variant?: "flow" | "drawer"
   onToggle: () => void
   onOpenPalette: () => void
   onOpenAssistant: () => void
 }) {
+  const drawer = variant === "drawer"
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const active = moduleForPath(pathname)
   const identity = useIdentity()
@@ -59,12 +70,20 @@ export function Sidebar({
     <aside
       data-open={open}
       className={cn(
-        "flex shrink-0 flex-col border-r border-hairline bg-soft py-[0.8125rem]",
-        "min-h-0 transition-[width] duration-200",
+        "flex shrink-0 flex-col border-r border-hairline bg-soft px-[0.6875rem] py-[0.8125rem]",
+        "min-h-0",
         // Collapsed is a column of icons, not an empty margin. A sidebar that
         // slides away entirely leaves ⌘B as the only way back to navigation,
         // and nothing on screen says so.
-        open ? "w-[15.5rem] px-[0.6875rem]" : "w-[3.625rem] px-[0.6875rem]"
+        !drawer && "transition-[width] duration-200",
+        !drawer && (open ? "w-[15.5rem]" : "w-[3.625rem]"),
+        // A drawer is never the icon strip. It is over the content, so it has
+        // no width to save, and it is opened by a thumb — so it takes the
+        // labelled width plus a little, and scrolls its own height. `max-w`
+        // keeps the veil reachable on the narrowest phone: a drawer with no
+        // screen showing beside it is a page, and a page needs a back button
+        // rather than a tap-outside.
+        drawer && "h-full w-[17.5rem] max-w-[85vw] overflow-y-auto"
       )}
     >
       <div
@@ -77,18 +96,25 @@ export function Sidebar({
           <Mark className="h-[1.4375rem] w-[1.25rem]" />
         </span>
         {open && (
-          <b className="min-w-0 flex-1 truncate text-[0.90625rem] font-semibold tracking-[-0.015em]">
+          <b className="min-w-0 flex-1 truncate text-card-title font-semibold">
             {where.data?.node_id ?? "cloud"}
           </b>
         )}
         <button
           type="button"
           onClick={onToggle}
-          aria-label="Toggle sidebar"
-          title={open ? "Collapse  ⌘B" : "Expand  ⌘B"}
-          className="grid size-[1.625rem] shrink-0 place-items-center rounded-lg text-line-ico transition-colors hover:bg-soft-2 hover:text-text"
+          aria-label={drawer ? "Close navigation" : "Toggle sidebar"}
+          title={drawer ? "Close" : open ? "Collapse  ⌘B" : "Expand  ⌘B"}
+          className={cn(
+            "grid shrink-0 place-items-center rounded-lg text-line-ico transition-colors hover:bg-soft-2 hover:text-text",
+            drawer ? "size-tap" : "size-[1.625rem]"
+          )}
         >
-          <PanelLeft className="size-4 stroke-[1.7]" />
+          {drawer ? (
+            <X className="size-[1.125rem] stroke-[1.7]" />
+          ) : (
+            <PanelLeft className="size-4 stroke-[1.7]" />
+          )}
         </button>
       </div>
 
@@ -114,18 +140,45 @@ export function Sidebar({
         />
       </div>
 
+      {/* The asides: talking to each other, and the reports somebody kept.
+          Icons rather than rows, and above the modules rather than among them,
+          because the list below is a map of the business — bought, held, sold,
+          what it cost, who did it — and a chat window is not one of those.
+          Filed among them, "Workplace" read as a department nobody works in. */}
       <nav
-        aria-label="Navigation"
-        className="flex min-h-0 flex-col gap-px overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label="Workspace"
+        className={cn(
+          "mb-2 flex gap-px border-b border-hairline pb-2",
+          // Five across at 248px, one under another at 58px: the collapsed
+          // column has no width to put them side by side, and shrinking the
+          // hit targets to fit would make the strip the hardest thing in the
+          // sidebar to press.
+          open ? "flex-row justify-between" : "flex-col items-center"
+        )}
       >
-        {modules.map((module) => (
-          <ModuleGroup
-            key={module.id}
-            module={module}
-            active={module.id === active.id}
-            open={open}
+        {asides.map((aside) => (
+          <AsideIcon
+            key={aside.id}
+            module={aside}
+            active={aside.id === active.id}
           />
         ))}
+      </nav>
+
+      <nav
+        aria-label="Navigation"
+        className="flex min-h-0 [scrollbar-width:none] flex-col gap-px overflow-y-auto [&::-webkit-scrollbar]:hidden"
+      >
+        {modules
+          .filter((module) => !module.hidden)
+          .map((module) => (
+            <ModuleGroup
+              key={module.id}
+              module={module}
+              active={module.id === active.id}
+              open={open}
+            />
+          ))}
       </nav>
 
       <div className="mt-auto flex flex-col gap-px pt-2.5">
@@ -133,7 +186,7 @@ export function Sidebar({
           type="button"
           title={open ? undefined : "Help & resources"}
           className={cn(
-            "flex items-center gap-2.5 rounded-lg py-1.5 text-meta font-normal text-body transition-colors hover:bg-soft-2 hover:text-ink",
+            "flex items-center gap-2.5 rounded-lg py-1.5 text-meta font-normal text-body transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:min-h-tap",
             open ? "px-[0.5625rem]" : "justify-center px-0"
           )}
         >
@@ -177,6 +230,31 @@ export function Sidebar({
   )
 }
 
+/// One aside, drawn as its icon.
+///
+/// A `<Link>` like any module row — it goes somewhere, and it can be the active
+/// one — but with no label beside it, so the whole strip costs one row's height
+/// instead of five. `title` carries the name, which is the same thing the
+/// collapsed sidebar relies on and for the same reason: a hand-drawn tooltip
+/// cannot escape the box it is painted in.
+function AsideIcon({ module, active }: { module: AppModule; active: boolean }) {
+  const Icon = module.icon
+  return (
+    <Link
+      to={module.home}
+      title={module.label}
+      aria-label={module.label}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "grid size-[1.875rem] shrink-0 place-items-center rounded-lg transition-colors hover:bg-soft-2 pointer-coarse:size-tap",
+        active ? "bg-soft-2 text-ink" : "text-line-ico hover:text-text"
+      )}
+    >
+      <Icon className="size-[1.0625rem] stroke-[1.55]" />
+    </Link>
+  )
+}
+
 /// A row that does something rather than going somewhere.
 ///
 /// A button and not a `<Link>`, and that is the whole distinction being drawn:
@@ -205,6 +283,11 @@ function Action({
       title={open ? undefined : `${label}  ${shortcut}`}
       className={cn(
         "flex items-center gap-2.5 rounded-lg py-[0.4375rem] text-nav font-medium text-text transition-colors hover:bg-soft-2",
+        // The touch floor, chosen by pointer and not by width: see
+        // `lib/layout.ts`. An iPad in landscape is 1180px, gets the docked
+        // column, and its rows are still pressed with a thumb; a laptop window
+        // of exactly that width is not and keeps the dense ones.
+        "pointer-coarse:min-h-tap",
         open ? "px-[0.5625rem]" : "justify-center px-0"
       )}
     >
@@ -243,7 +326,15 @@ function ModuleGroup({
   /// above it already says. It gets no chevron and does not expand — which is
   /// also what keeps this honest as screens are added and `hidden` is moved
   /// about, rather than a fact somebody has to remember to re-check.
-  const unfolds = visibleItems(module).length > 1
+  // Called unconditionally and before anything branches on it, like the count
+  // below: which module is on screen changes, so a hook called only by the
+  // modules that declare one would change the hook order between renders.
+  // `ModuleGroup` draws exactly one module and is keyed by its id, so the pair
+  // of defaults below is stable for the life of the instance.
+  const useAudience = module.useAudience ?? noAudience
+  const audience = useAudience()
+  const items = visibleItems(module, audience)
+  const unfolds = items.length > 1
   const expanded = open && active && unfolds
   const useCount = module.useCount ?? noCount
   // Called unconditionally, drawn conditionally: while the module is expanded
@@ -261,6 +352,7 @@ function ModuleGroup({
       title={open ? undefined : module.label}
       className={cn(
         "group flex items-center gap-2.5 rounded-lg py-[0.4375rem] text-nav transition-colors hover:bg-soft-2",
+        "pointer-coarse:min-h-tap",
         open ? "px-[0.5625rem]" : "justify-center px-0",
         // The active module is stated by weight and ink, not by a fill: the
         // fill belongs to the one sub-item you are actually on, and two pills
@@ -313,10 +405,17 @@ function ModuleGroup({
       {expanded && (
         <div className="mb-1 flex flex-col gap-px">
           {module.sections.map((section, index) => {
-            const items = section.items.filter((item) => !item.hidden)
+            // The same rule the row above used to decide whether to unfold at
+            // all — asked once, in `navigation.ts`, rather than re-spelled
+            // here. A group whose every item is head office's disappears
+            // entirely for a shop manager, label and all.
+            const items = section.items.filter(shown(audience))
             if (items.length === 0) return null
             return (
-              <div key={section.label ?? index} className="flex flex-col gap-px">
+              <div
+                key={section.label ?? index}
+                className="flex flex-col gap-px"
+              >
                 {/* Drawn only inside the expanded module, which is the only
                     place a second level of labelling is affordable. Finance
                     and Inventory are ten and eleven screens; the groups are
@@ -362,7 +461,7 @@ function SubRow({ item, exact }: { item: NavItem; exact: boolean }) {
     <Link
       to={item.path}
       activeOptions={{ exact }}
-      className="group flex items-center gap-2.5 rounded-lg py-[0.375rem] pr-[0.5625rem] pl-[2.3125rem] text-nav font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink data-[status=active]:bg-soft-2 data-[status=active]:text-ink data-[status=active]:font-medium"
+      className="group flex items-center gap-2.5 rounded-lg py-[0.375rem] pr-[0.5625rem] pl-[2.3125rem] text-nav font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink data-[status=active]:bg-soft-2 data-[status=active]:font-medium data-[status=active]:text-ink pointer-coarse:min-h-tap"
     >
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
       <Badge value={badge} tint={item.badge} />
@@ -395,5 +494,13 @@ function Badge({
 
 /// The hook a row without a count calls. Asks nothing, subscribes to nothing.
 function noCount(): null {
+  return null
+}
+
+/// The hook a module without an audience calls. Asks nothing, subscribes to
+/// nothing, and answers `null` — which every item without an `audience` is
+/// unaffected by, and every item with one is hidden by. Ten of the eleven
+/// modules are in exactly this position.
+function noAudience(): null {
   return null
 }

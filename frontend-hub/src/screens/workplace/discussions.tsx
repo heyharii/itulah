@@ -1,27 +1,29 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowLeft,
   Bookmark,
   CheckCheck,
+  ChevronDown,
+  ChevronUp,
   Lock,
-  MessageSquare,
   MessagesSquare,
   Unlock,
 } from "lucide-react"
 import { useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Activity } from "@/components/ui/activity"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardStrip, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { KeyValue } from "@/components/ui/rows"
 import { ButtonGroup, Segmented, Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
 import { count } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
 import {
@@ -45,14 +47,7 @@ import { useIdentity } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { useAttachments } from "@/screens/workplace/attachments"
-import {
-  ago,
-  clock,
-  dayOf,
-  eventSubject,
-  threadTone,
-} from "@/screens/workplace/lib"
-import { useCollaborationFeed } from "@/screens/workplace/live"
+import { ago, clock, dayOf, threadTone } from "@/screens/workplace/lib"
 import {
   AttachButton,
   AttachmentChips,
@@ -62,27 +57,36 @@ import {
   VirtualList,
   Voices,
 } from "@/screens/workplace/parts"
-import type {
-  CollaborationEvent,
-  DiscussionPost,
-  DiscussionThread,
-} from "@itulah/contract"
+import type { DiscussionPost, DiscussionThread } from "@itulah/contract"
 
 /// Discussions — arguments about records, kept where the next person finds them.
-///
-/// This is the one family of screens in the app that is deliberately not a
-/// table. A thread is not a row to compare against its neighbours; it is
-/// something somebody said, and the questions a reader has of it — who is
-/// arguing, how long ago, has it been answered — are answered by a record card
-/// and not by eight columns. So the list is a stack of cards, virtualised
-/// because the server hands over up to two hundred of them, and the detail is
-/// the standard `<Sheet>` with the detail composer pinned at its foot.
 ///
 /// Readable by everybody signed in, which is the deliberate difference from a
 /// conversation: an argument about a purchase order is a business record, and
 /// the person who needs it next week was not in the room. Writing is another
 /// matter — only whoever opened a thread may say what answered it or close it,
 /// and the controls for those two appear for nobody else.
+///
+/// # Why this is a forum and not a list of cards with a sheet
+///
+/// It was both, and the owner asked for neither: "discuss jangan sheet, seperti
+/// ini https://discuss.frappe.io/ — page sendiri detailnya". That forum is
+/// Discourse, and its shape is not decoration. Two things follow from it:
+///
+///   * **The list is a table.** Cards were chosen originally because a thread is
+///     "something somebody said" rather than a row to compare. But a person
+///     scanning a board is comparing — which argument is busiest, which has been
+///     read, which moved this morning — and a card puts four rows on a screen
+///     where a table puts twenty. Replies, Views and Activity are the three
+///     columns every forum has converged on because they are the three
+///     questions.
+///
+///   * **A thread is a page, not a sheet.** A sheet is for something you look at
+///     without leaving the list that produced it. An argument with fifteen
+///     replies is not that: it is read to the end, linked to, and come back to
+///     next week. This follows the same pattern Reports already uses — one
+///     screen, two states, which one by a URL parameter — so a thread is a link
+///     somebody can send, and every existing `?thread=` link still resolves.
 
 const FEEDS = [
   { value: "all", label: "All" },
@@ -100,12 +104,48 @@ const STATUSES = [
 type Feed = (typeof FEEDS)[number]["value"]
 type Status = (typeof STATUSES)[number]["value"]
 
+/// The colour beside a category, the way a forum draws one.
+///
+/// Assigned by family rather than hashed: nine kinds share five categorical
+/// tokens, and which five is a judgement — buying is one colour, who supplies
+/// is another, what arrived and what went wrong is a third. A hash would put
+/// `receipt` and `article` next to each other in the same colour on a Tuesday
+/// and separate them the day a tenth kind is added.
+const SUBJECT_DOT: Readonly<Record<string, string>> = {
+  purchase_order: "bg-a-blue",
+  purchase_order_line: "bg-a-blue",
+  supplier: "bg-a-violet",
+  supply_item: "bg-a-violet",
+  receipt: "bg-a-orange",
+  purchase_exception: "bg-a-orange",
+  packaging_item: "bg-a-orange",
+  commercial_verification: "bg-a-pink",
+  article: "bg-a-green",
+}
+
+/// One screen, two states. Which thread is open is a URL parameter, so a thread
+/// is a link — see the note at the top of this file.
 export function Discussions() {
-  const thread = useSheet("thread")
+  const open = useSheet("thread")
+  return open.value ? (
+    <OneThread id={open.value} onBack={open.close} />
+  ) : (
+    <Board onOpen={open.open} />
+  )
+}
+
+// ---- The board ---------------------------------------------------------
+
+/// Which column the board is ordered by. `activity` is the server's own order,
+/// so choosing it means asking for nothing extra.
+type Order = "activity" | "replies" | "views"
+
+function Board({ onOpen }: { onOpen: (id: string) => void }) {
   const [feed, setFeed] = useState<Feed>("all")
   const [status, setStatus] = useState<Status>("all")
   const [subject, setSubject] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  const [order, setOrder] = useState<Order>("activity")
   // A blank composer is not a record, so there is nothing to put in the URL:
   // `?thread=` names a thread that exists, and a half-typed one does not.
   const [opening, setOpening] = useState(false)
@@ -134,17 +174,38 @@ export function Discussions() {
     queryFn: ({ signal }) => subjectCounts(signal),
   })
 
-  const live = useCollaborationFeed()
   const filtered =
     feed !== "all" ||
     status !== "all" ||
     subject !== null ||
     typed.trim() !== ""
 
+  /// Ordered here rather than at the server because the server has one order
+  /// and the board offers three. Two hundred rows is the ceiling on this
+  /// endpoint, so the whole board is already in memory and sorting it is free —
+  /// asking for a second ordering over HTTP would be a round trip to re-arrange
+  /// what the browser is holding.
+  /// Every tag actually in use, for the rail. Derived from what came back
+  /// rather than fetched: there is no tag endpoint on this module, and the
+  /// tags worth offering are the ones the visible threads carry.
+  const tags = useMemo(
+    () =>
+      [...new Set((threads.data ?? []).flatMap((row) => row.tags))]
+        .sort()
+        .slice(0, 12),
+    [threads.data]
+  )
+
+  const rows = useMemo(() => {
+    const list = [...(threads.data ?? [])]
+    if (order === "replies") list.sort((a, b) => b.reply_count - a.reply_count)
+    if (order === "views") list.sort((a, b) => b.people - a.people)
+    return list
+  }, [threads.data, order])
+
   return (
     <PageContent>
       <PageHeader
-        crumb="Workplace"
         title="Discussions"
         sub="Arguments about records, readable by everybody who comes after."
         actions={
@@ -162,21 +223,28 @@ export function Discussions() {
         }
       />
 
-      <Toolbar>
-        <Segmented options={FEEDS} value={feed} onChange={setFeed} />
-        <Segmented options={STATUSES} value={status} onChange={setStatus} />
-        {subject !== null && (
-          <Button variant="soft" size="sm" onClick={() => setSubject(null)}>
-            {subjectLabel(subject)} ✕
-          </Button>
-        )}
-      </Toolbar>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[11.5rem_minmax(0,1fr)]">
+        {/* The forum's own left rail: every category, always visible, with the
+            count beside it. A dropdown would hide the one thing this rail is
+            for — seeing at a glance where the arguments are. */}
+        <Rail
+          subjects={subjects}
+          selected={subject}
+          onSelect={setSubject}
+          tags={tags}
+          search={search}
+          onSearch={setSearch}
+        />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_17.5rem]">
         <div className="min-w-0">
+          <Toolbar className="mb-3">
+            <Segmented options={FEEDS} value={feed} onChange={setFeed} />
+            <Segmented options={STATUSES} value={status} onChange={setStatus} />
+          </Toolbar>
+
           {queryState(threads, {
             loading: "Loading the discussions…",
-            render: (rows) =>
+            render: () =>
               rows.length === 0 ? (
                 <Card>
                   <EmptyState
@@ -202,84 +270,27 @@ export function Discussions() {
                   </EmptyState>
                 </Card>
               ) : (
-                <VirtualList
-                  items={rows}
-                  estimate={168}
-                  getKey={(row) => row.thread_id}
-                  className="max-h-[calc(100vh-16rem)] pr-1"
-                >
-                  {(row) => (
-                    <div className="pb-2.5">
-                      <ThreadCard
+                <Card className="overflow-hidden">
+                  <BoardHeader order={order} onOrder={setOrder} />
+                  <VirtualList
+                    items={rows}
+                    estimate={82}
+                    getKey={(row) => row.thread_id}
+                    className="max-h-[calc(100vh-17rem)]"
+                  >
+                    {(row) => (
+                      <TopicRow
                         thread={row}
-                        selected={row.thread_id === thread.value}
-                        onOpen={() => thread.open(row.thread_id)}
+                        onOpen={() => onOpen(row.thread_id)}
                       />
-                    </div>
-                  )}
-                </VirtualList>
+                    )}
+                  </VirtualList>
+                </Card>
               ),
           })}
         </div>
-
-        <div className="flex min-w-0 flex-col gap-4">
-          <Card className="overflow-hidden">
-            <CardHeader>
-              <CardTitle>By subject</CardTitle>
-            </CardHeader>
-            <div className="px-4 pb-3.5">
-              {queryState(subjects, {
-                loading: "Counting…",
-                render: (counts) =>
-                  counts.length === 0 ? (
-                    <p className="text-meta text-body">
-                      No record has a thread on it yet.
-                    </p>
-                  ) : (
-                    counts.map((row) => (
-                      <button
-                        key={row.subject_kind}
-                        type="button"
-                        onClick={() =>
-                          setSubject((current) =>
-                            current === row.subject_kind
-                              ? null
-                              : row.subject_kind
-                          )
-                        }
-                        className={cn(
-                          "block w-full rounded-inner px-1.5 text-left transition-colors",
-                          row.subject_kind === subject
-                            ? "bg-accent-bg"
-                            : "hover:bg-soft"
-                        )}
-                      >
-                        <KeyValue term={subjectLabel(row.subject_kind)}>
-                          {count(row.threads)}
-                        </KeyValue>
-                      </button>
-                    ))
-                  ),
-              })}
-            </div>
-          </Card>
-
-          <ActivityPanel
-            events={live.events}
-            live={live.live}
-            lastEventId={live.lastEventId}
-            onOpenThread={(id) => thread.open(id)}
-          />
-        </div>
       </div>
 
-      {/* Keyed by the record, so a half-written reply and an uploaded
-          attachment cannot follow somebody from one thread into the next. */}
-      <ThreadSheet
-        key={thread.value ?? "closed"}
-        id={thread.value ?? null}
-        onClose={thread.close}
-      />
       <OpenThreadSheet
         key={subject ?? "any"}
         open={opening}
@@ -290,191 +301,255 @@ export function Discussions() {
   )
 }
 
-/// The list unit: a record card, not a table row.
-function ThreadCard({
-  thread,
+/// Categories and tags, down the left.
+function Rail({
+  subjects,
   selected,
+  onSelect,
+  tags,
+  search,
+  onSearch,
+}: {
+  subjects: ReturnType<
+    typeof useQuery<{ subject_kind: string; threads: number }[]>
+  >
+  selected: string | null
+  onSelect: (kind: string | null) => void
+  tags: readonly string[]
+  search: string
+  onSearch: (value: string) => void
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-5 text-[0.8125rem]">
+      <div>
+        <button
+          type="button"
+          onClick={() => onSelect(null)}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-inner px-2 py-1 text-left transition-colors",
+            selected === null
+              ? "bg-accent-bg font-medium text-accent"
+              : "text-text hover:bg-soft"
+          )}
+        >
+          <MessagesSquare className="size-3.5" />
+          Topics
+        </button>
+      </div>
+
+      <div>
+        <h3 className="mb-1.5 px-2 text-eyebrow font-semibold text-mute uppercase">
+          Categories
+        </h3>
+        {queryState(subjects, {
+          loading: "Counting…",
+          render: (counts) =>
+            counts.length === 0 ? (
+              <p className="px-2 text-meta text-body">
+                No record has a thread on it yet.
+              </p>
+            ) : (
+              <>
+                {counts.map((row) => (
+                  <button
+                    key={row.subject_kind}
+                    type="button"
+                    onClick={() =>
+                      onSelect(
+                        selected === row.subject_kind ? null : row.subject_kind
+                      )
+                    }
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-inner px-2 py-1 text-left transition-colors",
+                      row.subject_kind === selected
+                        ? "bg-accent-bg text-accent"
+                        : "text-text hover:bg-soft"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "size-2.5 shrink-0 rounded-[0.1875rem]",
+                        SUBJECT_DOT[row.subject_kind] ?? "bg-line-ico"
+                      )}
+                    />
+                    <span className="min-w-0 truncate">
+                      {subjectLabel(row.subject_kind)}
+                    </span>
+                    <span className="ml-auto shrink-0 text-pill text-mute tabular-nums">
+                      {count(row.threads)}
+                    </span>
+                  </button>
+                ))}
+              </>
+            ),
+        })}
+      </div>
+
+      {tags.length > 0 && (
+        <div>
+          <h3 className="mb-1.5 px-2 text-eyebrow font-semibold text-mute uppercase">
+            Tags
+          </h3>
+          <div className="flex flex-wrap gap-1 px-2">
+            {tags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                // A tag narrows by putting itself in the search box rather than
+                // by a filter of its own: the server has no `tag` parameter on
+                // this endpoint that the board also exposes, and a chip that
+                // silently searched a different field would be a filter that
+                // lies about what it did.
+                onClick={() => onSearch(search === tag ? "" : tag)}
+                className="cursor-pointer"
+              >
+                <Tag tone={search === tag ? "accent" : "neutral"}>{tag}</Tag>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/// The column heads. Replies, Views and Activity are the three every forum
+/// converged on, and two of them sort.
+function BoardHeader({
+  order,
+  onOrder,
+}: {
+  order: Order
+  onOrder: (order: Order) => void
+}) {
+  const head = (key: Order, label: string) => (
+    <button
+      type="button"
+      onClick={() => onOrder(key)}
+      className={cn(
+        "flex items-center justify-end gap-0.5 transition-colors hover:text-ink",
+        order === key ? "text-ink" : "text-mute"
+      )}
+    >
+      {label}
+      {order === key ? (
+        <ChevronDown className="size-3" />
+      ) : (
+        <ChevronUp className="size-3 opacity-0" />
+      )}
+    </button>
+  )
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4.5rem] items-center gap-3 border-b border-hairline px-4 py-2 text-eyebrow font-semibold text-mute uppercase">
+      <span>Topic</span>
+      <span />
+      {head("replies", "Replies")}
+      {head("views", "Views")}
+      {head("activity", "Activity")}
+    </div>
+  )
+}
+
+/// One row of the board: the title, its category and tags underneath, then the
+/// three numbers.
+function TopicRow({
+  thread,
   onOpen,
 }: {
   thread: DiscussionThread
-  selected: boolean
   onOpen: () => void
 }) {
   return (
-    <Card
-      className={cn(
-        "cursor-pointer overflow-hidden transition-colors",
-        selected ? "border-accent" : "hover:border-hairline-strong"
-      )}
+    <div
       onClick={onOpen}
+      className="grid cursor-pointer grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4.5rem] items-center gap-3 border-b border-hairline px-4 py-2.5 transition-colors last:border-b-0 hover:bg-soft"
     >
-      <CardStrip className={cn(selected && "bg-accent-bg")}>
-        <span className="grid size-[1.625rem] shrink-0 place-items-center rounded-inner bg-canvas text-line-ico">
-          <MessagesSquare className="size-3.5" />
-        </span>
-        <Tag>{subjectLabel(thread.subject_kind)}</Tag>
-        <span className="min-w-0 truncate font-mono text-id text-body">
-          {thread.subject_id}
-        </span>
-        <span className="ml-auto flex shrink-0 items-center gap-2">
+      <div className="min-w-0">
+        {/* The title wraps rather than truncating. A forum row exists to be
+            read, and a board of ellipses is a board nobody can scan — which is
+            the one job it has. Two lines is the cap because a third is a
+            paragraph. */}
+        <div className="flex items-start gap-1.5">
           {thread.bookmarked_by_me && (
-            <Bookmark className="size-3.5 text-accent" />
+            <Bookmark className="mt-[0.1875rem] size-3 shrink-0 fill-accent text-accent" />
           )}
-          <Pill tone={threadTone(thread.status)}>
-            {THREAD_STATUS_LABEL[thread.status] ?? thread.status}
-          </Pill>
-        </span>
-      </CardStrip>
-
-      <div className="px-4 py-3">
-        <h3 className="text-card-title font-medium text-ink">{thread.title}</h3>
-        {thread.subject_note && (
-          <p className="mt-0.5 text-pill text-mute">{thread.subject_note}</p>
-        )}
-        {thread.latest_post_preview && (
-          <p className="mt-1.5 line-clamp-2 text-meta text-body">
-            {thread.latest_post_preview}
-          </p>
-        )}
-
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <Voices names={thread.voices} />
-          <span className="text-pill text-mute tabular-nums">
-            {count(thread.reply_count)} replies · {count(thread.people)} read it
+          <span className="line-clamp-2 min-w-0 text-[0.84375rem] leading-snug font-medium text-ink">
+            {thread.title}
+          </span>
+          {thread.status !== "open" && (
+            <span className="mt-px shrink-0">
+              <Pill tone={threadTone(thread.status)}>
+                {THREAD_STATUS_LABEL[thread.status] ?? thread.status}
+              </Pill>
+            </span>
+          )}
+        </div>
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="flex shrink-0 items-center gap-1.5 text-pill text-body">
+            <span
+              className={cn(
+                "size-2 rounded-[0.125rem]",
+                SUBJECT_DOT[thread.subject_kind] ?? "bg-line-ico"
+              )}
+            />
+            {subjectLabel(thread.subject_kind)}
+          </span>
+          <span className="shrink-0 font-mono text-id text-mute">
+            {thread.subject_id}
           </span>
           {thread.tags.map((tag) => (
-            <Tag key={tag}>{tag}</Tag>
+            <span key={tag} className="text-pill text-mute">
+              {tag}
+            </span>
           ))}
-          <span className="ml-auto text-pill text-mute">
-            {ago(thread.last_activity_at)}
-          </span>
         </div>
       </div>
-    </Card>
+
+      <Voices names={thread.voices} />
+
+      <span className="text-right text-meta text-body tabular-nums">
+        {count(thread.reply_count)}
+      </span>
+      <span className="text-right text-meta text-body tabular-nums">
+        {count(thread.people)}
+      </span>
+      <span className="text-right text-pill text-mute">
+        {ago(thread.last_activity_at)}
+      </span>
+    </div>
   )
 }
 
-/// What has happened since this browser caught up with the log.
-///
-/// The stream endpoint is not the one this module was given, so it follows
-/// `GET /chat/events` instead — the identical query behind the SSE route, asked
-/// on a timer. The lag is stated rather than hidden: a green dot that says
-/// "fine" while a browser is a hundred events behind is a lie, so the panel
-/// says which it is.
-function ActivityPanel({
-  events,
-  live,
-  lastEventId,
-  onOpenThread,
-}: {
-  events: readonly CollaborationEvent[]
-  live: boolean
-  lastEventId: number
-  onOpenThread: (threadId: string) => void
-}) {
-  const items = useMemo<TimelineEvent[]>(
-    () =>
-      events.map((event, index) => {
-        const subject = eventSubject(event.payload)
-        const kind =
-          event.kind === "chat.message"
-            ? "Message"
-            : event.kind === "discussion.thread"
-              ? "Thread opened"
-              : event.kind === "discussion.post"
-                ? "Reply"
-                : event.kind === "chat.read"
-                  ? "Read"
-                  : "Notification"
-        return {
-          id: String(event.event_id),
-          title: subject.title ?? kind,
-          detail: subject.author ? `By ${subject.author}` : kind,
-          at: clock(event.occurred_at),
-          state: index === 0 ? "current" : "done",
-          icon: <MessageSquare className="size-3" />,
-        }
-      }),
-    [events]
-  )
-
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader>
-        <CardTitle>Activity</CardTitle>
-        <span className="font-mono text-[0.625rem] text-mute tabular-nums">
-          #{lastEventId}
-        </span>
-      </CardHeader>
-      <div className="px-4 pb-3.5">
-        {!live ? (
-          <p className="text-meta text-body">
-            Catching up with the log — nothing here is news yet.
-          </p>
-        ) : items.length === 0 ? (
-          <p className="text-meta text-body">
-            Following. Nothing has happened since this page opened.
-          </p>
-        ) : (
-          <div className="max-h-96 overflow-y-auto">
-            <Timeline
-              events={items.map((item, index) => ({
-                ...item,
-                title: (
-                  <button
-                    type="button"
-                    className="text-left hover:text-accent"
-                    onClick={() => {
-                      const threadId = eventSubject(
-                        events[index].payload
-                      ).threadId
-                      if (threadId !== undefined) onOpenThread(threadId)
-                    }}
-                  >
-                    {item.title}
-                  </button>
-                ),
-              }))}
-            />
-          </div>
-        )}
-      </div>
-    </Card>
-  )
-}
+// ---- One thread, on its own page ---------------------------------------
 
 /// The thread, and everything a person may do to it.
-function ThreadSheet({
-  id,
-  onClose,
-}: {
-  id: string | null
-  onClose: () => void
-}) {
+///
+/// A page rather than a sheet: this is read to the end. The reading column is
+/// capped and the meta sits beside it, which is what every forum does and what
+/// a 32rem sheet could not.
+function OneThread({ id, onBack }: { id: string; onBack: () => void }) {
   const client = useQueryClient()
   const identity = useIdentity()
   const me = identity.data?.username
   const attachments = useAttachments()
 
   const detail = useQuery({
-    queryKey: workplaceKeys.thread(id ?? ""),
-    queryFn: ({ signal }) => readThread(id!, signal),
-    enabled: id !== null,
+    queryKey: workplaceKeys.thread(id),
+    queryFn: ({ signal }) => readThread(id, signal),
   })
 
   const posts = useQuery({
-    queryKey: workplaceKeys.posts(id ?? ""),
-    queryFn: ({ signal }) => readPosts(id!, signal),
-    enabled: id !== null,
+    queryKey: workplaceKeys.posts(id),
+    queryFn: ({ signal }) => readPosts(id, signal),
   })
 
   /// Everything below writes to one thread, and every one of them changes the
-  /// row this thread shows as in the list — its status, its reply count, its
+  /// row this thread shows as on the board — its status, its reply count, its
   /// last activity. So each names the thread's own keys plus the `list` prefix,
-  /// which is genuinely everything: the list is keyed by its filter and a
+  /// which is genuinely everything: the board is keyed by its filter and a
   /// bookmark moves the thread in and out of the "Bookmarked" feed.
   const refreshThread = () => {
-    if (id === null) return
     void client.invalidateQueries({ queryKey: workplaceKeys.thread(id) })
     void client.invalidateQueries({
       queryKey: ["workplace", "discussions", "list"],
@@ -482,10 +557,10 @@ function ThreadSheet({
   }
 
   const reply = useMutation({
-    mutationFn: (body: string) => replyToThread(id!, body, attachments.ids),
+    mutationFn: (body: string) => replyToThread(id, body, attachments.ids),
     onSuccess: () => {
       attachments.clear()
-      void client.invalidateQueries({ queryKey: workplaceKeys.posts(id!) })
+      void client.invalidateQueries({ queryKey: workplaceKeys.posts(id) })
       // A reply with a file on it is a new row on the Files screen.
       void client.invalidateQueries({ queryKey: workplaceKeys.files() })
       refreshThread()
@@ -493,12 +568,12 @@ function ThreadSheet({
   })
 
   const bookmark = useMutation({
-    mutationFn: (marked: boolean) => setBookmark(id!, marked),
+    mutationFn: (marked: boolean) => setBookmark(id, marked),
     onSuccess: refreshThread,
   })
 
   const status = useMutation({
-    mutationFn: (next: string) => setThreadStatus(id!, next),
+    mutationFn: (next: string) => setThreadStatus(id, next),
     onSuccess: () => {
       refreshThread()
       void client.invalidateQueries({ queryKey: workplaceKeys.subjects() })
@@ -506,9 +581,9 @@ function ThreadSheet({
   })
 
   const solution = useMutation({
-    mutationFn: (postId: string) => acceptSolution(id!, postId),
+    mutationFn: (postId: string) => acceptSolution(id, postId),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: workplaceKeys.posts(id!) })
+      void client.invalidateQueries({ queryKey: workplaceKeys.posts(id) })
       refreshThread()
     },
   })
@@ -525,176 +600,203 @@ function ThreadSheet({
   ].find((error): error is Error => error instanceof Error)
 
   return (
-    <Sheet
-      open={id !== null}
-      subject={id === null ? undefined : { kind: "discussion", id }}
-      onOpenChange={(open) => !open && onClose()}
-      className="w-[32.5rem]"
-      id={
-        thread
-          ? `${subjectLabel(thread.subject_kind)} · ${thread.subject_id}`
-          : undefined
-      }
-      title={thread?.title ?? "Thread"}
-      actions={
-        thread && (
-          <Button
-            variant="quiet"
-            size="icon"
-            aria-label={
-              thread.bookmarked_by_me ? "Remove bookmark" : "Bookmark this"
-            }
-            disabled={bookmark.isPending}
-            onClick={() => bookmark.mutate(!thread.bookmarked_by_me)}
-          >
-            <Bookmark
-              className={cn(
-                thread.bookmarked_by_me && "fill-accent text-accent"
-              )}
-            />
-          </Button>
-        )
-      }
-      footer={
-        id !== null && (
-          <Composer
-            placeholder="Add a reply"
-            rows={2}
-            busy={reply.isPending}
-            uploading={attachments.uploading}
-            disabled={locked}
-            disabledReason={
-              locked
-                ? "This thread is locked. Nobody can reply to it."
-                : undefined
-            }
-            attachments={attachments.pending}
-            onAttach={attachments.add}
-            onRemoveAttachment={attachments.remove}
-            onSend={(body) => reply.mutate(body)}
-          />
-        )
-      }
-    >
+    <PageContent>
+      <button
+        type="button"
+        onClick={onBack}
+        className="mb-3 inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-mute transition-colors hover:text-ink"
+      >
+        <ArrowLeft className="size-3.5" />
+        Discussions
+      </button>
+
       {queryState(detail, {
         loading: "Loading the thread…",
         render: (open) => (
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            {failure && <Banner tone="bad">{failure.message}</Banner>}
-            {attachments.problem && (
-              <Banner tone="bad">{attachments.problem}</Banner>
-            )}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_15rem]">
+            <div className="min-w-0">
+              <h1 className="text-hero font-semibold text-balance text-ink">
+                {open.title}
+              </h1>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Pill tone={threadTone(open.status)}>
-                {THREAD_STATUS_LABEL[open.status] ?? open.status}
-              </Pill>
-              {open.has_solution && (
-                <Pill tone="ok" withDot>
-                  Has an accepted answer
-                </Pill>
-              )}
-              {open.tags.map((tag) => (
-                <Tag key={tag}>{tag}</Tag>
-              ))}
-            </div>
-
-            <Facts>
-              <Fact term="Subject">{subjectLabel(open.subject_kind)}</Fact>
-              <Fact term="Record">{open.subject_id}</Fact>
-              <Fact term="Opened by">{open.created_by}</Fact>
-              <Fact term="Last activity">{ago(open.last_activity_at)}</Fact>
-              <Fact term="Replies">{count(open.reply_count)}</Fact>
-              <Fact term="People who read it">{count(open.people)}</Fact>
-            </Facts>
-
-            {open.subject_note && (
-              <p className="text-meta text-body">{open.subject_note}</p>
-            )}
-
-            {/* Only whoever opened a thread may say it is answered or close it,
-                so for everybody else the pill above is the whole story. */}
-            {mine && (
-              <div>
-                <h4 className="mb-1.5 text-eyebrow font-semibold text-mute uppercase">
-                  Set the status
-                </h4>
-                <ButtonGroup>
-                  <button
-                    type="button"
-                    disabled={status.isPending || open.status === "open"}
-                    onClick={() => status.mutate("open")}
-                  >
-                    Open
-                  </button>
-                  <button
-                    type="button"
-                    disabled={status.isPending || open.status === "resolved"}
-                    onClick={() => status.mutate("resolved")}
-                  >
-                    <CheckCheck className="mr-1 inline size-3.5" />
-                    Answered
-                  </button>
-                  <button
-                    type="button"
-                    disabled={status.isPending || open.status === "locked"}
-                    onClick={() => status.mutate("locked")}
-                  >
-                    {locked ? (
-                      <Unlock className="mr-1 inline size-3.5" />
-                    ) : (
-                      <Lock className="mr-1 inline size-3.5" />
+              <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                <span className="flex items-center gap-1.5 text-meta text-body">
+                  <span
+                    className={cn(
+                      "size-2.5 rounded-[0.1875rem]",
+                      SUBJECT_DOT[open.subject_kind] ?? "bg-line-ico"
                     )}
-                    Locked
-                  </button>
-                </ButtonGroup>
+                  />
+                  {subjectLabel(open.subject_kind)}
+                </span>
+                <span className="font-mono text-id text-mute">
+                  {open.subject_id}
+                </span>
+                {open.tags.map((tag) => (
+                  <Tag key={tag}>{tag}</Tag>
+                ))}
+                <Pill tone={threadTone(open.status)}>
+                  {THREAD_STATUS_LABEL[open.status] ?? open.status}
+                </Pill>
+                {open.has_solution && (
+                  <Pill tone="ok" withDot>
+                    Has an accepted answer
+                  </Pill>
+                )}
               </div>
-            )}
 
-            <div className="flex min-h-0 flex-1 flex-col">
-              <h4 className="mb-2 text-card-title font-semibold text-ink">
-                The argument
-              </h4>
-              {queryState(posts, {
-                loading: "Loading the posts…",
-                render: (rows) =>
-                  rows.length === 0 ? (
-                    <EmptyState>
-                      This thread has no opening post, which should not be
-                      possible — the server writes one with the thread.
-                    </EmptyState>
-                  ) : (
-                    <VirtualList
-                      items={rows}
-                      estimate={124}
-                      getKey={(post) => post.post_id}
-                      className="min-h-40 flex-1"
-                    >
-                      {(post, index) => (
-                        <Post
-                          post={post}
-                          threadId={open.thread_id}
-                          showDay={
-                            index === 0 ||
-                            dayOf(rows[index - 1].created_at) !==
-                              dayOf(post.created_at)
-                          }
-                          canAccept={mine && index > 0 && !post.is_solution}
-                          accepting={solution.isPending}
-                          onAccept={() => solution.mutate(post.post_id)}
-                        />
-                      )}
-                    </VirtualList>
-                  ),
-              })}
+              {open.subject_note && (
+                <p className="mt-1.5 text-meta text-body">
+                  {open.subject_note}
+                </p>
+              )}
+
+              {failure && (
+                <Banner tone="bad" className="mt-4">
+                  {failure.message}
+                </Banner>
+              )}
+              {attachments.problem && (
+                <Banner tone="bad" className="mt-4">
+                  {attachments.problem}
+                </Banner>
+              )}
+
+              <div className="mt-5">
+                {queryState(posts, {
+                  loading: "Loading the posts…",
+                  render: (rows) =>
+                    rows.length === 0 ? (
+                      <EmptyState>
+                        This thread has no opening post, which should not be
+                        possible — the server writes one with the thread.
+                      </EmptyState>
+                    ) : (
+                      // Not virtualised, unlike the board. A thread is read
+                      // from the top and the page itself scrolls, so an inner
+                      // scroller would put a second bar inside the first and
+                      // break the one thing a forum page is for.
+                      <div>
+                        {rows.map((post, index) => (
+                          <Post
+                            key={post.post_id}
+                            post={post}
+                            threadId={open.thread_id}
+                            showDay={
+                              index === 0 ||
+                              dayOf(rows[index - 1].created_at) !==
+                                dayOf(post.created_at)
+                            }
+                            canAccept={mine && index > 0 && !post.is_solution}
+                            accepting={solution.isPending}
+                            onAccept={() => solution.mutate(post.post_id)}
+                          />
+                        ))}
+                      </div>
+                    ),
+                })}
+              </div>
+
+              <div className="mt-5 border-t border-hairline pt-4">
+                <Composer
+                  placeholder="Add a reply"
+                  rows={3}
+                  busy={reply.isPending}
+                  uploading={attachments.uploading}
+                  disabled={locked}
+                  disabledReason={
+                    locked
+                      ? "This thread is locked. Nobody can reply to it."
+                      : undefined
+                  }
+                  attachments={attachments.pending}
+                  onAttach={attachments.add}
+                  onRemoveAttachment={attachments.remove}
+                  onSend={(body) => reply.mutate(body)}
+                />
+              </div>
             </div>
+
+            <aside className="flex min-w-0 flex-col gap-4">
+              <Button
+                variant={open.bookmarked_by_me ? "soft" : "ghost"}
+                disabled={bookmark.isPending}
+                onClick={() => bookmark.mutate(!open.bookmarked_by_me)}
+                className="justify-start gap-1.5"
+              >
+                <Bookmark
+                  className={cn(
+                    "size-3.5",
+                    open.bookmarked_by_me && "fill-accent text-accent"
+                  )}
+                />
+                {open.bookmarked_by_me ? "Bookmarked" : "Bookmark"}
+              </Button>
+
+              <div className="text-[0.8125rem]">
+                <KeyValue term="Opened by">{open.created_by}</KeyValue>
+                <KeyValue term="Replies">{count(open.reply_count)}</KeyValue>
+                <KeyValue term="Read it">{count(open.people)}</KeyValue>
+                <KeyValue term="Last activity">
+                  {ago(open.last_activity_at)}
+                </KeyValue>
+              </div>
+
+              {/* Only whoever opened a thread may say it is answered or close
+                  it, so for everybody else the pill above is the whole story. */}
+              {mine && (
+                <div>
+                  <h4 className="mb-1.5 text-eyebrow font-semibold text-mute uppercase">
+                    Set the status
+                  </h4>
+                  <ButtonGroup>
+                    <button
+                      type="button"
+                      disabled={status.isPending || open.status === "open"}
+                      onClick={() => status.mutate("open")}
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      disabled={status.isPending || open.status === "resolved"}
+                      onClick={() => status.mutate("resolved")}
+                    >
+                      <CheckCheck className="mr-1 inline size-3.5" />
+                      Answered
+                    </button>
+                    <button
+                      type="button"
+                      disabled={status.isPending || open.status === "locked"}
+                      onClick={() => status.mutate("locked")}
+                    >
+                      {locked ? (
+                        <Unlock className="mr-1 inline size-3.5" />
+                      ) : (
+                        <Lock className="mr-1 inline size-3.5" />
+                      )}
+                      Locked
+                    </button>
+                  </ButtonGroup>
+                </div>
+              )}
+
+              {/* The record's own log. It came free with `<Sheet subject={…}>`
+                  and had to be asked for by name once this stopped being a
+                  sheet — a thread that cannot show what was done to it is a
+                  thread missing half its history. */}
+              <Activity subject={{ kind: "discussion", id }} />
+            </aside>
           </div>
         ),
       })}
-    </Sheet>
+    </PageContent>
   )
 }
 
+/// One post, in the shape a forum draws it: the face in a gutter on the left,
+/// who and when on the first line, and the words at full width under them. No
+/// box — a card per post turns a conversation into a list of receipts.
 function Post({
   post,
   threadId,
@@ -711,67 +813,73 @@ function Post({
   onAccept: () => void
 }) {
   return (
-    <div className="pb-3">
+    <div>
       {showDay && (
-        <div className="mb-2 flex items-center gap-2">
+        <div className="mb-3 flex items-center gap-2">
           <span className="h-px flex-1 bg-hairline" />
           <span className="text-pill text-mute">{dayOf(post.created_at)}</span>
           <span className="h-px flex-1 bg-hairline" />
         </div>
       )}
-      <div
+      <article
         className={cn(
-          "rounded-inner border p-3",
-          post.is_solution ? "border-ok-bg bg-ok-bg" : "border-hairline"
+          "flex gap-3 border-b border-hairline py-4 last:border-b-0",
+          post.is_solution && "-mx-3 rounded-inner border-b-0 bg-ok-bg px-3"
         )}
       >
-        <div className="flex items-center gap-2">
-          <Avatar name={post.author} size="sm" />
-          <span className="text-meta font-medium text-ink">{post.author}</span>
-          {post.is_solution && (
-            <Pill tone="ok" withDot>
-              The answer
-            </Pill>
-          )}
-          <span className="ml-auto shrink-0 text-pill text-mute tabular-nums">
-            {clock(post.created_at)}
-          </span>
-        </div>
-
-        <p className="mt-1.5 text-[0.84375rem] leading-relaxed whitespace-pre-wrap text-text">
-          {post.body}
-        </p>
-
-        {post.attachments.length > 0 && (
-          <div className="mt-2 flex flex-col gap-1.5">
-            {post.attachments.map((file) => (
-              <AttachmentLink
-                key={file.file_id}
-                name={file.file_name}
-                size={file.byte_size}
-                available={file.available}
-                href={discussionAttachmentUrl(threadId, file.file_id)}
-              />
-            ))}
+        <Avatar name={post.author} size="lg" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-meta font-medium text-ink">
+              {post.author}
+            </span>
+            {post.is_solution && (
+              <Pill tone="ok" withDot>
+                The answer
+              </Pill>
+            )}
+            <span className="ml-auto shrink-0 text-pill text-mute tabular-nums">
+              {clock(post.created_at)}
+            </span>
           </div>
-        )}
 
-        {canAccept && (
-          <Button
-            variant="soft"
-            size="sm"
-            className="mt-2"
-            disabled={accepting}
-            onClick={onAccept}
-          >
-            <CheckCheck />
-            This answered it
-          </Button>
-        )}
-      </div>
+          <p className="mt-1.5 text-[0.875rem] leading-[1.65] whitespace-pre-wrap text-text">
+            {post.body}
+          </p>
+
+          {post.attachments.length > 0 && (
+            <div className="mt-2.5 flex flex-col gap-1.5">
+              {post.attachments.map((file) => (
+                <AttachmentLink
+                  key={file.file_id}
+                  name={file.file_name}
+                  size={file.byte_size}
+                  available={file.available}
+                  href={discussionAttachmentUrl(threadId, file.file_id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {canAccept && (
+            <Button
+              variant="soft"
+              size="sm"
+              className="mt-2.5"
+              disabled={accepting}
+              onClick={onAccept}
+            >
+              <CheckCheck />
+              This answered it
+            </Button>
+          )}
+        </div>
+      </article>
     </div>
   )
 }
+
+// ---- Opening one -------------------------------------------------------
 
 interface ThreadDraft {
   kind: string
@@ -793,6 +901,10 @@ function threadReady(draft: ThreadDraft): boolean {
 }
 
 /// Opening a thread. Every field the server asks for, and no field it does not.
+///
+/// Still a sheet, and deliberately: a sheet is for something you do without
+/// leaving the page that produced it, which is exactly what composing is. It is
+/// reading a thread that is not.
 function OpenThreadSheet({
   open,
   onClose,
@@ -800,7 +912,7 @@ function OpenThreadSheet({
 }: {
   open: boolean
   onClose: () => void
-  /// Prefilled from whatever the list is filtered to, because that is almost
+  /// Prefilled from whatever the board is filtered to, because that is almost
   /// always what somebody is about to argue about.
   subjectKind: string | null
 }) {
@@ -826,8 +938,8 @@ function OpenThreadSheet({
         attachments: attachments.ids,
       }),
     onSuccess: () => {
-      // A new thread changes every filtered view of the list and one of the
-      // subject counts, which is the whole left-hand axis of the screen.
+      // A new thread changes every filtered view of the board and one of the
+      // subject counts, which is the whole left-hand rail of the screen.
       void client.invalidateQueries({
         queryKey: ["workplace", "discussions", "list"],
       })
@@ -861,6 +973,7 @@ function OpenThreadSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title="Open a thread"
+      width="wide"
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-pill text-mute">
@@ -889,28 +1002,33 @@ function OpenThreadSheet({
             form.handleSubmit()
           }
         }}
-        className="flex flex-col gap-4"
+        // Two columns once there is room for them. The pairs are the ones that
+        // are read together — what the argument is about and which record it
+        // is, then the two optional afterthoughts — and everything a person
+        // actually writes into stays the full width of the sheet.
+        className="grid grid-cols-1 gap-x-4 gap-y-4 md:grid-cols-2"
       >
         {create.error instanceof Error && (
-          <Banner tone="bad">{create.error.message}</Banner>
+          <Banner tone="bad" className="md:col-span-2">
+            {create.error.message}
+          </Banner>
         )}
         {attachments.problem && (
-          <Banner tone="bad">{attachments.problem}</Banner>
+          <Banner tone="bad" className="md:col-span-2">
+            {attachments.problem}
+          </Banner>
         )}
 
         <form.Field name="kind">
           {(field) => (
-            <Field
-              label="What is it about"
-              hint="A thread hangs on a record. One that does not is a conversation, and there is a screen for those."
-            >
+            <Field label="What it is about">
               <Select
                 value={field.state.value}
-                onChange={(event) => field.handleChange(event.target.value)}
+                onChange={(next) => field.handleChange(next)}
               >
-                {SUBJECT_KINDS.map((option) => (
-                  <option key={option} value={option}>
-                    {subjectLabel(option)}
+                {SUBJECT_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {subjectLabel(kind)}
                   </option>
                 ))}
               </Select>
@@ -936,7 +1054,7 @@ function OpenThreadSheet({
 
         <form.Field name="title">
           {(field) => (
-            <Field label="Title">
+            <Field label="Title" className="md:col-span-2">
               <Input
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -952,9 +1070,10 @@ function OpenThreadSheet({
             <Field
               label="The opening post"
               hint="A thread with no opening argument is a title."
+              className="md:col-span-2"
             >
               <Textarea
-                rows={5}
+                rows={7}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
@@ -990,7 +1109,7 @@ function OpenThreadSheet({
           )}
         </form.Field>
 
-        <div>
+        <div className="md:col-span-2">
           <h4 className="mb-1.5 text-eyebrow font-semibold text-mute uppercase">
             Attachments
           </h4>

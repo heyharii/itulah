@@ -1,6 +1,10 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import type {
+  ColumnDef,
+  ExpandedState,
+  SortingState,
+} from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
@@ -10,7 +14,6 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterBar } from "@/components/ui/filter-bar"
-import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
@@ -54,60 +57,74 @@ import {
 /// the subject it moves and the evidence behind it, and both of those are on
 /// the pool's own page.
 
-const columns: ColumnDef<TableSetup, FleetPool>[] = [
+/// One line of the tree: a site, or a pool standing in it.
+///
+/// A row type of its own rather than `FleetPool`, because a site is not a pool
+/// and pretending otherwise would mean inventing an id, a group and a sync
+/// status for something that has none.
+export interface PoolRow {
+  readonly key: string
+  readonly label: string
+  /// The pool this row is, or null on a site row.
+  readonly pool: FleetPool | null
+  readonly stock: number
+  readonly allotted: number | null
+  readonly on_hand: number
+  readonly missing: number
+  /// False on the Cloud row for a site a live Edge node owns. Those rows are
+  /// shown — they hold the last numbers the centre saw — but they are NOT in
+  /// the site's total, because the Edge row for the same pool is. Reading the
+  /// two together without that distinction is exactly how a fleet counts a
+  /// store twice.
+  readonly counted: boolean
+  readonly subRows?: readonly PoolRow[]
+}
+
+const columns: ColumnDef<TableSetup, PoolRow>[] = [
   {
     id: "pool",
-    accessorFn: (row) => `${row.label} ${row.id}`,
+    accessorFn: (row) => row.label,
     header: "Pool",
-    size: 230,
+    size: 320,
     meta: { filter: { kind: "text" } },
-    cell: ({ row }) => (
-      <div className="min-w-0">
-        <span className="block truncate font-medium text-ink">
-          {row.original.label}
-        </span>
-        <span className="font-mono text-id text-mute">{row.original.id}</span>
-      </div>
-    ),
-  },
-  {
-    id: "site",
-    accessorFn: (row) => row.site_name ?? row.site_id,
-    header: "Site",
-    size: 160,
-    meta: { filter: { kind: "option" } },
-    cell: ({ row }) => (
-      <span className="text-body">
-        {row.original.site_name ?? row.original.site_id}
-      </span>
-    ),
-  },
-  {
-    id: "source",
-    accessorFn: (row) => row.authority.write_policy,
-    header: "Authority",
-    size: 150,
-    meta: { filter: { kind: "option" } },
     cell: ({ row }) => {
-      const policy = row.original.authority.write_policy
+      const site = row.original.pool === null
       return (
-        <Tag
-          tone={
-            policy === "CLOUD_WRITABLE"
-              ? "ok"
-              : policy === "SHADOWED_READ_ONLY"
-                ? "warn"
-                : "neutral"
-          }
+        <div
+          className="flex min-w-0 items-center gap-1.5"
+          style={{ paddingLeft: `${row.depth * 1.125}rem` }}
         >
-          {policy === "CLOUD_WRITABLE"
-            ? "CLOUD"
-            : policy === "SHADOWED_READ_ONLY"
-              ? "SHADOWED"
-              : policy === "OWNER_NODE_ONLY"
-                ? "EDGE"
-                : "DERIVED"}
-        </Tag>
+          <span className="w-3 shrink-0 text-center text-[0.625rem] text-line-ico">
+            {row.getCanExpand() ? (row.getIsExpanded() ? "▾" : "▸") : ""}
+          </span>
+          {site ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                row.toggleExpanded()
+              }}
+              className="truncate rounded-inner font-medium text-ink hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              {row.original.label}
+            </button>
+          ) : (
+            <span
+              className={
+                row.original.counted
+                  ? "truncate text-text"
+                  : "truncate text-mute"
+              }
+            >
+              {row.original.label}
+            </span>
+          )}
+          {!site && !row.original.counted && (
+            <span className="shrink-0 text-[0.625rem] text-mute">
+              not counted
+            </span>
+          )}
+        </div>
       )
     },
   },
@@ -142,8 +159,6 @@ const columns: ColumnDef<TableSetup, FleetPool>[] = [
     header: "Missing",
     size: 100,
     meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    // Sorted on by default: a pool with missing stock is the one somebody has
-    // to walk to.
     cell: ({ row }) => (
       <span
         className={
@@ -155,33 +170,14 @@ const columns: ColumnDef<TableSetup, FleetPool>[] = [
     ),
   },
   {
-    accessorKey: "lost_rate",
-    header: "Lost rate",
-    size: 120,
-    meta: { align: "right", filter: { kind: "number", unit: "%" } },
-    cell: ({ row }) =>
-      row.original.lost_rate === null ? (
-        <span className="text-mute">—</span>
-      ) : (
-        <span className="inline-flex items-center justify-end gap-2">
-          <Meter
-            value={row.original.lost_rate}
-            tone={row.original.lost_rate > 0.02 ? "bad" : "warn"}
-            className="w-10 min-w-0"
-          />
-          <span className="tabular-nums">
-            {percent(row.original.lost_rate)}
-          </span>
-        </span>
-      ),
-  },
-  {
-    accessorKey: "sync_status",
+    id: "sync",
+    accessorFn: (row) => row.pool?.sync_status ?? "",
     header: "Sync",
     size: 110,
     meta: { filter: { kind: "option", format: humanise } },
     cell: ({ row }) => {
-      const status = row.original.sync_status
+      const status = row.original.pool?.sync_status
+      if (!status) return null
       return (
         <Pill
           tone={
@@ -199,28 +195,94 @@ const columns: ColumnDef<TableSetup, FleetPool>[] = [
   },
 ]
 
-export function Pools() {
+/// The pool table on its own, without page chrome.
+///
+/// Split out so `/inventory` can show every pool under its KPIs without a
+/// second page header — a page cannot carry two of those, and the one-page
+/// view is the whole point of the module now having a single row.
+///
+/// `Pools` below is the same body under its own header, kept routed and
+/// findable in ⌘K for anyone who arrives at a pool from a link.
+export function PoolsBody() {
   const [query, setQuery] = useState("")
   const [scope, setScope] = useState("all")
   const pool = useSheet("pool")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "missing", desc: true },
   ])
+  /// Semua tertutup. Empat belas baris situs muat tanpa gulir; seratus dua
+  /// belas pool terbuka adalah daftar yang tak seorang pun minta.
+  const [expanded, setExpanded] = useState<ExpandedState>({})
 
   const fleet = useQuery({
     queryKey: inventoryKeys.fleet(),
     queryFn: ({ signal }) => fleetPools(signal),
   })
 
-  const rows = useMemo(() => {
+  /// The pools of one site, folded into the row that stands for the site.
+  ///
+  /// **Only rows the server counts are added up.** 160 rows describe 112 pools:
+  /// where a live Edge node owns a site, the Cloud row for the same pool is
+  /// shadowed and carries `included_in_fleet_total: false`, and the four
+  /// outbound stage rollups carry it too — because their own leaves are what
+  /// count. Summing every row gives 7.001 for a fleet the server puts at 4.401.
+  /// So the total follows the server's own policy rather than a second opinion,
+  /// and the rows it leaves out are still shown, dimmed and labelled.
+  const tree = useMemo<PoolRow[]>(() => {
     const items = fleet.data?.items ?? []
-    if (scope === "counted") {
-      return items.filter((item) => item.authority.included_in_fleet_total)
+    const scoped =
+      scope === "counted"
+        ? items.filter((item) => item.authority.included_in_fleet_total)
+        : scope === "edge"
+          ? items.filter((item) => item.source_type === "EDGE_FACT_POSITION")
+          : items
+
+    const bySite = new Map<string, FleetPool[]>()
+    for (const item of scoped) {
+      const list = bySite.get(item.site_id)
+      if (list) list.push(item)
+      else bySite.set(item.site_id, [item])
     }
-    if (scope === "edge") {
-      return items.filter((item) => item.source_type === "EDGE_FACT_POSITION")
-    }
-    return items
+
+    return [...bySite.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([siteId, pools]) => {
+        const children: PoolRow[] = pools
+          .slice()
+          .sort(
+            (a, b) =>
+              a.display_order - b.display_order || a.id.localeCompare(b.id)
+          )
+          .map((item) => ({
+            key: `${item.origin_id}/${item.id}`,
+            label: item.label,
+            pool: item,
+            stock: item.stock,
+            allotted: item.allotted,
+            on_hand: item.on_hand,
+            missing: item.missing,
+            counted: item.authority.included_in_fleet_total,
+          }))
+
+        const counted = children.filter((child) => child.counted)
+        const sum = (pick: (row: PoolRow) => number) =>
+          counted.reduce((total, row) => total + pick(row), 0)
+        const allotted = counted.filter((row) => row.allotted !== null)
+
+        return {
+          key: `site/${siteId}`,
+          label: pools[0].site_name ?? siteId,
+          pool: null,
+          stock: sum((row) => row.stock),
+          allotted: allotted.length
+            ? allotted.reduce((total, row) => total + (row.allotted ?? 0), 0)
+            : null,
+          on_hand: sum((row) => row.on_hand),
+          missing: sum((row) => row.missing),
+          counted: true,
+          subRows: children,
+        }
+      })
   }, [fleet.data, scope])
 
   const filters = useFilters(columns)
@@ -229,29 +291,30 @@ export function Pools() {
     useMemo(
       () => ({
         features: tableSetup,
-        data: rows,
+        data: tree,
         columns: filters.columns,
-        getRowId: (row: FleetPool) => `${row.origin_id}/${row.id}`,
+        getRowId: (row: PoolRow) => row.key,
+        getSubRows: (row: PoolRow) => row.subRows as PoolRow[] | undefined,
+        // Searching flattens the tree on purpose: a match three sites down is
+        // not findable behind a chevron, and a filtered hierarchy that keeps
+        // its parents is a hierarchy of one row each.
+        filterFromLeafRows: true,
         state: {
           columnFilters: filters.columnFilters,
           globalFilter: query,
+          expanded,
           sorting,
         },
+        onExpandedChange: setExpanded,
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [tree, filters.columns, filters.columnFilters, query, expanded, sorting]
     )
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Inventory"
-        title="Pools"
-        sub="Where the stock is standing, on this node and on every node that reports to it."
-      />
-
+    <>
       <SubTabs
         tabs={[
           { value: "all", label: "Every pool" },
@@ -289,17 +352,19 @@ export function Pools() {
         {queryState(fleet, {
           loading: "Reading every node…",
           render: () =>
-            rows.length === 0 ? (
+            tree.length === 0 ? (
               <EmptyState>
                 {scope === "all"
                   ? "This node has no active operational pool."
                   : "No pool matches this slice."}
               </EmptyState>
             ) : (
-              <DataTable<FleetPool>
+              <DataTable<PoolRow>
                 table={table}
-                onRowClick={(row) => pool.open(row.id)}
-                isSelected={(row) => row.id === pool.value}
+                onRowClick={(row) =>
+                  row.pool ? pool.open(row.pool.id) : undefined
+                }
+                isSelected={(row) => row.pool?.id === pool.value}
                 className="max-h-[calc(100vh-19rem)]"
               />
             ),
@@ -307,6 +372,19 @@ export function Pools() {
       </Card>
 
       <PoolSheet id={pool.value ?? null} onClose={pool.close} />
+    </>
+  )
+}
+
+export function Pools() {
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Inventory"
+        title="Pools"
+        sub="Where the stock is standing, on this node and on every node that reports to it."
+      />
+      <PoolsBody />
     </PageContent>
   )
 }

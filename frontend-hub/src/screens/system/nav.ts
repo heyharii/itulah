@@ -10,7 +10,7 @@ import {
 
 import type { AppModule } from "@/lib/navigation"
 
-/// This module's place in the rail and everything under it in the sidebar.
+/// This module's row in the sidebar and the sub-items under it.
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
@@ -21,8 +21,10 @@ export const systemNav: AppModule = {
   id: "system",
   label: "System",
   icon: Settings2,
-  tint: { top: "#b3b1c0", bottom: "#78758a" },
   home: "/system",
+  // Not drawn in the sidebar. The screens stay routed and stay in ⌘K — the
+  // module is simply not one of the places the sidebar offers.
+  hidden: true,
   sections: [
     {
       items: [

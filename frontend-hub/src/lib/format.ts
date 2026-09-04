@@ -108,3 +108,78 @@ export function label(status: string | null | undefined): string {
   const words = status.toLowerCase().replace(/[_-]+/g, " ").trim()
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
+
+/// ── The warehouse's own readings ────────────────────────────────────────────
+///
+/// The four above are the app-wide grammar. These four exist because a
+/// warehouse asks different questions of a number than an office does: it
+/// counts pieces rather than money, it reads a difference as news, and it
+/// works in hours rather than in dates.
+
+/// Pieces. The same formatter as `count`, named for what it is counting so a
+/// screen reads as the floor talks.
+export const units = count
+
+/// Signed, because a variance reads wrong without its sign: "16" is not the
+/// same news as "−16". A true minus sign, not a hyphen — it is set beside
+/// tabular figures and a hyphen is half the width.
+export function variance(value: number): string {
+  if (value === 0) return "0"
+  return `${value > 0 ? "+" : "−"}${plain.format(Math.abs(value))}`
+}
+
+/// Time of day, which is what a shift asks. The date is only added when the
+/// answer is not today, because a warehouse works in hours.
+export function clock(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return "—"
+  const today = new Date()
+  const sameDay =
+    at.getDate() === today.getDate() &&
+    at.getMonth() === today.getMonth() &&
+    at.getFullYear() === today.getFullYear()
+  const time = at.toLocaleTimeString("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+  return sameDay
+    ? time
+    : `${at.toLocaleDateString("id-ID", { day: "numeric", month: "short" })} ${time}`
+}
+
+/// How long ago, for anything whose age is the point — a delivery on the bay,
+/// a backlog that has not gone anywhere.
+export function ago(iso: string | null | undefined): string {
+  if (!iso) return "never"
+  const seconds = Math.round((Date.now() - Date.parse(iso)) / 1000)
+  if (Number.isNaN(seconds)) return "—"
+  if (seconds < 0) return "in the future"
+  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`
+  return `${Math.floor(seconds / 86_400)}d ago`
+}
+
+/// Where a carton has got to, as the node derives it (`Koli.position`,
+/// `Shipment.position`). Positions are computed from containment and never
+/// stored, so a box cannot claim to be on a truck it was never loaded onto —
+/// and the tones follow the two-blue rule: **on the road is sky**, everything
+/// still standing in this building is not.
+const positions: Readonly<Record<string, Tone>> = {
+  packed: "neutral",
+  shipment: "warn",
+  loaded: "warn",
+  in_transit: "info",
+  delivered: "ok",
+  open: "warn",
+  sealed: "ok",
+}
+
+export function positionTone(position: string | null | undefined): Tone {
+  if (!position) return "neutral"
+  return (
+    positions[position.toLowerCase().replace(/[\s-]/g, "_")] ??
+    toneFor(position)
+  )
+}

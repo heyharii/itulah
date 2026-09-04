@@ -1,6 +1,6 @@
 import type { ColumnDef, RowData } from "@tanstack/react-table"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { useCallback, useMemo } from "react"
+import { useCallback, useMemo, type ReactNode } from "react"
 
 import type { SheetSearch } from "@/lib/sheets"
 import type { TableSetup } from "@/lib/table"
@@ -56,40 +56,201 @@ export type Operator =
   | "onOrBefore"
   | "onOrAfter"
 
-/// What the operator reads as in the chip and the menu.
+/// Which family an operator belongs to, so a menu of twenty can be read.
 ///
-/// Written as they are spoken, not as they are coded: a buyer reads "is none
-/// of", never `isNoneOf` or `NOT IN`. The labels are the same ones the
-/// reference component uses, because they are already the least ambiguous
-/// English for these six or seven ideas and inventing a second set would only
-/// make our screens read differently from every other tool on the same desk.
-const LABEL: Record<Operator, string> = {
-  is: "is",
-  isNot: "is not",
-  isAnyOf: "is any of",
-  isNoneOf: "is none of",
-  isEmpty: "is empty",
-  isNotEmpty: "is not empty",
-  contains: "contains",
-  notContains: "does not contain",
-  startsWith: "starts with",
-  includesAnyOf: "include any of",
-  includesAllOf: "include all of",
-  excludes: "exclude",
-  gt: "is greater than",
-  gte: "is at least",
-  lt: "is less than",
-  lte: "is at most",
-  between: "is between",
-  notBetween: "is not between",
-  before: "is before",
-  after: "is after",
-  onOrBefore: "is on or before",
-  onOrAfter: "is on or after",
+/// The groups are the sections the menu prints. They exist because a flat list
+/// of twenty operators is a list nobody reads to the bottom: "is between" and
+/// "is at least" are the same kind of question and belong under one heading,
+/// and the heading is what lets somebody skip five rows at a glance.
+export type OperatorGroup =
+  "comparison" | "pattern" | "list" | "range" | "nullness"
+
+export const GROUP_LABEL: Record<OperatorGroup, string> = {
+  comparison: "Comparison",
+  pattern: "Pattern matching",
+  list: "In lists",
+  range: "Range",
+  nullness: "Emptiness",
+}
+
+/// Everything an operator is called, in one row each.
+///
+/// One table rather than three parallel `Record<Operator, …>` maps, because
+/// three of them is three places to forget an operator and only the first gets
+/// a type error. Every column is a different voice for the same idea:
+///
+///  * `label` is prose, for the chip and the menu row — a buyer reads "is none
+///    of", never `isNoneOf` or `NOT IN`. These are the reference component's
+///    own words: they are already the least ambiguous English for these ideas,
+///    and a second set would only make our screens read differently from every
+///    other tool on the same desk.
+///  * `verb` heads the commit row — "Equals: “hari”" — where a sentence
+///    beginning "is" would read as a fragment.
+///  * `symbol` is the keycap badge. A real operator where one exists, a short
+///    word where it does not: `∅` for empty would be a puzzle, `is null` is a
+///    thing somebody has seen before.
+interface OperatorMeta {
+  readonly label: string
+  readonly verb: string
+  readonly symbol: string
+  readonly group: OperatorGroup
+}
+
+const META: Record<Operator, OperatorMeta> = {
+  is: { label: "is", verb: "Equals", symbol: "=", group: "comparison" },
+  isNot: {
+    label: "is not",
+    verb: "Not equal",
+    symbol: "<>",
+    group: "comparison",
+  },
+  gt: {
+    label: "is greater than",
+    verb: "Greater than",
+    symbol: ">",
+    group: "comparison",
+  },
+  gte: {
+    label: "is at least",
+    verb: "At least",
+    symbol: ">=",
+    group: "comparison",
+  },
+  lt: {
+    label: "is less than",
+    verb: "Less than",
+    symbol: "<",
+    group: "comparison",
+  },
+  lte: {
+    label: "is at most",
+    verb: "At most",
+    symbol: "<=",
+    group: "comparison",
+  },
+  contains: {
+    label: "contains",
+    verb: "Contains",
+    symbol: "~~*",
+    group: "pattern",
+  },
+  notContains: {
+    label: "does not contain",
+    verb: "Does not contain",
+    symbol: "!~~*",
+    group: "pattern",
+  },
+  startsWith: {
+    label: "starts with",
+    verb: "Starts with",
+    symbol: "~~",
+    group: "pattern",
+  },
+  isAnyOf: { label: "is any of", verb: "Any of", symbol: "in", group: "list" },
+  isNoneOf: {
+    label: "is none of",
+    verb: "None of",
+    symbol: "not in",
+    group: "list",
+  },
+  includesAnyOf: {
+    label: "include any of",
+    verb: "Includes any of",
+    symbol: "&&",
+    group: "list",
+  },
+  includesAllOf: {
+    label: "include all of",
+    verb: "Includes all of",
+    symbol: "@>",
+    group: "list",
+  },
+  excludes: {
+    label: "exclude",
+    verb: "Excludes",
+    symbol: "!&&",
+    group: "list",
+  },
+  between: {
+    label: "is between",
+    verb: "Between",
+    symbol: "[ ]",
+    group: "range",
+  },
+  notBetween: {
+    label: "is not between",
+    verb: "Not between",
+    symbol: "![ ]",
+    group: "range",
+  },
+  before: { label: "is before", verb: "Before", symbol: "<", group: "range" },
+  after: { label: "is after", verb: "After", symbol: ">", group: "range" },
+  onOrBefore: {
+    label: "is on or before",
+    verb: "On or before",
+    symbol: "<=",
+    group: "range",
+  },
+  onOrAfter: {
+    label: "is on or after",
+    verb: "On or after",
+    symbol: ">=",
+    group: "range",
+  },
+  isEmpty: {
+    label: "is empty",
+    verb: "Is empty",
+    symbol: "is null",
+    group: "nullness",
+  },
+  isNotEmpty: {
+    label: "is not empty",
+    verb: "Is not empty",
+    symbol: "not null",
+    group: "nullness",
+  },
 }
 
 export function operatorLabel(operator: Operator): string {
-  return LABEL[operator]
+  return META[operator].label
+}
+
+export function operatorVerb(operator: Operator): string {
+  return META[operator].verb
+}
+
+export function operatorSymbol(operator: Operator): string {
+  return META[operator].symbol
+}
+
+/// One section per family, in the order the field's own list mentions them.
+///
+/// Driven by the whitelist rather than by a fixed group order, so `OPERATORS`'
+/// existing rule — the common one first, its negation second — still decides
+/// what somebody sees at the top of the menu. A field offering two operators
+/// gets one section, and a section of one is drawn without a heading by the
+/// menu, because a heading over a single row is furniture.
+export function operatorSections(operators: readonly Operator[]): readonly {
+  readonly group: OperatorGroup
+  readonly label: string
+  readonly operators: readonly Operator[]
+}[] {
+  const order: OperatorGroup[] = []
+  const held = new Map<OperatorGroup, Operator[]>()
+  for (const operator of operators) {
+    const { group } = META[operator]
+    const seen = held.get(group)
+    if (seen) seen.push(operator)
+    else {
+      order.push(group)
+      held.set(group, [operator])
+    }
+  }
+  return order.map((group) => ({
+    group,
+    label: GROUP_LABEL[group],
+    operators: held.get(group) ?? [],
+  }))
 }
 
 /// Which operators each kind offers, in menu order.
@@ -223,6 +384,53 @@ export interface FilterSpec {
   readonly scale?: number
   /// Sits in the number box — "Rp", "pcs", "%".
   readonly unit?: string
+  /// Which operators this field offers, overriding `OPERATORS[kind]`.
+  ///
+  /// For the fields a SERVER narrows rather than the browser. The endpoint
+  /// decides which questions it can answer, and an operator in the menu that
+  /// the request cannot carry is a chip that silently narrows nothing — the
+  /// same failure `matches()` refuses to commit further down this file. A
+  /// column filtered in the browser has no reason to set this: everything the
+  /// kind offers, the predicate can answer.
+  readonly operators?: readonly Operator[]
+  /// Options the server has already counted, keyed by raw code.
+  ///
+  /// Structurally the contract's `FacetCount` and `ui/facets`'s `FacetValue`,
+  /// and named structurally on purpose so `facets?.divisions` assigns without
+  /// a cast and this file imports neither a component nor a wire type. Given,
+  /// the picker never asks the table what values exist — which is what lets a
+  /// screen with no table draw a counted list at all.
+  readonly counted?: readonly {
+    readonly value: string
+    readonly count: number
+  }[]
+  /// The value in `counted` that stands for "nothing in this column".
+  ///
+  /// A server that counts its facets almost always invents one: ours groups
+  /// unfiled items under the synthetic label `Unclassified`, which is a real
+  /// count of real rows but is NOT a code any row holds — asking for it as one
+  /// matches nothing, which is how a facet with 4 beside it used to return an
+  /// empty page. Named here so the picker can offer the row (the count is the
+  /// whole reason somebody clicks it) while committing the clause that
+  /// actually answers it: `is empty`.
+  readonly emptyValue?: string
+  /// Something to set beside the option's label — a colour swatch, a status
+  /// dot. `ui/facets` calls the same idea `leadingOf`.
+  readonly leading?: (value: string) => ReactNode
+  /// At most one clause on this column; a second replaces the first.
+  ///
+  /// True for every server-backed field, because each maps to ONE array on the
+  /// request: two clauses flattened into `divisionCodes` would read as OR
+  /// where the model promises AND, and the list would come back wider than the
+  /// chips say. A column the browser filters has no such ceiling — two clauses
+  /// on one date column AND correctly, which is the case `columnFilters`
+  /// below exists to group.
+  readonly single?: boolean
+}
+
+/// Which operators a field offers — its own list, or everything its kind has.
+export function operatorsFor(spec: FilterSpec): readonly Operator[] {
+  return spec.operators ?? OPERATORS[spec.kind]
 }
 
 /* -------------------------------------------------------------------------- */
@@ -454,7 +662,7 @@ export function encodeFilters(filters: readonly Filter[]): string | undefined {
   return encoded === "" ? undefined : encoded
 }
 
-const OPERATOR_NAMES = new Set<string>(Object.keys(LABEL))
+const OPERATOR_NAMES = new Set<string>(Object.keys(META))
 
 /// Anything malformed is dropped rather than repaired.
 ///
@@ -498,7 +706,33 @@ export interface FilterField {
   readonly spec: FilterSpec
 }
 
-export interface FilterModel<TRow extends RowData> {
+/// The clauses in the URL, and the four ways to change them.
+///
+/// This is the half of the model that has nothing to do with a table. It was
+/// separated out because two of the screens that most want a filter bar —
+/// Sourcing and Articles — have no table at all: they draw a grid of cards and
+/// narrow it at the SERVER, so their options and counts arrive in the response
+/// rather than from a faceted row model. Every one of them had, until this
+/// split, a facet rail with its selection in a `useState`, which cannot be
+/// sent to a colleague and does not survive the reload a shop's browser gets
+/// each morning — the two things this file's URL format exists to give.
+export interface FilterState {
+  readonly filters: readonly Filter[]
+  readonly fields: readonly FilterField[]
+  /// Start an empty clause on a column, with its first operator. What the
+  /// "+ Filter" menu does.
+  readonly addColumn: (column: string) => void
+  /// Add a clause that is already finished. What the omnibox does when
+  /// somebody presses Enter over a value, and the reason this is not just
+  /// `addColumn` + `update`: those are two navigations, and the first one
+  /// writes an incomplete clause the URL should never carry.
+  readonly commit: (filter: Filter) => void
+  readonly update: (index: number, next: Filter) => void
+  readonly remove: (index: number) => void
+  readonly clear: () => void
+}
+
+export interface FilterModel<TRow extends RowData> extends FilterState {
   /// The column definitions, with the shared predicate attached to every
   /// filterable one. Hand these to `useTable`, not the originals: v9 resolves
   /// an unnamed `filterFn` by data type, and a column filtered by a clause
@@ -507,45 +741,22 @@ export interface FilterModel<TRow extends RowData> {
   readonly columns: ColumnDef<TableSetup, TRow>[]
   /// For `state.columnFilters`.
   readonly columnFilters: { id: string; value: unknown }[]
-  readonly filters: readonly Filter[]
-  readonly fields: readonly FilterField[]
+  /// The name `<FilterBar>` and eleven screens already call `addColumn` by.
   readonly add: (column: string) => void
-  readonly update: (index: number, next: Filter) => void
-  readonly remove: (index: number) => void
-  readonly clear: () => void
 }
 
-/// Read the filter bar's state out of the URL and give the table its shape.
+/// Read the clauses out of the URL and hand back the ways to change them.
 ///
-/// The columns are the source of truth for what is filterable: pass the same
-/// array the table is built from and every column carrying `meta.filter`
-/// becomes a field in the "+ Filter" menu. Nothing is declared twice.
-export function useFilters<TRow extends RowData>(
-  columns: readonly ColumnDef<TableSetup, TRow>[],
+/// Takes the fields directly, so a screen with no table can declare what is
+/// filterable in a plain array. `useFilters` below is this hook plus the
+/// TanStack adapter, and is what a screen with a table should use.
+export function useFilterState(
+  fields: readonly FilterField[],
   param: FilterParam = "f"
-): FilterModel<TRow> {
+): FilterState {
   const navigate = useNavigate()
   const search = useSearch({ strict: false }) as SheetSearch
   const raw = search[param]
-
-  const fields = useMemo<FilterField[]>(
-    () =>
-      columns.flatMap((column) => {
-        const spec = column.meta?.filter
-        const id = columnId(column)
-        if (!spec || id === undefined) return []
-        return [
-          {
-            column: id,
-            label:
-              spec.label ??
-              (typeof column.header === "string" ? column.header : id),
-            spec,
-          },
-        ]
-      }),
-    [columns]
-  )
 
   const known = useMemo(
     () => new Map(fields.map((field) => [field.column, field])),
@@ -556,6 +767,11 @@ export function useFilters<TRow extends RowData>(
   /// in. That is what keeps a filtered link to one screen from half-applying
   /// itself to the next: the parameter rides along, finds no matching column,
   /// and narrows nothing.
+  ///
+  /// Dropped from what is READ, note, not from what is written — a screen that
+  /// hides a field for a while (Sourcing hides Supplier inside a shop) leaves
+  /// the clause in the address bar untouched, so leaving the shop brings it
+  /// back rather than silently discarding it.
   const filters = useMemo(
     () => decodeFilters(raw).filter((filter) => known.has(filter.column)),
     [raw, known]
@@ -575,6 +791,85 @@ export function useFilters<TRow extends RowData>(
       })
     },
     [navigate, param]
+  )
+
+  const commit = useCallback(
+    (filter: Filter) => {
+      // `single` fields hold one clause: each maps to one array on a request,
+      // and a second clause flattened into it would read as OR where this file
+      // promises AND. Replacing is what somebody means anyway — they are
+      // editing the chip they just opened, not raising a second one.
+      const spec = known.get(filter.column)?.spec
+      const next = spec?.single
+        ? [...filters.filter((held) => held.column !== filter.column), filter]
+        : [...filters, filter]
+      write(next)
+    },
+    [filters, known, write]
+  )
+
+  return {
+    filters,
+    fields,
+    commit,
+    addColumn: useCallback(
+      (column: string) => {
+        const field = known.get(column)
+        if (!field) return
+        write([
+          ...filters,
+          { column, operator: operatorsFor(field.spec)[0], values: [] },
+        ])
+      },
+      [filters, known, write]
+    ),
+    update: useCallback(
+      (index: number, next: Filter) =>
+        write(filters.map((held, at) => (at === index ? next : held))),
+      [filters, write]
+    ),
+    remove: useCallback(
+      (index: number) => write(filters.filter((_, at) => at !== index)),
+      [filters, write]
+    ),
+    clear: useCallback(() => write([]), [write]),
+  }
+}
+
+/// Read the filter bar's state out of the URL and give the table its shape.
+///
+/// The columns are the source of truth for what is filterable: pass the same
+/// array the table is built from and every column carrying `meta.filter`
+/// becomes a field in the "+ Filter" menu. Nothing is declared twice.
+export function useFilters<TRow extends RowData>(
+  columns: readonly ColumnDef<TableSetup, TRow>[],
+  param: FilterParam = "f"
+): FilterModel<TRow> {
+  const fields = useMemo<FilterField[]>(
+    () =>
+      columns.flatMap((column) => {
+        const spec = column.meta?.filter
+        const id = columnId(column)
+        if (!spec || id === undefined) return []
+        return [
+          {
+            column: id,
+            label:
+              spec.label ??
+              (typeof column.header === "string" ? column.header : id),
+            spec,
+          },
+        ]
+      }),
+    [columns]
+  )
+
+  const state = useFilterState(fields, param)
+  const { filters } = state
+
+  const known = useMemo(
+    () => new Map(fields.map((field) => [field.column, field])),
+    [fields]
   )
 
   const withPredicate = useMemo(
@@ -613,29 +908,11 @@ export function useFilters<TRow extends RowData>(
   }, [filters, known])
 
   return {
+    ...state,
     columns: withPredicate,
     columnFilters,
-    filters,
-    fields,
-    add: useCallback(
-      (column: string) => {
-        const field = known.get(column)
-        if (!field) return
-        const operator = OPERATORS[field.spec.kind][0]
-        write([...filters, { column, operator, values: [] }])
-      },
-      [filters, known, write]
-    ),
-    update: useCallback(
-      (index: number, next: Filter) =>
-        write(filters.map((held, at) => (at === index ? next : held))),
-      [filters, write]
-    ),
-    remove: useCallback(
-      (index: number) => write(filters.filter((_, at) => at !== index)),
-      [filters, write]
-    ),
-    clear: useCallback(() => write([]), [write]),
+    // The name eleven screens and `<FilterBar>` already call it by.
+    add: state.addColumn,
   }
 }
 

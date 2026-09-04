@@ -2,8 +2,8 @@ import {
   columnFacetingFeature,
   columnFilteringFeature,
   columnSizingFeature,
-  globalFilteringFeature,
   columnVisibilityFeature,
+  createExpandedRowModel,
   createFacetedMinMaxValues,
   createFacetedRowModel,
   createFacetedUniqueValues,
@@ -12,10 +12,12 @@ import {
   filterFn_arrIncludes,
   filterFn_arrIncludesSome,
   filterFn_equals,
+  filterFn_includesString,
   filterFn_inDateRange,
   filterFn_inNumberRange,
-  filterFn_includesString,
   filterFn_weakEquals,
+  globalFilteringFeature,
+  rowExpandingFeature,
   rowSelectionFeature,
   rowSortingFeature,
   sortFn_alphanumeric,
@@ -61,6 +63,17 @@ export const tableSetup = tableFeatures({
 
   columnVisibilityFeature,
   rowSelectionFeature,
+
+  /// Sub-rows, for the one list that is a hierarchy rather than a list: the
+  /// fleet pools, grouped under the site they stand in.
+  ///
+  /// Safe to register for everybody, unlike `rowPaginationFeature` above. That
+  /// one reroutes `getRowModel()` through a slice whether or not a table asked
+  /// for it; this one only ever unfolds rows that have `subRows`, and a table
+  /// that does not set `getSubRows` has none — so for every other list in the
+  /// app the expanded model is a pass-through.
+  rowExpandingFeature,
+  expandedRowModel: createExpandedRowModel(),
 
   /// Sizes, not the drag interaction — v8's single `ColumnSizing` is split in
   /// two in v9. The virtualised path needs a width per column because its rows

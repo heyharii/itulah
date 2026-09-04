@@ -1,5 +1,6 @@
 import {
   Archive,
+  Banknote,
   BarChart3,
   CalendarClock,
   FileStack,
@@ -14,12 +15,13 @@ import {
 
 import type { AppModule } from "@/lib/navigation"
 import {
+  useFinanceAttentionCount,
   useMonthNotOpenCount,
   useOverdueBillCount,
   useUnmappedMeaningCount,
 } from "@/screens/finance/badges"
 
-/// This module's place in the rail and everything under it in the sidebar.
+/// This module's row in the sidebar and the sub-items under it.
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
@@ -42,14 +44,23 @@ export const financeNav: AppModule = {
   id: "finance",
   label: "Finance",
   icon: Landmark,
-  tint: { top: "#77e883", bottom: "#1cb13a" },
   home: "/finance",
+  // Red because one of the three it adds up is a stoppage. See
+  // `useFinanceAttentionCount`.
+  badge: "bad",
+  useCount: useFinanceAttentionCount,
   sections: [
     {
       items: [{ path: "/finance", label: "Overview", icon: Gauge }],
     },
     {
       /// What is on somebody's desk today, in the order the day tends to run.
+      ///
+      /// The bill arrives, the bill is paid, the money is checked against what
+      /// the bank says, and what is left over is the register and the entries
+      /// nobody else wrote. Payments sits second because that is where it
+      /// falls in the day, not because it is the second most important thing —
+      /// a group ordered by importance is a group nobody can predict.
       label: "Work",
       items: [
         {
@@ -61,7 +72,12 @@ export const financeNav: AppModule = {
           badge: "warn",
           useCount: useOverdueBillCount,
         },
-        { path: "/finance/bank", label: "Bank", icon: Wallet },
+        { path: "/finance/payments", label: "Payments", icon: Banknote },
+        // "Cash & bank" and not "Bank": the screen is where money leaving and
+        // arriving is checked, and a shop's till float is as much of that as a
+        // giro transfer. It is a statement list today and becomes the drill-in
+        // under that name.
+        { path: "/finance/bank", label: "Cash & bank", icon: Wallet },
         { path: "/finance/assets", label: "Assets", icon: Archive },
         { path: "/finance/journal", label: "Journal", icon: FileText },
       ],

@@ -85,8 +85,17 @@ export function TillShell() {
 
       <Outlet />
 
+      {/* The floating squircles are the PHONE navigation, and on a counter
+          they are in the way: the desk's own function board carries the same
+          four destinations, pinned where a cashier's hand already is. So the
+          bar is drawn below `md` and hidden at the width the desk appears at —
+          two navigations on one screen is two places to look. */}
       {pushed === null && (
-        <TabBar items={tabs} activePath={tab?.path ?? null} />
+        <TabBar
+          items={tabs}
+          activePath={tab?.path ?? null}
+          className="md:hidden"
+        />
       )}
 
       <TillDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />

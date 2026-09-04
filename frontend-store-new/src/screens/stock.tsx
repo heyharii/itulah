@@ -124,10 +124,7 @@ export function Stock() {
 
             <div className="mt-3 flex items-end gap-2.5">
               <Field label="From" className="flex-1">
-                <Select
-                  value={from}
-                  onChange={(event) => setFrom(event.target.value)}
-                >
+                <Select value={from} onChange={(next) => setFrom(next)}>
                   {PLACES.map((place) => (
                     <option key={place.code} value={place.code}>
                       {place.label}
@@ -137,10 +134,7 @@ export function Stock() {
               </Field>
               <ArrowRight className="mb-4 size-4 shrink-0 text-line-ico" />
               <Field label="To" className="flex-1">
-                <Select
-                  value={to}
-                  onChange={(event) => setTo(event.target.value)}
-                >
+                <Select value={to} onChange={(next) => setTo(next)}>
                   {PLACES.map((place) => (
                     <option key={place.code} value={place.code}>
                       {place.label}

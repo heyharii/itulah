@@ -15,6 +15,7 @@ import type {
 } from "@itulah/contract"
 
 import { node } from "@/lib/api"
+import { arity, type Filter } from "@/lib/filters"
 
 /// Purchasing reads and writes, and the keys they are held under.
 ///
@@ -290,6 +291,10 @@ export interface UpdateSupplierItemRequest {
   /// Absent leaves tags alone; present REPLACES them, so an empty list means
   /// "remove every tag".
   readonly tags?: readonly string[] | null
+  /// What it comes in, same rule: absent leaves them alone, present replaces,
+  /// and an empty list is "this does not come in variants after all".
+  readonly colour_codes?: readonly string[] | null
+  readonly size_codes?: readonly string[] | null
 }
 
 /// One page of a supplier's own catalogue.
@@ -319,6 +324,32 @@ export interface SourcingScope {
   readonly supplierIds?: readonly string[]
   readonly divisionCodes?: readonly string[]
   readonly tagCodes?: readonly string[]
+  /// The same three, negated, and ANDed with their positive twins.
+  ///
+  /// A separate field rather than a sign inside the existing one: the two are
+  /// asked together often enough — "kidswear, but not from that supplier" —
+  /// and a value beginning with a minus would be ambiguous the first time a
+  /// code did.
+  readonly excludedSupplierIds?: readonly string[]
+  readonly excludedDivisionCodes?: readonly string[]
+  readonly excludedTagCodes?: readonly string[]
+  /// What the item comes in. `ANY` semantics, like tags: navy or black, not
+  /// navy and black — somebody narrowing a catalogue is naming what would do,
+  /// not writing a specification.
+  readonly colourCodes?: readonly string[]
+  readonly excludedColourCodes?: readonly string[]
+  readonly sizeCodes?: readonly string[]
+  readonly excludedSizeCodes?: readonly string[]
+  /// `true` asks for the rows with nothing in the column, `false` for the rows
+  /// with something. This is what makes the `Unclassified` facet clickable —
+  /// it counts items whose division is null, and no list of codes can match
+  /// one of those.
+  readonly divisionNull?: boolean
+  readonly tagsNull?: boolean
+  /// `true` is "no variants recorded", which on a supplier feed is most of the
+  /// catalogue and is exactly the pile somebody filling the gaps wants.
+  readonly coloursNull?: boolean
+  readonly sizesNull?: boolean
   readonly priceMin?: number
   readonly priceMax?: number
   readonly limit?: number
@@ -640,6 +671,27 @@ export function searchSupplierItems(
   if (scope.divisionCodes?.length)
     params.set("division", scope.divisionCodes.join(","))
   if (scope.tagCodes?.length) params.set("tags", scope.tagCodes.join(","))
+  if (scope.excludedSupplierIds?.length)
+    params.set("supplier_id_not", scope.excludedSupplierIds.join(","))
+  if (scope.excludedDivisionCodes?.length)
+    params.set("division_not", scope.excludedDivisionCodes.join(","))
+  if (scope.excludedTagCodes?.length)
+    params.set("tags_not", scope.excludedTagCodes.join(","))
+  if (scope.divisionNull !== undefined)
+    params.set("division_null", String(scope.divisionNull))
+  if (scope.tagsNull !== undefined)
+    params.set("tags_null", String(scope.tagsNull))
+  if (scope.colourCodes?.length)
+    params.set("colour", scope.colourCodes.join(","))
+  if (scope.excludedColourCodes?.length)
+    params.set("colour_not", scope.excludedColourCodes.join(","))
+  if (scope.coloursNull !== undefined)
+    params.set("colour_null", String(scope.coloursNull))
+  if (scope.sizeCodes?.length) params.set("size", scope.sizeCodes.join(","))
+  if (scope.excludedSizeCodes?.length)
+    params.set("size_not", scope.excludedSizeCodes.join(","))
+  if (scope.sizesNull !== undefined)
+    params.set("size_null", String(scope.sizesNull))
   if (scope.priceMin !== undefined)
     params.set("price_min", String(scope.priceMin))
   if (scope.priceMax !== undefined)
@@ -651,6 +703,93 @@ export function searchSupplierItems(
     `/api/v1/supplier-items${query === "" ? "" : `?${query}`}`,
     { signal }
   )
+}
+
+/// The filter bar's clauses, as a request this endpoint can answer.
+///
+/// Here rather than in the screen, and beside `searchSupplierItems` rather
+/// than beside the bar, because this function is the whole statement of what
+/// the endpoint can and cannot be asked. Every operator the sourcing fields
+/// offer has a case below; an operator with no case is one the server would
+/// silently ignore, which is a chip that claims to narrow a list and does not.
+/// Keeping the mapping next to the fetcher is what makes that reviewable in
+/// one screenful — in the browser it would be spread across a component.
+///
+/// The column names are the bar's, not the wire's: `division`, `tag`,
+/// `colour`, `size`, `supplier`, `price`. They are also what appears in `?f=`,
+/// so they are a public surface and worth keeping short.
+export function scopeFromFilters(
+  filters: readonly Filter[]
+): Partial<SourcingScope> {
+  const scope: {
+    -readonly [K in keyof SourcingScope]: SourcingScope[K]
+  } = {}
+
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 && arity(operator) !== "none") continue
+
+    switch (column) {
+      case "division":
+        if (operator === "is" || operator === "isAnyOf")
+          scope.divisionCodes = values
+        else if (operator === "isNot" || operator === "isNoneOf")
+          scope.excludedDivisionCodes = values
+        else if (operator === "isEmpty") scope.divisionNull = true
+        else if (operator === "isNotEmpty") scope.divisionNull = false
+        break
+
+      case "tag":
+        if (operator === "includesAnyOf") scope.tagCodes = values
+        else if (operator === "excludes") scope.excludedTagCodes = values
+        else if (operator === "isEmpty") scope.tagsNull = true
+        else if (operator === "isNotEmpty") scope.tagsNull = false
+        break
+
+      case "colour":
+        if (operator === "includesAnyOf") scope.colourCodes = values
+        else if (operator === "excludes") scope.excludedColourCodes = values
+        else if (operator === "isEmpty") scope.coloursNull = true
+        else if (operator === "isNotEmpty") scope.coloursNull = false
+        break
+
+      case "size":
+        if (operator === "includesAnyOf") scope.sizeCodes = values
+        else if (operator === "excludes") scope.excludedSizeCodes = values
+        else if (operator === "isEmpty") scope.sizesNull = true
+        else if (operator === "isNotEmpty") scope.sizesNull = false
+        break
+
+      case "supplier":
+        if (operator === "is" || operator === "isAnyOf")
+          scope.supplierIds = values
+        else if (operator === "isNot" || operator === "isNoneOf")
+          scope.excludedSupplierIds = values
+        break
+
+      case "price": {
+        // Sent as typed. `unit_price_minor` is whole rupiah despite its name
+        // (`lib/format`: IDR has no minor unit in practice), so a bound needs
+        // no conversion — and applying one would silently multiply every
+        // filter by a hundred.
+        const minor = (at: number) => {
+          const parsed = Number(values[at])
+          return Number.isFinite(parsed) ? Math.round(parsed) : undefined
+        }
+        if (operator === "gte") scope.priceMin = minor(0)
+        else if (operator === "lte") scope.priceMax = minor(0)
+        else if (operator === "between") {
+          const [low, high] = [minor(0), minor(1)]
+          if (low !== undefined && high !== undefined) {
+            scope.priceMin = Math.min(low, high)
+            scope.priceMax = Math.max(low, high)
+          }
+        }
+        break
+      }
+    }
+  }
+
+  return scope
 }
 
 /// The words the catalogue may be described with, so a screen can show

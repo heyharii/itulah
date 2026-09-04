@@ -1,9 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { ChevronRight } from "lucide-react"
+import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/field"
+import { Checkbox } from "@/components/ui/field"
+import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
@@ -11,9 +14,12 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, day, money, moment } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import {
   articlePrices,
   commercialKeys,
+  priceScopeFromFilters,
+  type ArticlePriceScope,
   describeLevel,
   describeSource,
   isMarkedDown,
@@ -31,8 +37,15 @@ import {
   type PublishReceipt,
   type ShelfPrice,
 } from "@/lib/queries/commercial"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import {
+  listTerms,
+  vocabularyKeys,
+  type MasterTerm,
+} from "@/lib/queries/vocabulary"
+import { useDebounced } from "@/lib/use-debounced"
 import { Named, Quiet } from "@/screens/commercial/parts"
 import {
   EditBar,
@@ -40,7 +53,10 @@ import {
   SalePriceSheet,
   type CellRef,
   type PendingEdit,
+  type PendingMarkdown,
+  type PendingPrice,
 } from "@/screens/commercial/pricelist-editor"
+import { NewPriceSheet, type PriceSeed } from "@/screens/commercial/price-form"
 import { markdownDepthBps } from "@/lib/queries/commercial"
 import { cellKey, percent } from "@/screens/commercial/shared"
 
@@ -143,6 +159,25 @@ function newestByRung(row: ArticlePriceRow): ReadonlyMap<string, number> {
   return newest
 }
 
+/// What a selection of cells says to the price composer.
+///
+/// A cell is a style at a shop; a base price is a product at a level. The
+/// translation is deliberately lossy in one direction only — the styles become
+/// *which products to offer*, the shops become *which shops to name* — and the
+/// composer then asks for everything a cell cannot say. Deduplicated because
+/// three cells of one style at three shops is one style and three shops, not
+/// three of each.
+function seedFrom(
+  cells: readonly CellRef[],
+  priceMinor: number | null
+): PriceSeed {
+  return {
+    articleCodes: [...new Set(cells.map((one) => one.articleCode))],
+    siteIds: [...new Set(cells.map((one) => one.siteId))],
+    priceMinor,
+  }
+}
+
 /// The key a cell is opened under, and read back from.
 ///
 /// One cell is one article at one shop, and neither half identifies it alone —
@@ -177,10 +212,92 @@ export function Pricelist() {
   const search = useSheet("q")
   const cell = useSheet("price")
 
+  /// What this screen can be narrowed by, and how.
+  ///
+  /// Each operator list is cut to what `/api/v1/commercial/article-prices` can
+  /// actually answer. An operator in the menu the request cannot carry is a
+  /// chip that silently narrows nothing, which is worse than a missing one:
+  /// the reader believes the list in front of them is filtered.
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "division",
+        label: "Division",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+        },
+      },
+      {
+        column: "tag",
+        label: "Tag",
+        spec: {
+          kind: "multi",
+          single: true,
+          operators: ["includesAnyOf"],
+        },
+      },
+      {
+        column: "price",
+        label: "Price",
+        spec: {
+          kind: "number",
+          // No scale. `unit_price_minor` holds whole rupiah despite the name
+          // (`lib/format` says why), so a bound is sent as typed — scaling by
+          // a hundred is the mistake that already caught seven other columns.
+          unit: "Rp",
+          // Two clauses rather than one "is between": they land on two
+          // different request parameters and AND on the server exactly as the
+          // chips promise.
+          operators: ["gte", "lte"],
+        },
+      },
+    ],
+    []
+  )
+
+  const filters = useFilterState(fields)
+
+  /// The names for the codes the facets count.
+  ///
+  /// Both lists are small — a company has six divisions and a few dozen tags —
+  /// and both are already cached by every other screen that draws them, so
+  /// this costs nothing and stops the picker offering `LENGAN_PANJANG` where a
+  /// merchandiser expects "Lengan Panjang".
+  const divisions = useQuery({
+    queryKey: vocabularyKeys.list("divisions"),
+    queryFn: ({ signal }) => listTerms("divisions", signal),
+  })
+  const tags = useQuery({
+    queryKey: vocabularyKeys.list("tags"),
+    queryFn: ({ signal }) => listTerms("tags", signal),
+  })
+
+  /// What was typed, plus the chips, as the one request that answers both.
+  ///
+  /// Debounced deliberately: this endpoint prices every matching style across
+  /// thirteen shops, so a keystroke is not a cheap question. Half a second is
+  /// long enough that typing "kemeja" asks once instead of six times, and
+  /// short enough that it still feels like the box is listening.
+  const typed = (search.value ?? "").trim()
+  const needle = useDebounced(typed, 400)
+  const scope = useMemo<ArticlePriceScope>(
+    () => ({
+      ...priceScopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+    }),
+    [filters.filters, needle]
+  )
+
   const prices = useQuery({
-    queryKey: commercialKeys.articlePrices(CHANNEL, null),
+    queryKey: commercialKeys.articlePrices(CHANNEL, null, scope),
     queryFn: ({ signal }) =>
-      articlePrices({ channel: CHANNEL, limit: 200 }, signal),
+      articlePrices({ channel: CHANNEL, limit: 200, ...scope }, signal),
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the grid to a loading line and the screen
+    // flashes its way through a word.
+    placeholderData: (previous) => previous,
   })
 
   /// The books, for two things this screen has to say: which publication a
@@ -245,17 +362,11 @@ export function Pricelist() {
     return map
   }, [books.data])
 
-  const needle = (search.value ?? "").trim().toLowerCase()
-
-  const items = useMemo(() => {
-    const all = prices.data?.items ?? []
-    if (needle === "") return all
-    return all.filter(
-      (row) =>
-        row.article_code.toLowerCase().includes(needle) ||
-        (row.article_name ?? "").toLowerCase().includes(needle)
-    )
-  }, [prices.data, needle])
+  /// The rows, as they came back. No second filter here on purpose: the
+  /// server matched them, and a browser-side pass over the SAME words would
+  /// be a second definition of "matches" — one that could only ever disagree,
+  /// and that could not see the SKU codes the server searched.
+  const items = prices.data?.items ?? []
 
   const open = readCellKey(cell.value)
 
@@ -266,11 +377,51 @@ export function Pricelist() {
   // they have typed and not sent. Collapsing them would mean clearing a
   // selection threw away typed prices, which is the kind of loss a grid makes
   // easy and an undo does not exist for.
+  /// Which styles are showing what their price beat.
+  ///
+  /// Local rather than in the URL, unlike the search box and the open cell.
+  /// Those two name a QUESTION — "the caps" , "this shop's price for that
+  /// style" — and a question is worth sending to a colleague. A disclosure
+  /// names a glance: it survives neither a reload nor a filter meaningfully,
+  /// and putting it in the address bar would make every chevron a history
+  /// entry to press Back through.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleExpanded = useCallback((articleCode: string) => {
+    setExpanded((open) => {
+      const next = new Set(open)
+      if (!next.delete(articleCode)) next.add(articleCode)
+      return next
+    })
+  }, [])
+
   const [selection, setSelection] = useState<readonly CellRef[]>([])
   const [pending, setPending] = useState<readonly PendingEdit[]>([])
   const [pricing, setPricing] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [receipt, setReceipt] = useState<PublishReceipt | null>(null)
+
+  /// The composer, in the URL like every other panel: a merchandiser sent
+  /// "price these for Bandung" should land on the sheet, not on the grid with
+  /// instructions.
+  const composer = useSheet("new-price")
+  /// What the grid pointed it at. Screen state and not the URL, deliberately —
+  /// a seed is the *starting* contents of a form somebody is now editing, and
+  /// putting it in the address bar would make a half-filled form re-seed itself
+  /// on every navigation.
+  const [seed, setSeed] = useState<PriceSeed | null>(null)
+  const openComposer = (next: PriceSeed | null) => {
+    setSeed(next)
+    composer.open(true)
+  }
+
+  /// The two halves of what is waiting to be published, counted apart because
+  /// they are not the same promise — see the editor's `PendingEdit`.
+  const sales = pending.filter(
+    (one): one is PendingMarkdown => one.kind === "markdown"
+  )
+  const priced = pending.filter(
+    (one): one is PendingPrice => one.kind === "price"
+  )
 
   /// The number a new book has to carry to win. The engine ranks by version
   /// before anything else, so a book written below one already here publishes,
@@ -289,34 +440,95 @@ export function Pricelist() {
         : [...was, ref]
     })
 
+  /// The fields the bar actually draws: the declarations above, with the
+  /// server's counts and the master list's names attached.
+  ///
+  /// Counted over the whole catalogue rather than over what is on screen —
+  /// that is the server's doing, and the reason it matters is that a facet
+  /// list counting only the current page cannot tell you what ticking a
+  /// second box would ADD, which is the one thing a facet is for.
+  const counted = useMemo<FilterField[]>(() => {
+    const names = (terms: readonly MasterTerm[] | undefined) =>
+      new Map((terms ?? []).map((term) => [term.code, term.label]))
+    const divisionNames = names(divisions.data?.terms)
+    const tagNames = names(tags.data?.terms)
+    const facets = prices.data?.facets
+    return fields.map((field) => {
+      if (field.column === "division")
+        return {
+          ...field,
+          spec: {
+            ...field.spec,
+            counted: facets?.divisions,
+            format: (code: string) => divisionNames.get(code) ?? code,
+          },
+        }
+      if (field.column === "tag")
+        return {
+          ...field,
+          spec: {
+            ...field.spec,
+            counted: facets?.tags,
+            format: (code: string) => tagNames.get(code) ?? code,
+          },
+        }
+      return field
+    })
+  }, [fields, prices.data?.facets, divisions.data, tags.data])
+
+  /// Sale prices, keyed the way the grid is.
+  ///
+  /// **Markdowns only, and that is not an omission.** A cell shows one figure
+  /// for a whole style, which is exactly what a markdown is; a new base price
+  /// is per product, so eight sizes at one shop would be eight numbers with one
+  /// square to draw them in. Striking the cell through with one of them would
+  /// be the screen inventing an answer the engine never gave. The affected
+  /// cells are marked instead, and the figures are in the bar and the publish
+  /// sheet where every row has its own line.
   const pendingByCell = useMemo(() => {
-    const map = new Map<string, PendingEdit>()
-    for (const edit of pending) {
+    const map = new Map<string, PendingMarkdown>()
+    for (const edit of sales) {
       map.set(cellKey(edit.articleCode, edit.siteId), edit)
     }
     return map
-  }, [pending])
+  }, [sales])
+
+  /// Which cells a pending base price touches — a marker, never a figure.
+  ///
+  /// A fleet-wide or grouped price names no article, so the cells are worked
+  /// out the other way round: from the styles the priced products belong to,
+  /// against the shops the price actually reaches.
+  const pricedCells = useMemo(() => {
+    const cells = new Set<string>()
+    const everywhere = (prices.data?.shops ?? []).map((shop) => shop.site_id)
+    for (const price of priced) {
+      const sites =
+        price.siteId !== null
+          ? [price.siteId]
+          : price.siteIds !== null
+            ? price.siteIds
+            : everywhere
+      for (const site of sites) cells.add(cellKey(price.articleCode, site))
+    }
+    return cells
+  }, [priced, prices.data?.shops])
 
   return (
     <PageContent>
       <PageHeader
         crumb="Commercial"
         title="Pricelist"
-        sub="What every article costs at every shop, and what that price beat. Row one is what the till charges."
+        sub="What every article costs at every shop. Row one is what the till charges; open a style to see what that price beat."
         actions={
-          <Input
-            value={search.value ?? ""}
-            onChange={(event) =>
-              event.target.value === ""
-                ? search.close()
-                : search.open(event.target.value)
-            }
-            placeholder="Search article"
-            className="h-8 w-48"
-          />
+          // Reachable without a cell, because the commonest reason to open it
+          // is a style whose price is being decided rather than read — and a
+          // composer that could only be reached by first finding a square in a
+          // 500-row matrix would make the grid a toll gate.
+          <Button variant="soft" onClick={() => openComposer(null)}>
+            New price
+          </Button>
         }
       />
-
 
       {queryState(prices, {
         loading: "Pricing the range across every shop…",
@@ -334,10 +546,26 @@ export function Pricelist() {
               // Never let a capped list read as a complete one.
               <Banner tone="info" className="mb-4">
                 Showing {count(page.article_count)} of{" "}
-                {count(page.total_article_count)} articles. Search to reach the
-                rest.
+                {count(page.total_article_count)} articles that match. Search or
+                filter to reach the rest.
               </Banner>
             )}
+
+            {/* One box for both questions, sitting on top of what it narrows.
+                Search used to be a 12rem input in the page header's top-right
+                corner — as far from the grid as the layout allowed, and small
+                enough to read as a minor control, when it is the only way
+                through five hundred styles. Filtering and searching are also
+                one thought: "kemeja, menswear, under 200.000" is a sentence
+                somebody says in one breath, and splitting it across two
+                controls in two corners makes them say it twice. */}
+            <FilterOmnibox
+              model={{ ...filters, fields: counted }}
+              text={typed === "" ? undefined : typed}
+              onText={(next) => (next ? search.open(next) : search.close())}
+              placeholder="Search an article, code or SKU — or filter by division, tag or price"
+              className="mb-4"
+            />
 
             {upcomingFrom !== null && (
               <Banner tone="info" className="mb-4">
@@ -382,13 +610,18 @@ export function Pricelist() {
 
             <EditBar
               selected={selection.length}
-              pending={pending.length}
+              markdowns={sales.length}
+              prices={priced.length}
               onSetPrice={() => {
                 // One sheet at a time: the editor and the drill-down are both
                 // the same floating panel, and two of them are a stack nobody
                 // asked for.
                 cell.close()
                 setPricing(true)
+              }}
+              onNewPrice={() => {
+                cell.close()
+                openComposer(seedFrom(selection, null))
               }}
               onClearSelection={() => setSelection([])}
               onDiscard={() => setPending([])}
@@ -424,7 +657,10 @@ export function Pricelist() {
                   }
                   selection={selection}
                   pending={pendingByCell}
+                  pricedCells={pricedCells}
                   onToggleSelected={toggleSelected}
+                  expanded={expanded}
+                  onToggleExpanded={toggleExpanded}
                 />
               )}
             </Card>
@@ -450,13 +686,23 @@ export function Pricelist() {
       <SalePriceSheet
         open={pricing}
         cells={selection}
+        onNewPrice={(priceMinor) => {
+          setPricing(false)
+          openComposer(seedFrom(selection, priceMinor))
+        }}
         onApply={(edits) => {
           // Later edits win over earlier ones for the same cell: typing a
           // second price for a cell is a correction, not a second markdown, and
           // the server would refuse two rows with the same id anyway.
+          //
+          // Only markdowns are compared. A base price for the same style at the
+          // same shop is not a correction of a clearance — the two are separate
+          // rungs and a book carries both — so matching on the cell alone would
+          // silently drop one of them.
           setPending((was) => [
             ...was.filter(
               (old) =>
+                old.kind !== "markdown" ||
                 !edits.some(
                   (edit) =>
                     edit.articleCode === old.articleCode &&
@@ -469,6 +715,40 @@ export function Pricelist() {
           setPricing(false)
         }}
         onClose={() => setPricing(false)}
+      />
+
+      <NewPriceSheet
+        // Remounted per seed, which is how the form starts filled without an
+        // effect: every field's initial value is read from the seed, and a
+        // seed that changed under a mounted form would be a set of defaults
+        // arriving after somebody had already typed over them.
+        key={
+          seed === null
+            ? "empty"
+            : `${seed.articleCodes.join(",")}|${seed.siteIds.join(",")}|${seed.priceMinor ?? ""}`
+        }
+        open={composer.isOpen}
+        seed={seed}
+        shops={prices.data?.shops ?? []}
+        onAdd={(rows) => {
+          // Keyed by the server's own uniqueness, so authoring a second price
+          // for one product at one level replaces the first rather than
+          // travelling as two rows the publication would refuse.
+          setPending((was) => [
+            ...was.filter(
+              (old) =>
+                old.kind !== "price" || !rows.some((row) => row.key === old.key)
+            ),
+            ...rows,
+          ])
+          setSelection([])
+          // The seed is spent. Dropping it is what makes the next open a fresh
+          // form rather than the same styles offered again at no price — the
+          // sheet is keyed on the seed, so this is also what remounts it.
+          setSeed(null)
+          composer.close()
+        }}
+        onClose={composer.close}
       />
 
       <PublishSheet
@@ -527,10 +807,17 @@ function linesFor(shop: ArticlePriceShop | undefined): readonly Line[] {
 }
 
 /// How many rows an article needs: the longest cascade any shop has for it.
+///
+/// No floor. There used to be one of two rows, meant to keep a style that is
+/// marked down at one shop and not at another lined up across the fleet — but
+/// `deepest` is already the longest cascade *any* shop has, so the moment one
+/// shop has a second price the depth is 2 without help. The floor could only
+/// ever fire when no shop had more than one price, and all it did there was
+/// draw a row of thirteen empty squares under a fleet that agrees.
 function depthOf(lines: ReadonlyMap<string, readonly Line[]>): number {
   let deepest = 1
   for (const shop of lines.values()) deepest = Math.max(deepest, shop.length)
-  return Math.max(deepest, 2)
+  return deepest
 }
 
 function PriceGrid({
@@ -542,7 +829,10 @@ function PriceGrid({
   onOpenCell,
   selection,
   pending,
+  pricedCells,
   onToggleSelected,
+  expanded,
+  onToggleExpanded,
 }: {
   page: ArticlePrices
   items: readonly ArticlePriceRow[]
@@ -551,8 +841,17 @@ function PriceGrid({
   openCell: string | undefined
   onOpenCell: (articleCode: string, siteId: string) => void
   selection: readonly CellRef[]
-  pending: ReadonlyMap<string, PendingEdit>
+  pending: ReadonlyMap<string, PendingMarkdown>
+  /// Cells a pending base price reaches. A marker only — the figures live in
+  /// the publish sheet, because a cell is a style and a base price is not.
+  pricedCells: ReadonlySet<string>
   onToggleSelected: (cell: CellRef) => void
+  /// Article codes whose cascade is showing. A set rather than one open row:
+  /// comparing two styles' markdowns side by side is the whole reason to open
+  /// one, and an accordion that shuts the first when you open the second makes
+  /// that impossible.
+  expanded: ReadonlySet<string>
+  onToggleExpanded: (articleCode: string) => void
 }) {
   const selected = useMemo(
     () => new Set(selection.map((one) => cellKey(one.articleCode, one.siteId))),
@@ -598,11 +897,14 @@ function PriceGrid({
           ))}
         </colgroup>
 
+        {/* Micro-caps, like every other table head in the app. This one used
+            to be sentence-case body text in the same size as the money under
+            it, which left the header band reading as a first row of data. */}
         <thead>
           <tr>
             <th
               scope="col"
-              className="sticky top-0 left-0 z-30 border-r border-b border-hairline bg-canvas px-3.5 py-[0.5625rem] text-left font-medium text-mute"
+              className="sticky top-0 left-0 z-30 border-r border-b border-hairline-2 bg-canvas px-3.5 py-2.5 text-left text-eyebrow font-semibold text-mute uppercase"
             >
               Article
             </th>
@@ -611,7 +913,7 @@ function PriceGrid({
                 key={shop.site_id}
                 scope="col"
                 className={
-                  "sticky top-0 z-20 truncate border-b border-hairline bg-canvas px-3.5 py-[0.5625rem] text-right font-medium text-mute " +
+                  "sticky top-0 z-20 truncate border-b border-hairline-2 bg-canvas px-3.5 py-2.5 text-right text-eyebrow font-semibold text-mute uppercase " +
                   (index === page.shops.length - 1 ? "" : "border-r")
                 }
                 title={shop.label ?? shop.site_id}
@@ -630,7 +932,15 @@ function PriceGrid({
                 linesFor(row.shops.find((one) => one.site_id === shop.site_id)),
               ])
             )
-            const depth = depthOf(lines)
+            const full = depthOf(lines)
+            const open = expanded.has(row.article_code)
+            // One row unless asked. The rows below the first are prices that
+            // were BEATEN — the history of the number, not the number — and
+            // thirteen columns of history is what made this grid a wall of
+            // grey figures nobody read. They are one click away, and the same
+            // cascade is in the cell's own panel with more context than a row
+            // can carry.
+            const depth = open ? full : 1
             const newest = newestByRung(row)
             return Array.from({ length: depth }, (_, line) => (
               <tr key={`${row.article_code}:${line}`} className="group/row">
@@ -638,34 +948,17 @@ function PriceGrid({
                   <th
                     scope="rowgroup"
                     rowSpan={depth}
-                    className="sticky left-0 z-20 max-w-0 border-r border-b border-hairline bg-canvas px-3.5 py-2.5 text-left align-top font-normal"
+                    className="sticky left-0 z-20 max-w-0 border-r border-b border-hairline-strong bg-canvas p-0 text-left align-top font-normal"
                   >
-                    <span className="flex items-center gap-2 overflow-hidden">
-                      {/* A style with no picture is a box, not a broken image:
-                          the catalogue is filled in over months and a missing
-                          photograph is not a fault worth drawing as one. */}
-                      <span className="grid size-6 shrink-0 place-items-center overflow-hidden rounded-inner bg-soft-2">
-                        {row.image_url ? (
-                          <img
-                            src={row.image_url}
-                            alt=""
-                            className="size-full object-cover"
-                          />
-                        ) : (
-                          <span className="font-mono text-[0.5625rem] text-faint">
-                            —
-                          </span>
-                        )}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-ink">
-                          {row.article_name ?? "—"}
-                        </span>
-                        <span className="font-mono text-[0.65625rem] text-mute">
-                          {row.article_code} · {count(row.sku_count)} SKU
-                        </span>
-                      </span>
-                    </span>
+                    <ArticleCell
+                      row={row}
+                      // Nothing to open when every shop charges one price and
+                      // beat nothing to get there. A disclosure that opens an
+                      // empty drawer teaches people to stop pressing it.
+                      beneath={full - 1}
+                      open={open}
+                      onToggle={() => onToggleExpanded(row.article_code)}
+                    />
                   </th>
                 )}
 
@@ -675,9 +968,23 @@ function PriceGrid({
                   )
                   const key = cellKey(row.article_code, shop.site_id)
                   const here = lines.get(shop.site_id) ?? []
-                  const at = here[line]
-                  const rule = at?.rule
                   const top = priced === undefined ? undefined : winner(priced)
+
+                  // Collapsed, the cell draws the WINNING RUNG rather than the
+                  // first flattened line, and those are not the same thing. A
+                  // style priced per size has one rung carrying five amounts,
+                  // and the first line is the cheapest of them — so the old
+                  // one-row cell would have quietly shown 189.000 for a style
+                  // that runs 189 to 269. `spread` is what stops that being a
+                  // lie: the figure is the lowest, and the mark beside it says
+                  // how many more there are.
+                  const collapsedPoints = top === undefined ? [] : pointsOf(top)
+                  const at = open
+                    ? here[line]
+                    : top === undefined
+                      ? undefined
+                      : { rule: top, point: collapsedPoints[0] }
+                  const rule = at?.rule
                   return (
                     <PriceCell
                       key={shop.site_id}
@@ -708,12 +1015,41 @@ function PriceGrid({
                       // looking at when they decide to cut it.
                       editable={line === 0}
                       pending={line === 0 ? (pending.get(key) ?? null) : null}
+                      repriced={line === 0 && pricedCells.has(key)}
                       bookName={
                         rule === undefined
                           ? null
                           : (bookNames.get(rule.publication_version) ?? null)
                       }
+                      // How many amounts sit under this square that it is not
+                      // showing. Collapsed only: expanded, every one of them
+                      // has a row of its own and there is nothing hidden.
+                      spread={open ? 1 : collapsedPoints.length}
+                      // Expanded rows carry their own name, inside the square.
+                      // It cannot be a row label on the left: a rank means a
+                      // different thing at each shop — rung two is a markdown
+                      // here and the company price next door.
+                      //
+                      // WHICH name depends on what actually separates this row
+                      // from the one above it, and the two cases are different
+                      // questions wearing the same shape:
+                      //
+                      //  * a deeper RUNG is a different candidate, so the name
+                      //    is where it came from — "Company", "Markdown";
+                      //  * another POINT of one rung is the same candidate
+                      //    priced per size, and naming its source would print
+                      //    "Company" four times down a column and distinguish
+                      //    nothing. What separates those rows is who pays
+                      //    them, so that is what they say.
+                      label={
+                        !open || rule === undefined || at?.point === undefined
+                          ? null
+                          : pointsOf(rule).length > 1
+                            ? `${count(at.point.in_force_for)} ${at.point.in_force_for === 1 ? "product" : "products"}`
+                            : describeSource(rule.source)
+                      }
                       last={index === page.shops.length - 1}
+                      groupEnd={line === depth - 1}
                       onOpen={() => onOpenCell(row.article_code, shop.site_id)}
                       onPick={() =>
                         onToggleSelected({
@@ -736,6 +1072,87 @@ function PriceGrid({
   )
 }
 
+/// The frozen left-hand square: what the style IS, and the way into what its
+/// price beat.
+///
+/// The disclosure is here rather than on each cell because what opens is the
+/// whole ROW — thirteen shops' cascades line up or they say nothing — and a
+/// per-cell control would offer thirteen ways to ask one question.
+function ArticleCell({
+  row,
+  beneath,
+  open,
+  onToggle,
+}: {
+  row: ArticlePriceRow
+  /// Rows that would appear if this opened. Zero means the fleet agrees and
+  /// beat nothing on the way, and there is no control at all.
+  beneath: number
+  open: boolean
+  onToggle: () => void
+}) {
+  const inside = (
+    <span className="flex items-start gap-2.5 overflow-hidden">
+      {/* A style with no picture is a box, not a broken image: the catalogue
+          is filled in over months and a missing photograph is not a fault
+          worth drawing as one. */}
+      <span className="grid size-7 shrink-0 place-items-center overflow-hidden rounded-inner bg-soft-2">
+        {row.image_url ? (
+          <img src={row.image_url} alt="" className="size-full object-cover" />
+        ) : (
+          <span aria-hidden className="font-mono text-eyebrow text-faint">
+            —
+          </span>
+        )}
+      </span>
+      <span className="min-w-0 leading-tight">
+        <span className="block truncate font-medium text-ink">
+          {row.article_name ?? "—"}
+        </span>
+        <span className="block truncate font-mono text-id text-mute">
+          {row.article_code} · {count(row.sku_count)} SKU
+        </span>
+      </span>
+    </span>
+  )
+
+  if (beneath <= 0) {
+    // The chevron's slot is held open anyway. Without it the styles that have
+    // nothing to expand sit a few pixels left of the ones that do, and a
+    // column of names that does not line up reads as a rendering fault.
+    return (
+      <span className="flex items-start gap-1.5 px-3.5 py-2.5">
+        <span aria-hidden className="size-4 shrink-0" />
+        {inside}
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      title={
+        open
+          ? "Hide what these prices beat"
+          : `Show the ${count(beneath)} ${beneath === 1 ? "price" : "prices"} these beat`
+      }
+      className="flex w-full items-start gap-1.5 px-3.5 py-2.5 text-left transition-colors hover:bg-soft"
+    >
+      <ChevronRight
+        aria-hidden
+        data-motion="travel"
+        className={
+          "mt-0.5 size-4 shrink-0 text-line-ico transition-transform duration-[var(--t-pop)] " +
+          (open ? "rotate-90" : "")
+        }
+      />
+      {inside}
+    </button>
+  )
+}
+
 /// One rung of one article at one shop.
 ///
 /// The cell carries the money and nothing else. What rung it is, is the row
@@ -754,8 +1171,12 @@ function PriceCell({
   picked,
   editable,
   pending,
+  repriced,
   bookName,
+  spread,
+  label,
   last,
+  groupEnd,
   onOpen,
   onPick,
 }: {
@@ -783,18 +1204,45 @@ function PriceCell({
   /// Only the markdown row takes a price. Everywhere else the checkbox would
   /// promise a write this build cannot make.
   editable: boolean
-  pending: PendingEdit | null
+  pending: PendingMarkdown | null
+  /// Whether a base price waiting in the bar reaches this style at this shop.
+  ///
+  /// A marker and not a figure, because a base price is per product: eight
+  /// sizes may be getting eight different amounts and this square holds one.
+  /// Saying "something is coming here" is true; naming one of the eight would
+  /// not be.
+  repriced: boolean
   /// What the book that set this price is called. `null` when the price came
   /// from a book this screen has not loaded — an old publication still in force
   /// somewhere, which is worth showing as a version rather than as nothing.
   bookName: string | null
+  /// How many distinct amounts this square's rung carries — 1 when the style
+  /// costs one price here, 5 when it is priced per size.
+  ///
+  /// A range is deliberately NOT drawn. "Rp 189.000–269.000" reads as one fact
+  /// and is five, and it hides the only thing worth knowing: how many prices
+  /// there are and which of them most products carry. The figure stays the
+  /// lowest, and the count beside it is a door into the rows that say the rest.
+  spread: number
+  /// What this row IS, drawn inside the square, on expanded rows only.
+  label: string | null
   /// The right-hand column carries no rule of its own — the table's edge is
   /// already there, and a second line beside it reads as a stray border.
   last: boolean
+  /// Whether this is the bottom row of one article's block.
+  ///
+  /// A style occupies as many rows as its deepest shop's cascade, and with
+  /// every row ruled identically the blocks ran together: the only thing
+  /// saying where one style ended was the next one's name appearing. The
+  /// closing rule is what turns a scroll of money back into styles.
+  groupEnd: boolean
   onOpen: () => void
   onPick: () => void
 }) {
-  const rules = "border-b border-hairline " + (last ? "" : "border-r ")
+  const rules =
+    "border-b " +
+    (groupEnd ? "border-hairline-strong " : "border-hairline ") +
+    (last ? "" : "border-r ")
   const behind =
     rule !== undefined &&
     newestForRung !== null &&
@@ -804,7 +1252,10 @@ function PriceCell({
     rule !== undefined &&
     later.min_unit_price_minor !== rule.min_unit_price_minor
 
-  if (point === undefined && pending === null) {
+  // A repriced cell is drawn even when this shop has no price at all: a
+  // company-wide book reaches a shop that was selling nothing, and "nothing is
+  // changing here" would be exactly the wrong thing to say about it.
+  if (point === undefined && pending === null && !repriced) {
     return (
       <td
         className={
@@ -829,13 +1280,16 @@ function PriceCell({
         ? "markdown"
         : describeSource(rule.source),
     charging ? "charged at the till" : "beaten",
-    null,
+    spread > 1 && rule !== undefined
+      ? `priced per size — ${amounts(rule)}`
+      : null,
     rule !== undefined && point !== undefined && point.in_force_for > 0
       ? `in force for ${point.in_force_for} of ${rule.sku_count}`
       : null,
     behind ? "from an older book than the other shops" : null,
     changing ? `${amounts(later!)} from ${day(later!.effective_from)}` : null,
     pending !== null ? "edited, not published" : null,
+    repriced ? "a new price for this style is waiting to be published" : null,
   ]
     .filter((one) => one !== null)
     .join(" · ")
@@ -860,35 +1314,70 @@ function PriceCell({
         // already taught them; the checkbox in the corner is the same act for
         // anybody who has not been taught it.
         onClick={(event) => (event.shiftKey && editable ? onPick() : onOpen())}
-        className="flex w-full items-center justify-end gap-1.5 overflow-hidden px-3.5 py-2.5 text-right"
+        className="flex w-full flex-col items-end gap-0.5 overflow-hidden px-3.5 py-2.5 text-right"
       >
-        {/* Markers before the figure, so the column of money stays a straight
+        <span className="flex w-full items-center justify-end gap-1.5">
+          {/* Markers before the figure, so the column of money stays a straight
             right-aligned edge whatever else is true of a cell. */}
-        {changing && (
-          <span aria-hidden className="shrink-0 text-[0.6875rem] text-info-fg">
-            {later!.min_unit_price_minor > rule!.min_unit_price_minor
-              ? "↑"
-              : "↓"}
-          </span>
-        )}
-        {point !== undefined && (
-          <span
-            className={
-              "truncate tabular-nums " +
-              (pending !== null
-                ? "text-mute line-through decoration-1"
-                : charging
-                  ? "font-medium text-ink"
-                  : "text-mute")
-            }
-          >
-            {money(point.unit_price_minor)}
-          </span>
-        )}
-        {pending !== null && (
-          <span className="shrink-0 font-medium text-accent tabular-nums">
-            {money(pending.priceMinor)}
-          </span>
+          {repriced && (
+            <span
+              aria-hidden
+              // A dot and not a number. What is coming is per product, and
+              // this square holds one figure — so it says that something is,
+              // and the publish sheet says what.
+              className="size-1.5 shrink-0 rounded-full bg-accent"
+            />
+          )}
+          {changing && (
+            <span
+              aria-hidden
+              className="shrink-0 text-[0.6875rem] text-info-fg"
+            >
+              {later!.min_unit_price_minor > rule!.min_unit_price_minor
+                ? "↑"
+                : "↓"}
+            </span>
+          )}
+          {point !== undefined && (
+            <span
+              // A beaten price is `body`, not `mute`. It was mute, which is the
+              // grey this system uses for text that is off — placeholders,
+              // disabled controls — and a column of them read as a fault rather
+              // than as the candidates the winner beat. One step darker is
+              // still plainly below the ink of the charged row.
+              className={
+                "truncate tabular-nums " +
+                (pending !== null
+                  ? "text-mute line-through decoration-1"
+                  : charging
+                    ? "font-medium text-ink"
+                    : "text-body")
+              }
+            >
+              {money(point.unit_price_minor)}
+            </span>
+          )}
+          {pending !== null && (
+            <span className="shrink-0 font-medium text-accent tabular-nums">
+              {money(pending.priceMinor)}
+            </span>
+          )}
+          {/* "and four more amounts under this one". Not a range, and not a
+            plus sign on the figure — either would read as arithmetic done to
+            the price rather than as a count of how many prices there are. */}
+          {spread > 1 && pending === null && (
+            <span className="shrink-0 rounded-full bg-soft-2 px-1.5 py-px text-pill font-medium text-body tabular-nums">
+              +{spread - 1}
+            </span>
+          )}
+        </span>
+        {/* The row's own name, UNDER the figure rather than beside it. A
+            10.5rem column holds one price and nothing else: side by side, the
+            label squeezed "Rp 449.000" down to "Rp 449.0…" — and a truncated
+            amount is worse than no label at all. Below it, the money keeps
+            both its edge and its digits. */}
+        {label !== null && (
+          <span className="w-full truncate text-id text-mute">{label}</span>
         )}
         <span className="sr-only">{told}</span>
       </button>
@@ -904,20 +1393,15 @@ function PriceCell({
 /// whole.
 function Pick({ picked, onPick }: { picked: boolean; onPick: () => void }) {
   return (
-    <label
-      className={
-        "absolute top-1/2 left-2 -translate-y-1/2 cursor-pointer transition-opacity " +
-        (picked ? "opacity-100" : "opacity-0 group-hover/cell:opacity-100")
-      }
-    >
-      <span className="sr-only">Select this cell to price</span>
-      <input
-        type="checkbox"
-        checked={picked}
-        onChange={onPick}
-        className="block size-3 accent-accent"
-      />
-    </label>
+    <Checkbox
+      checked={picked}
+      onChange={onPick}
+      label={<span className="sr-only">Select this cell to price</span>}
+      className={cn(
+        "absolute top-1/2 left-2 -translate-y-1/2 transition-opacity",
+        picked ? "opacity-100" : "opacity-0 group-hover/cell:opacity-100"
+      )}
+    />
   )
 }
 
@@ -1002,29 +1486,32 @@ function CellSheet({
 
           <Facts>
             <Fact term="Shop">{shop?.label ?? cell.siteId}</Fact>
-            <Fact term="Channel">{channel}</Fact>
-            <Fact term="Charged">{top === undefined ? "—" : amounts(top)}</Fact>
-            <Fact term="From book">
+            <Fact term="Sold through">{channel}</Fact>
+            <Fact term="Price now">
+              {top === undefined ? "—" : amounts(top)}
+            </Fact>
+            <Fact term="Price book">
               {top === undefined
                 ? "—"
                 : (bookNames.get(top.publication_version) ?? "—")}
             </Fact>
             <Fact term="Products">{count(row?.sku_count)}</Fact>
-            <Fact term="Priced at">{at === null ? "Now" : moment(at)}</Fact>
+            <Fact term="Checked">{at === null ? "Just now" : moment(at)}</Fact>
           </Facts>
 
           {shop === undefined || shop.stack.length === 0 ? (
             <Quiet>
-              This shop cannot sell this style. No price is not a price of zero.
+              This shop cannot sell this style. That is different from selling
+              it for nothing — there is no price here at all.
             </Quiet>
           ) : (
             <div>
-              <SubHead aside="the engine's order">Why this price</SubHead>
+              <SubHead aside="best first">Why this price</SubHead>
               <MiniTable
                 head={[
-                  "Rung",
-                  { label: "For", align: "left" },
-                  "In force for",
+                  "Comes from",
+                  { label: "Applies to", align: "left" },
+                  "Used by",
                   "Price",
                 ]}
               >
@@ -1086,19 +1573,22 @@ function CellSheet({
                   ))
                 )}
               </MiniTable>
-              <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
-                Top row is what the till charges. The rest are candidates it
-                beat, ranked by the engine — newest book first, then the most
-                specific rung, then the latest start. They are kept because a
-                price is only explicable against what it displaced.
+              <p className="mt-2 text-[0.71875rem] leading-relaxed text-body">
+                The top row is what the till charges. The rows under it are
+                prices that lost — the newest book wins, then the most specific
+                price, then the one that started last. They are shown because
+                “why is it this price” is only answerable against the price it
+                replaced.
               </p>
             </div>
           )}
 
           {top !== undefined && top.points.length > 1 && (
             <div>
-              <SubHead aside="priced per size">Inside the range</SubHead>
-              <MiniTable head={["Amount", "Products", "In force for"]}>
+              <SubHead aside={`${count(top.points.length)} different prices`}>
+                Priced per size
+              </SubHead>
+              <MiniTable head={["Price", "Products", "How many"]}>
                 {top.points.map((point) => (
                   <MiniRow key={point.unit_price_minor}>
                     <MiniCell>
@@ -1124,15 +1614,14 @@ function CellSheet({
 
           <div>
             <SubHead aside={`${count(lines.length)} products`}>
-              What each product rings up at
+              What each product costs
             </SubHead>
             {queryState(products, {
-              loading: "Asking the shop's own engine…",
+              loading: "Asking this shop…",
               render: () =>
                 lines.length === 0 ? (
                   <Quiet>
-                    This shop has nothing of this style it may sell on {channel}
-                    .
+                    This shop has nothing of this style it is allowed to sell.
                   </Quiet>
                 ) : (
                   <div className="flex flex-col">

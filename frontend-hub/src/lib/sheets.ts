@@ -57,6 +57,19 @@ function counted(value: unknown): string | undefined {
     : undefined
 }
 
+/// A shop and a span, as `site~from~to`.
+///
+/// Shape-checked as one value because it reaches the server as one question. A
+/// site id is `store-01` today, so the first segment is deliberately narrow —
+/// anything that could carry a `~` would make the parse ambiguous rather than
+/// wrong, which is worse.
+function cellRef(value: unknown): string | undefined {
+  return typeof value === "string" &&
+    /^[A-Za-z0-9_-]{1,64}~\d{4}-\d{2}-\d{2}~\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : undefined
+}
+
 /// One of a fixed set. Anything else is dropped rather than passed on: the
 /// value reaches the server as a grouping, and `?bucket=fortnight` is a 400
 /// dressed up as a link.
@@ -119,6 +132,13 @@ export const SHEET_PARAMS = {
   /// than an id: there is one basket, and it is not a record you navigate to —
   /// which is why it is no longer a screen in the menu.
   cart: flag,
+  /// The queue of deliveries that arrived without an identity, over whatever
+  /// somebody was doing in Articles. A flag and not an id, for the reason
+  /// `cart` is: there is one queue, it is not a record you navigate to, and it
+  /// is no longer a screen in the menu. A setup happens *per delivery*, so the
+  /// queue is where you pick which one — the two sheets below are the two
+  /// steps after that.
+  setups: flag,
   /// One article-setup session: the receipt that arrived without an article,
   /// and the variants being declared against it.
   setup: id,
@@ -127,6 +147,16 @@ export const SHEET_PARAMS = {
   /// one is the whole point of the sheet it names.
   receipt: id,
   basket: flag,
+  /// An item being added to the sourcing catalogue, over whatever screen it
+  /// was reached from. A flag, because the thing it names does not exist yet.
+  "new-item": flag,
+  /// A purchase order being written from nothing, over the order book.
+  ///
+  /// A flag rather than an id, because the thing it names does not exist yet:
+  /// there is no order to link to until it is raised. Distinct from `basket`,
+  /// which is the same composer reached from the goods rather than from the
+  /// paperwork — two ways in, and a URL that says which.
+  "new-order": flag,
   // articles
   /// One master article, keyed by its eight-digit code rather than a uuid.
   /// The code is the identifier every other system already speaks — it is on
@@ -142,6 +172,8 @@ export const SHEET_PARAMS = {
   entry: id,
   account: id,
   bill: id,
+  /// One supplier payment, and what it settled.
+  payment: id,
   asset: id,
   /// "2026-09" — the fiscal month whose close panel is open. A period is a
   /// record people send each other ("seal 412 entries in 2026-08"), not
@@ -154,10 +186,68 @@ export const SHEET_PARAMS = {
   // commercial
   book: id,
   price: id,
+  /// The composer that pushes a new price to the fleet.
+  ///
+  /// A flag rather than an id, like `new-order`: the thing it names does not
+  /// exist yet and never will as a record — a price is not amended in this
+  /// system, it is superseded, so what this opens onto is a *book being
+  /// written* rather than a price being edited.
+  "new-price": flag,
   campaign: id,
   rule: id,
+  /// One voucher, keyed by the code printed on the card rather than by its
+  /// uuid. The code is what exists outside this system — somebody reads it out
+  /// over a telephone — so a link to a voucher is a thing that can be typed
+  /// from the card in your hand.
+  voucher: id,
+  // members
+  /// Which segment the directory is narrowed to. In the URL because a segment
+  /// is the unit of work people hand each other: "the lapsing members" is a
+  /// job, and it should be a link.
+  segment: oneOf([
+    "NEW",
+    "ACTIVE",
+    "LAPSING",
+    "LAPSED",
+    "NEVER",
+    "BLOCKED",
+  ] as const),
+  /// Which *saved* segment the directory is narrowed to. A separate key from
+  /// `segment` above, and not a seventh value of it: the six are derived and
+  /// their names are a closed set this file can check, while a saved one is an
+  /// id the server resolves to a definition. Folding them into one parameter
+  /// would mean a screen could no longer tell which kind it was showing — and
+  /// they do not narrow the same way.
+  segmentId: id,
+  /// Which saved segment is open for editing. `true` writes a new one.
+  segmentEdit: id,
+  /// The customer numbers a till named on a sale that no card was enrolled
+  /// for. A flag: it is a whole population rather than one record, and there
+  /// is nothing to identify it by.
+  strays: flag,
+  /// The counter's sheet: enrol a card, and activate it.
+  ///
+  /// A flag rather than an id, like `cart`, because the card being enrolled
+  /// does not exist yet and has nothing to name it by. It carries a value in
+  /// one direction only — once a card IS enrolled the sheet keeps working on
+  /// it in component state, deliberately, because the next thing that happens
+  /// is six digits being read aloud and a URL is the last place those should
+  /// be able to reach.
+  enrol: flag,
   // people
   employee: id,
+  /// Which request in the queue is open. A request id, not an employee id: one
+  /// person can have two waiting on the same desk, and the thing being decided
+  /// is the request rather than the person.
+  request: id,
+  /// Which overtime order is open. Not `order`, which procurement's purchase
+  /// orders already claim — one key cannot mean two records, and the screen
+  /// that lost the argument would open somebody else's sheet.
+  overtimeOrder: id,
+  /// Which payroll run is open. Not `run`, which the print bench already
+  /// claims — one key cannot mean two records, and the screen that lost the
+  /// argument would open somebody else's sheet.
+  payrollRun: id,
   // storeops
   sale: id,
   /// A site id. Analytics reuses this rather than adding `shop`: two names for
@@ -171,15 +261,109 @@ export const SHEET_PARAMS = {
   /// reloaded at all.
   member: id,
   // workplace
+  /// Grid or list, on the screens that offer both. In the URL rather than in
+  /// component state for the same reason `sort` is: how somebody is looking at
+  /// a drawer is half of what they are looking at, it should survive the reload
+  /// a shop's browser gets every morning, and "the grid" is a link worth
+  /// sending. Anything but these two words is dropped.
+  view: oneOf(["grid", "list"] as const),
   thread: id,
   /// One filed document, with its evidence.
   document: id,
   conversation: id,
   file: id,
+  /// Which kept report is open. Not a sheet — it takes the whole screen —
+  /// but it belongs in this registry for the same reason `q` and `f` do: it
+  /// is state that has to survive a reload and travel in a link. A report
+  /// whose URL cannot be pasted into a message is a report somebody
+  /// screenshots instead.
+  report: id,
+  /// Which assistant conversation is open. Not a sheet either, and here for
+  /// exactly the reason `report` is: a chat that cannot be linked to is a chat
+  /// somebody starts again from the beginning. It is also what makes the ⌘J
+  /// panel and the full page the same conversation — the panel's "open in
+  /// full" is a link that carries this, and nothing else has to be kept in
+  /// step. Distinct from `conversation`, which is a thread between two people
+  /// in Workplace.
+  chat: id,
   // analytics — a report's window, which is half of what a shared report says
   bucket: oneOf(["day", "week", "month"] as const),
   span: counted,
   date: isoDay,
+  /// What the figures are measured against, and the span when that is one
+  /// somebody named. Three keys because "the previous period" is derived and
+  /// takes no dates, while "last Ramadan" is two dates and cannot be derived
+  /// from anything — Ramadan moves about eleven days earlier every Gregorian
+  /// year. `cmpFrom`/`cmpTo` are read only under `cmp=custom`; a half-filled
+  /// pair falls back to the previous period rather than opening the screen onto
+  /// a comparison against nothing.
+  cmp: oneOf(["prev", "year", "custom"] as const),
+  cmpFrom: isoDay,
+  cmpTo: isoDay,
+  /// One cell of the sales matrix, as `site~from~to`.
+  ///
+  /// One parameter carrying three things because they are one thing: a cell is
+  /// a shop AND the span its figure covers. Deliberately not `store` plus two
+  /// dates — `store` is the shop the whole screen is narrowed to, and a reader
+  /// looking at the whole fleet still opens one shop's week.
+  cell: cellRef,
+  // ── Operations ───────────────────────────────────────────────────────────
+  //
+  // A station is a session, and that is why these are here rather than in
+  // component state. A picker opens a round, walks the aisles, and the
+  // handheld sleeps in their hand. A packer opens a box against a target and
+  // carries it to the RFID arch. If "which session is open" lived in
+  // `useState`, coming back would mean a fresh screen with an open session on
+  // the node that nothing on the device points at any more — and the second
+  // round they open is the paperwork saying they picked twice.
+  //
+  /// The delivery document open on the bay. Named `delivery` and not
+  /// `receipt`: this registry already has a `receipt`, which is a *line*
+  /// waiting to be told what it is over in Articles. Two meanings under one
+  /// query parameter is a link that opens the wrong sheet in the wrong module.
+  delivery: id,
+  /// One blind count waiting for a verifier. Named for the decision rather
+  /// than for the document, so it does not collide with `count` — the official
+  /// stock count, which is a different thing entirely.
+  verify: id,
+  /// The purchase-order line a checker is counting against.
+  line: id,
+  /// The tagging job whose labels are being printed or confirmed.
+  job: id,
+  /// The print run. Held in the URL for the same reason as a session: a run is
+  /// resumed at a different bench as often as it is finished at the first one.
+  run: id,
+  /// The printer settings panel — a fact about the bench, not about a record.
+  printer: flag,
+  /// **The open pick round.** A handheld that slept mid-pick comes back here.
+  pick: id,
+  /// The rack stock is being taken off. A choice, not a record — but it is
+  /// what every pick on the screen is written against, so it survives a reload
+  /// with the round it belongs to.
+  rack: id,
+  /// **The open packing round.**
+  pack: id,
+  /// **The open RFID box**: one carton being filled against a fixed target.
+  /// Different from `pack` — a box belongs to a round, but a round is a shift
+  /// and a box is ten minutes.
+  box: id,
+  /// One carton, and its manifest.
+  koli: id,
+  /// The consignment note.
+  shipment: id,
+  /// The loading manifest for one truck run.
+  dispatch: id,
+  /// Which slice of a carton list is being read. A fixed set, because it
+  /// reaches the node as `?ready=true` / `?unassigned=true` and nothing else is
+  /// answerable.
+  slice: oneOf(["all", "unassigned", "open"] as const),
+  /// How far back the ledger is read. Its own key rather than a second meaning
+  /// for `slice`: two screens sharing one parameter means arriving from one
+  /// with the other's value in the URL, and a ledger that quietly showed 250
+  /// rows because somebody had been looking at open cartons is a number nobody
+  /// can explain. The node caps at 500, so the set stops there.
+  depth: oneOf(["100", "250", "500"] as const),
+
   // system
   user: id,
   origin: id,
@@ -217,6 +401,7 @@ const SHEET_SUBJECT: Partial<Record<SheetKey, string>> = {
   book: "publication",
   campaign: "campaign",
   rule: "commercial_rule",
+  voucher: "voucher",
   employee: "employee",
   sale: "sale",
   refund: "return",
@@ -281,6 +466,20 @@ export function useSheet<K extends SheetKey>(key: K) {
         // without them would take the default and fade the screen behind every
         // sheet that opened. A sheet already animates; the page under it is
         // meant to hold still.
+        viewTransition: false,
+      }),
+    /// Swap the value without a history entry.
+    ///
+    /// What a *session* does when it is closed and the next one opened — the
+    /// pick round that just ended is not somewhere `back` should return to,
+    /// because going back to it would reopen a round the node has finished.
+    /// `open` pushes, because arriving at a record is a place you can return
+    /// from; this does not.
+    replace: (next: SheetSearch[K] extends true | undefined ? true : string) =>
+      navigate({
+        to: ".",
+        replace: true,
+        search: (prev: SheetSearch) => ({ ...prev, [key]: next }),
         viewTransition: false,
       }),
     close: () =>

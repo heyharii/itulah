@@ -352,10 +352,18 @@ export function Tender() {
               ))}
             </div>
           )}
+          {/* Written onto the sale exactly as typed, and this node cannot
+              check it: the member directory is central and this app addresses
+              only the shop's own Edge, which is what keeps the till selling
+              when the line to head office is down. So the hint says what a
+              wrong number costs rather than pretending at a validation that
+              would have to be a lie. The centre lists these strays under
+              Members → not enrolled, where a real card can still be enrolled
+              onto its own history. */}
           <Field
             label="Member"
             className="mt-3"
-            hint="Needed for a coupon issued to one person, and for points."
+            hint="Copy it from the card. Points go to the number as typed, and a number that is not a card credits nobody."
           >
             <Input
               value={basket.customerId ?? ""}
@@ -363,6 +371,11 @@ export function Tender() {
               placeholder="Member id, if they have one"
               autoCapitalize="none"
               autoCorrect="off"
+              spellCheck={false}
+              // What the centre will accept when the card is enrolled — see
+              // `normalise_member_id`. A number this app took and the centre
+              // would refuse is a member nobody can ever create.
+              maxLength={64}
             />
           </Field>
         </Section>

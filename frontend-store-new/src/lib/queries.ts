@@ -1,5 +1,5 @@
 import { node } from "@/lib/api"
-import type { CatalogRow, MovementView } from "@itulah/contract"
+import type { CatalogRow, MovementView, StoreOffers } from "@itulah/contract"
 
 /// Every read this till makes, and the key it is cached under.
 ///
@@ -100,6 +100,27 @@ export async function fetchCatalogue(signal?: AbortSignal): Promise<Catalogue> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// What the shop is offering
+
+/// Everything under one prefix, so a fresh price book can drop the lot.
+export const offersKey = () => ["offers"] as const
+
+/// `GET /api/v1/store/offers` — `edge/http.rs::store_offers`.
+///
+/// Generated, unlike the catalogue envelope above it: the handler serialises
+/// `StoreOffers` rather than assembling a `json!`, so this one cannot go stale
+/// behind the Rust.
+///
+/// Why the till needs it at all: a markdown is a price and is therefore already
+/// in the catalogue, but a promotion is a thing that happens to a *basket* —
+/// "buy two get one", "20% off menswear over 500rb" — and no shelf edge can
+/// show it. Six offers can be published, delivered and resident at a shop with
+/// nothing on any screen saying the shop holds them.
+export function fetchOffers(signal?: AbortSignal): Promise<StoreOffers> {
+  return node.get<StoreOffers>("/api/v1/store/offers", { signal })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stock, as this node owns it
 
 /// One row of `GET /api/v1/inventory/pools`.
@@ -171,9 +192,10 @@ export async function fetchMovements(
 // Read from the shop's own SQLite, so they still answer with the link to the
 // centre down — a manager closing up does not stop needing today's takings
 // because a tunnel dropped. Deliberately thinner than the centre's reports:
-// the edge `sale` row has no tax split, and its status is
-// `CHECK (status = 'COMPLETED')`, so there are no returns and no voids to
-// report. See `backend/src/edge/reports.rs`.
+// the edge `sale` row has no tax split. Voided sales are left out — migration
+// 0024 opened `sale.status`, and the node filters them the same way the shift
+// report does, so these takings and the drawer agree. Refunds are NOT netted
+// off: these are takings, not revenue. See `backend/src/edge/reports.rs`.
 
 export type Bucket = "day" | "week" | "month"
 

@@ -1,4 +1,3 @@
-import { useForm } from "@tanstack/react-form"
 import {
   useInfiniteQuery,
   useMutation,
@@ -13,7 +12,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { Input } from "@/components/ui/field"
 import { FilterBar } from "@/components/ui/filter-bar"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -21,7 +20,7 @@ import { MiniTable } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count, money } from "@/lib/format"
@@ -31,13 +30,13 @@ import {
   searchSupplierItems,
   setSupplierItemStatus,
   supplierItemDetail,
-  updateSupplierItem,
   type SourcingScope,
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { ItemDetail } from "@/screens/procurement/item-detail"
+import { ItemFormSheet } from "@/screens/procurement/item-form"
 import { termLabel, useIdempotencyKey } from "@/screens/procurement/shared"
 import type {
   CatalogueVocabulary,
@@ -177,6 +176,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
 
 export function Catalogue() {
   const item = useSheet("item")
+  const adding = useSheet("new-item")
   const [tab, setTab] = useState("items")
   const [needle, setNeedle] = useState("")
   const [status, setStatus] = useState<SupplierStatus | "ALL">("ALL")
@@ -257,16 +257,24 @@ export function Catalogue() {
         sub="Every supplier item we know of, and whether it is finished enough to become one of ours."
         actions={
           tab === "items" && (
-            <Input
-              value={needle}
-              onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Item, code or supplier"
-              className="h-8 w-56"
-            />
+            <>
+              <Input
+                value={needle}
+                onChange={(event) => setNeedle(event.target.value)}
+                placeholder="Item, code or supplier"
+                className="h-8 w-56"
+              />
+              {/* This screen is the only one that CREATES a supplier item —
+                  Sourcing browses what it makes. Until now it could only edit
+                  them, so the one way to put something in the catalogue was a
+                  three-field form buried in a supplier's record. */}
+              <Button variant="dark" onClick={() => adding.open(true)}>
+                New item
+              </Button>
+            </>
           )
         }
       />
-
 
       <SubTabs
         tabs={[
@@ -336,6 +344,8 @@ export function Catalogue() {
       ) : (
         <Vocabulary />
       )}
+
+      <ItemFormSheet open={adding.value === true} onClose={adding.close} />
 
       <ItemSheet
         id={item.value ?? null}
@@ -453,8 +463,8 @@ function ItemSheet({
       title={detail.data?.name ?? "Item"}
       actions={
         detail.data && (
-          <Button size="sm" onClick={() => setEditing((was) => !was)}>
-            {editing ? "Stop editing" : "Edit"}
+          <Button size="sm" onClick={() => setEditing(true)}>
+            Edit
           </Button>
         )
       }
@@ -470,15 +480,20 @@ function ItemSheet({
               <ItemStatusSwitch item={item} />
             </div>
 
-            {editing ? (
-              <EditItem
-                item={item}
-                vocabulary={vocabulary}
-                onSaved={() => setEditing(false)}
-              />
-            ) : (
-              <ItemDetail item={item} vocabulary={vocabulary} />
-            )}
+            <ItemDetail item={item} vocabulary={vocabulary} />
+
+            {/* Editing opens the same wide form that adds one, over this
+                sheet, rather than swapping the record's body for a column of
+                fields. That column was where the colours and sizes an item is
+                offered in had nowhere to go: two pickers do not fit in a rail,
+                and a form that cannot say what an item comes in is a form that
+                decides Sourcing can never show it. */}
+            <ItemFormSheet
+              open={editing}
+              item={item}
+              onClose={() => setEditing(false)}
+              onSaved={() => setEditing(false)}
+            />
           </div>
         ),
       })}
@@ -541,217 +556,3 @@ function ItemStatusSwitch({ item }: { item: SupplierItem }) {
 /// alone, `null` clears it, a value sets it. Everything on this form is sent, so
 /// emptying a box genuinely clears the field — and clearing the division is a
 /// state somebody may legitimately want to return an item to.
-interface ItemDraft {
-  name: string
-  description: string
-  price: string
-  division: string
-  article: string
-  tags: string[]
-}
-
-function EditItem({
-  item,
-  vocabulary,
-  onSaved,
-}: {
-  item: SupplierItem
-  vocabulary?: CatalogueVocabulary
-  onSaved: () => void
-}) {
-  const client = useQueryClient()
-  const idempotency = useIdempotencyKey()
-
-  const save = useMutation({
-    // Wrapped rather than passed by reference: v5 hands a mutation context as
-    // the second argument, which is not the `AbortSignal` the fetcher expects.
-    mutationFn: (draft: ItemDraft) =>
-      updateSupplierItem(
-        item.supplier_item_id,
-        {
-          name: draft.name.trim(),
-          description:
-            draft.description.trim() === "" ? null : draft.description.trim(),
-          unit_price_minor: Number.parseInt(draft.price, 10),
-          division_code: draft.division === "" ? null : draft.division,
-          internal_article_code:
-            draft.article.trim() === "" ? null : draft.article.trim(),
-          // Present replaces; an empty list therefore means "remove every tag",
-          // which is a thing a buyer may legitimately say about an item.
-          tags: draft.tags,
-        },
-        item.version,
-        idempotency.key
-      ),
-    onSuccess: () => {
-      void client.invalidateQueries({
-        queryKey: procurementKeys.supplierItem(item.supplier_item_id),
-      })
-      void client.invalidateQueries({
-        queryKey: procurementKeys.supplierItems(),
-      })
-      void client.invalidateQueries({
-        queryKey: procurementKeys.supplierCatalogue(item.supplier_id),
-      })
-      idempotency.rotate()
-      onSaved()
-    },
-  })
-
-  const form = useForm({
-    defaultValues: {
-      name: item.name,
-      description: item.description ?? "",
-      price: String(item.unit_price_minor),
-      division: item.division_code ?? "",
-      article: item.internal_article_code ?? "",
-      tags: [...item.tags],
-    } as ItemDraft,
-    onSubmit: ({ value }) => save.mutate(value),
-  })
-
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault()
-        form.handleSubmit()
-      }}
-      className="flex flex-col gap-3.5"
-    >
-      {save.isError && (
-        <Banner tone="bad">{(save.error as Error).message}</Banner>
-      )}
-
-      <form.Field name="name">
-        {(field) => (
-          <Field label="Name">
-            <Input
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value)}
-            />
-          </Field>
-        )}
-      </form.Field>
-
-      <form.Field name="description">
-        {(field) => (
-          <Field label="Description">
-            <Textarea
-              rows={3}
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value)}
-            />
-          </Field>
-        )}
-      </form.Field>
-
-      <form.Field name="price">
-        {(field) => (
-          <Field label="Unit price" hint="Rupiah.">
-            <Input
-              type="number"
-              min={0}
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value)}
-            />
-          </Field>
-        )}
-      </form.Field>
-
-      <form.Field name="division">
-        {(field) => (
-          <Field
-            label="Division"
-            hint="Our own vocabulary, so a supplier's shirt and our shirt are the same word."
-          >
-            <Select
-              value={field.state.value}
-              onChange={(event) => field.handleChange(event.target.value)}
-            >
-              <option value="">Unclassified</option>
-              {(vocabulary?.divisions ?? []).map((term) => (
-                <option key={term.code} value={term.code}>
-                  {term.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
-      </form.Field>
-
-      <form.Field name="article">
-        {(field) => (
-          <Field
-            label="Our article code"
-            hint="Eight digits, minted from our own sequence. Until this is set the item cannot be tagged, priced or sold."
-          >
-            <Input
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value)}
-              placeholder="00000042"
-            />
-          </Field>
-        )}
-      </form.Field>
-
-      <form.Field name="tags">
-        {(field) => (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[0.78125rem] font-medium text-text">
-              Tags
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {(vocabulary?.tags ?? []).map((term) => {
-                const on = field.state.value.includes(term.code)
-                return (
-                  <button
-                    key={term.code}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() =>
-                      field.handleChange(
-                        on
-                          ? field.state.value.filter(
-                              (each) => each !== term.code
-                            )
-                          : [...field.state.value, term.code]
-                      )
-                    }
-                    className={
-                      on
-                        ? "inline-flex h-[1.625rem] items-center rounded-full bg-accent-bg px-2.5 text-[0.71875rem] font-medium text-info-fg"
-                        : "inline-flex h-[1.625rem] items-center rounded-full bg-soft-2 px-2.5 text-[0.71875rem] font-medium text-body transition-colors hover:bg-hairline hover:text-ink"
-                    }
-                  >
-                    {term.label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-      </form.Field>
-
-      <form.Subscribe
-        selector={(state) =>
-          state.values.name.trim() !== "" &&
-          Number.isFinite(Number.parseInt(state.values.price, 10))
-        }
-      >
-        {(ready) => (
-          <Button
-            type="submit"
-            variant="dark"
-            disabled={save.isPending || !ready}
-          >
-            {save.isPending ? "Saving…" : "Save"}
-          </Button>
-        )}
-      </form.Subscribe>
-    </form>
-  )
-}

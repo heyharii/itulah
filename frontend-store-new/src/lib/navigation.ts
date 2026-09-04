@@ -3,10 +3,13 @@ import {
   BarChart3,
   KeyRound,
   Layers,
+  LayoutGrid,
   PackagePlus,
   RefreshCw,
   Receipt,
   ScanBarcode,
+  Sparkles,
+  Undo2,
   Wallet,
   type LucideIcon,
 } from "lucide-react"
@@ -45,9 +48,16 @@ export interface PushedItem extends TabItem {
 }
 
 /// The bar, left to right, in the order a shift uses them: what is sold, what
-/// arrives, what is on the shelf, what it all came to.
+/// the shop has, what arrives, what is on the shelf, what it all came to.
+///
+/// Five, and DESIGN.md's phone rule is **three to five**, so this is the last
+/// one that fits. The catalogue earns it over the drawer because it is not a
+/// setting: it is answered out loud to a customer, on the floor, away from the
+/// counter, several times an hour — and a destination somebody reaches that
+/// often behind a hamburger is a destination they walk to the till for instead.
 export const tabs: readonly TabItem[] = [
   { path: "/sell", label: "Sell", icon: ScanBarcode },
+  { path: "/catalogue", label: "Catalogue", icon: LayoutGrid },
   { path: "/receive", label: "Receive", icon: PackagePlus },
   { path: "/stock", label: "Stock", icon: Layers },
   { path: "/reports", label: "Reports", icon: BarChart3 },
@@ -67,6 +77,26 @@ export const pushed: readonly PushedItem[] = [
     label: "Not yet sent",
     icon: ArrowLeftRight,
     back: "/sell",
+  },
+  { path: "/sell/returns", label: "Returns", icon: Undo2, back: "/sell" },
+  // The drawer. Reached from the function board rather than the tab bar: it is
+  // pressed twice a day, at the two ends of a shift, and a destination in the
+  // bar is a destination somebody taps by accident mid-sale.
+  { path: "/till/shift", label: "Shift", icon: Wallet, back: "/sell" },
+  {
+    path: "/catalogue/product",
+    label: "Product",
+    icon: LayoutGrid,
+    back: "/catalogue",
+  },
+  // Not a tab of its own. What is on is a question about the range, asked while
+  // looking at the range, so it is reached from the catalogue rather than from
+  // a sixth squircle that would break the bar's own rule.
+  {
+    path: "/catalogue/offers",
+    label: "Promotions",
+    icon: Sparkles,
+    back: "/catalogue",
   },
   {
     path: "/stock/movements",

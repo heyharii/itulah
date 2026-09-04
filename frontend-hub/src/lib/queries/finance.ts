@@ -2,14 +2,19 @@ import { node } from "@/lib/api"
 import type {
   AccountDetail,
   AccountMapping,
+  AcquisitionGap,
+  AllocateToBill,
   AssessAssetRequest,
   AssetRow,
+  AssetSchedule,
   BalanceMatrix,
   BankStatementLineRow,
   BankStatementRow,
+  BookBankLineRequest,
   BookLocation,
   ConfirmMatchRequest,
   DepreciationRun,
+  DisposeAssetRequest,
   FiscalPeriod,
   GeneralLedger,
   ImportOutcome,
@@ -18,12 +23,17 @@ import type {
   JournalEntryRow,
   LedgerAccount,
   LineSuggestions,
+  MoneyOverview,
+  PayablesAging,
   RecordBillRequest,
+  RecordPaymentRequest,
   RegisterAssetRequest,
   SemanticKeyDoc,
   SetAccountMappingRequest,
   Statement,
   SupplierBill,
+  SupplierPayment,
+  TransferAssetRequest,
   TrialBalance,
   UnbilledReceipt,
 } from "@itulah/contract"
@@ -90,15 +100,51 @@ export const financeKeys = {
     ["finance", "account-map", site] as const,
   periods: () => ["finance", "periods"] as const,
 
-  journal: (from: string | null, to: string | null, kind: string | null) =>
-    ["finance", "journal", from, to, kind] as const,
+  journal: (
+    from: string | null,
+    to: string | null,
+    kind: string | null,
+    site: string | null
+  ) => ["finance", "journal", from, to, kind, site] as const,
   entry: (id: string) => ["finance", "journal", "entry", id] as const,
 
   bills: (status: string | null) => ["finance", "bills", status] as const,
+  /// One bill with what it was for. Its own key and not a slice of the list:
+  /// the list deliberately sends `lines: null` — one query per row to draw a
+  /// table is how a list gets slow without anybody being able to point at the
+  /// reason — so "the bill" and "the bill and its lines" are two answers and
+  /// must not overwrite each other.
+  bill: (id: string) => ["finance", "bills", "detail", id] as const,
   unbilled: () => ["finance", "unbilled"] as const,
 
-  assets: (unassessed: boolean) => ["finance", "assets", unassessed] as const,
+  /// What is owed, to whom, and how late — the server's own ageing rather than
+  /// a bucketing of the bill list. Keyed on both arguments because both wind
+  /// the report back: a bill invoiced after the reporting date is not yet a
+  /// debt, and one location's payables is not another's.
+  payablesAging: (asOf: string | null, site: string | null) =>
+    ["finance", "payables-aging", asOf, site] as const,
 
+  /// The payment register. Three filters, all of them the server's, so a
+  /// narrowed list is a narrowed request and never a slice of a wider answer
+  /// held in the browser.
+  payments: (
+    status: string | null,
+    site: string | null,
+    supplier: string | null
+  ) => ["finance", "payments", status, site, supplier] as const,
+  payment: (id: string) => ["finance", "payments", "detail", id] as const,
+
+  assets: (unassessed: boolean, site: string | null) =>
+    ["finance", "assets", unassessed, site] as const,
+  /// What has actually been charged against one asset, month by month.
+  assetSchedule: (id: string) => ["finance", "assets", "schedule", id] as const,
+  /// The two halves of "what the books bought and what the register holds".
+  /// No arguments: it is a whole-company exception report, not a filtered list.
+  acquisitionGap: () => ["finance", "assets", "unbacked"] as const,
+
+  /// Where the money sits, as at a date, at one location or all of them.
+  money: (asOf: string | null, site: string | null) =>
+    ["finance", "money", asOf, site] as const,
   bankStatements: () => ["finance", "bank-statements"] as const,
   bankLines: (statementId: string) =>
     ["finance", "bank-statements", statementId, "lines"] as const,
@@ -295,8 +341,20 @@ export function closePeriod(
 // The journal
 // ---------------------------------------------------------------------------
 
+/// The register, narrowed by window, by what caused the entry, and by where.
+///
+/// `kind` is one of the source kinds the schema's own CHECK allows —
+/// `MANUAL`, `SUPPLIER_INVOICE`, `PAYMENT`, `DEPRECIATION`, `REVERSAL` and the
+/// three the till and the warehouse write. Absent means every kind, which is
+/// what the register is for.
 export function listJournal(
-  options: { from?: string; to?: string; kind?: string; limit?: number } = {},
+  options: {
+    from?: string
+    to?: string
+    kind?: string
+    site?: string
+    limit?: number
+  } = {},
   signal?: AbortSignal
 ): Promise<JournalEntryRow[]> {
   return node.get<JournalEntryRow[]>(
@@ -435,8 +493,34 @@ export function listBills(
   })
 }
 
+/// One bill, and what it was for.
+///
+/// The list sends `lines: null` on every row deliberately — `lines` is fetched
+/// per bill, and a hundred rows drawing a hundred and one queries is how a list
+/// gets slow without anybody being able to point at the reason. So an expense
+/// bill's lines are only ever read here.
+///
+/// `Some([])` and `null` are different answers and the caller has to keep them
+/// apart: a merchandise bill genuinely has no lines, and a list row simply has
+/// not been asked.
+export function billDetail(
+  invoiceId: string,
+  signal?: AbortSignal
+): Promise<SupplierBill> {
+  return node.get<SupplierBill>(
+    `/api/v1/finance/bills/${encodeURIComponent(invoiceId)}`,
+    { signal }
+  )
+}
+
 /// Write a supplier's invoice down. Recording and posting are two acts: a bill
 /// can arrive, be queried and be held before anybody decides it may be paid.
+///
+/// `kind` decides what the posting will debit, and therefore whether `lines`
+/// means anything: a MERCHANDISE bill is refused if it carries any, and an
+/// EXPENSE bill is refused if it carries none. The answer comes back *with* its
+/// lines, so a caller can seed `financeKeys.bill()` from it rather than reading
+/// the bill it just wrote.
 export function recordBill(
   request: RecordBillRequest,
   signal?: AbortSignal
@@ -469,6 +553,104 @@ export function unbilledReceipts(
 ): Promise<UnbilledReceipt[]> {
   return node.get<UnbilledReceipt[]>("/api/v1/finance/unbilled", { signal })
 }
+
+/// What is owed, to whom, and how late.
+///
+/// The server's ageing and not the browser's. Bucketing the bill list here
+/// would look identical and be wrong twice: it ages the whole invoice rather
+/// than what is still outstanding on it, and it cannot wind a payment back —
+/// asking "as at the end of last month" has to un-count money that left the
+/// bank since, which only a query over both sides can do.
+export function payablesAging(
+  options: { as_of?: string; site?: string } = {},
+  signal?: AbortSignal
+): Promise<PayablesAging> {
+  return node.get<PayablesAging>(
+    `/api/v1/finance/payables-aging${search(options)}`,
+    { signal }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Supplier payments
+// ---------------------------------------------------------------------------
+
+/// The payment register.
+///
+/// `supplier` narrows on the *allocations* rather than on the payment: one
+/// bank line settling two suppliers is an ordinary Friday, so a payment does
+/// not have a supplier of its own.
+export function listPayments(
+  options: {
+    status?: string
+    site?: string
+    supplier?: string
+    limit?: number
+  } = {},
+  signal?: AbortSignal
+): Promise<SupplierPayment[]> {
+  return node.get<SupplierPayment[]>(
+    `/api/v1/finance/payments${search(options)}`,
+    { signal }
+  )
+}
+
+export function payment(
+  paymentId: string,
+  signal?: AbortSignal
+): Promise<SupplierPayment> {
+  return node.get<SupplierPayment>(
+    `/api/v1/finance/payments/${encodeURIComponent(paymentId)}`,
+    { signal }
+  )
+}
+
+/// Write a payment down. It is not in the books yet — recording and posting
+/// are two acts here for the same reason they are two acts on a bill: money
+/// leaving the bank and the decision to book it are different moments, and one
+/// of them can be keyed on a day the other cannot.
+///
+/// `account_key` + `account_qualifier` and never an account code: which
+/// account `bank_giro` at store 07 *is* belongs to `account_map`, and storing
+/// the code on the payment would be a second copy of the map that stops
+/// agreeing with it.
+///
+/// The idempotency key is the caller's and is held across retries, exactly as
+/// the journal's is: a double-clicked Record must write one payment and get
+/// the same receipt twice, and this write reserves money against bills.
+export function recordPayment(
+  request: RecordPaymentRequest,
+  idempotencyKey: string,
+  signal?: AbortSignal
+): Promise<SupplierPayment> {
+  return node.post<SupplierPayment>("/api/v1/finance/payments", request, {
+    signal,
+    headers: { "Idempotency-Key": idempotencyKey },
+  })
+}
+
+/// Put a recorded payment into the books. With no date the server posts it on
+/// the payment date, which is what "post this payment" means without further
+/// comment — and the date is separate because money that left on the 31st and
+/// was keyed on the 2nd belongs to the month it left.
+export function postPayment(
+  paymentId: string,
+  postingDate?: string,
+  signal?: AbortSignal
+): Promise<SupplierPayment> {
+  return node.post<SupplierPayment>(
+    `/api/v1/finance/payments/${encodeURIComponent(paymentId)}/post`,
+    { posting_date: postingDate },
+    { signal }
+  )
+}
+
+/// One line of "what this payment is for", as the composer builds it.
+///
+/// Re-exported rather than imported at every call site for the same reason
+/// `ManualLine` is spelled out above: a screen assembling a request should be
+/// able to name the shape it is assembling without reaching past this file.
+export type { AllocateToBill }
 
 // ---------------------------------------------------------------------------
 // Fixed assets
@@ -510,6 +692,74 @@ export function assessAsset(
   )
 }
 
+/// What was charged against one asset, month by month, and what is left.
+///
+/// The record and not a projection: a month the run never reached is simply not
+/// in `charged`, which is the only way to see that a run has been quietly
+/// skipping an asset. `months_remaining` comes from the calendar for the same
+/// reason — counting entries would leave a small asset permanently short of its
+/// last instalment.
+export function assetSchedule(
+  assetId: string,
+  signal?: AbortSignal
+): Promise<AssetSchedule> {
+  return node.get<AssetSchedule>(
+    `/api/v1/finance/assets/${encodeURIComponent(assetId)}/schedule`,
+    { signal }
+  )
+}
+
+/// Where the register and the books disagree about what was bought.
+///
+/// Two lists, because they are different faults with different fixes: a
+/// capitalised asset with no bill line behind it is a cost the books never
+/// bought, and a posted `10215*` bill line with no asset against it is a
+/// capital purchase nobody put on the register. There is no acquisition posting
+/// rule and there will not be one — an asset is bought by a supplier bill — so
+/// this is the only place either side is visible.
+export function acquisitionGap(signal?: AbortSignal): Promise<AcquisitionGap> {
+  return node.get<AcquisitionGap>("/api/v1/finance/assets/unbacked", { signal })
+}
+
+/// Take an asset off the books: cost out, accumulated depreciation out,
+/// proceeds in, and the difference to the gain-or-loss account.
+///
+/// Not reversible from any screen. The refusals are the server's and are worth
+/// reading verbatim — it declines an asset that is not capitalised, one already
+/// gone, one the depreciation run still owes a charge for the month it left in,
+/// and any disposal at all while `asset_disposal_result` has no account at that
+/// location.
+export function disposeAsset(
+  assetId: string,
+  request: DisposeAssetRequest,
+  signal?: AbortSignal
+): Promise<AssetRow> {
+  return node.post<AssetRow>(
+    `/api/v1/finance/assets/${encodeURIComponent(assetId)}/dispose`,
+    request,
+    { signal }
+  )
+}
+
+/// Move an asset, and move its cost and accumulated depreciation with it.
+///
+/// Both halves, because the client keeps a profit and loss per location: moving
+/// the cost alone leaves two locations wrong by the same amount in opposite
+/// directions, which a trial balance cannot see. A move to where the asset
+/// already is is refused by the database — the entry would debit and credit the
+/// same account at the same location, which balances perfectly and is a lie.
+export function transferAsset(
+  assetId: string,
+  request: TransferAssetRequest,
+  signal?: AbortSignal
+): Promise<AssetRow> {
+  return node.post<AssetRow>(
+    `/api/v1/finance/assets/${encodeURIComponent(assetId)}/transfer`,
+    request,
+    { signal }
+  )
+}
+
 /// Charge one month across every capitalised asset.
 ///
 /// Safe to run twice — a unique index on (asset, period) refuses the second
@@ -532,6 +782,27 @@ export function runDepreciation(
 // ---------------------------------------------------------------------------
 // Bank reconciliation
 // ---------------------------------------------------------------------------
+
+/// Every place money sits, what the books say it holds, and what the bank last
+/// said.
+///
+/// One row per mapped money account per location — so it is the account map
+/// read through the ledger, and a meaning nobody has mapped is simply not a
+/// place money can sit yet. `per_books_minor` comes back in the account's own
+/// sign and deliberately unflipped: `giro_outstanding` is a liability and is
+/// negative, which is what it is.
+///
+/// `difference_minor` is absent rather than zero when no statement has been
+/// imported. "We agree" and "there is nothing to agree with" are different
+/// answers and must not render the same.
+export function moneyOverview(
+  options: { as_of?: string; site?: string } = {},
+  signal?: AbortSignal
+): Promise<MoneyOverview> {
+  return node.get<MoneyOverview>(`/api/v1/finance/money${search(options)}`, {
+    signal,
+  })
+}
 
 export function listBankStatements(
   signal?: AbortSignal
@@ -588,6 +859,41 @@ export function confirmBankMatch(
 ): Promise<{ matched: boolean }> {
   return node.post<{ matched: boolean }>(
     `/api/v1/finance/bank-lines/${encodeURIComponent(lineId)}/match`,
+    request,
+    { signal }
+  )
+}
+
+/// What booking an unmatched bank line answers with. Hand-written — `json!()`,
+/// not a struct.
+export interface BookedBankLine {
+  readonly entry_id: string
+  readonly entry_number: string
+  readonly journal_line_id: string
+  readonly total_minor: number
+  readonly matched: boolean
+}
+
+/// The other half of reconciling: a line the bank has and the books do not.
+///
+/// Matching says the bank confirmed something we already recorded. This says
+/// the bank did something we never recorded — a monthly charge, interest
+/// credited, a transfer that arrived without a document — and puts it in the
+/// ledger. It is the one place in this screen that writes an entry, which is
+/// why it takes a memo and why the memo is required: it is the only record of
+/// the judgement somebody made, and a bank line booked with no explanation is
+/// the entry an auditor asks about first.
+///
+/// The entry and the match are one transaction on the server, so the line never
+/// exists in the state where it has been booked and nothing points at what
+/// booked it.
+export function bookBankLine(
+  lineId: string,
+  request: BookBankLineRequest,
+  signal?: AbortSignal
+): Promise<BookedBankLine> {
+  return node.post<BookedBankLine>(
+    `/api/v1/finance/bank-lines/${encodeURIComponent(lineId)}/book`,
     request,
     { signal }
   )

@@ -35,6 +35,11 @@ export function Screen({
         // 16px side gutters, matching the frames. The list runs to the edges of
         // that gutter and no further; nothing here is inset twice.
         "min-h-0 flex-1 overflow-y-auto px-4",
+        // On a counter screen the column stops growing. DESIGN.md caps the
+        // content column and centres it; without that a two-field form is
+        // 1440px of white with a hairline somewhere in the middle, which is
+        // what a phone layout looks like when nobody stopped it.
+        "md:mx-auto md:w-full md:max-w-[60rem] md:px-7",
         CLEARANCE[foot],
         className,
       )}
@@ -131,7 +136,10 @@ export function ActionBar({
         className,
       )}
     >
-      <div className="pb-3">{children}</div>
+      {/* Capped to the same measure as `Screen`, so the one action lines up
+          with the column above it instead of stretching the full width of a
+          counter monitor. */}
+      <div className="mx-auto w-full max-w-[60rem] pb-3 md:px-3">{children}</div>
     </div>
   )
 }

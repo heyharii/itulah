@@ -1,6 +1,5 @@
 import type { ScreenMap } from "@/screens/registry"
 
-import { Allotments } from "@/screens/inventory/allotments"
 import { AsOf } from "@/screens/inventory/as-of"
 import { Availability } from "@/screens/inventory/availability"
 import { Control } from "@/screens/inventory/control"
@@ -21,7 +20,6 @@ export const screens: ScreenMap = {
   "/inventory": InventoryOverview,
   "/inventory/availability": Availability,
   "/inventory/pools": Pools,
-  "/inventory/allotments": Allotments,
   "/inventory/counts": Counts,
   "/inventory/observations": Observations,
   "/inventory/missing": Missing,

@@ -4,7 +4,7 @@ import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/field"
+import { Checkbox, Input } from "@/components/ui/field"
 import { KeyValue } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
@@ -22,7 +22,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { ROOT_CLASSES } from "@/screens/finance/chart"
-import { Check } from "@/screens/finance/parts"
+import { SiteName } from "@/screens/finance/parts"
 import type { LedgerAccount } from "@itulah/contract"
 
 /// The client's chart, browsed the way it is numbered.
@@ -80,16 +80,20 @@ export function ChartOfAccounts() {
             pills announcing that the default is the default, and the second
             label is the first plus something. A checkbox says "and also show
             me…" in the width of a checkbox. */}
-        <Check
+        <Checkbox
           label="Show inactive"
           checked={inactive}
-          onChange={(event) => setInactive(event.target.checked)}
+          onChange={(next) => setInactive(next)}
         />
         <Toolbar.Spacer />
+        {/* What is on screen, in words. It used to say how the search works,
+            which is a help string and not an effective value — every other
+            toolbar in this module answers "what am I looking at". */}
         <span className="text-[0.71875rem] text-mute">
           {searching
-            ? "Codes match from the start, names match anywhere."
-            : "Eight roots. Open a heading to fetch what hangs under it."}
+            ? `Matching “${trimmed}” · codes from the start, names anywhere`
+            : "The eight root classes · open a heading to fetch what hangs under it"}
+          {inactive ? " · including inactive" : ""}
         </span>
       </Toolbar>
 
@@ -259,14 +263,19 @@ function AccountRow({
         >
           {account.name}
         </span>
+        {/* The client's own name for the location, with the id in `title` —
+            the same reading every other location in this module gets. The raw
+            `store-01` was here in mono, which is the one thing an account row
+            has no room to explain. */}
         {account.counterparty_site_id && (
-          <span className="shrink-0 font-mono text-[0.65625rem] text-mute">
-            {account.counterparty_site_id} → {account.site_id}
+          <span className="shrink-0 text-[0.65625rem] text-mute">
+            <SiteName id={account.counterparty_site_id} /> →{" "}
+            <SiteName id={account.site_id} />
           </span>
         )}
         {!account.counterparty_site_id && account.site_id && (
-          <span className="shrink-0 font-mono text-[0.65625rem] text-mute">
-            {account.site_id}
+          <span className="shrink-0 text-[0.65625rem] text-mute">
+            <SiteName id={account.site_id} />
           </span>
         )}
         {account.child_count > 0 && (
@@ -327,7 +336,17 @@ function AccountSheet({
               <Fact term="Kind">
                 {account.is_group ? "Heading" : "Postable"}
               </Fact>
-              <Fact term="Location">{account.site_id ?? "Unscoped"}</Fact>
+              {/* "Unscoped" and not a dash: an account with no location is a
+                  real and ordinary state in this chart — the headings and the
+                  company-wide accounts — and it is not the same as a location
+                  we could not name. */}
+              <Fact term="Location">
+                {account.site_id === null ? (
+                  "Unscoped"
+                ) : (
+                  <SiteName id={account.site_id} />
+                )}
+              </Fact>
               <Fact term="State">
                 {account.is_active ? "Active" : "Inactive"}
               </Fact>
@@ -366,9 +385,10 @@ function AccountSheet({
               <p className="text-[0.71875rem] text-body">
                 A goods-in-transit account: the code names a route rather than a
                 place, and the goods came from{" "}
-                <span className="font-mono text-id text-ink">
-                  {account.counterparty_site_id}
-                </span>
+                <SiteName
+                  id={account.counterparty_site_id}
+                  className="font-medium text-ink"
+                />
                 .
               </p>
             )}

@@ -238,7 +238,7 @@ function StoreSheet({
               Receipts
             </AppLink>
             <AppLink
-              to="/analytics"
+              to="/reports"
               sheet={{ key: "store", value: siteId }}
               className="inline-flex h-[1.625rem] shrink-0 items-center rounded-full bg-soft-2 px-2.5 text-[0.71875rem] font-medium text-text transition-colors hover:bg-hairline"
             >

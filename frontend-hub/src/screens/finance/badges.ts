@@ -13,11 +13,11 @@ import {
 ///
 /// # Why a hook per item rather than a number on the nav
 ///
-/// `lib/navigation.ts` is a static declaration read by the rail, the sidebar,
-/// the palette and the router. Putting a live count in it would make it a
-/// module that fetches, and every one of those four readers would pay for it.
-/// A `useCount` hook instead is called by exactly one of them — the sidebar
-/// row — and only while the module it belongs to is the one on screen.
+/// `lib/navigation.ts` is a static declaration read by the sidebar, the palette
+/// and the router. Putting a live count in it would make it a module that
+/// fetches, and all three readers would pay for it. A `useCount` hook instead
+/// is called by exactly one of them — the sidebar — and the per-item ones only
+/// while the module they belong to is expanded.
 ///
 /// # Why these three and not a badge on everything
 ///
@@ -151,4 +151,29 @@ export function useMonthNotOpenCount(): number | null {
   return current !== undefined && current.status.toUpperCase() === "OPEN"
     ? 0
     : 1
+}
+
+// ---------------------------------------------------------------------------
+// The one the module's own row calls
+// ---------------------------------------------------------------------------
+
+/// The three above, added up — what Finance wears while its sub-items are not
+/// on screen.
+///
+/// It exists because the sidebar collapses every module but the one you are
+/// standing in, and a badge whose whole job is to be noticed without visiting
+/// the module would otherwise only appear once you had. Composing the three
+/// here rather than summing them in the sidebar is what keeps the sidebar to
+/// one hook per row: three calls in a fixed order inside one hook is ordinary
+/// React, three calls in a loop over a list of differing lengths is not.
+///
+/// `null` until at least one has answered, so the row draws nothing on a cold
+/// load rather than counting up as each query lands.
+export function useFinanceAttentionCount(): number | null {
+  const overdue = useOverdueBillCount()
+  const unmapped = useUnmappedMeaningCount()
+  const closed = useMonthNotOpenCount()
+
+  if (overdue === null && unmapped === null && closed === null) return null
+  return (overdue ?? 0) + (unmapped ?? 0) + (closed ?? 0)
 }

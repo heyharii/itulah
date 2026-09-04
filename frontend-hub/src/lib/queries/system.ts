@@ -40,6 +40,20 @@ export interface UserRow {
   /// Null until they have signed in once. A dormant account is the one a
   /// person actually has to decide about.
   readonly last_login_at: string | null
+  /// Who this credential belongs to, from `app_user.employee_id`.
+  ///
+  /// Null in all of them together means nobody: a machine account moving stock
+  /// between nodes, or a login HR has not finished the paperwork for. The two
+  /// read the same here and the console says so in words rather than leaving a
+  /// blank cell to be read as a loading bug.
+  readonly employee_id: string | null
+  readonly employee_code: string | null
+  /// The employment record's status, not the account's. `TERMINATED` beside
+  /// `active: true` is a live credential for somebody who has left.
+  readonly employee_status: string | null
+  readonly employee_name: string | null
+  readonly place_id: string | null
+  readonly place_name: string | null
 }
 
 /// A node the centre has issued an ingest key to. The key itself is never in

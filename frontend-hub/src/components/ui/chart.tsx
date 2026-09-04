@@ -1,4 +1,6 @@
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -167,6 +169,370 @@ export function BarSeries({
           ))}
         </BarChart>
       </ResponsiveContainer>
+    </div>
+  )
+}
+
+/// One line over an ordered axis, in the same grammar.
+///
+/// The sibling `<BarSeries>` earned its place answering "how much, per
+/// bucket"; this one answers the other question a ledger asks — *where was
+/// this heading over the window* — and a bar chart cannot answer it. A running
+/// balance is a level, not a quantity: consecutive bars invite the eye to add
+/// them up, and adding two running balances together is meaningless.
+///
+/// Deliberately as spare as `<BarSeries>` and sharing everything it can: the
+/// same grid, the same axes, the same compact ticks, the same tooltip. One
+/// series only, and no tone — a level has nothing to be compared against on
+/// its own axis, and the day a second one is wanted it will want a legend and
+/// a reason, which is a change worth making then rather than a prop worth
+/// carrying now.
+///
+/// An area under the line rather than a bare stroke: at this size the fill is
+/// what makes the shape legible, and it is the accent at a wash rather than a
+/// second colour.
+export function LineSeries({
+  rows,
+  /// The key on each row carrying the value.
+  dataKey,
+  label,
+  format,
+  titleOf,
+  labelOf,
+  className,
+}: {
+  rows: readonly ChartRow[]
+  dataKey: string
+  label: string
+  format: (value: number) => string
+  titleOf: (bucket: string) => string
+  labelOf: (bucket: string) => string
+  className?: string
+}) {
+  return (
+    <div className={cn("w-full text-eyebrow", className ?? "h-[13.75rem]")}>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart
+          data={rows as ChartRow[]}
+          margin={{ top: 4, right: 4, bottom: 0, left: 4 }}
+        >
+          <defs>
+            <linearGradient id="line-series-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.18} />
+              <stop
+                offset="100%"
+                stopColor="var(--accent)"
+                stopOpacity={0.01}
+              />
+            </linearGradient>
+          </defs>
+          <CartesianGrid
+            vertical={false}
+            stroke="var(--hairline)"
+            strokeDasharray="2 3"
+          />
+          <XAxis
+            dataKey="bucket"
+            tickFormatter={labelOf}
+            tick={{ fill: "var(--mute)" }}
+            tickLine={false}
+            axisLine={{ stroke: "var(--hairline-2)" }}
+            interval="preserveStartEnd"
+            minTickGap={14}
+          />
+          <YAxis
+            tickFormatter={(value: number) => compact.format(value)}
+            tick={{ fill: "var(--mute)" }}
+            tickLine={false}
+            axisLine={false}
+            width={46}
+          />
+          <Tooltip
+            cursor={{ stroke: "var(--hairline-2)" }}
+            content={(info) => {
+              if (
+                info.active !== true ||
+                info.payload === undefined ||
+                info.payload.length === 0
+              ) {
+                return null
+              }
+              return (
+                <div className="rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
+                  <div className="mb-1 text-[0.6875rem] font-medium text-ink">
+                    {titleOf(String(info.label ?? ""))}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[0.6875rem] text-body">
+                    <span
+                      aria-hidden
+                      className="size-[5px] shrink-0 rounded-full"
+                      style={{ background: FILL.accent }}
+                    />
+                    <span>{label}</span>
+                    <span className="ml-auto pl-4 font-medium text-ink tabular-nums">
+                      {format(Number(info.payload[0].value ?? 0))}
+                    </span>
+                  </div>
+                </div>
+              )
+            }}
+          />
+          <Area
+            type="monotone"
+            dataKey={dataKey}
+            name={label}
+            stroke="var(--accent)"
+            strokeWidth={1.5}
+            fill="url(#line-series-fill)"
+            // A dot per movement is a ninety-dot line on a busy account; the
+            // hover dot is what a reader actually points at.
+            dot={false}
+            activeDot={{ r: 3, fill: "var(--accent)", stroke: "none" }}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/// ── The one categorical stack ───────────────────────────────────────────────
+///
+/// `<BarSeries>` above takes a *role* and never a hue, and that is what keeps
+/// a fourth colour out of the ordinary chart. This is the exception the rule
+/// was written against, and it is drawn narrowly rather than by loosening it:
+/// **one shop per band, at most five of them, and everything else as Other.**
+///
+/// The reason it exists at all is that "how did the fleet trade, and which
+/// branch is the reason" is one question asked in one glance. The reason it is
+/// capped at five is the same reason `<BarSeries>` refuses a fourth colour: a
+/// fleet of thirteen shops cannot be told apart by hue. The colours themselves,
+/// their fixed order and why it is fixed are in `lib/chart-bands.ts`.
+
+export interface ChartBand {
+  readonly key: string
+  readonly label: string
+  /// One of `BAND_TONES`, or `BAND_NEUTRAL`. Not an arbitrary hue: the callers
+  /// take these from the same list, so two screens drawing the same fleet draw
+  /// it in the same colours.
+  readonly colour: string
+}
+
+/// The column key naming the topmost band that has something in it.
+const TOP_BAND = "__top"
+
+/// The surface gap between two bands, in pixels. White does the separating,
+/// not a stroke: a border round each band would add ink that is not data and,
+/// on a thin column, would be most of it.
+const BAND_GAP = 2
+
+/// Only the topmost band is capped. A rounded foot would lift the column off
+/// the axis it is measured from.
+const CAP_RADIUS = 3
+
+/// What the fleet took, stacked by shop.
+///
+/// Stacked rather than grouped because the question is "how much altogether"
+/// first and "of which how much" second. Grouped bars put the follow-up first
+/// and make the total something the reader has to add up.
+export function BandStack({
+  rows,
+  bands,
+  format,
+  titleOf,
+  labelOf,
+  /// What the whole column is called in the tooltip's last line.
+  totalLabel = "Fleet",
+  className,
+}: {
+  rows: readonly ChartRow[]
+  bands: readonly ChartBand[]
+  format: (value: number) => string
+  titleOf: (bucket: string) => string
+  labelOf: (bucket: string) => string
+  totalLabel?: string
+  className?: string
+}) {
+  // Which band gets the cap is a property of the COLUMN, so it is recorded
+  // once per row rather than recomputed by every band that draws itself.
+  const data = rows.map((row) => {
+    let top = ""
+    for (const band of bands) {
+      if (Number(row[band.key] ?? 0) > 0) top = band.key
+    }
+    return { ...row, [TOP_BAND]: top }
+  })
+  const colours = new Map(bands.map((band) => [band.key, band.colour]))
+  const labels = new Map(bands.map((band) => [band.key, band.label]))
+
+  return (
+    <div className={cn("w-full text-eyebrow", className ?? "h-[13.75rem]")}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+          <CartesianGrid
+            vertical={false}
+            stroke="var(--hairline)"
+            strokeDasharray="2 3"
+          />
+          <XAxis
+            dataKey="bucket"
+            tickFormatter={labelOf}
+            tick={{ fill: "var(--mute)" }}
+            tickLine={false}
+            axisLine={{ stroke: "var(--hairline-2)" }}
+            interval="preserveStartEnd"
+            minTickGap={14}
+          />
+          <YAxis
+            tickFormatter={(value: number) => compact.format(value)}
+            tick={{ fill: "var(--mute)" }}
+            tickLine={false}
+            axisLine={false}
+            width={46}
+          />
+          <Tooltip
+            cursor={{ fill: "var(--soft)" }}
+            content={(info) => {
+              if (
+                info.active !== true ||
+                info.payload === undefined ||
+                info.payload.length === 0
+              ) {
+                return null
+              }
+              // Biggest first, and nothing that sold nothing: a column of
+              // thirteen shops on a quiet Sunday is eleven zeroes and two
+              // figures, and the two are the whole message.
+              const shown = info.payload
+                .map((entry) => ({
+                  key: String(entry.dataKey ?? ""),
+                  value: Number(entry.value ?? 0),
+                }))
+                .filter((entry) => entry.value > 0)
+                .sort((left, right) => right.value - left.value)
+              const total = shown.reduce((sum, entry) => sum + entry.value, 0)
+              return (
+                <div className="min-w-[11rem] rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
+                  <div className="mb-1 text-[0.6875rem] font-medium text-ink">
+                    {titleOf(String(info.label ?? ""))}
+                  </div>
+                  {shown.length === 0 ? (
+                    <span className="text-[0.6875rem] text-mute">
+                      Nothing sold.
+                    </span>
+                  ) : (
+                    <>
+                      {shown.map((entry) => (
+                        <div
+                          key={entry.key}
+                          className="flex items-center gap-1.5 text-[0.6875rem] text-body"
+                        >
+                          <span
+                            aria-hidden
+                            className="size-[5px] shrink-0 rounded-full"
+                            style={{ background: colours.get(entry.key) }}
+                          />
+                          <span className="truncate">
+                            {labels.get(entry.key) ?? entry.key}
+                          </span>
+                          <span className="ml-auto pl-4 font-medium text-ink tabular-nums">
+                            {format(entry.value)}
+                          </span>
+                        </div>
+                      ))}
+                      {/* A stacked column has one thing the stock tooltip
+                          cannot say: the height. Adding five numbers in your
+                          head is not reading a chart. */}
+                      <div className="mt-1 flex items-center gap-1.5 border-t border-hairline pt-1 text-[0.6875rem] text-body">
+                        <span>{totalLabel}</span>
+                        <span className="ml-auto pl-4 font-semibold text-ink tabular-nums">
+                          {format(total)}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )
+            }}
+          />
+          {bands.map((band) => (
+            <Bar
+              key={band.key}
+              dataKey={band.key}
+              name={band.label}
+              fill={band.colour}
+              stackId="fleet"
+              maxBarSize={22}
+              isAnimationActive={false}
+              shape={(props: object) => <Band {...props} band={band.key} />}
+            />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function Band({
+  x = 0,
+  y = 0,
+  width = 0,
+  height = 0,
+  fill,
+  payload,
+  band,
+}: {
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  fill?: string
+  payload?: Record<string, unknown>
+  band: string
+}) {
+  if (height <= 0 || width <= 0) return null
+  const capped = payload?.[TOP_BAND] === band
+  // The gap sits ABOVE each band, between it and the shop stacked on top of
+  // it — so the topmost band takes none and the column's height stays honest
+  // where the reader measures it against the axis.
+  const gap = capped ? 0 : Math.min(BAND_GAP, height)
+  const top = y + gap
+  const drawn = height - gap
+  if (drawn <= 0) return null
+  if (!capped) {
+    return <rect x={x} y={top} width={width} height={drawn} fill={fill} />
+  }
+  const radius = Math.min(CAP_RADIUS, width / 2, drawn)
+  const right = x + width
+  const bottom = top + drawn
+  return (
+    <path
+      fill={fill}
+      d={
+        `M${x},${bottom} L${x},${top + radius} Q${x},${top} ${x + radius},${top} ` +
+        `L${right - radius},${top} Q${right},${top} ${right},${top + radius} ` +
+        `L${right},${bottom} Z`
+      }
+    />
+  )
+}
+
+/// The stack's legend, top band first so it reads in the order the column is
+/// drawn. Never optional: with five colours on one surface, the legend is what
+/// stops identity being carried by hue alone.
+export function BandLegend({ bands }: { bands: readonly ChartBand[] }) {
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-body">
+      {[...bands].reverse().map((band) => (
+        <span key={band.key} className="flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="size-[5px] shrink-0 rounded-full"
+            style={{ background: band.colour }}
+          />
+          {band.label}
+        </span>
+      ))}
     </div>
   )
 }

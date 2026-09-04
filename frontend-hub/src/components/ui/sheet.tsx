@@ -2,6 +2,8 @@ import { Dialog } from "@base-ui/react/dialog"
 import { X } from "lucide-react"
 
 import { Activity } from "@/components/ui/activity"
+import { useLayout } from "@/lib/layout"
+import { useSheetSpace } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
 
 /// The detail rail — a floating panel, never a flush column.
@@ -13,6 +15,33 @@ import { cn } from "@/lib/utils"
 ///
 /// It sits on the WHITE veil: the list behind washes toward near-white and
 /// never darkens.
+///
+/// **Under 48rem it arrives from the bottom instead.** A 27.5rem rail inset
+/// 16px from the right is a rail on a 375px screen: it covers everything and
+/// still leaves a 16px sliver of list nobody can read or tap. A record on a
+/// phone comes up over the list from the edge nearest the hand, stopping short
+/// of the top so the list it came from is still visible behind it — which is
+/// the same thing the desk rail says by floating, said with the one axis a
+/// phone has. Everything inside is unchanged: same header, same facts, same
+/// mini-table, same history.
+///
+/// **And on a monitor (96rem up) it stops covering anything at all.** Same
+/// panel, same place on the glass — what changes is that the shell gives it a
+/// column and the list narrows into what is left, so a buyer can read the
+/// order and the twenty orders around it at once. That is the whole of what
+/// this app does differently on a big screen, and it is deliberately not a new
+/// rail: a permanent strip of chrome down the right-hand side would have to be
+/// filled with something, and the two candidates were already ruled out here —
+/// the filter rail was removed from every screen for spending 248px on a
+/// control people touch twice a day, and a record's history already lives in
+/// the panel below.
+///
+/// Beside the list it is `modal={false}` and pointer-dismissal is off, which is
+/// what makes it a column rather than a dialog that happens to be next to one:
+/// every row stays clickable, clicking another one swaps the record instead of
+/// closing it, and the page scrolls behind. Escape still shuts it — that is a
+/// keyboard dismissal, and a panel you cannot leave from the keyboard is a
+/// trap.
 export function Sheet({
   open,
   onOpenChange,
@@ -21,6 +50,7 @@ export function Sheet({
   actions,
   subject,
   footer,
+  width = "rail",
   children,
   className,
 }: {
@@ -40,16 +70,63 @@ export function Sheet({
   subject?: { kind: string; id: string }
   /// The composer, when the record takes one.
   footer?: React.ReactNode
+  /// How much glass it takes.
+  ///
+  /// `rail` is the default and the shape everything else in the app uses: a
+  /// record standing next to the row it came from. `wide` is for a sheet that
+  /// is a TASK rather than a record — composing a thread, where the widest
+  /// thing on it is a textarea somebody is going to write a paragraph into,
+  /// and a 27.5rem column turns that paragraph into a column of six-word
+  /// lines. Two thirds of the window, never narrower than the rail, and capped
+  /// at 46rem because a form field wider than that is a line the eye loses its
+  /// place on.
+  ///
+  /// A wide sheet does not stand beside the list on a monitor: it is over the
+  /// page, veil and all. Beside is a promise that the list is still readable
+  /// next to it, and at two thirds of the glass that promise cannot be kept —
+  /// and there is nothing to read next to a form that has not been filled in
+  /// yet anyway.
+  width?: "rail" | "wide"
   children: React.ReactNode
   className?: string
 }) {
+  const beside = useLayout() === "monitor" && width === "rail"
+  // Claimed by a rail for as long as it is on screen, at every window width:
+  // the shell is the one that decides what to do about it, and only the
+  // monitor does anything. A wide sheet claims nothing — it never stands
+  // beside the page, so a column reserved for it would be a strip of empty
+  // canvas next to a veil. See `lib/sheet-space.ts` for why the panel is asked
+  // rather than the URL read.
+  useSheetSpace(open && width === "rail")
+
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={onOpenChange}
+      modal={beside ? false : true}
+      disablePointerDismissal={beside}
+    >
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)]" />
+        {/* No veil beside the list. The veil's job is to say "the thing behind
+            this is not what you are working on now", and beside the list that
+            is a lie: it is exactly what somebody is working on. */}
+        {!beside && (
+          <Dialog.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)]" />
+        )}
         <Dialog.Popup
           className={cn(
-            "fixed top-4 right-4 bottom-4 z-40 flex w-[27.5rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float",
+            "fixed z-40 flex flex-col overflow-hidden border border-hairline bg-canvas shadow-float",
+            // The phone: up from the bottom edge, 90% of the visible height at
+            // most, and `dvh` rather than `vh` because a mobile browser's
+            // toolbars slide and `vh` is the height it has when they are gone.
+            // The home-bar inset is padding rather than a margin so the sheet
+            // still reaches the bottom of the glass.
+            "inset-x-0 bottom-0 max-h-[90dvh] rounded-t-sheet pb-[env(safe-area-inset-bottom)]",
+            // The desk and the tablet: the floating rail, inset on three sides.
+            "md:inset-x-auto md:top-4 md:right-4 md:bottom-4 md:max-h-none md:max-w-[calc(100vw-2rem)] md:rounded-shell md:pb-0",
+            width === "wide"
+              ? "md:w-[clamp(27.5rem,66vw,46rem)]"
+              : "md:w-[27.5rem]",
             className
           )}
         >
@@ -105,7 +182,11 @@ export function Fact({
 }) {
   return (
     <div className="min-w-0">
-      <dt className="font-mono text-[0.625rem] tracking-[0.04em] text-faint uppercase">
+      {/* `body`, not `faint`. Faint (#d3d3d8) is the grey for a rule or a
+          disabled glyph, and a label printed in it reads as switched off —
+          the term of a fact is the half that says what the number means, and
+          it cannot be the half that disappears. */}
+      <dt className="font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
         {term}
       </dt>
       <dd className="mt-1 truncate text-[0.8125rem] text-ink tabular-nums">

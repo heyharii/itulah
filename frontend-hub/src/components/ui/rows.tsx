@@ -91,8 +91,8 @@ export function MiniTable({
               <th
                 key={label}
                 className={cn(
-                  "pb-1.5 font-mono text-[0.625rem] tracking-[0.04em] text-faint uppercase",
-                  align === "right" ? "text-right" : "text-left"
+                  "pb-1.5 font-mono text-eyebrow tracking-[0.04em] text-body uppercase",
+                  align === "right" ? "pl-3 text-right" : "text-left"
                 )}
               >
                 {label}
@@ -131,7 +131,11 @@ export function MiniCell({
     <td
       className={cn(
         "py-2 text-[0.78125rem] text-text",
-        align === "right" ? "text-right tabular-nums" : "pr-2",
+        // The gap belongs on the left of a right-aligned cell: padding on the
+        // right would move the edge every figure in the column lines up on,
+        // and two right-aligned cells with no gap at all run their contents
+        // together as soon as the column is full.
+        align === "right" ? "pl-3 text-right tabular-nums" : "pr-2",
         className
       )}
     >

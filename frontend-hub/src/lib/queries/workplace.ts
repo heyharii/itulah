@@ -8,6 +8,7 @@ import type {
   FileInContext,
   OpenThreadRequest,
   SendMessageRequest,
+  StartConversationRequest,
   StoredFile,
   SubjectCount,
 } from "@itulah/contract"
@@ -88,6 +89,34 @@ export const SUBJECT_KINDS: readonly string[] = Object.keys(SUBJECT_LABEL)
 
 export function subjectLabel(kind: string): string {
   return SUBJECT_LABEL[kind] ?? kind
+}
+
+/// What a DOCUMENT may be filed against — a different, shorter list, spelled
+/// differently on purpose.
+///
+/// `document_link` in `0075_documents.sql` accepts five kinds and they are
+/// UPPERCASE; a discussion's nine are lowercase. The two are not the same
+/// vocabulary and never were: a thread hangs on anything an argument can be
+/// about, a document is filed against the things somebody goes looking through
+/// a filing cabinet for.
+///
+/// The drawer offered the discussion's nine until this was written, so every
+/// attempt to file a document against a record was rejected by the check
+/// constraint, and the `subject_kind` filter matched nothing.
+export const DOCUMENT_SUBJECT_LABEL: Readonly<Record<string, string>> = {
+  PURCHASE_ORDER: "Purchase order",
+  SUPPLIER: "Supplier",
+  GOODS_RECEIPT: "Goods receipt",
+  ARTICLE: "Article",
+  SUPPLIER_ITEM: "Supplier item",
+}
+
+export const DOCUMENT_SUBJECT_KINDS: readonly string[] = Object.keys(
+  DOCUMENT_SUBJECT_LABEL
+)
+
+export function documentSubjectLabel(kind: string): string {
+  return DOCUMENT_SUBJECT_LABEL[kind] ?? kind
 }
 
 /// `open` · `resolved` · `locked` are the three the server accepts. "Answered"
@@ -210,6 +239,14 @@ export function discussionAttachmentUrl(threadId: string, fileId: string) {
 
 export function listConversations(signal?: AbortSignal) {
   return node.get<ChatConversation[]>("/api/v1/chat/conversations", { signal })
+}
+
+/// Start one. The caller is never in `participants` — the server puts them
+/// there — and a DIRECT room between the same two people is the one that
+/// already exists rather than a second copy of it, so this is safe to call
+/// again on somebody already spoken to.
+export function startConversation(request: StartConversationRequest) {
+  return node.post<ChatConversation>("/api/v1/chat/conversations", request)
 }
 
 export function readConversation(conversationId: string, signal?: AbortSignal) {
@@ -418,6 +455,22 @@ export function documentDownloadUrl(documentId: string) {
   )
 }
 
+/// The bytes themselves, at a path that does not expire.
+///
+/// The sibling of `documentDownloadUrl`, and the one a tile can actually use.
+/// A preview is an `<img src>` or an `<object data>`: the attribute is set once
+/// when the tile paints, so a URL that has to be fetched first — and that dies
+/// five minutes later — cannot go in it. This one is stable, same-origin, and
+/// carries the session cookie the way every other request here does.
+///
+/// It is also the only way to open a document whose bytes are in the database
+/// rather than in a bucket, which is every seeded one and every one filed on a
+/// node with no object storage configured. `download-url` answers those with a
+/// 404, because there is no key to presign.
+export function documentContentUrl(documentId: string): string {
+  return `/api/v1/documents/${encodeURIComponent(documentId)}/content`
+}
+
 export function reserveDocumentUpload(request: {
   file_name: string
   content_type?: string
@@ -426,7 +479,12 @@ export function reserveDocumentUpload(request: {
 }
 
 export interface FileDocumentRequest {
-  readonly upload_id: string
+  /// The reservation the bytes were PUT to. Exactly one of this and `file_id`.
+  readonly upload_id?: string
+  /// A file the node has already taken in — what `POST /files` answers with.
+  /// The way in when there is no bucket to presign against, and the way an
+  /// attachment already in a thread is filed without a second copy of it.
+  readonly file_id?: string
   readonly file_name: string
   readonly content_type?: string
   readonly sha256?: string
@@ -475,15 +533,44 @@ async function digestOf(file: File): Promise<string | undefined> {
 /// `upload_id` is what makes the last step safe to retry: the server finds the
 /// object by the id it issued rather than by anything the caller made up, and
 /// re-filing the same reservation cannot produce a second document.
+///
+/// # When there is no bucket
+///
+/// The first of the three steps needs one, and a node configured without object
+/// storage answers it with a 404 saying so — which is every development node and
+/// the one the seed runs against. Filing was therefore impossible there, and had
+/// been since the drawer was written: the button existed and the first request
+/// failed.
+///
+/// So a failed *reservation* falls back to `POST /files`, which takes the bytes
+/// through the node and keeps them in the row. That is the same route every
+/// attachment already uses, it works with or without a bucket, and it is only
+/// reached when the presigned path is unavailable — a 20MB contract still goes
+/// straight to the store wherever there is a store to go to.
 export async function uploadDocument(
   file: File,
-  details: Omit<FileDocumentRequest, "upload_id" | "file_name" | "content_type">
+  details: Omit<
+    FileDocumentRequest,
+    "upload_id" | "file_id" | "file_name" | "content_type"
+  >
 ): Promise<WorkplaceDocument> {
   const contentType = file.type === "" ? undefined : file.type
-  const reservation = await reserveDocumentUpload({
-    file_name: file.name,
-    content_type: contentType,
-  })
+
+  let reservation: DocumentUpload
+  try {
+    reservation = await reserveDocumentUpload({
+      file_name: file.name,
+      content_type: contentType,
+    })
+  } catch {
+    const stored = await uploadAttachment(file)
+    return fileDocument({
+      ...details,
+      file_id: stored.file_id,
+      file_name: file.name,
+      content_type: contentType,
+    })
+  }
 
   const stored = await fetch(reservation.upload_url, {
     method: "PUT",
