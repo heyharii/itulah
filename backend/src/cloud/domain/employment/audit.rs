@@ -188,6 +188,17 @@ pub mod actions {
     /// The keys that may decide one. Deliberately excludes both requesting
     /// keys: asking for leave is not granting it.
     pub const LEAVE_DECIDING: &[&str] = &[LEAVE_DECIDE];
+    /// The keys that may plan or revise a roster.
+    ///
+    /// A plan is upstream of money — an absence only exists against one — so
+    /// this is the same rung as deciding leave and is bounded the same way.
+    pub const ROSTER_CHANGING: &[&str] = &[ROSTER_MANAGE];
+    /// The keys that may sign off a month.
+    pub const PERIOD_CLOSING: &[&str] = &[ATTENDANCE_PERIOD_CLOSE];
+    /// The keys that may undo a sign-off. **Disjoint from
+    /// [`PERIOD_CLOSING`]**: a place that could reopen its own close has not
+    /// closed anything.
+    pub const PERIOD_REOPENING: &[&str] = &[ATTENDANCE_PERIOD_REOPEN];
     /// The keys that may order overtime, or take an order back.
     pub const OVERTIME_ORDERING: &[&str] = &[OVERTIME_ORDER];
     /// The keys that may answer one. **Deliberately disjoint from
@@ -337,6 +348,24 @@ impl Authorization {
     /// leave, wearing the shape of a decision.
     pub fn authorizes_leave_decision(&self) -> bool {
         actions::LEAVE_DECIDING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority plan or revise a roster?
+    ///
+    /// Re-checked on decode, because a stored day whose plan nobody was allowed
+    /// to make is an unattributable input to a pay decision.
+    pub fn authorizes_roster_change(&self) -> bool {
+        actions::ROSTER_CHANGING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority close a month?
+    pub fn authorizes_period_close(&self) -> bool {
+        actions::PERIOD_CLOSING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority reopen one?
+    pub fn authorizes_period_reopen(&self) -> bool {
+        actions::PERIOD_REOPENING.contains(&self.action_key.as_str())
     }
 
     /// May this authority order overtime, or withdraw an order?

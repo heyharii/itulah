@@ -542,6 +542,18 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("OvertimeOrderView: {e}"));
     inventory_backend::cloud::http::overtime::OvertimePolicyView::export_all(&config)
         .unwrap_or_else(|e| panic!("OvertimePolicyView: {e}"));
+    // Shift patterns, the roster and the close boundary. `CloseReadinessView`
+    // carries `Option<u32>` where the reference carries `u32`, and that is the
+    // whole point: `null` means the punch checks were not made, `0` would mean
+    // somebody looked and found none, and there is no punch source to look
+    // with. Generated rather than transcribed so a browser cannot flatten the
+    // distinction back to a number.
+    inventory_backend::cloud::http::roster::ShiftView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ShiftView: {e}"));
+    inventory_backend::cloud::http::roster::RosterDayView::export_all(&config)
+        .unwrap_or_else(|e| panic!("RosterDayView: {e}"));
+    inventory_backend::cloud::http::roster::PeriodView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PeriodView: {e}"));
     // The attendance policy. One root: `export_all` pulls the version view and
     // `Minutes` in behind it.
     inventory_backend::cloud::http::attendance::PolicyScheduleView::export_all(&config)

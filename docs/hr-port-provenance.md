@@ -346,6 +346,59 @@ there is no punch source, so nothing consumes it yet. `agreed_overtime_on` is
 written and unused for that reason, and it is the seam the punch decision would
 plug into.
 
+## Shift patterns, the roster, and the close boundary
+
+Source: `fresh/crates/attendance-domain/src/{roster,period,time}.rs` and the
+roster half of `cloud-attendance`, migration `044_attendance_v1.sql`.
+
+Destination: `backend/src/cloud/domain/attendance/{roster,period,time}.rs`,
+`postgres/roster.rs`, `http/roster.rs`, migration
+`backend/migrations/postgres/0104_a_plan_is_made_before_it_is_worked.sql`.
+
+Ported because none of it needs a clock. A plan is written before anybody works
+it, and a month is signed off by a person rather than by a sensor. Kept as-is:
+the 0..2879 shift timeline (so an overnight shift needs no timezone machinery),
+the refusal of a break at least as long as the span, the append-only revision
+chain with `plan_as_of`, the roster being frozen by the close as well as the
+facts, and the close/reopen machine folding its status back from its own
+history.
+
+Adaptations:
+
+- **`CloseReadiness` distinguishes "not assessed" from "zero".** The
+  reference's blockers are all punch-derived; there is no punch source here, so
+  those counts are `Option<u32>` and are `None`. A close taken today records, in
+  its own evidence, that the punch checks were *not made* — rather than that
+  they passed. This is the reference's own argument for `PeriodEvent::readiness`
+  being optional on a reopen ("a claim nobody made and nobody verified"),
+  applied one level down.
+- **The blockers that remain are ones we can actually compute**: leave dated in
+  the period and still undecided, and overtime orders nobody has answered. Both
+  are facts this backend holds. `employees_without_roster` stays informational,
+  as in the reference — a place may legitimately have staff nobody scheduled.
+- **Place scope moved out of the authority and into `Reach`.** The reference's
+  `Authorization` carries its own place and `require_covers`; ours does not, so
+  the bound is applied at the HTTP layer by the same `Reach` that bounds the
+  Directory. One answer to "where", not two.
+- **The period is stored by its first day**, a `date`, rather than as a
+  `YYYY-MM` string: ordering and containment become the database's own
+  arithmetic instead of a parse.
+- **An absent period row is an open period**, not an error. An unclosed month is
+  the resting state, so the row is materialised on the first close — the table
+  is a record of decisions rather than a grid of every month since the shop
+  opened.
+- **One route plans and revises.** They are one act with two spellings, and
+  which one is happening is a fact about the database rather than about the
+  caller's intent.
+- **Retire, never delete, a shift.** A roster day already naming one would
+  otherwise point at nothing, and the plans it produced are still the record of
+  what was planned.
+- Table names singular; `Minutes` is the attendance policy's, not a second one.
+
+Not ported: punches, corrections, kiosks, `basis.rs` and `attendance.rs` — the
+derivation of a day's outcome from its punches. All of it waits on the punch
+source. `frontend-hub/PEOPLE-BRIEF.md` states the three options and their costs.
+
 ## A gate that was one rung too high
 
 `domain::auth::required_role(method, path)` derives a minimum rung from the

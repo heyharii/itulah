@@ -31,6 +31,7 @@ pub mod audit;
 pub mod notifications;
 pub mod overtime;
 pub mod performance;
+pub mod roster;
 pub mod suppliers;
 
 /// Exact browser origins from config. Unset means same-origin only.
@@ -710,6 +711,39 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/employees/{id}/overtime-orders/{order_id}/withdrawal",
             post(overtime::withdraw),
+        )
+        // Shift patterns are head office's — a shop with its own idea of a
+        // shift is a shop whose rota means nothing next to the shop beside it
+        // — and reading them needs nothing but a session, because somebody
+        // whose week is built out of them is entitled to know what they are.
+        .route(
+            "/api/v1/attendance-shifts",
+            get(roster::list_shifts).post(roster::define_shift),
+        )
+        // Retire, never delete: a roster day already naming a shift would be
+        // left pointing at nothing.
+        .route(
+            "/api/v1/attendance-shifts/{id}/retirement",
+            post(roster::retire_shift),
+        )
+        // The grid a manager builds, and the week one person reads. Both
+        // bounded by the caller's posting; `{id}` accepts `me`.
+        .route("/api/v1/roster", get(roster::place_roster))
+        .route(
+            "/api/v1/employees/{id}/roster",
+            get(roster::read_roster).post(roster::plan_day),
+        )
+        // Signing the month off. Closing is the place's; reopening is head
+        // office's, because a place that could reopen its own close has not
+        // closed anything.
+        .route("/api/v1/attendance-periods", get(roster::read_periods))
+        .route(
+            "/api/v1/attendance-periods/{place}/{period}/closure",
+            post(roster::close_period),
+        )
+        .route(
+            "/api/v1/attendance-periods/{place}/{period}/reopening",
+            post(roster::reopen_period),
         )
         .route("/api/v1/notifications", get(notifications::list))
         .route(
