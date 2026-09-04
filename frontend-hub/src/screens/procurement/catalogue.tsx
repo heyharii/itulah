@@ -44,7 +44,6 @@ import type {
   SupplierItem,
   SupplierStatus,
 } from "@itulah/contract"
-import { ProcurementTabs } from "@/screens/procurement/tabs"
 
 /// The catalogue as master data, rather than as shopping.
 ///
@@ -268,7 +267,6 @@ export function Catalogue() {
         }
       />
 
-      <ProcurementTabs current="/procurement/catalogue" />
 
       <SubTabs
         tabs={[

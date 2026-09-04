@@ -3,13 +3,11 @@ import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
-import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import {
   MiniCell,
@@ -37,7 +35,6 @@ import {
   listSetupSessions,
   procurementKeys,
   setupSessionDetail,
-  unidentifiedReceipts,
   uploadArticleImage,
   type SetupSession,
   type SetupSessionRow,
@@ -48,6 +45,7 @@ import {
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { useAwaitingIdentity } from "@/screens/articles/queue"
 import type { CatalogueVocabulary, FacetCount } from "@itulah/contract"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import {
@@ -55,7 +53,6 @@ import {
   useActor,
   useIdempotencyKey,
 } from "@/screens/procurement/shared"
-import { ArticlesTabs } from "@/screens/articles/tabs"
 
 /// Article setups — head office giving a delivery its identity.
 ///
@@ -194,9 +191,31 @@ const sessionColumns: ColumnDef<TableSetup, SetupSessionRow>[] = [
   },
 ]
 
-export function ArticleSetups() {
+/// The three sheets an article setup is done through, mounted once by the
+/// Articles screen.
+///
+/// **This was a screen, and it is deliberately not one any more.** A setup is
+/// not a place in the business — it is something you do to *one delivery* that
+/// turned up without an identity, and the list of those deliveries is a queue
+/// rather than a department. So the sidebar lost the row and Articles grew a
+/// trigger: the master product is what a setup produces, so the queue belongs
+/// over the master product. It follows `cart` in `lib/sheets.ts`, which stopped
+/// being a menu entry for the same reason.
+///
+/// Three keys, three moments, each opening on its own so a link to any one of
+/// them works cold:
+///
+///  - `?setups=true` — the queue. Which delivery?
+///  - `?receipt=<line>` — that delivery, being told what it is. No session yet.
+///  - `?setup=<session>` — the session, where the variants are declared.
+///
+/// One panel at a time: picking a delivery closes the queue as it opens the
+/// next sheet. Stacked panels would leave two lists arguing about which is on
+/// top, and the queue has nothing left to say once a row has been chosen.
+export function SetupSheets() {
   const [tab, setTab] = useState("waiting")
   const [query, setQuery] = useState("")
+  const queue = useSheet("setups")
   // Which setup session is open lives in the URL, like every other sheet.
   const session = useSheet("setup")
   /// Which delivery is being given an identity. A separate key from `setup`:
@@ -218,10 +237,12 @@ export function ArticleSetups() {
     { id: "undeclared", desc: true },
   ])
 
-  const receipts = useQuery({
-    queryKey: procurementKeys.unidentified(),
-    queryFn: ({ signal }) => unidentifiedReceipts(signal),
-  })
+  /// Both lists are read while the queue is shut, and that is the point: the
+  /// trigger on Articles wears the waiting count, and a count that only
+  /// arrives once you have opened the thing it is meant to make you open is
+  /// no count at all. Same keys the queue itself reads, so opening it costs
+  /// nothing.
+  const receipts = useAwaitingIdentity()
 
   const sessions = useQuery({
     queryKey: procurementKeys.setups(),
@@ -267,11 +288,16 @@ export function ArticleSetups() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Articles"
+    <>
+      <Sheet
+        open={queue.isOpen}
+        onOpenChange={(next) => {
+          if (!next) queue.close()
+        }}
         title="Article setups"
-        sub="Deliveries waiting to be told what they are, and the sessions that will mint them."
+        // Wider than a record sheet: this one holds two tables, and a delivery
+        // line is only identifiable by several of its columns at once.
+        className="w-[48rem]"
         actions={
           <Input
             value={query}
@@ -280,72 +306,80 @@ export function ArticleSetups() {
             className="h-8 w-52"
           />
         }
-      />
+      >
+        <KpiStrip className="grid-cols-2">
+          <Kpi
+            label="Deliveries without an identity"
+            value={count(waiting.length)}
+          />
+          <Kpi label="Pieces waiting" value={count(pieces)} />
+          <Kpi label="Sessions open" value={count(open.length)} />
+          <Kpi label="Pieces not split out" value={count(unaccounted)} />
+        </KpiStrip>
 
-      <ArticlesTabs current="/articles/setups" />
-
-      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
-        <Kpi
-          label="Deliveries without an identity"
-          value={count(waiting.length)}
+        <SubTabs
+          className="mt-4"
+          tabs={[
+            { value: "waiting", label: `Awaiting identity (${waiting.length})` },
+            { value: "sessions", label: `Open sessions (${open.length})` },
+          ]}
+          value={tab}
+          onChange={setTab}
         />
-        <Kpi label="Pieces waiting" value={count(pieces)} />
-        <Kpi label="Sessions open" value={count(open.length)} />
-        <Kpi label="Pieces not split out" value={count(unaccounted)} />
-      </KpiStrip>
 
-      <SubTabs
-        tabs={[
-          { value: "waiting", label: `Awaiting identity (${waiting.length})` },
-          { value: "sessions", label: `Open sessions (${open.length})` },
-        ]}
-        value={tab}
-        onChange={setTab}
-      />
-
-      {tab === "waiting" ? (
-        <Card className="overflow-hidden">
-          {queryState(receipts, {
-            loading: "Reading the queue…",
-            render: () =>
-              waiting.length === 0 ? (
-                <EmptyState>
-                  {query === ""
-                    ? "Every accepted delivery has been given an identity."
-                    : "No waiting delivery matches that search."}
-                </EmptyState>
-              ) : (
-                <DataTable<UnidentifiedReceipt>
-                  table={receiptTable}
-                  onRowClick={(row) => waiting_.open(row.receipt_line_id)}
-                  isSelected={(row) => row.receipt_line_id === waiting_.value}
-                  className="max-h-[calc(100vh-24rem)]"
-                />
-              ),
-          })}
-        </Card>
-      ) : (
-        <Card className="overflow-hidden">
-          {queryState(sessions, {
-            loading: "Reading the sessions…",
-            render: () =>
-              open.length === 0 ? (
-                <EmptyState>
-                  {query === ""
-                    ? "No session is open. Nothing is waiting to be minted."
-                    : "No open session matches that search."}
-                </EmptyState>
-              ) : (
-                <DataTable<SetupSessionRow>
-                  table={sessionTable}
-                  onRowClick={(row) => session.open(row.session_id)}
-                  isSelected={(row) => row.session_id === session.value}
-                  className="max-h-[calc(100vh-24rem)]"
-                />
-              ),
-          })}
-        </Card>
-      )}
+        {tab === "waiting" ? (
+          <Card className="overflow-hidden">
+            {queryState(receipts, {
+              loading: "Reading the queue…",
+              render: () =>
+                waiting.length === 0 ? (
+                  <EmptyState>
+                    {query === ""
+                      ? "Every accepted delivery has been given an identity."
+                      : "No waiting delivery matches that search."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<UnidentifiedReceipt>
+                    table={receiptTable}
+                    onRowClick={(row) => {
+                      // Closes as it opens: see the note on this component.
+                      queue.close()
+                      waiting_.open(row.receipt_line_id)
+                    }}
+                    isSelected={(row) =>
+                      row.receipt_line_id === waiting_.value
+                    }
+                    className="max-h-[calc(100vh-26rem)]"
+                  />
+                ),
+            })}
+          </Card>
+        ) : (
+          <Card className="overflow-hidden">
+            {queryState(sessions, {
+              loading: "Reading the sessions…",
+              render: () =>
+                open.length === 0 ? (
+                  <EmptyState>
+                    {query === ""
+                      ? "No session is open. Nothing is waiting to be minted."
+                      : "No open session matches that search."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<SetupSessionRow>
+                    table={sessionTable}
+                    onRowClick={(row) => {
+                      queue.close()
+                      session.open(row.session_id)
+                    }}
+                    isSelected={(row) => row.session_id === session.value}
+                    className="max-h-[calc(100vh-26rem)]"
+                  />
+                ),
+            })}
+          </Card>
+        )}
+      </Sheet>
 
       <OpenSessionSheet
         receipt={
@@ -365,7 +399,7 @@ export function ArticleSetups() {
         id={session.value ?? null}
         onClose={() => session.close()}
       />
-    </PageContent>
+    </>
   )
 }
 

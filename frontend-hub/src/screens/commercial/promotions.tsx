@@ -32,7 +32,6 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { PerformanceHeader } from "@/screens/commercial/performance-header"
-import { CommercialTabs } from "@/screens/commercial/tabs"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Switch } from "@/screens/commercial/parts"
 import { RuleForm } from "@/screens/commercial/rule-form"
@@ -425,7 +424,6 @@ export function Promotions() {
         }
       />
 
-      <CommercialTabs current="/commercial/promotions" />
 
       {/* What the offers below actually did, over a window. The list says which
           exist and what they may spend; this says what they spent. */}

@@ -32,7 +32,6 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { LinkButton } from "@/screens/procurement/controls"
 import { useActor } from "@/screens/procurement/shared"
-import { ProcurementTabs } from "@/screens/procurement/tabs"
 
 /// Outstanding — what a supplier still owes, and the one decision a buyer can
 /// make about it.
@@ -188,7 +187,6 @@ export function Outstanding() {
         }
       />
 
-      <ProcurementTabs current="/procurement/outstanding" />
 
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Orders behind" value={count(rows.length)} />

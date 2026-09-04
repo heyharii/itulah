@@ -21,6 +21,7 @@ import {
   priceBookDetail,
   resolveOffer,
   shelfPrices,
+  type ArticlePricePoint,
   type ArticlePriceRow,
   type ArticlePriceRule,
   type ArticlePriceShop,
@@ -31,7 +32,6 @@ import {
   type ShelfPrice,
 } from "@/lib/queries/commercial"
 import { queryState } from "@/lib/query-state"
-import { CommercialTabs } from "@/screens/commercial/tabs"
 import { useSheet } from "@/lib/sheets"
 import { Named, Quiet } from "@/screens/commercial/parts"
 import {
@@ -85,17 +85,34 @@ function winner(shop: ArticlePriceShop): ArticlePriceRule | undefined {
   return shop.stack[0]
 }
 
-/// A candidate's price, as one string.
+/// The distinct prices one candidate carries, always as a list.
 ///
-/// Two ends when the style is priced per size, one when every product agrees.
-/// The currency is written once: "Rp 139.000–159.000" is the same fact as
-/// repeating the symbol and fits a column in a fleet of thirteen, which the
-/// repeated form does not — it was being truncated to "Rp 139.000–Rp…", which
-/// hides the very number the range exists to show.
-function amount(rule: ArticlePriceRule): string {
-  const low = money(rule.min_unit_price_minor)
-  if (rule.min_unit_price_minor === rule.max_unit_price_minor) return low
-  return `${low}–${money(rule.max_unit_price_minor).replace(/^\D+/, "")}`
+/// A style priced per size makes a rung cover several amounts, and this screen
+/// draws every one of them on a row of its own rather than folding them into
+/// "Rp 139.000–159.000". A dashed range reads as a single fact and is not one:
+/// it hides how many prices there are, which of them the till charges, and
+/// leaves the two ends looking like a band that every size falls inside.
+///
+/// `points` is the server's own breakdown of the same rung it drew the range
+/// from, so the rows can never disagree with it. The fallback is for a rung
+/// that arrives without one: a price is never dropped just because the
+/// breakdown is missing.
+function pointsOf(rule: ArticlePriceRule): readonly ArticlePricePoint[] {
+  if (rule.points.length > 0) return rule.points
+  return [
+    {
+      unit_price_minor: rule.min_unit_price_minor,
+      sku_codes: [],
+      in_force_for: rule.in_force_for,
+    },
+  ]
+}
+
+/// A candidate's prices as one sentence, for prose that has no rows to use.
+function amounts(rule: ArticlePriceRule): string {
+  return pointsOf(rule)
+    .map((point) => money(point.unit_price_minor))
+    .join(", ")
 }
 
 /// The newest book any shop on this row uses **for a given rung**.
@@ -300,7 +317,6 @@ export function Pricelist() {
         }
       />
 
-      <CommercialTabs current="/commercial" />
 
       {queryState(prices, {
         loading: "Pricing the range across every shop…",
@@ -339,7 +355,10 @@ export function Pricelist() {
               >
                 {receipt.delivered_to.length > 0 ? (
                   <>
-                    “{bookNames.get(receipt.version) ?? `Book v${receipt.version}`}” published and queued for{" "}
+                    “
+                    {bookNames.get(receipt.version) ??
+                      `Book v${receipt.version}`}
+                    ” published and queued for{" "}
                     {count(receipt.delivered_to.length)} shop
                     {receipt.delivered_to.length === 1 ? "" : "s"} (
                     {receipt.delivered_to.join(", ")}). Each one starts charging
@@ -351,9 +370,11 @@ export function Pricelist() {
                   // rather than a toast: published and reaching nobody looks
                   // exactly like success everywhere else on this screen.
                   <>
-                    “{bookNames.get(receipt.version) ?? `Book v${receipt.version}`}” published, and queued for nobody. No
-                    shop origin is registered, so no till will ever see these
-                    prices.
+                    “
+                    {bookNames.get(receipt.version) ??
+                      `Book v${receipt.version}`}
+                    ” published, and queued for nobody. No shop origin is
+                    registered, so no till will ever see these prices.
                   </>
                 )}
               </Banner>
@@ -381,8 +402,8 @@ export function Pricelist() {
               {items.length === 0 ? (
                 needle === "" ? (
                   <EmptyState>
-                    No published book prices anything for the shops. A
-                    product with no price is absent rather than free.
+                    No published book prices anything for the shops. A product
+                    with no price is absent rather than free.
                   </EmptyState>
                 ) : (
                   <EmptyState>
@@ -480,20 +501,36 @@ export function Pricelist() {
 ///
 /// Always at least two rows, so a style with a clearance at one shop and none
 /// at another still lines up across the fleet.
-function depthOf(row: ArticlePriceRow): number {
-  let deepest = 1
-  for (const shop of row.shops) deepest = Math.max(deepest, shop.stack.length)
-  return Math.max(deepest, 2)
+///
+/// **A column is one shop's cascade, listed densely.** Rung 0 is row 1 for
+/// every shop — that is the alignment the grid is actually read for, and it
+/// holds because rank 0 is always the first price a shop has. Below that the
+/// rows are that shop's own candidates in the engine's order, one price each.
+///
+/// The alternative, tried and reverted, was to give every rung a band of rows
+/// as tall as the most prices any shop had at it. It kept rung *n* on the same
+/// row across the fleet and paid for it in holes: a shop with one price at a
+/// rung its neighbour prices per size left two blank squares mid-column, and a
+/// grid with gaps in the middle of it reads as missing data rather than as a
+/// shop that simply has fewer prices.
+interface Line {
+  readonly rule: ArticlePriceRule
+  readonly point: ArticlePricePoint
 }
 
-/// The candidate at one rank at one shop, or `undefined` when this shop's
-/// cascade is not that deep. Indexed rather than searched: `stack` arrives in
-/// the engine's own order and position *is* the rank.
-function ruleAt(
-  shop: ArticlePriceShop | undefined,
-  rank: number
-): ArticlePriceRule | undefined {
-  return shop?.stack[rank]
+/// One shop's prices, rung by rung and within a rung price by price.
+function linesFor(shop: ArticlePriceShop | undefined): readonly Line[] {
+  if (shop === undefined) return []
+  return shop.stack.flatMap((rule) =>
+    pointsOf(rule).map((point) => ({ rule, point }))
+  )
+}
+
+/// How many rows an article needs: the longest cascade any shop has for it.
+function depthOf(lines: ReadonlyMap<string, readonly Line[]>): number {
+  let deepest = 1
+  for (const shop of lines.values()) deepest = Math.max(deepest, shop.length)
+  return Math.max(deepest, 2)
 }
 
 function PriceGrid({
@@ -587,11 +624,17 @@ function PriceGrid({
 
         <tbody>
           {items.map((row) => {
-            const depth = depthOf(row)
+            const lines = new Map<string, readonly Line[]>(
+              page.shops.map((shop) => [
+                shop.site_id,
+                linesFor(row.shops.find((one) => one.site_id === shop.site_id)),
+              ])
+            )
+            const depth = depthOf(lines)
             const newest = newestByRung(row)
-            return Array.from({ length: depth }, (_, rank) => (
-              <tr key={`${row.article_code}:${rank}`} className="group/row">
-                {rank === 0 && (
+            return Array.from({ length: depth }, (_, line) => (
+              <tr key={`${row.article_code}:${line}`} className="group/row">
+                {line === 0 && (
                   <th
                     scope="rowgroup"
                     rowSpan={depth}
@@ -631,16 +674,22 @@ function PriceGrid({
                     (one) => one.site_id === shop.site_id
                   )
                   const key = cellKey(row.article_code, shop.site_id)
-                  const rule = ruleAt(priced, rank)
+                  const here = lines.get(shop.site_id) ?? []
+                  const at = here[line]
+                  const rule = at?.rule
                   const top = priced === undefined ? undefined : winner(priced)
                   return (
                     <PriceCell
                       key={shop.site_id}
                       rule={rule}
-                      // Rank 0 is, by definition, what the till charges. Every
+                      point={at?.point}
+                      // This shop has nothing at all here, as opposed to having
+                      // run out of candidates. Only the first row says so.
+                      absent={here.length === 0 && line === 0}
+                      // Row one is, by definition, what the till charges. Every
                       // figure below it is a candidate it beat, drawn quietly
                       // for that reason.
-                      charging={rank === 0}
+                      charging={line === 0}
                       newestForRung={
                         rule === undefined
                           ? null
@@ -657,8 +706,8 @@ function PriceGrid({
                       // against one rank of it — so the top row is where it is
                       // offered, because that is the price a merchandiser is
                       // looking at when they decide to cut it.
-                      editable={rank === 0}
-                      pending={rank === 0 ? (pending.get(key) ?? null) : null}
+                      editable={line === 0}
+                      pending={line === 0 ? (pending.get(key) ?? null) : null}
                       bookName={
                         rule === undefined
                           ? null
@@ -696,6 +745,8 @@ function PriceGrid({
 /// deep in every square.
 function PriceCell({
   rule,
+  point,
+  absent,
   charging,
   newestForRung,
   later,
@@ -711,7 +762,14 @@ function PriceCell({
   /// This rung's candidate here, or `undefined` when this shop has none of it
   /// — absent rather than zero, because no price is not a price.
   rule: ArticlePriceRule | undefined
-  /// Whether this is the rung the till actually charges from.
+  /// The one price this square draws. `undefined` once this shop's cascade has
+  /// run out, which is a different thing from having no price at all.
+  point: ArticlePricePoint | undefined
+  /// Whether this shop has no price for the style whatsoever. Said once, on
+  /// the first row; a column of dashes reads as several missing prices rather
+  /// than as one style this shop cannot sell.
+  absent: boolean
+  /// Whether this is the row the till actually charges from.
   charging: boolean
   /// The newest book any shop on this row uses for *this same* rung.
   newestForRung: number | null
@@ -746,7 +804,7 @@ function PriceCell({
     rule !== undefined &&
     later.min_unit_price_minor !== rule.min_unit_price_minor
 
-  if (rule === undefined && pending === null) {
+  if (point === undefined && pending === null) {
     return (
       <td
         className={
@@ -755,7 +813,7 @@ function PriceCell({
           (picked ? "bg-accent-bg" : open ? "bg-soft-2" : "")
         }
       >
-        —
+        {absent ? "—" : "\u00a0"}
         {editable && <Pick picked={picked} onPick={onPick} />}
       </td>
     )
@@ -772,11 +830,11 @@ function PriceCell({
         : describeSource(rule.source),
     charging ? "charged at the till" : "beaten",
     null,
-    rule !== undefined && rule.in_force_for > 0
-      ? `in force for ${rule.in_force_for} of ${rule.sku_count}`
+    rule !== undefined && point !== undefined && point.in_force_for > 0
+      ? `in force for ${point.in_force_for} of ${rule.sku_count}`
       : null,
     behind ? "from an older book than the other shops" : null,
-    changing ? `${amount(later!)} from ${day(later!.effective_from)}` : null,
+    changing ? `${amounts(later!)} from ${day(later!.effective_from)}` : null,
     pending !== null ? "edited, not published" : null,
   ]
     .filter((one) => one !== null)
@@ -801,9 +859,7 @@ function PriceCell({
         // across, and holding a modifier is the gesture every spreadsheet has
         // already taught them; the checkbox in the corner is the same act for
         // anybody who has not been taught it.
-        onClick={(event) =>
-          event.shiftKey && editable ? onPick() : onOpen()
-        }
+        onClick={(event) => (event.shiftKey && editable ? onPick() : onOpen())}
         className="flex w-full items-center justify-end gap-1.5 overflow-hidden px-3.5 py-2.5 text-right"
       >
         {/* Markers before the figure, so the column of money stays a straight
@@ -815,18 +871,7 @@ function PriceCell({
               : "↓"}
           </span>
         )}
-        {rule !== undefined && rule.source === "MARKDOWN" && (
-          // Which rank is a clearance, said on the square that is one. On a
-          // fleet where a style is cleared at two shops out of thirteen, this
-          // is the mark somebody is scanning the row for.
-          <span
-            aria-hidden
-            className="shrink-0 rounded-[0.25rem] bg-warn-bg px-1 text-[0.625rem] font-medium text-warn-fg"
-          >
-            SALE
-          </span>
-        )}
-        {rule !== undefined && (
+        {point !== undefined && (
           <span
             className={
               "truncate tabular-nums " +
@@ -837,7 +882,7 @@ function PriceCell({
                   : "text-mute")
             }
           >
-            {amount(rule)}
+            {money(point.unit_price_minor)}
           </span>
         )}
         {pending !== null && (
@@ -958,7 +1003,7 @@ function CellSheet({
           <Facts>
             <Fact term="Shop">{shop?.label ?? cell.siteId}</Fact>
             <Fact term="Channel">{channel}</Fact>
-            <Fact term="Charged">{top === undefined ? "—" : amount(top)}</Fact>
+            <Fact term="Charged">{top === undefined ? "—" : amounts(top)}</Fact>
             <Fact term="From book">
               {top === undefined
                 ? "—"
@@ -983,45 +1028,63 @@ function CellSheet({
                   "Price",
                 ]}
               >
-                {shop.stack.map((rule, index) => (
-                  <MiniRow
-                    key={`${rule.source}-${rule.publication_version}-${index}`}
-                  >
-                    <MiniCell>
-                      <span className={index === 0 ? "text-ink" : "text-mute"}>
-                        {describeSource(rule.source)}
-                      </span>
-                      <span className="block text-[0.65625rem] text-mute">
-                        {bookNames.get(rule.publication_version) ?? "—"}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>
-                      <span
-                        className={
-                          index === 0
-                            ? "text-[0.71875rem] text-body"
-                            : "text-[0.71875rem] text-mute"
-                        }
-                      >
-                        {describeLevel(rule.applies_to)}
-                      </span>
-                    </MiniCell>
-                    <MiniCell align="right">
-                      <span className={index === 0 ? "text-text" : "text-mute"}>
-                        {count(rule.in_force_for)} of {count(rule.sku_count)}
-                      </span>
-                    </MiniCell>
-                    <MiniCell align="right">
-                      <span
-                        className={
-                          index === 0 ? "font-medium text-ink" : "text-mute"
-                        }
-                      >
-                        {amount(rule)}
-                      </span>
-                    </MiniCell>
-                  </MiniRow>
-                ))}
+                {/* One row per price, not per rung: a rung priced per size
+                    carries several amounts, and the question this table answers
+                    — which price, for how many products — has a different
+                    answer for each of them. The rung is named on its first row
+                    and left blank underneath, so a rung still reads as one
+                    block without repeating itself down the column. */}
+                {shop.stack.flatMap((rule, index) =>
+                  pointsOf(rule).map((point, within) => (
+                    <MiniRow
+                      key={`${rule.source}-${rule.publication_version}-${index}-${point.unit_price_minor}`}
+                    >
+                      <MiniCell>
+                        {within === 0 && (
+                          <>
+                            <span
+                              className={index === 0 ? "text-ink" : "text-mute"}
+                            >
+                              {describeSource(rule.source)}
+                            </span>
+                            <span className="block text-[0.65625rem] text-mute">
+                              {bookNames.get(rule.publication_version) ?? "—"}
+                            </span>
+                          </>
+                        )}
+                      </MiniCell>
+                      <MiniCell>
+                        {within === 0 && (
+                          <span
+                            className={
+                              index === 0
+                                ? "text-[0.71875rem] text-body"
+                                : "text-[0.71875rem] text-mute"
+                            }
+                          >
+                            {describeLevel(rule.applies_to)}
+                          </span>
+                        )}
+                      </MiniCell>
+                      <MiniCell align="right">
+                        <span
+                          className={index === 0 ? "text-text" : "text-mute"}
+                        >
+                          {count(point.in_force_for)} of {count(rule.sku_count)}
+                        </span>
+                      </MiniCell>
+                      <MiniCell align="right">
+                        <span
+                          className={
+                            index === 0 ? "font-medium text-ink" : "text-mute"
+                          }
+                        >
+                          {money(point.unit_price_minor)}
+                        </span>
+                      </MiniCell>
+                    </MiniRow>
+                  ))
+                )}
               </MiniTable>
               <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
                 Top row is what the till charges. The rest are candidates it

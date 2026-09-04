@@ -26,7 +26,6 @@ import { queryState } from "@/lib/query-state"
 import { useAppNavigate } from "@/lib/navigate"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { ProcurementTabs } from "@/screens/procurement/tabs"
 
 /// Purchase orders — the reference screen for this app.
 ///
@@ -203,7 +202,6 @@ export function PurchaseOrders() {
         }
       />
 
-      <ProcurementTabs current="/procurement/orders" />
 
       <Toolbar>
         <FilterBar model={filters} table={table} />

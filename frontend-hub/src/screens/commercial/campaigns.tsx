@@ -33,7 +33,6 @@ import {
   type PublishReceipt,
 } from "@/lib/queries/commercial"
 import { queryState } from "@/lib/query-state"
-import { CommercialTabs } from "@/screens/commercial/tabs"
 import { PerformanceHeader } from "@/screens/commercial/performance-header"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -309,17 +308,20 @@ export function Campaigns() {
   )
 
   /// Pause and resume, through the one function that knows how a status is
-  /// written. No status route exists on the node, so this publishes a one-line
-  /// book restating the campaign — `setCampaignStatus` is the only place that
-  /// changes when `PATCH …/status` lands.
+  /// written.
+  ///
+  /// It used to publish a one-line price book restating the campaign, because
+  /// the node had no status route. It has one now, and the difference is not
+  /// tidiness: a pause carried by a publication only stopped a promotion at the
+  /// shops that received that publication, and the shop most likely to miss it
+  /// is the shop most likely to still be running the offer. `PATCH` writes the
+  /// status and dispatches it on the switch lane in the same call.
   const toggle = useMutation({
     mutationFn: (line: CampaignLine) =>
       setCampaignStatus({
         campaign: asInput(line.row),
         status: line.row.campaign.status === "ACTIVE" ? "PAUSED" : "ACTIVE",
-        version: catalogue.data?.next_version ?? 1,
         actorId: actor,
-        idempotencyKey: crypto.randomUUID(),
       }),
     onSettled: () => {
       setBusy(null)
@@ -375,7 +377,6 @@ export function Campaigns() {
         }
       />
 
-      <CommercialTabs current="/commercial/campaigns" />
 
       {/* What the offers did, above what declares them. The list below says
           which campaigns exist and what they are allowed to spend; this says
@@ -487,7 +488,107 @@ function asInput(row: CampaignRow): CampaignInput {
     valid_to: row.campaign.valid_to,
     budget_minor: row.campaign.budget_minor,
     max_uses: row.campaign.max_uses,
+    // Restated verbatim means the poster too — see `rule-form.tsx`.
+    image_url: row.campaign.image_url,
+    headline: row.campaign.headline,
+    terms: row.campaign.terms,
   }
+}
+
+/// The poster a shop puts in front of a shopper.
+///
+/// The only part of a published campaign that may be edited, alongside the
+/// switch — and that is not an oversight in the freeze, it is the point. A
+/// banner describes the offer; it does not decide money. Migration 0073 froze
+/// everything that does, and left these writable so a typo in a headline can be
+/// fixed without cutting a price book.
+///
+/// Saving dispatches to the fleet in the same call, on the switch lane, so the
+/// corrected poster reaches the shop floor without waiting for a season.
+function Poster({ line }: { line: CampaignLine }) {
+  const client = useQueryClient()
+  const campaign = line.row.campaign
+  const [headline, setHeadline] = useState(campaign.headline ?? "")
+  const [image, setImage] = useState(campaign.image_url ?? "")
+  const [terms, setTerms] = useState(campaign.terms ?? "")
+
+  const save = useMutation({
+    mutationFn: () =>
+      setCampaignStatus({
+        campaign: asInput(line.row),
+        // Its own status, unchanged. This endpoint takes the switch and the
+        // poster together because they are the same two things a published
+        // campaign is allowed to change; sending the current status is how a
+        // poster edit says "leave the lever where it is".
+        status: campaign.status,
+        actorId: "console",
+        headline,
+        image_url: image,
+        terms,
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: commercialKeys.all }),
+  })
+
+  const changed =
+    headline !== (campaign.headline ?? "") ||
+    image !== (campaign.image_url ?? "") ||
+    terms !== (campaign.terms ?? "")
+
+  return (
+    <div>
+      <SubHead>What the shop shows</SubHead>
+      {image !== "" && (
+        <img
+          src={image}
+          alt=""
+          className="mb-2.5 aspect-[3/1] w-full rounded-inner border border-hairline bg-soft-2 object-cover"
+        />
+      )}
+      <div className="flex flex-col gap-2.5">
+        <Field
+          label="Headline"
+          hint="What a shopper reads. The campaign's own name is a filing code."
+        >
+          <Input
+            value={headline}
+            onChange={(event) => setHeadline(event.target.value)}
+            placeholder={campaign.name}
+          />
+        </Field>
+        <Field label="Banner image URL">
+          <Input
+            value={image}
+            onChange={(event) => setImage(event.target.value)}
+            placeholder="https://…"
+          />
+        </Field>
+        <Field label="Terms">
+          <Input
+            value={terms}
+            onChange={(event) => setTerms(event.target.value)}
+            placeholder="Selama persediaan masih ada."
+          />
+        </Field>
+      </div>
+      {save.isError && (
+        <Banner tone="bad" className="mt-2.5">
+          {(save.error as Error).message}
+        </Banner>
+      )}
+      <div className="mt-2.5 flex items-center gap-2">
+        <Button
+          variant="dark"
+          disabled={!changed || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? "Sending…" : "Save and send to shops"}
+        </Button>
+        {save.isSuccess && !changed && (
+          <span className="text-[0.71875rem] text-mute">Sent.</span>
+        )}
+      </div>
+    </div>
+  )
 }
 
 /// What this envelope holds, what it has cost, and how far it has got.
@@ -563,6 +664,8 @@ function CampaignSheet({
               </p>
             </div>
           )}
+
+          <Poster line={line} />
 
           <div>
             <SubHead aside={`${count(line.rules.length)} offers`}>

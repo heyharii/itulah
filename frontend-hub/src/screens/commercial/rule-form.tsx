@@ -282,6 +282,13 @@ export function RuleForm({
                 valid_to: campaign.campaign.valid_to,
                 budget_minor: campaign.campaign.budget_minor,
                 max_uses: campaign.campaign.max_uses,
+                // Verbatim includes the poster. Omitting these would restate
+                // the campaign with its banner blanked, so joining a rule to
+                // the Lebaran sale would quietly wipe the Lebaran sale's
+                // picture from every shop in the fleet.
+                image_url: campaign.campaign.image_url,
+                headline: campaign.campaign.headline,
+                terms: campaign.campaign.terms,
               },
             ]
 

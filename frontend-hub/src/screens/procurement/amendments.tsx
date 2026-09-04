@@ -31,7 +31,6 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { LinkButton } from "@/screens/procurement/controls"
 import { useActor } from "@/screens/procurement/shared"
-import { ProcurementTabs } from "@/screens/procurement/tabs"
 
 /// Price amendments — the buyer's inbox.
 ///
@@ -193,7 +192,6 @@ export function PriceAmendments() {
         }
       />
 
-      <ProcurementTabs current="/procurement/amendments" />
 
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Waiting on an answer" value={rows.length} />

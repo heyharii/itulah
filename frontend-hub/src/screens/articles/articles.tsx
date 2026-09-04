@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { LayoutGrid, Rows3, Search } from "lucide-react"
+import { LayoutGrid, ListChecks, Rows3, Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -23,12 +23,13 @@ import { colourKeys, listColours, type ColourTerm } from "@/lib/queries/colours"
 import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { useAwaitingIdentity } from "@/screens/articles/queue"
+import { SetupSheets } from "@/screens/articles/setups"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { FacetGroup } from "@/components/ui/facets"
 import { ColourSwatch, Swatches, Thumbnail } from "@/screens/articles/shared"
 import { ArticleSheet } from "@/screens/articles/detail"
 import { termLabel, toggle } from "@/screens/procurement/shared"
-import { ArticlesTabs } from "@/screens/articles/tabs"
 
 /// The master product catalogue, read as itself.
 ///
@@ -110,7 +111,10 @@ function priceSpan(row: ArticleRow): string {
   if (low === null && high === null) return "—"
   if (low === null || high === null) return money(low ?? high)
   if (low === high) return money(low)
-  return `${money(low)} – ${money(high)}`
+  // The currency once, the way every other money range in this app is written
+  // — "Rp 229.000 – Rp 249.000" spends a third of a narrow column repeating a
+  // symbol that was never in question.
+  return `${money(low)}–${money(high).replace(/^\D+/, "")}`
 }
 
 /// An article with the words already looked up.
@@ -428,12 +432,12 @@ export function Articles() {
 
       <div className="@container min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[77.5rem] px-[1.875rem] pt-6 pb-14">
-          <ArticlesTabs current="/articles" />
 
           <PageHeader
             crumb="Master data"
             title="Articles"
             sub="Every article we sell, with the colourways, sizes and SKUs minted against it."
+            actions={<SetupTrigger />}
           />
 
           {/* The search sits over the list, not in the filter column: it asks a
@@ -569,7 +573,40 @@ export function Articles() {
         open={article.isOpen}
         onClose={article.close}
       />
+      {/* Mounted here rather than behind the trigger, because two of its three
+          sheets are opened by URL from elsewhere: `/articles?setup=<id>` is
+          the link an article's detail follows back to the delivery that minted
+          it. A sheet that only exists while its button has been pressed is a
+          link that works for the person who clicked it and nobody else. */}
+      <SetupSheets />
     </div>
+  )
+}
+
+/// The way into a setup, and the count that makes it worth pressing.
+///
+/// A trigger and not a menu row: a setup is done to one delivery, so what this
+/// opens is a queue to pick from. The number is the whole argument for the
+/// button — "Set up deliveries" alone says a thing exists, while "3" says
+/// three deliveries are sitting in the warehouse under a code nobody can sell
+/// against. Nothing is drawn while the count is unknown, and the button goes
+/// quiet rather than away at zero: it is still how you reach the sessions
+/// already open.
+function SetupTrigger() {
+  const queue = useSheet("setups")
+  const waiting = useAwaitingIdentity()
+  const pending = waiting.data?.length ?? 0
+
+  return (
+    <Button variant="soft" onClick={() => queue.open(true)}>
+      <ListChecks className="size-4 stroke-[1.7]" />
+      Set up deliveries
+      {pending > 0 && (
+        <span className="ml-0.5 rounded-full bg-warn-bg px-[0.375rem] py-px text-[0.65625rem] font-semibold text-warn-fg tabular-nums">
+          {count(pending)}
+        </span>
+      )}
+    </Button>
   )
 }
 

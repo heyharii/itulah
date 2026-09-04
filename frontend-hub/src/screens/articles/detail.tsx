@@ -205,7 +205,7 @@ function Overview({
           // No dead ends: the delivery that prompted this product is one click
           // away, which is the only route from a thing back to why it exists.
           <AppLink
-            to="/articles/setups"
+            to="/articles"
             sheet={{ key: "setup", value: article.created_by_session_id }}
             className="font-mono text-id text-accent hover:underline"
           >

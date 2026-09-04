@@ -1,50 +1,39 @@
-import { Tags } from "lucide-react"
+import { Megaphone, Percent, Tags, Ticket } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
-/// This module's place in the rail and everything under it in the sidebar.
+/// This module's row in the sidebar and the sub-items under it.
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
-/// **One sidebar row, four tabs.** The module was seven screens, then three
-/// rows, and is now one row whose four surfaces are reached by tabs inside the
-/// page. The reason is that they are four readings of one subject rather than
-/// four places: a merchandiser moves between a price, the offer coming off it
-/// and the envelope that offer is run in within a single train of thought, and
-/// a sidebar makes that a departure each time.
+/// **Pricelist → Promotions → Campaign → Vouchers**, in the order the work
+/// happens. A price exists before anything can come off it, a promotion is the
+/// thing that comes off, and a campaign is the envelope several promotions are
+/// run and budgeted as one thing inside.
 ///
-/// The other three paths are still declared — that is what routes them, keeps
-/// them linkable and keeps the command palette honest — but `hidden` keeps them
-/// out of the sidebar, where they would say the same thing the tabs say and
-/// fight over which highlight is current.
+/// A coupon is deliberately absent. It is a *gate* on a promotion, not a thing
+/// of its own: a rule carrying a code is shut until somebody presents that
+/// code, which is a column on the Promotions list and a field on its form.
+/// Giving it a sub-item would imply a coupon can exist without a promotion to
+/// unlock, and one cannot.
+///
+/// A voucher, by contrast, earns its own row precisely because it is *not* one
+/// of the other three. It carries money — it is tender, sitting beside cash and
+/// a card at the counter — where the first three all describe what something
+/// costs. Filing it under pricing is the mistake the system this replaces made,
+/// and it is why a clearance there was booked as a discount.
 export const commercialNav: AppModule = {
   id: "commercial",
   label: "Commercial",
   icon: Tags,
-  tint: { top: "#ff87a9", bottom: "#f5265b" },
   home: "/commercial",
   sections: [
     {
       items: [
-        { path: "/commercial", label: "Commercial", icon: Tags },
-        {
-          path: "/commercial/promotions",
-          label: "Promotions",
-          icon: Tags,
-          hidden: true,
-        },
-        {
-          path: "/commercial/campaigns",
-          label: "Campaign",
-          icon: Tags,
-          hidden: true,
-        },
-        {
-          path: "/commercial/vouchers",
-          label: "Vouchers",
-          icon: Tags,
-          hidden: true,
-        },
+        { path: "/commercial", label: "Pricelist", icon: Tags },
+        { path: "/commercial/promotions", label: "Promotions", icon: Percent },
+        { path: "/commercial/campaigns", label: "Campaign", icon: Megaphone },
+        { path: "/commercial/vouchers", label: "Vouchers", icon: Ticket },
       ],
     },
   ],

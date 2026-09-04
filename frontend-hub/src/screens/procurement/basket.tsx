@@ -128,6 +128,10 @@ export function BasketSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title="Basket"
+      // Wider than the record rail: the basket carries a five-column table and
+      // a four-up strip, and at the default width the item names wrap to three
+      // lines while the money column runs off the edge.
+      className="w-[52rem]"
       actions={
         <div className="flex items-center gap-1.5">
           <Button

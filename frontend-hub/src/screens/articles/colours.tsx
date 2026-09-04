@@ -27,7 +27,6 @@ import {
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { ColourSwatch } from "@/screens/articles/colour-picker"
-import { ArticlesTabs } from "@/screens/articles/tabs"
 
 /// The company's colour vocabulary — the list itself, not a colour on a shirt.
 ///
@@ -244,7 +243,6 @@ export function Colours() {
         }
       />
 
-      <ArticlesTabs current="/articles/colours" />
 
       <Toolbar>
         <Segmented

@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { ArrowLeft, Search, ShoppingBasket, Store } from "lucide-react"
+import { ArrowLeft, Minus, Plus, ShoppingBasket, Store } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -12,8 +12,9 @@ import { Input } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { FacetGroup } from "@/components/ui/facets"
+import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import { Tag } from "@/components/ui/tag"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, money } from "@/lib/format"
 import {
   addToBasket,
@@ -21,7 +22,9 @@ import {
   listSuppliers,
   procurementKeys,
   readBasket,
+  scopeFromFilters,
   searchSupplierItems,
+  setBasketQuantity,
   supplierItemDetail,
   type SourcingScope,
 } from "@/lib/queries/procurement"
@@ -30,10 +33,10 @@ import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { BasketSheet } from "@/screens/procurement/basket"
 import { ItemDetail } from "@/screens/procurement/item-detail"
-import { termLabel, toggle } from "@/screens/procurement/shared"
-import { ProcurementTabs } from "@/screens/procurement/tabs"
+import { termLabel } from "@/screens/procurement/shared"
 import type {
   CatalogueVocabulary,
+  FacetCount,
   PurchaseHistory,
   SourcedItem,
   Supplier,
@@ -58,6 +61,7 @@ import type {
 /// buyer sees what else is there.
 
 export function Sourcing() {
+  const client = useQueryClient()
   /// Whose shop is being browsed, or nobody's. In the URL so the back button
   /// leaves the shop rather than the app, and so a buyer can send a colleague
   /// "look at this supplier".
@@ -70,10 +74,6 @@ export function Sourcing() {
   /// Relevance is the absence of a sort rather than a value, so the plain URL
   /// is the plain catalogue and there is one spelling of "no order chosen".
   const sort = useSheet("sort")
-
-  const [divisions, setDivisions] = useState<readonly string[]>([])
-  const [tags, setTags] = useState<readonly string[]>([])
-  const [suppliers, setSuppliers] = useState<readonly string[]>([])
 
   const needle = (search.value ?? "").trim()
 
@@ -102,7 +102,7 @@ export function Sourcing() {
   )
 
   /// How each facet's codes are read out loud. Callbacks rather than inline
-  /// arrows because `<FacetGroup>` memoises its sifting on them.
+  /// arrows because the field list memoises on them.
   const divisionLabel = useCallback(
     (code: string) => termLabel(vocabulary.data?.divisions, code),
     [vocabulary.data]
@@ -116,26 +116,100 @@ export function Sourcing() {
     [supplierNames]
   )
 
+  /// What this catalogue can be narrowed by.
+  ///
+  /// Declared without counts, and deliberately: the counts come from the
+  /// response, the response comes from the scope, and the scope comes from the
+  /// clauses — so a field list carrying counts could not be built before the
+  /// request it shapes. The bar only needs a column's name, kind and operators
+  /// to read a URL; the counted copy is assembled below, once there is an
+  /// answer to count.
+  ///
+  /// Each operator list is cut to what `/api/v1/supplier-items` can actually
+  /// answer. `includesAllOf` is absent because the tag clause is an `ANY`, and
+  /// a chip reading "include all of" over an OR would be a chip that lies.
+  const fields = useMemo<FilterField[]>(() => {
+    const list: FilterField[] = [
+      {
+        column: "division",
+        label: "Division",
+        spec: {
+          kind: "option",
+          format: divisionLabel,
+          single: true,
+          // The label `sourcing_facets` files unclassified items under. It is
+          // counted like a division and is not one, so the picker has to know
+          // which row it is.
+          emptyValue: "Unclassified",
+          operators: ["isAnyOf", "isNoneOf", "isEmpty", "isNotEmpty"],
+        },
+      },
+      {
+        column: "tag",
+        label: "Tag",
+        spec: {
+          kind: "multi",
+          format: tagLabel,
+          single: true,
+          operators: ["includesAnyOf", "excludes", "isEmpty", "isNotEmpty"],
+        },
+      },
+      {
+        column: "price",
+        label: "Price",
+        spec: {
+          kind: "number",
+          // No scale. The column is named `unit_price_minor` and holds whole
+          // rupiah — `lib/format` says why: IDR has no minor unit in practice,
+          // so the server's "minor" is already what a person types. Reading
+          // the name instead of the data would multiply every bound by a
+          // hundred and match nothing.
+          unit: "Rp",
+          // Not `single`: "at least 50.000" and "at most 90.000" are two
+          // clauses that land on two different request parameters, so they
+          // AND on the server exactly as the chips promise. A range is two
+          // chips here rather than one "is between", which reads the same and
+          // survives a single-line input.
+          operators: ["gte", "lte"],
+        },
+      },
+    ]
+    // Filtering by supplier while standing in one supplier's shop is a control
+    // that can only do nothing. Dropped from the list rather than disabled —
+    // and a clause already in `?f=` is left in the address bar untouched, so
+    // leaving the shop brings it back.
+    if (!shop.value) {
+      list.splice(2, 0, {
+        column: "supplier",
+        label: "Supplier",
+        spec: {
+          kind: "option",
+          format: supplierLabel,
+          single: true,
+          operators: ["isAnyOf", "isNoneOf"],
+        },
+      })
+    }
+    return list
+  }, [divisionLabel, tagLabel, supplierLabel, shop.value])
+
+  const filters = useFilterState(fields)
+
   const scope = useMemo<SourcingScope>(
     () => ({
+      ...scopeFromFilters(filters.filters),
       sort: sort.value ?? "relevance",
       q: needle === "" ? undefined : needle,
       // Always what is actually on offer. A retired item cannot be ordered, so
       // a control that shows them is a control that can only mislead — every
       // extra row it adds is a row the buyer must not pick.
       status: "ACTIVE",
-      divisionCodes: divisions.length === 0 ? undefined : divisions,
-      tagCodes: tags.length === 0 ? undefined : tags,
-      // Standing in a shop IS a supplier filter. Expressed as the same
-      // parameter rather than a second one, so the server answers one question
-      // and the facet counts stay true.
-      supplierIds: shop.value
-        ? [shop.value]
-        : suppliers.length === 0
-          ? undefined
-          : suppliers,
+      // Standing in a shop IS a supplier filter, and it wins: expressed as the
+      // same parameter rather than a second one, so the server answers one
+      // question and the facet counts stay true.
+      ...(shop.value ? { supplierIds: [shop.value] } : {}),
     }),
-    [needle, divisions, tags, suppliers, shop.value, sort.value]
+    [filters.filters, needle, shop.value, sort.value]
   )
 
   const catalogue = useInfiniteQuery({
@@ -169,6 +243,28 @@ export function Sourcing() {
     ? (facets?.suppliers.find((one) => one.value === shop.value)?.count ?? 0)
     : 0
 
+  /// The same fields, now carrying the server's counts.
+  ///
+  /// The number beside a value is the whole affordance of a facet: it is how
+  /// somebody decides whether a filter is worth pressing before they press it.
+  /// These are counted over everything the SEARCH matches rather than over the
+  /// current selection, which is what stops ticking one division making the
+  /// others read zero — a list that only describes what you have already
+  /// chosen cannot answer "what if I looked at menswear instead".
+  const counted = useMemo<FilterField[]>(() => {
+    const source: Record<string, readonly FacetCount[] | undefined> = {
+      division: facets?.divisions,
+      tag: facets?.tags,
+      supplier: facets?.suppliers,
+    }
+    return fields.map((field) => {
+      const values = source[field.column]
+      return values
+        ? { ...field, spec: { ...field.spec, counted: values } }
+        : field
+    })
+  }, [fields, facets])
+
   const basket = useQuery({
     queryKey: procurementKeys.basket(),
     queryFn: ({ signal }) => readBasket(signal),
@@ -177,6 +273,41 @@ export function Sourcing() {
     (sum, line) => sum + line.quantity,
     0
   )
+  /// How many of each item is already picked out, so a card can say so.
+  ///
+  /// Read off the basket the header is already holding rather than asked for
+  /// per card: the count in the corner and the count on the card are then one
+  /// number, and cannot disagree while a page of forty cards settles.
+  const held = useMemo(
+    () =>
+      new Map(
+        (basket.data ?? []).map((line) => [
+          line.item.supplier_item_id,
+          line.quantity,
+        ])
+      ),
+    [basket.data]
+  )
+
+  const settleBasket = () =>
+    client.invalidateQueries({ queryKey: procurementKeys.basket() })
+
+  /// Picking up from the grid, one piece at a time.
+  ///
+  /// `POST` adds to whatever is already on the line, `PATCH` says exactly how
+  /// many — so "one more" and "one fewer" are two different routes rather than
+  /// one route the browser does arithmetic for. Zero removes the line, which
+  /// is what the minus button reaching one more press means.
+  const pick = useMutation({
+    mutationFn: (id: string) =>
+      addToBasket({ supplier_item_id: id, quantity: 1 }),
+    onSuccess: settleBasket,
+  })
+  const nudge = useMutation({
+    mutationFn: ({ id, quantity }: { id: string; quantity: number }) =>
+      setBasketQuantity(id, quantity),
+    onSuccess: settleBasket,
+  })
 
   // The supplier whose shop this is, taken from a row rather than fetched: the
   // catalogue already carries the whole supplier on every item, and a second
@@ -185,79 +316,12 @@ export function Sourcing() {
     ? rows.find((row) => row.supplier.supplier_id === shop.value)?.supplier
     : undefined
 
-  const filtered =
-    needle !== "" ||
-    divisions.length > 0 ||
-    tags.length > 0 ||
-    suppliers.length > 0
+  const filtered = needle !== "" || filters.filters.length > 0
 
   return (
     <div className="flex h-full min-h-0">
-      {/* The filter column — 212 declared, the width DESIGN.md gives the
-          catalogue's third column. It carries the search too: scoping and
-          filtering are one question, and splitting them across two corners of
-          the screen makes a buyer hunt for half of it. */}
-      <aside className="flex w-[13.25rem] shrink-0 flex-col overflow-y-auto border-r border-hairline px-4 py-[1.125rem]">
-        <div className="mt-4 flex items-center justify-between">
-          <b className="text-[0.9375rem] font-semibold text-ink">Filters</b>
-          {filtered && (
-            <button
-              type="button"
-              onClick={() => {
-                setDivisions([])
-                setTags([])
-                setSuppliers([])
-                search.close()
-              }}
-              className="text-[0.75rem] font-medium text-body transition-colors hover:text-ink"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-
-        <FacetGroup
-          label="Division"
-          values={facets?.divisions}
-          selected={divisions}
-          onToggle={(value) => setDivisions(toggle(divisions, value))}
-          onClear={() => setDivisions([])}
-          labelOf={divisionLabel}
-        />
-
-        <FacetGroup
-          label="Tag"
-          shape="chip"
-          values={facets?.tags}
-          selected={tags}
-          onToggle={(value) => setTags(toggle(tags, value))}
-          onClear={() => setTags([])}
-          labelOf={tagLabel}
-        />
-
-        {/* Hidden inside a shop: filtering by supplier while standing in one
-            supplier's shop is a control that can only do nothing. */}
-        {!standing && (
-          <FacetGroup
-            label="Supplier"
-            values={facets?.suppliers}
-            selected={suppliers}
-            onToggle={(value) => setSuppliers(toggle(suppliers, value))}
-            onClear={() => setSuppliers([])}
-            labelOf={supplierLabel}
-          />
-        )}
-      </aside>
-
       <div className="@container min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[77.5rem] px-[1.875rem] pt-6 pb-14">
-          {/* Above the title, not under it. On the other two screens the tabs
-              sit below the header the way Commercial's do, but this one's
-              header is replaced by a supplier card the moment a shop is opened
-              — and module navigation that moves when you open a shop is
-              navigation you have to find again. */}
-          <ProcurementTabs current="/procurement" />
-
           {standing ? (
             <ShopHead
               supplier={standing}
@@ -277,28 +341,24 @@ export function Sourcing() {
             </div>
           )}
 
-          {/* The search sits over the content, not in the filter column: it
-              asks a different question. The filters narrow what is already
-              being shown; this changes what is being looked for, and a
-              marketplace puts that across the top for the same reason. */}
-          <div className="relative mb-4">
-            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-line-ico" />
-            <input
-              value={search.value ?? ""}
-              onChange={(event) =>
-                event.target.value === ""
-                  ? search.close()
-                  : search.open(event.target.value)
-              }
-              placeholder={
-                standing
-                  ? `Search in ${standing.name}`
-                  : "Search every supplier's catalogue"
-              }
-              aria-label="Search the catalogue"
-              className="h-10 w-full rounded-full border border-transparent bg-soft-2 pr-4 pl-10 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 hover:bg-soft-3"
-            />
-          </div>
+          {/* One box for both questions. Searching and filtering were two
+              controls in two corners — a pill across the top and a 212px rail
+              down the left — and they are one thought: "kaus, kidswear, not
+              from that supplier" is a single sentence a buyer says in one
+              breath. The rail also spent permanent width on a control most
+              buyers touch twice a day, and this screen's grid is sized by what
+              is left over. */}
+          <FilterOmnibox
+            model={{ ...filters, fields: counted }}
+            text={search.value ?? undefined}
+            onText={(next) => (next ? search.open(next) : search.close())}
+            placeholder={
+              standing
+                ? `Search in ${standing.name}`
+                : "Search every supplier's catalogue, or filter"
+            }
+            className="mb-4"
+          />
 
           <div className="mb-[1.125rem] flex items-center justify-between gap-3">
             <span className="text-[0.84375rem] text-body">
@@ -370,8 +430,27 @@ export function Sourcing() {
                         key={row.item.supplier_item_id}
                         row={row}
                         vocabulary={vocabulary.data}
+                        held={held.get(row.item.supplier_item_id) ?? 0}
+                        // Only the card being changed goes quiet. A shared
+                        // flag would grey out forty cards because one of them
+                        // is in flight, and a buyer picking quickly would spend
+                        // the whole page waiting on other people's rows.
+                        busy={
+                          (pick.isPending &&
+                            pick.variables === row.item.supplier_item_id) ||
+                          (nudge.isPending &&
+                            nudge.variables?.id === row.item.supplier_item_id)
+                        }
                         onOpen={() => item.open(row.item.supplier_item_id)}
                         onSupplier={() => shop.open(row.supplier.supplier_id)}
+                        onAdd={() => pick.mutate(row.item.supplier_item_id)}
+                        onLess={() =>
+                          nudge.mutate({
+                            id: row.item.supplier_item_id,
+                            quantity:
+                              (held.get(row.item.supplier_item_id) ?? 0) - 1,
+                          })
+                        }
                       />
                     ))}
                   </div>
@@ -414,13 +493,22 @@ export function Sourcing() {
 function ProductCard({
   row,
   vocabulary,
+  held,
+  busy,
   onOpen,
   onSupplier,
+  onAdd,
+  onLess,
 }: {
   row: SourcedItem
   vocabulary?: CatalogueVocabulary
+  /// How many of this are already in the basket. Zero is the ordinary case.
+  held: number
+  busy: boolean
   onOpen: () => void
   onSupplier: () => void
+  onAdd: () => void
+  onLess: () => void
 }) {
   const { item, supplier } = row
   // A URL is not a photograph. Most of this catalogue points at images that no
@@ -498,6 +586,53 @@ function ProductCard({
           <Store className="size-3 shrink-0 text-line-ico" />
           <span className="truncate">{supplier.name}</span>
         </button>
+
+        {/* Picking something out is one click from the grid.
+
+            A buyer walking a catalogue picks a dozen things and reads none of
+            them: making every pick pass through the detail sheet costs an open
+            and a close per item, and the sheet is where you go to READ, not to
+            buy. So the card carries the basket control and the rest of the card
+            still opens the sheet — both, rather than a choice between them.
+
+            Once something is held the button becomes a stepper, because the
+            second press of "add" is nearly always a correction. */}
+        {held === 0 ? (
+          <Button
+            size="sm"
+            className="mt-2.5 w-full"
+            disabled={busy}
+            onClick={onAdd}
+            aria-label={`Put ${item.name} in the basket`}
+          >
+            <ShoppingBasket />
+            Add
+          </Button>
+        ) : (
+          <div className="mt-2.5 flex items-center gap-1 rounded-full bg-soft-2 p-0.5">
+            <Button
+              variant="quiet"
+              className="size-[1.625rem] rounded-full p-0 [&_svg]:size-3"
+              disabled={busy}
+              onClick={onLess}
+              aria-label={`One fewer ${item.name}`}
+            >
+              <Minus />
+            </Button>
+            <span className="flex-1 text-center text-[0.78125rem] font-medium text-ink tabular-nums">
+              {count(held)}
+            </span>
+            <Button
+              variant="quiet"
+              className="size-[1.625rem] rounded-full p-0 [&_svg]:size-3"
+              disabled={busy}
+              onClick={onAdd}
+              aria-label={`One more ${item.name}`}
+            >
+              <Plus />
+            </Button>
+          </div>
+        )}
 
         {/* What the item is filed under. Capped at three with a count for the
             rest: a card is a glance, and an item wearing nine tags would push

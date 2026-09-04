@@ -12,13 +12,19 @@ import {
   commercialKeys,
   instantOf,
   minorOf,
+  minutesOf,
   NOTHING_TO_PUBLISH,
   writeAndPublish,
   type MarkdownInput,
   type PublishReceipt,
 } from "@/lib/queries/commercial"
+import { cn } from "@/lib/utils"
 import { Named } from "@/screens/commercial/parts"
 import { cellKey, localInput, useActor } from "@/screens/commercial/shared"
+
+/// Monday first, ISO order — the numbering the engine stores, and the order a
+/// week is read in.
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const
 
 /// Writing prices from the grid.
 ///
@@ -356,9 +362,22 @@ export function PublishSheet({
   const [name, setName] = useState("")
   const [from, setFrom] = useState(() => localInput(new Date()))
   const [until, setUntil] = useState("")
+  /// The hours the prices in this book are actually down, if not all of them.
+  ///
+  /// Set once for the whole publish rather than per cell, because that is how a
+  /// flash sale is decided: "noon to two, on these forty styles". Every price
+  /// drop in the book carries it.
+  const [slotFrom, setSlotFrom] = useState("")
+  const [slotTo, setSlotTo] = useState("")
+  const [slotDays, setSlotDays] = useState<readonly number[]>([])
 
   const effectiveFrom = instantOf(from)
   const effectiveTo = until === "" ? null : instantOf(until)
+  const slotStart = minutesOf(slotFrom)
+  const slotEnd = minutesOf(slotTo)
+  /// One hour without the other is not a window. Refused rather than guessed:
+  /// filling in the missing half would invent a schedule nobody typed.
+  const slotBroken = (slotStart === null) !== (slotEnd === null)
   const windowBroken =
     effectiveFrom !== null &&
     effectiveTo !== null &&
@@ -386,6 +405,12 @@ export function PublishSheet({
         site_id: edit.siteId,
         replacement_unit_price_minor: edit.priceMinor,
         priority: 0,
+        // The same schedule on every drop in the book. The server keeps it per
+        // row because a later book may reschedule one product without touching
+        // the rest, but nothing here needs that yet.
+        iso_weekdays: slotDays,
+        from_minute: slotStart,
+        to_minute: slotEnd,
         effective_from: effectiveFrom!,
         // The edit's own end date, not the book's. A book can carry sales that
         // finish on different days, and forcing one window on all of them would
@@ -427,6 +452,10 @@ export function PublishSheet({
     name.trim() !== "" &&
     effectiveFrom !== null &&
     !windowBroken &&
+    // Half an hours window would publish a book the server accepts and the
+    // engine reads as no schedule at all — a flash sale that quietly runs all
+    // day. Refused at the button, where somebody can still see why.
+    !slotBroken &&
     edits.length > 0 &&
     !publish.isPending
 
@@ -497,6 +526,65 @@ export function PublishSheet({
             value={until}
             onChange={(event) => setUntil(event.target.value)}
           />
+        </Field>
+
+        <Field
+          label="Only between these hours"
+          hint="Optional, and in the shop's own time. Leave empty and the prices are down all day."
+          problem={
+            slotBroken ? "Give both hours, or neither." : undefined
+          }
+        >
+          <div className="flex items-center gap-2">
+            <Input
+              type="time"
+              value={slotFrom}
+              onChange={(event) => setSlotFrom(event.target.value)}
+            />
+            <span className="text-[0.75rem] text-mute">to</span>
+            <Input
+              type="time"
+              value={slotTo}
+              onChange={(event) => setSlotTo(event.target.value)}
+            />
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {WEEKDAYS.map((label, index) => {
+              const day = index + 1
+              const on = slotDays.includes(day)
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() =>
+                    setSlotDays(
+                      on
+                        ? slotDays.filter((one) => one !== day)
+                        : [...slotDays, day].sort((a, b) => a - b)
+                    )
+                  }
+                  className={cn(
+                    "h-7 rounded-full px-2.5 text-[0.71875rem] font-medium transition-colors",
+                    on
+                      ? "bg-ink text-white"
+                      : "border border-hairline-2 bg-canvas text-body"
+                  )}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          {/* Said where the decision is made, not in a document nobody opens.
+              A promotion outside its hours simply does not fire; a price drop
+              outside its hours means the ticket on the garment is wrong. */}
+          {(slotStart !== null || slotDays.length > 0) && (
+            <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
+              Outside these hours the tills charge the full price again — the
+              label on the garment will not.
+            </p>
+          )}
         </Field>
 
         <div>

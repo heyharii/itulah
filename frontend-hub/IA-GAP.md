@@ -26,14 +26,23 @@ Not built, deliberately. Listed so they are proposals rather than oversights.
 - **Finance** — Budget & Forecast, Tax & Compliance, Inventory Accounting,
   Close & Reports as separate screens. The 21 finance endpoints cover the
   ledger, position, bills, bank and assets.
-- **People** — Payroll, Leave & Overtime, Claims & Advances, Onboarding,
-  Performance & Training, Biometric & Devices. The cloud serves 7 employee
-  endpoints; the rest of HR is not on this node.
+- **People** — being built. `PEOPLE-BRIEF.md` holds the approved shape: one
+  module with two faces (a place manager and head office), grouped Work ·
+  Records · Pay · Setup, with per-item visibility driven by the caller's own
+  posting. Leave, Overtime, Payroll and the roster half of attendance are
+  ports from the two HR donors — `docs/hr-port-provenance.md` tracks each one.
+  Three of the prototype's six stay proposals: **Claims & Advances** and
+  **Performance & Training** have no table and no donor, and **Biometric &
+  Devices** waits on the punch-source question the brief sets out. Delete this
+  line when phase 6 closes.
 - **Store ops** — Shift Close, Cash Deposit, Cash Difference, EDC Settlement,
   POS Devices, Incidents, Checklists. These are **store-edge** concerns and
   belong to `frontend-store`, not to the central console.
 - **Analytics** — Dashboards, Sales BI, Customer Retention, Report Catalog.
-  Three report endpoints exist.
+  Three report endpoints exist. The module itself is gone as of 2026-09-03: its
+  three screens went to the modules that own the data they count (Sales
+  analysis and Day report to Store ops, Margin to Commercial), and saved
+  reports are an aside. Anything added here belongs in one of those.
 - **System** — Permissions, Approval Workflows, Thresholds, Feature Flags,
   Integrations, Audit Log. Users, roles, sync and notifications exist; the rest
   does not.
