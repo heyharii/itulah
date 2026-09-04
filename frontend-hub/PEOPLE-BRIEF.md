@@ -192,7 +192,7 @@ Each phase is verified and committed before the next starts.
 | 0 | This brief, and the People line in `IA-GAP.md` | done, `6755c3c` |
 | 1 | Scope and grants: reach resolution, the new keys, bounded Supervisor reads and writes, `useReach()` in the hub, the four-group `nav.ts` | done, `93dd8b1` |
 | 2 | Leave + Holiday: leave types, holiday calendar with amendments, the Requests queue, balances on the Directory sheet, the employee app's leave screens live | done, `43c1d05` |
-| 3 | Overtime: orders, consent, withdrawal; "awaiting consent" joins the queue | — |
+| 3 | Overtime: orders, consent, withdrawal; "awaiting consent" joins the queue | backend done, `32cc6ed` |
 | 4 | Shift patterns + Roster: patterns at head office, the weekly grid and its revisions at the place | — |
 | 5 | Pay + Payroll, head office only: agreements, payroll identity, the run lifecycle with its two-person rule, slips, and the attendance-period closure machine | — |
 | 6 | Close-out: provenance, every gate green, both faces walked in the browser | — |
@@ -275,6 +275,54 @@ Three decisions taken here that the owner should hear about:
   a supervisor act. It grants nothing — every handler re-checks its own key.
 
 Still open, unchanged: the punch source. Nothing in this phase needed one.
+
+### Phase 3 — overtime
+
+Backend commit `32cc6ed`; the employee app follows in its own commit; the hub's
+**Work › Overtime** screen is in the working tree with the rest of the hub.
+Migration `0103`.
+
+The rule is that overtime needs *two* consents. PP 35/2021 art. 26(2) wants the
+employer's written instruction and the worker's own written agreement, and
+almost every system models it as a single manager approval — which produces
+exactly the outcome the rule exists to prevent. So the two acts are recorded
+under disjoint keys, on routes that never accept each other's, and nothing is
+authorized until the worker answers. Declining is terminal; an order already
+agreed to cannot be withdrawn.
+
+The hub screen deliberately has **no approve button**. A manager orders and can
+take an order back; the answer arrives from the employee's phone. A control here
+that recorded it would be the manager agreeing twice.
+
+Two decisions worth hearing about:
+
+- **The caps are a table**, where the donor keeps them out of the database on
+  the grounds that an empty row reads as "no limit". Its objection is right and
+  its conclusion does not transfer — that codebase installs them at boot and
+  this one would have to use an environment variable, which is the same empty
+  row with less to see it by. No row means no policy, which refuses by name.
+- **`people.overtime_policy.set` is a new key.** The manager who orders overtime
+  must not be the one who decides how much of it is lawful.
+
+### One thing this lane broke, and how to fix it
+
+**Run `make contract` once the pricing refactor lands.** Regenerating the wire
+types requires the backend to compile, and while it did not, this lane generated
+them from a tree pinned to the previous commit. That silently reverted every
+type whose Rust had moved on since — `AssetRow`, `SupplierBill`,
+`AssessAssetRequest` and `Money` among them — so `npm run build` in the hub now
+fails in `screens/finance/{assets,bank,journal,payments,supplier-bills}.tsx`
+against fields their own Rust still has.
+
+Nothing is lost: the definitions are in `postgres/assets.rs` and its neighbours,
+and one regeneration restores them. It is blocked only by
+`crates/pricing-engine/src/rule.rs`, `postgres/{pricing,commercial}.rs` and
+`edge/pricing.rs`, which are mid-refactor in another lane.
+
+The lesson worth keeping: **never generate the contract from a tree that is not
+the working tree.** `export_all` writes every registered type, not only the ones
+you added, so generating from an older tree is a silent revert of everybody
+else's.
 
 ### What is not in a commit, and why
 
