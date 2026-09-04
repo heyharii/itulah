@@ -312,12 +312,16 @@ services:
   # that describes a service rather than reporting one. Create it as a static
   # site from exactly these settings and this note goes away.
   #
-  # Read this before pointing anybody at the URL: there is no customer sign-in
-  # in this system yet. The API sits behind the ordinary node session, so a
-  # shopper reaching this page meets a device login they have no account for —
-  # nothing leaks, but nothing works for them either. It is a preview for the
-  # people building it until phone-and-code sign-in exists
-  # (frontend-customer/README.md).
+  # Read this before pointing anybody at the URL. A shopper CAN now sign in:
+  # they type their card number and six digits a cashier reads out, and
+  # `/api/v1/member/…` answers off that session alone — those routes are
+  # deliberately outside the operator check, so nobody meets a device login
+  # they have no account for. See `backend/src/cloud/http/member.rs` for why it
+  # is a counter code and not a phone OTP.
+  #
+  # What it still cannot do is redeem: points only ever accumulate, so the
+  # screen says "points earned" and not "balance". Anyone promising a shopper
+  # they can spend them is promising something no ledger records.
   - type: web
     runtime: static
     name: frontend-customer

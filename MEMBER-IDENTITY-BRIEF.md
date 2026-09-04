@@ -93,32 +93,78 @@ shopper (no account at all)
    counter's lookup and are legitimate. What was wrong was their being the only
    way.
 
-## What is left
+## What was left, and what closed it (2026-09-04)
 
-1. **Compile and verify.** Nothing here has been through `cargo build` or
-   `cargo test` — three sessions were compiling `inventory_backend` at once and
-   the machine OOM-killed the builds, so this was left as source. Expect
-   ordinary first-compile fixes.
-2. **`make contract`.** `MemberIdentity`, `IssuedPairingCode` and
-   `MemberSessionResponse` are registered in `tests/contract_types.rs` but the
-   TypeScript has not been generated, so `frontend-customer` typechecks with
-   three "no exported member" errors until it is run. **Do not hand-write those
-   files** — see `frontend-contract/src/contract/`.
-3. **The cashier's screen.** `frontend-store-new` has no way to issue a pairing
-   code yet, so the counter half of the flow has no UI. It wants a small action
-   on the sell screen: enter or scan the member number → `issuePairingCode` →
-   show the six digits large enough to read aloud, with the ten-minute expiry
-   visible. The client method is already there (`Member.issuePairingCode`).
-4. **End-to-end check.** Enrol → issue → pair → read summary, against a node on
-   a database that has member sales (`itulah_customer_dev` has `M-000123` with
-   35 sales and 6.520 points).
-5. **Three rows in `backend/tests/write_authority.rs`.** `member`,
-   `member_pairing_code` and `member_session` are each written by exactly one
-   file — `src/cloud/postgres/member.rs` — and that is worth stating in the
-   matrix while it is still true. Left undone only because another session was
-   editing that file at the time; the guard exists to make a second writer a
-   deliberate act, and these three tables are the ones where a second writer
-   would be worst.
+Items 1, 2, 3 and 5 of the original list are done. What follows is what they
+turned into, because two of them did not land where the brief expected.
+
+1. **Compile and verify — done.** `cargo check` is clean and
+   `backend/tests/member_identity.rs` now drives the whole flow over HTTP:
+   enrol → issue → pair → read, plus the six identical refusals, the five-guess
+   burn, one-device-per-code, reissue superseding, CSRF, sign-out revocation,
+   and blocking a membership stopping a phone already in the pocket. It is
+   driven over HTTP and not at the query layer on purpose — every promise this
+   feature makes is a promise about *credentials*, and none of it is visible
+   from a function signature.
+2. **`make contract` — done.** The three types are generated;
+   `frontend-customer` typechecks.
+3. **The cashier's screen — built, but NOT in `frontend-store-new`.** The
+   original plan here was wrong about which app can do it. The till addresses
+   the shop's own Edge and nothing else — that is what keeps it selling when
+   the line to head office is down — and the member directory is central. So
+   enrolment and code issuance live in **`frontend-hub` → Members**
+   (`screens/members/counter.tsx`): an "Enrol a card" action on the directory
+   that carries straight on into the six digits, and an "Issue a pairing code"
+   on any member's sheet, with the ten-minute expiry counting down. The rung is
+   still Cashier, so the person at the counter is the person who can do it.
+
+   Putting it on the till would mean either a second backend for that app or a
+   member directory on the shop's SQLite. The second is the real answer if this
+   ever needs to work offline, and it has a shape already: a **published
+   snapshot**, versioned and stamped with when it was computed, carried on the
+   command lane the way a price book is. Not a live predicate sent to a till.
+4. **End-to-end check against a seeded database** — still worth doing by hand
+   against `itulah_customer_dev` (`M-000123`, 35 sales, 6.520 points), though
+   the integration test now covers the same chain on a scratch database.
+5. **Three rows in `write_authority.rs` — done.** `member`,
+   `member_pairing_code` and `member_session` are each declared as written by
+   `src/cloud/postgres/member.rs` alone.
+
+### Found on the way, and fixed
+
+- **A cashier could write and retire saved segments.** `required_role` matched
+  the whole `/api/v1/members` prefix, and segments were added under it later
+  (0093). Writing a marketing segment is not an act at a counter — it decides
+  who the company talks to, and retiring one changes what an already-sent
+  campaign was sent against. `/api/v1/members/segments` is now excluded from
+  the Cashier arm and falls through to Supervisor. Reads are unchanged.
+- **A pairing code could be read out under the wrong name.** Found by driving
+  the screen rather than by reading it: the member sheet stays mounted when an
+  operator clicks the next row, so asking for a code and moving on before the
+  reply landed put those six digits into a sheet showing somebody else's card.
+  A cashier reading from that screen reads out the wrong card's code. Resetting
+  in an effect does not fix it — the effect runs when the row changes and the
+  response arrives after that — so `<IssueCode>` is keyed on the member id and
+  unmounts instead. Same reason `segment-form.tsx` is keyed.
+- **The unenrolled were a number and nothing else.** The segment book has long
+  counted the customer numbers a till wrote onto sales with no card behind them
+  — and said they were "the only group on this screen with an obvious next
+  action" while offering none. `GET /api/v1/members/unenrolled` now names them,
+  and Members → Segments → *See who they are* enrols one in a click. Enrolling
+  is not a repair: the directory joins a member to their sales on the card
+  number, so the history is attached the moment the card exists.
+
+## Still open, and needing a decision rather than an implementation
+
+- **Any non-empty `customer_id` satisfies a members-only promotion.** The
+  engine's gate is `context.customer_id.is_none()`
+  (`crates/pricing-engine/src/engine.rs`), so a cashier typing anything at all
+  into the Member field unlocks every members-only offer. Closing it properly
+  needs the till to know whether a number is a real card, which needs the
+  published roster described in item 3 — including a decision about shipping a
+  member list to every shop. Until then the till's field says plainly that it
+  cannot check the number and that a wrong one credits nobody.
+- **Points still only ever increase.** See below.
 
 ## Deliberately not built
 

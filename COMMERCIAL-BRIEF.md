@@ -519,3 +519,95 @@ Campaign had one and Promotions did not, so its list read as the end of the road
 ### And the last book numbers
 
 `from book v7` in the campaign sheet and `v7` beside "In service at" became the book's **name**. That was the last of them; a search for `book v` across the module now finds nothing.
+
+---
+
+## 15. Fourth pass — pushing a new price, 2026-09-04
+
+*Owner: "kita bisa nambah harga baru ya, ubah harga ga usah, sistemnya push new harga aja"* — and
+that is what the engine already does, said out loud for the first time on a
+screen. There is no amend anywhere in this system: a book is a list of changes,
+`better()` ranks by publication version before scope, so the newest book naming
+a product simply wins and the figure underneath stops being reached. Nothing
+retires it. So the verb is **push**, the record is always new, and July's price
+stays in July's book — which is the only reason "what did this cost then" is
+answerable at all.
+
+### The blocker in §11 #3 had already dissolved
+
+`article-prices` still carries no `sku_id` (verified: `collapse()` emits
+`sku_codes` and nothing else). But `GET /api/v1/commercial/products` — written
+for the promotion form — searches by **article code** as well as SKU code and
+name, and answers with `sku_id` *and* the product's current company price. One
+extra call per style is the whole of what the "sole blocker for fixed-price
+editing" needed. Ask #3 is now an optimisation, not a prerequisite.
+
+### `screens/commercial/price-form.tsx` — the composer
+
+Reached two ways, because the two questions arrive differently: **New price** in
+the page header (a price being decided), and **New price for these** on a cell
+selection (a price being read and then changed). The second seeds the form —
+styles become the products offered, shops become the level named — and the sale
+sheet's second radio, disabled since the first build, now hands over to it with
+whatever figure was typed.
+
+What it offers, all of it the server's own shape:
+
+| Control | Field | Why it is there |
+|---|---|---|
+| Product picker | `sku_id` per row | a base price is per product; a style priced per size keeps its spread, and any row can be given its own figure |
+| Every shop · One shop · Some shops | `site_id` / `site_ids` / neither | `PriceLevel` Company (0) · SiteGroup (1) · Site (2). A group is **one row naming several shops**, not a row per shop — a branch added to the group later is priced by it |
+| May be sold | `sellable` | authored with the price because the publish check refuses one without the other |
+| Tax class · rate · reading | `tax_rules` | derived from the prices themselves, so "a book with prices needs one" and "a book without prices may not have one" are both satisfied without anybody choosing |
+
+Markdowns and prices collect in **one bar** and travel as **one book** —
+`CreateCommercialPublicationRequest` takes `markdowns` and `offer_rules` side by
+side, and two publishes for one decision would mean two version numbers and a
+shop applying half of it first.
+
+### Four things deliberately not offered, each with its reason on screen
+
+1. **Dates on a price.** `commercial_price_rule` has no `effective_from`;
+   `load_site_price_book` reads the *publication's* window for every price in
+   it — "A publication states validity once, for the whole price book". So when
+   a price starts is one decision, taken at Publish. A cut that must end on a
+   date is a markdown, which does carry its own dates and hours.
+2. **Online and marketplace.** The publish check derives its channels from the
+   book (`SELECT DISTINCT channel FROM commercial_price_rule WHERE
+   publication_id=$1`) and then demands a company-wide price for **every active
+   SKU** in each — 2 740 of them today. An online price for six styles would
+   write a book, take the next version number and then refuse to publish. The
+   options are in the select, disabled, with that sentence under them.
+3. **A figure in the grid cell for a pending price.** A base price is per
+   product; eight sizes at one shop are eight amounts and a cell holds one.
+   Affected cells get a dot; the figures are in the publish sheet, a line each.
+4. **Two rates under one tax class in one book.** A category is unique per book,
+   so the `Map` that derives `tax_rules` would silently keep one and file both
+   prices under it. Refused at the button instead.
+
+### The collision worth knowing
+
+`commercial_price_scope_unique` is on `(publication_id, sku_id,
+COALESCE(site_id,'*'), channel)` — so a **fleet price and a group price for the
+same product cannot share a book**: both store `site_id = NULL`. The pending
+list is keyed the same way, so the second replaces the first in the bar rather
+than being refused by the server after the book has been written.
+
+### Verified 2026-09-04, end to end on `hub-run` (:5285 → :8080)
+
+- **v16** by hand: a group price on ART-0003 for `store-01, store-05, store-11`.
+  Published, `delivered_to` exactly those three edges, and `article-prices` then
+  reports `SITE_GROUP_PRICE` at 289.000 for three shops and `COMPANY_PRICE` at
+  329.000 for the other ten.
+- **v17** through the UI: cell → *New price for these* → the composer opened
+  seeded with all 8 SKUs of ART-0001 and Toko Bandung → one SKU overridden to
+  179.000, seven at 199.000 → published. Receipt: one shop (`store-07-edge`).
+  The grid now reads `Rp 179.000 +1` in that cell and 219.000 everywhere else,
+  and the stack is `rank0 v17 SITE_PRICE in_force 8/8 [179.000 ×1, 199.000 ×7]`
+  over `rank1 v15 COMPANY_PRICE`.
+
+Keep both as sample data or clear them; that is thirteen books plus these two.
+
+*Gates:* `tsc`, `eslint`, `design-lint`, `prettier` clean on the four changed
+files; `endpoint-audit` 195/196 (`/api/v1/sync/ingest` is node-to-node and has
+never been a UI route).

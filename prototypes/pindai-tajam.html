@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>itulah Pindai — handheld, bahasa tajam</title>
+<style>
+/* ═══ token: sama persis dengan pos.html ═════════════════════════════════ */
+:root{
+  --acc:#141414; --accsoft:#F4F3F1;
+  --alert:#E11900; --alertsoft:#FFF2F0; --win:#0B7A3B; --warn:#A5822B;
+  --ink:#141110; --ink2:#57544F; --ink3:#7C7974; --ink4:#A5A29C;
+  --line:#E0DDD8; --line2:#EDEBE7;
+  --paper:#FAF9F7; --sunk:#F5F4F1;
+  --e1:0 1px 2px rgba(20,17,16,.05);
+  --e2:0 8px 24px rgba(20,17,16,.10),0 0 0 1px var(--line);
+  --e3:0 16px 40px rgba(20,17,16,.16),0 0 0 1px var(--line);
+  --t1:.12s ease; --t2:.2s ease;
+  /* kasir berdiri dan mengetik cepat (38). gudang memakai SARUNG TANGAN dan
+     berjalan: satu tingkat lagi ke atas. 48 bukan angka desain, itu angka yang
+     sudah dipakai app-nya — PrimaryButton heightIn(min = 48.dp). */
+  --ctl:48px;
+  --sans:"Helvetica Neue",Helvetica,Arial,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:#E4E2DD;color:var(--ink);
+  -webkit-font-smoothing:antialiased;min-height:100vh;overflow:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none;text-align:left}
+input{font:inherit;color:inherit;background:none;border:none;width:100%}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
+svg{stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+::-webkit-scrollbar{width:0;height:0}
+
+/* ═══ bilah prototipe ════════════════════════════════════════════════════ */
+#tools{display:flex;gap:8px;flex:none;flex-wrap:wrap;justify-content:center;max-width:960px}
+.grp{display:flex;gap:3px;background:#fff;padding:3px;border-radius:8px;
+  box-shadow:0 0 0 1px var(--line);align-items:center}
+.grp .lb0{font-size:8.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink4);padding:0 4px 0 9px}
+.grp button{padding:6px 12px;border-radius:4px;font-size:11.5px;font-weight:600;color:var(--ink2);
+  transition:background var(--t1),color var(--t1)}
+.grp button:hover{background:var(--accsoft)}
+.grp button.on{background:var(--ink);color:#fff}
+
+/* ═══ perangkat ══════════════════════════════════════════════════════════
+   C5 bukan telepon. Ia punya GRIP dan PELATUK, dan seluruh desain satu-tombol
+   di layar ini ada karena tangan yang satu lagi sedang memegang baju. Jadi
+   pelatuknya digambar, bukan disembunyikan.                                */
+#rig{display:flex;align-items:flex-start;gap:0;transform-origin:top center}
+#dev{position:relative;padding:14px 14px 16px;border-radius:34px;background:#1A1917;
+  box-shadow:0 0 0 1px #46433D,0 18px 44px rgba(20,17,16,.30)}
+#screen{width:380px;height:722px;background:var(--paper);border-radius:22px;overflow:hidden;
+  display:flex;flex-direction:column;position:relative}
+#grip{position:absolute;left:-26px;top:210px;width:28px;height:170px;border-radius:12px 4px 4px 12px;
+  background:#1A1917;box-shadow:0 0 0 1px #46433D;display:flex;align-items:center;justify-content:center}
+#trigger{width:20px;height:96px;border-radius:8px;background:#2E2B27;color:#8A867E;
+  display:flex;align-items:center;justify-content:center;transition:background var(--t1),color var(--t1)}
+#trigger.on{background:var(--win);color:#fff}
+#trigger span{writing-mode:vertical-rl;transform:rotate(180deg);font-size:8px;font-weight:700;
+  letter-spacing:.18em;text-transform:uppercase}
+#hint{flex:none;font-size:11px;color:var(--ink3);text-align:center;margin-top:2px}
+#hint b{color:var(--ink2);font-weight:600}
+kbd{font:inherit;font-size:9.5px;font-weight:700;background:var(--sunk);border:1px solid var(--line);
+  border-radius:3px;padding:1px 5px;color:var(--ink3)}
+
+/* ═══ kepala ═════════════════════════════════════════════════════════════ */
+#top{flex:none;background:var(--sunk);padding:14px 16px 12px;border-bottom:1px solid var(--line2);
+  display:flex;align-items:flex-end;gap:10px}
+#top .ttl{font-size:22px;font-weight:600;line-height:1.1;letter-spacing:-.2px}
+#top .sub{font-size:11px;color:var(--ink3);margin-top:2px}
+#top .sp{flex:1}
+#net{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);padding-bottom:3px}
+#net i{width:7px;height:7px;border-radius:99px;background:var(--win);flex:none}
+#net.off i{background:var(--alert)}
+
+/* ═══ badan ══════════════════════════════════════════════════════════════ */
+#body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.lb{font-size:9.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink4);
+  display:flex;align-items:center;justify-content:space-between}
+.lb .rt{font-size:9.5px;letter-spacing:.04em;text-transform:none;font-weight:500;color:var(--ink3)}
+/* Kartu adalah cincin setipis rambut, bukan bayangan. Bayangan untuk yang melayang. */
+.card{background:#fff;border:1px solid var(--line2);border-radius:12px;padding:16px}
+.note{font-size:11px;line-height:1.5;color:var(--ink3)}
+.body{font-size:13.5px;line-height:1.5;color:var(--ink2)}
+
+/* hero: satu angka, dibaca sejauh lengan sambil tangan lain memegang baju */
+#hero{display:flex;justify-content:space-between;align-items:flex-start}
+#count{font-size:38px;font-weight:600;line-height:1;letter-spacing:-1px;margin-top:4px;
+  font-variant-numeric:tabular-nums;transition:color var(--t2)}
+#count.live{color:var(--win)}
+.rside{display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+/* Status itu titik yang diam dan satu kata. Lencana penuh berteriak; data jangan. */
+.dot{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink2)}
+.dot i{width:8px;height:8px;border-radius:99px;flex:none;background:var(--ink4)}
+.dot.go i{background:var(--win)} .dot.busy i{background:var(--warn)} .dot.bad i{background:var(--alert)}
+.micro{font-size:10.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
+#msg{font-size:12px;line-height:1.5;color:var(--ink2);margin-top:10px}
+#msg.bad{color:var(--alert)}
+
+/* baris sesi: satu baris, bukan kartu */
+.row{background:#fff;border:1px solid var(--line2);border-radius:12px;padding:13px 16px;
+  display:flex;align-items:center;gap:10px;width:100%;transition:background var(--t1)}
+.row:hover{background:var(--paper)}
+.row .g{flex:1;min-width:0}
+.row .n{font-size:13.5px}
+.row .m{font-size:10.5px;color:var(--ink3);margin-top:2px}
+.row .chev{color:var(--ink4);flex:none}
+.row svg{width:16px;height:16px}
+
+/* daftar produk: sudut hanya di baris pertama & terakhir — tiap clip itu satu
+   saved layer, dan tujuh belas layer di chip ini yang dulu terasa sebagai lag */
+#lines{display:flex;flex-direction:column}
+.pl{background:#fff;border-left:1px solid var(--line2);border-right:1px solid var(--line2);
+  padding:12px 16px;display:flex;align-items:center;gap:12px}
+.pl:first-child{border-top:1px solid var(--line2);border-radius:12px 12px 0 0}
+.pl:last-child{border-bottom:1px solid var(--line2);border-radius:0 0 12px 12px}
+.pl+.pl{box-shadow:inset 0 1px 0 var(--line2)}
+.pl .th{width:44px;height:44px;border-radius:8px;background:var(--sunk);flex:none;
+  display:flex;align-items:center;justify-content:center;color:var(--ink4)}
+.pl .th svg{width:22px;height:22px}
+.pl .g{flex:1;min-width:0}
+.pl .n{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl .s{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-top:2px}
+.pl .s em{font-family:var(--sans);font-style:normal;color:var(--ink4)}
+.pl .q{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+
+/* kolom sesi */
+.pair{display:flex;justify-content:space-between;align-items:flex-start;margin-top:12px}
+.pair .v{font-size:38px;font-weight:600;line-height:1;letter-spacing:-1px;margin-top:4px;
+  font-variant-numeric:tabular-nums}
+.pair .r{text-align:right}
+.code{font-size:22px;font-weight:600;font-family:var(--mono);letter-spacing:.5px}
+
+/* medan isian */
+.f{margin-top:10px}
+.f label{display:block;font-size:9.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink4);margin-bottom:6px}
+.inp{height:var(--ctl);border:1px solid var(--line);border-radius:8px;background:#fff;
+  padding:0 13px;display:flex;align-items:center;font-size:14px;transition:border-color var(--t1)}
+.inp:focus-within{border-color:var(--acc)}
+.inp input::placeholder{color:var(--ink4)}
+
+/* pilihan hitungan resmi */
+.opt{display:flex;justify-content:space-between;align-items:center;padding:11px 0;
+  border-top:1px solid var(--line2);font-size:13.5px;color:var(--ink2);width:100%}
+.opt:first-of-type{border-top:none}
+.opt.on{color:var(--ink)}
+
+/* ═══ aksi bawah ═════════════════════════════════════════════════════════
+   Satu tombol, dua arti. Membaca dan menyelesaikan adalah gerakan yang sama
+   dari sisi operator, jadi ia satu kontrol yang berganti bunyi.            */
+#act{flex:none;padding:16px;background:var(--paper)}
+.btn{height:var(--ctl);border-radius:8px;font-size:15px;font-weight:600;width:100%;
+  display:flex;align-items:center;justify-content:center;gap:8px;transition:transform var(--t1),background var(--t1)}
+.btn:active{transform:scale(.975)}
+.btn.dark{background:var(--acc);color:#fff}
+.btn.dark:disabled{background:var(--sunk);color:var(--ink4);cursor:not-allowed;transform:none}
+.btn.quiet{background:#fff;border:1px solid var(--line);color:var(--ink)}
+.btn.quiet:disabled{color:var(--ink4);cursor:not-allowed;transform:none}
+.spin{width:16px;height:16px;border-radius:99px;border:2px solid rgba(255,255,255,.35);
+  border-top-color:#fff;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+/* Kata itu MELUNCUR, bukan bertukar. Kata yang diganti di tempat pada ukuran
+   ini terbaca sebagai kedip; kata yang berjalan terbaca sebagai tombol yang
+   sama berubah pikiran — dan itulah yang benar-benar terjadi. */
+.slide{animation:sl .22s ease both}
+@keyframes sl{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}
+.fade{animation:fd .16s ease both}
+@keyframes fd{from{opacity:0}to{opacity:1}}
+
+/* ═══ bilah tab ══════════════════════════════════════════════════════════ */
+#tabs{flex:none;background:var(--sunk);border-top:1px solid var(--line2);position:relative;
+  display:flex;padding:8px}
+#pill{position:absolute;top:8px;left:8px;height:48px;border-radius:10px;background:rgba(20,17,16,.07);
+  transition:transform .34s cubic-bezier(.32,1.5,.5,1)}
+#tabs button{flex:1;height:48px;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:3px;position:relative;color:var(--ink3);transition:color var(--t1)}
+#tabs button.on{color:var(--ink)}
+#tabs button svg{width:20px;height:20px}
+#tabs button span{font-size:10px}
+
+.empty{padding:26px 0;text-align:center;color:var(--ink3);font-size:12px;line-height:1.6}
+</style></head>
+<body>
+
+<div id="tools">
+  <div class="grp"><span class="lb0">Layar</span>
+    <button class="on" data-scale="1">Penuh</button>
+    <button data-scale="0.86">86%</button>
+    <button data-scale="0.72">72%</button></div>
+  <div class="grp"><span class="lb0">Uji</span>
+    <button id="tForeign">Tag asing</button>
+    <button id="tFail">Gagal kirim</button>
+    <button id="tOffline">Putus jaringan</button>
+    <button id="tSlow">Antena lemah</button></div>
+</div>
+
+<div id="rig"><div id="dev">
+  <div id="grip"><button id="trigger" title="Tarik pelatuk (Spasi)"><span>Trigger</span></button></div>
+  <div id="screen">
+    <header id="top">
+      <div><div class="ttl" id="hTitle">Scan</div><div class="sub">itulah · handheld</div></div>
+      <div class="sp"></div>
+      <div id="net"><i></i><span id="netTxt">dc-01 · 24ms</span></div>
+    </header>
+    <div id="body"></div>
+    <div id="act"></div>
+    <nav id="tabs"><div id="pill"></div></nav>
+  </div>
+</div></div>
+
+<div id="hint">Tarik <b>pelatuk</b> di sisi kiri, atau tekan <kbd>Spasi</kbd> · <kbd>1</kbd>–<kbd>5</kbd> pindah tab</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   EPC-96 retail-private — persis Epc.kt: header 0xA0, 11 digit SKU sebagai BCD,
+   lalu serial 44 bit. Prototipe ini MENDEKODE tag yang dibacanya dengan aturan
+   yang sama seperti perangkatnya, supaya angka di layar tidak bisa berbohong.
+   Golden vector: encode("12345678123",100) == "a01234567812300000000064"
+   ═════════════════════════════════════════════════════════════════════════ */
+const HEADER = 0xA0;
+function encodeEpc(sku, serial){
+  const b=[HEADER];
+  for(let i=0;i<10;i+=2) b.push((+sku[i]<<4)|(+sku[i+1]));
+  b.push((+sku[10]<<4) | (Math.floor(serial/2**40)&0x0F));
+  for(const sh of [32,24,16,8,0]) b.push(Math.floor(serial/2**sh)&0xFF);
+  return b.map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function decodeEpc(hex){
+  const v=hex.trim().toUpperCase();
+  if(v.length!==24||!/^[0-9A-F]+$/.test(v)) return null;
+  const b=[]; for(let i=0;i<24;i+=2) b.push(parseInt(v.substr(i,2),16));
+  if(b[0]!==HEADER) return null;                        // bukan tag kita
+  let d=''; for(let i=1;i<=5;i++){ d+=(b[i]>>4); d+=(b[i]&0x0F); }
+  d+=(b[6]>>4);
+  if(!/^[0-9]{11}$/.test(d)) return null;
+  return {sku:d};
+}
+if(encodeEpc("12345678123",100)!=="a01234567812300000000064")
+  throw new Error("golden vector EPC gagal — data di prototipe ini tidak sah");
+
+/* ─── katalog uji ──────────────────────────────────────────────────────── */
+const CAT = [
+  ["00000006","8","Kemeja Oxford Lengan Panjang","Navy",["01","02","03"],41201,[4,6,3]],
+  ["00000012","3","Celana Chino Slim","Khaki",["02","03"],88410,[5,4]],
+  ["00000047","1","Kaos Katun Combed","Putih",["01","02","03","04"],12007,[7,9,6,2]],
+  ["00000021","5","Jaket Denim Trucker","Indigo",["03"],6620,[3]],
+  ["00000033","2","Rok Plisket Midi","Hitam",["02","03"],30514,[4,2]],
+];
+const SIZE = {"01":"S","02":"M","03":"L","04":"XL","05":"XXL"};
+const IDENT = {}, TAGS = [];
+for(const [art,col,name,colour,sizes,base,qtys] of CAT){
+  sizes.forEach((sz,i)=>{
+    const sku = art+col+sz;
+    IDENT[sku] = {sku, name, colour, size:SIZE[sz], articleCode:art};
+    for(let n=0;n<qtys[i];n++) TAGS.push(encodeEpc(sku, base+i*500+n));
+  });
+}
+/* Tag asing: EPC pabrik Monza R6 — gagal cek header, jadi DILAPORKAN, tidak
+   pernah dibuang diam-diam. */
+const FOREIGN = ["e2806915000040112a3b7c01","e2806915000040112a3b7c02","e2806915000040112a3b7c03"];
+
+const SESSIONS = [
+  {code:"S-K7M2QP", tagCount:214, deviceCount:3, lastSeenAt:"14:38:02"},
+  {code:"S-R4XW9D", tagCount:57,  deviceCount:1, lastSeenAt:"14:31:44"},
+];
+const COUNTS = [["oc-2609-a","Official count · dc-01.warehouse · 26 Sep"],
+                ["oc-2609-b","Official count · dc-01.staging · 26 Sep"]];
+
+/* ─── keadaan ──────────────────────────────────────────────────────────── */
+const MODES = {
+  SCAN:     {title:"Scan",     verb:"Finish"},
+  PACKING:  {title:"Packing",  verb:"Finish · open carton"},
+  RECEIVING:{title:"Receive",  verb:"Finish · receive"},
+  COUNT:    {title:"Count",    verb:"Finish · submit"},
+};
+const TABS = [
+  ["SCAN","Scan",'<path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M7 8v8M10 8v8M13 8v8M17 8v8"/>'],
+  ["PACKING","Packing",'<path d="M3 8l9-4 9 4v8l-9 4-9-4V8zM3 8l9 4 9-4M12 12v8"/>'],
+  ["RECEIVING","Receive",'<path d="M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5M12 3v11M8 10l4 4 4-4"/>'],
+  ["COUNT","Count",'<path d="M4 7l2 2 3-3M4 14l2 2 3-3M13 8h7M13 15h7"/>'],
+  ["SETTINGS","Settings",'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'],
+];
+
+const S = {
+  tab:"SCAN", mode:"SCAN", view:"sweep",   // sweep | sessions | detail | settings
+  sweeping:false, busy:false, failed:false,
+  seen:new Map(),          // epc -> {sku|null} — kunci Map inilah dedup-nya
+  message:null, filingNote:null,
+  destination:"", countId:"", sessionCode:"", detail:null,
+  online:true, weak:false, injectForeign:false, failCommit:false,
+  readerInfo:"E710 · 30 dBm",
+};
+let sweepTimer=null, pool=[];
+const rowNodes = new Map();   // sku -> <div class="pl">, dipakai ulang antar tick
+let actSig = null;            // tanda tangan tombol bawah yang sedang tergambar
+
+const $ = s => document.querySelector(s);
+const el = (h) => { const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstChild; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* regroup: dihitung saat temuan DITERBITKAN, tidak saat layar menggambar.
+   Sapuan berkelanjutan membaca tag yang sama berkali-kali per detik; mengurut
+   di tiap frame itulah yang dulu membuat rak lima puluh tag terasa berat. */
+/**
+ * Tag yang bukan milik kita — dihitung dari [seen], bukan dari pencacah.
+ *
+ * Pencacah yang dinaikkan tiap kali tag terbaca menghitung PENAMPAKAN, dan
+ * antena membaca tag yang sama berkali-kali per detik: tiga tag asing pernah
+ * terbaca sebagai delapan di sini. Itu kesalahan yang sama persis yang membuat
+ * hitungan bersama menggelembung sebesar bantuan yang ditawarkan — jadi ia
+ * diturunkan dari kunci Map, yang unik per EPC menurut konstruksinya.
+ */
+function foreignCount(){
+  let n=0; for(const [,v] of S.seen) if(!v.sku) n++; return n;
+}
+
+function regroup(){
+  const by = new Map();
+  for(const [,v] of S.seen) if(v.sku) by.set(v.sku,(by.get(v.sku)||0)+1);
+  return [...by].map(([sku,qty])=>({sku,qty,identity:IDENT[sku]}))
+    .sort((a,b)=> b.qty-a.qty || a.sku.localeCompare(b.sku));
+}
+
+/* ─── pelatuk ──────────────────────────────────────────────────────────── */
+function toggleSweep(){
+  if(S.busy) return;
+  if(S.sweeping){ stopSweep(); return; }
+  S.sweeping=true; S.failed=false; S.message=null; S.filingNote=null;
+  pool = [...TAGS]; if(S.injectForeign) pool = pool.concat(FOREIGN);
+  for(let i=pool.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[pool[i],pool[j]]=[pool[j],pool[i]];}
+  render();
+  sweepTimer = setInterval(()=>{
+    const burst = S.weak ? 1 : 2 + ((Math.random()*3)|0);
+    for(let i=0;i<burst && pool.length;i++){
+      const epc = pool.shift();
+      S.seen.set(epc,{sku:decodeEpc(epc)?.sku ?? null});
+    }
+    /* Kolam habis BUKAN berarti antena mati. Di rak sungguhan reader terus
+       membaca tag yang sama; yang berhenti bertambah hanya angkanya. Berhenti
+       sendiri di sini akan mengunci operator di keadaan yang tidak ada di
+       perangkat aslinya: sudah menyapu lima puluh baju, tapi tombolnya sudah
+       kembali jadi "Start reading" dan buktinya tak bisa lagi difilekan. */
+    tick();                 // BUKAN render(): lihat catatan di atas tick()
+  }, S.weak?260:110);
+}
+function stopSweep(){
+  if(!sweepTimer && !S.sweeping) return;
+  S.sweeping=false; clearInterval(sweepTimer); sweepTimer=null; render();
+}
+
+/* ─── kirim ────────────────────────────────────────────────────────────────
+   Setiap mode MENGAJUKAN batch observasi yang sama lebih dulu. Observasi itu
+   bukti bahwa tag-tag ini ada di tempat ini pada waktu ini, dan ia berdiri
+   sendiri — berhasil atau tidak langkah kedua sesudahnya.                  */
+function commit(){
+  if(S.busy || !S.seen.size) return;
+  stopSweep(); S.busy=true; S.message=null; S.failed=false; render();
+  setTimeout(()=>{
+    S.busy=false;
+    const n=S.seen.size;
+    if(!S.online){
+      S.failed=true;
+      S.message="Tidak sampai ke Edge. Sapuan ini masih di tangan — jangan sapu ulang, coba kirim lagi.";
+      S.filingNote="0 dari "+n+" difilekan";
+    } else if(S.failCommit && S.mode!=="SCAN"){
+      /* Inilah pesan paling penting di app ini. Langkah kedua gagal, tapi
+         buktinya SUDAH masuk — dan menyuruh orang menyapu ulang rak yang baru
+         saja disapu lebih buruk daripada pesan yang membingungkan. */
+      S.failed=true;
+      S.message="Observasi difilekan ("+n+" tag). "+MODES[S.mode].title+
+                " gagal: pool tujuan menolak. Jangan sapu ulang — buktinya sudah ada.";
+      S.filingNote=n+" difilekan";
+    } else {
+      S.failed=false;
+      const p=regroup().length;
+      S.message = S.mode==="SCAN" ? "Observasi difilekan · "+n+" tag, "+p+" produk"
+        : S.mode==="PACKING"  ? "Karton dibuka · "+n+" unit → "+(S.destination||"store-07")
+        : S.mode==="RECEIVING"? "Diterima · "+n+" unit masuk stockroom toko"
+        : "Disetor ke "+(S.countId||"hitungan resmi")+" · "+n+" tag";
+      S.filingNote=n+" difilekan";
+      S.seen=new Map();
+    }
+    render();
+  }, 900);
+}
+
+/* ═══ gambar ═════════════════════════════════════════════════════════════ */
+function icon(p){return '<svg viewBox="0 0 24 24">'+p+'</svg>';}
+const CHEV='<path d="M9 18l6-6-6-6"/>';
+const SHIRT='<path d="M8 3l4 2 4-2 4 3-2 3-1-.7V21H7V8.3L6 9 4 6z"/>';
+
+/** Gambar ulang penuh. Hanya untuk perubahan keadaan, tidak untuk tiap tag. */
+function render(){
+  $('#hTitle').textContent = (S.view==="sessions"||S.view==="detail") ? "Sessions"
+    : S.tab==="SETTINGS" ? "Settings" : MODES[S.mode].title;
+  $('#net').className = S.online?'':'off';
+  $('#netTxt').textContent = S.online ? 'dc-01 · 24ms' : 'putus';
+  $('#trigger').classList.toggle('on', S.sweeping);
+
+  const body=$('#body'); body.innerHTML=''; rowNodes.clear();
+  if(S.tab==="SETTINGS") drawSettings(body);
+  else if(S.view==="detail") drawDetail(body);
+  else if(S.view==="sessions") drawSessions(body);
+  else drawSweep(body);
+
+  actSig=null; drawAct();
+  drawTabs();
+}
+
+/**
+ * Satu tick sapuan — dan sengaja BUKAN render().
+ *
+ * Menggambar ulang badan tiap 110 ms membuat tiap baris memutar ulang animasi
+ * masuknya dan tombol bawah meluncur lagi dari kanan: layar yang berkedip, yang
+ * di perangkat sungguhan terasa sebagai lag. Jadi tick hanya menyentuh yang
+ * benar-benar berubah — angka, judul daftar, dan qty tiap baris.
+ */
+function tick(){
+  const n=S.seen.size, lines=regroup();
+  const c=$('#count'); if(c) c.textContent=n;
+  syncLines(lines, n);
+  drawAct();
+}
+
+function drawSweep(b){
+  const n=S.seen.size;
+
+  /* hero: satu angka, dibaca sejauh lengan sambil tangan lain memegang baju */
+  const status = S.busy?['busy','busy']:S.sweeping?['go','reading']:S.failed?['bad','failed']:['','ready'];
+  b.appendChild(el('<div class="card"><div id="hero">'+
+    '<div><div class="lb">Swept</div><div id="count" class="'+(S.sweeping?'live':'')+'">'+n+'</div></div>'+
+    '<div class="rside"><div class="dot '+status[0]+'"><i></i>'+status[1]+'</div>'+
+      '<div class="micro">'+S.readerInfo+'</div>'+
+      (S.filingNote?'<div class="micro">'+esc(S.filingNote)+'</div>':'')+
+    '</div></div>'+
+    (S.message?'<div id="msg" class="'+(S.failed?'bad':'')+'">'+esc(S.message)+'</div>':'')+
+    '</div>'));
+
+  /* sesi: satu baris, bukan kartu. Bekerja sendiri itu kejadian biasa;
+     bergabung itu tindakan sengaja, dan memilihnya punya layar sendiri. */
+  const s = S.sessionCode && SESSIONS.find(x=>x.code===S.sessionCode);
+  const row=el('<button class="row">'+
+    '<div class="g"><div class="n'+(S.sessionCode?' mono':'')+'">'+esc(S.sessionCode||'Working alone')+'</div>'+
+    '<div class="m">'+(S.sessionCode
+      ? (s?s.tagCount+' tags · '+s.deviceCount+' readers':'shared session')
+      : 'Join a session to count with other handhelds')+'</div></div>'+
+    '<span class="chev">'+icon(CHEV)+'</span></button>');
+  row.onclick=()=>go('sessions'); b.appendChild(row);
+
+  /* tambahan per mode. Scan tidak butuh apa-apa. */
+  if(S.mode==="PACKING"){
+    b.appendChild(el('<div class="card"><div class="lb">Destination shop</div>'+
+      '<div class="f"><div class="inp"><input id="dest" placeholder="store-07" value="'+esc(S.destination)+'"></div></div>'+
+      '<div class="note" style="margin-top:10px">Target karton datang dari yang disapu, bukan dari yang diketik — '+
+      'target yang diedit agar cocok dengan sapuan bukan target.</div></div>'));
+  } else if(S.mode==="RECEIVING"){
+    b.appendChild(el('<div class="card"><div class="lb">Shop receiving</div>'+
+      '<div class="body" style="margin-top:9px">Tiap tag masuk sebagai satu unit di stockroom toko ini. '+
+      'Tag yang bukan milik kita dilaporkan, tidak pernah dibuang diam-diam.</div></div>'));
+  } else if(S.mode==="COUNT"){
+    const card=el('<div class="card"><div class="lb">Official counts on this node</div>'+
+      '<div id="opts" style="margin-top:8px"></div>'+
+      '<div class="note" style="margin-top:10px">Tanpa hitungan aktif, sapuan tetap difilekan sebagai observasi — '+
+      'bukti bahwa tag-tag ini ada di sini, yang berlaku dengan atau tanpa hitungan.</div></div>');
+    COUNTS.forEach(([id,label])=>{
+      const o=el('<button class="opt '+(id===S.countId?'on':'')+'"><span>'+label+'</span>'+
+        (id===S.countId?'<span class="dot"><i style="background:var(--acc)"></i>chosen</span>':'')+'</button>');
+      o.onclick=()=>{ S.countId = S.countId===id?"":id; render(); };
+      card.querySelector('#opts').appendChild(o);
+    });
+    b.appendChild(card);
+  }
+
+  /* Wadah daftar selalu ada, walau kosong — tick() harus selalu menemukannya
+     tanpa membangun ulang apa pun. */
+  b.appendChild(el('<div class="lb" id="linesHdr" style="margin-top:4px"><span id="linesHdrTxt"></span></div>'));
+  b.appendChild(el('<div id="lines"></div>'));
+  b.appendChild(el('<div class="note" id="foreignNote"></div>'));
+  b.appendChild(el('<div class="empty" id="emptyNote">Belum ada yang dibaca.<br>'+
+    'Tarik pelatuk dan berjalanlah menyusuri rak.</div>'));
+  syncLines(regroup(), n);
+}
+
+/**
+ * Daftar produk, didamaikan bukan dibangun ulang.
+ *
+ * Baris TIDAK beranimasi saat masuk. Baris yang dipakai ulang akan memutar
+ * ulang animasi itu tiap kali daftar berubah urutan, dan itulah kedip yang
+ * app aslinya sudah membuang animasinya untuk menghilangkannya.
+ */
+function syncLines(lines, n){
+  const wrap=$('#lines'); if(!wrap) return;
+  const hdr=$('#linesHdr'), fn=$('#foreignNote'), em=$('#emptyNote');
+  const has=lines.length>0;
+  hdr.style.display = has?'flex':'none';
+  em.style.display  = (!has && !S.sweeping)?'block':'none';
+  if(has) $('#linesHdrTxt').textContent = lines.length+' products · '+n+' tags';
+  const asing=foreignCount();
+  fn.style.display = asing?'block':'none';
+  if(asing) fn.textContent = asing+' tag bukan milik kita — tidak dihitung sebagai produk';
+
+  const live=new Set();
+  lines.forEach((l,i)=>{
+    live.add(l.sku);
+    let node=rowNodes.get(l.sku);
+    if(!node){
+      const id=l.identity;
+      /* Dua baris, seperti app aslinya: nama memakai tintanya, SKU melangkah
+         mundur. Warna dan ukuran menumpang di baris SKU karena di situlah ia
+         sebenarnya berada — digit ke-9 warna, dua terakhir ukuran. */
+      node=el('<div class="pl"><div class="th">'+icon(SHIRT)+'</div>'+
+        '<div class="g"><div class="n">'+esc(id?id.name:l.sku)+'</div>'+
+        '<div class="s">'+l.sku+(id?' <em>· '+esc(id.colour)+' · '+esc(id.size)+'</em>':'')+'</div>'+
+        '</div><div class="q"></div></div>');
+      rowNodes.set(l.sku,node);
+    }
+    node.querySelector('.q').textContent=l.qty;
+    if(wrap.children[i]!==node) wrap.insertBefore(node, wrap.children[i]||null);
+  });
+  for(const [sku,node] of [...rowNodes]) if(!live.has(sku)){ node.remove(); rowNodes.delete(sku); }
+}
+
+function drawSessions(b){
+  b.appendChild(el('<div class="body">Sesi itu dinamai, bukan dimiliki. Beberapa handheld yang '+
+    'memfilekan di bawah satu nama adalah satu hitungan — tag yang sama terlihat dua kali tetap satu baju.</div>'));
+  if(S.sessionCode){
+    const c=el('<div class="card"><div class="lb">You are in</div>'+
+      '<div class="code" style="margin-top:6px">'+esc(S.sessionCode)+'</div>'+
+      '<button class="btn quiet" style="margin-top:12px">Leave and work alone</button></div>');
+    c.querySelector('button').onclick=()=>{ S.sessionCode=""; render(); };
+    b.appendChild(c);
+  }
+  b.appendChild(el('<div class="lb">Active on this node</div>'));
+  SESSIONS.forEach(s=>{
+    const r=el('<button class="row">'+
+      '<div class="g"><div class="n mono">'+s.code+'</div>'+
+      '<div class="m">'+s.tagCount+' tags · '+s.deviceCount+' readers</div></div>'+
+      (s.code===S.sessionCode?'<span class="dot"><i style="background:var(--acc)"></i>joined</span>':'')+
+      '<span class="chev">'+icon(CHEV)+'</span></button>');
+    r.onclick=()=>{ S.detail=s; S.view="detail"; render(); };
+    b.appendChild(r);
+  });
+  const nb=el('<button class="btn quiet" style="margin-top:4px">Start a new session</button>');
+  nb.onclick=newSession; b.appendChild(nb);
+}
+
+function drawDetail(b){
+  const s=S.detail, joined=s.code===S.sessionCode;
+  b.appendChild(el('<div class="card"><div class="lb">Session</div>'+
+    '<div class="code" style="margin-top:6px">'+s.code+'</div>'+
+    '<div class="pair"><div><div class="lb">Tags</div><div class="v">'+s.tagCount+'</div></div>'+
+    '<div class="r"><div class="lb">Readers</div><div class="v">'+s.deviceCount+'</div></div></div>'+
+    '<div class="micro" style="margin-top:10px">last filing '+s.lastSeenAt+'</div></div>'));
+  b.appendChild(el('<div class="body">Bergabung membuat sapuan handheld ini difilekan di bawah nama ini. '+
+    'Tidak ada yang sudah dihitung dipindahkan, dan tidak ada yang diambil alih — kamu hanya menambah '+
+    'ke total yang sama.</div>'));
+  b.appendChild(el('<div style="flex:1"></div>'));
+  if(joined){
+    b.appendChild(el('<div class="body" style="text-align:center;color:var(--ink3)">Already joined</div>'));
+  } else {
+    const j=el('<button class="btn dark">Join '+s.code+'</button>');
+    j.onclick=()=>{ S.sessionCode=s.code; S.view="sweep"; render(); };
+    b.appendChild(j);
+  }
+  const back=el('<button class="btn quiet">Back</button>');
+  back.onclick=()=>go('sessions'); b.appendChild(back);
+}
+
+function drawSettings(b){
+  b.appendChild(el('<div class="card"><div class="lb">Node</div>'+
+    field("Edge URL","https://dc-br5g.onrender.com")+field("Site ID","dc-01")+field("Pool","dc-01.warehouse")+
+    '<div class="note" style="margin-top:10px">Satu build melayani DC dan toko; handheld ini milik yang mana '+
+    'adalah fakta deployment, bukan fakta kode.</div></div>'));
+  b.appendChild(el('<div class="card"><div class="lb">Device identity</div>'+
+    field("Device ID","C5-DC-01")+field("Device key","••••••••••••••••")+
+    '<div class="note" style="margin-top:10px">Kunci ini menandatangani tiap batch bukti. Ia membuktikan '+
+    '<b>reader mana</b> yang membaca — tidak pernah siapa yang memegangnya.</div></div>'));
+  b.appendChild(el('<div class="card"><div class="lb">Operator (optional)</div>'+
+    field("Bearer token","••••••••••••••••")+
+    '<div class="note" style="margin-top:10px">Untuk atribusi audit, dan untuk packing, receiving dan counting, '+
+    'yang memang butuh sesi manusia.</div></div>'));
+  const t=el('<button class="btn quiet">Test connection</button>');
+  t.onclick=()=>{ t.textContent = S.online ? 'connected · dc · sqlite' : 'failed · tidak sampai'; };
+  b.appendChild(t);
+}
+function field(l,v){return '<div class="f"><label>'+l+'</label><div class="inp"><input value="'+v+'"></div></div>';}
+
+/**
+ * Satu tombol, dua arti.
+ *
+ * Membaca dan menyelesaikan adalah gerakan yang sama dari sisi operator — tarik
+ * pelatuk, jalani lorong, selesai — jadi ia satu kontrol yang berganti bunyi.
+ * Digambar ulang hanya kalau bunyinya benar-benar berubah, supaya "Finish"
+ * tidak meluncur masuk lagi tiap kali satu tag terbaca.
+ */
+function drawAct(){
+  const sig = S.tab+"|"+S.view+"|"+S.sweeping+"|"+S.busy+"|"+S.mode+"|"+(S.seen.size>0);
+  if(sig===actSig) return;
+  actSig=sig;
+  const a=$('#act'); a.innerHTML='';
+  if(S.tab==="SETTINGS"){ a.appendChild(el('<button class="btn dark">Save</button>')); return; }
+  if(S.view!=="sweep") return;
+  if(S.sweeping || S.busy){
+    const b=el('<button class="btn dark slide"'+((!S.seen.size||S.busy)?' disabled':'')+'>'+
+      (S.busy?'<span class="spin"></span>':'')+MODES[S.mode].verb+'</button>');
+    b.onclick=commit; a.appendChild(b);
+  } else {
+    const b=el('<button class="btn quiet fade">Start reading</button>');
+    b.onclick=toggleSweep; a.appendChild(b);
+  }
+}
+
+function drawTabs(){
+  const t=$('#tabs');
+  [...t.querySelectorAll('button')].forEach(x=>x.remove());
+  TABS.forEach(([key,label,path])=>{
+    const b=el('<button class="'+(S.tab===key?'on':'')+'">'+icon(path)+'<span>'+label+'</span></button>');
+    b.onclick=()=>selectTab(key);
+    t.appendChild(b);
+  });
+  const slot=(380-16)/5;
+  $('#pill').style.width=slot+'px';
+  $('#pill').style.transform='translateX('+(slot*TABS.findIndex(x=>x[0]===S.tab))+'px)';
+}
+
+/* ─── perbuatan ────────────────────────────────────────────────────────── */
+function selectTab(key){
+  /* Antena itu radio, bukan widget: meninggalkannya menyapu di belakang layar
+     terkunci menghabiskan baterai dan terus membaca ruangan yang kosong. */
+  S.sweeping=false; clearInterval(sweepTimer); sweepTimer=null;
+  S.tab=key; S.view="sweep"; S.message=null; S.failed=false;
+  if(key!=="SETTINGS") S.mode=key;
+  render();
+}
+function go(v){ S.view=v; render(); }
+function newSession(){
+  const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // tanpa O/0 dan I/1: kode ini
+  let c="S-";                                    // dibacakan lintas lantai
+  for(let i=0;i<6;i++) c+=A[(Math.random()*A.length)|0];
+  S.sessionCode=c; S.view="sweep"; render();
+}
+
+/* ─── bilah uji ────────────────────────────────────────────────────────── */
+document.querySelectorAll('[data-scale]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('[data-scale]').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  $('#rig').style.transform='scale('+b.dataset.scale+')';
+});
+const flip=(id,key)=>{ $(id).onclick=()=>{ S[key]=!S[key]; $(id).classList.toggle('on',S[key]); render(); }; };
+flip('#tForeign','injectForeign');
+flip('#tFail','failCommit');
+flip('#tSlow','weak');
+$('#tOffline').onclick=()=>{ S.online=!S.online; $('#tOffline').classList.toggle('on',!S.online); render(); };
+
+/* pelatuk fisik */
+$('#trigger').onclick=toggleSweep;
+addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT') return;
+  if(e.code==='Space'){ e.preventDefault(); toggleSweep(); return; }
+  const n=parseInt(e.key,10);
+  if(n>=1&&n<=5) selectTab(TABS[n-1][0]);
+});
+document.addEventListener('input',e=>{ if(e.target.id==='dest') S.destination=e.target.value.trim(); });
+
+render();
+</script>
+</body></html>

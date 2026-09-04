@@ -1,0 +1,960 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style></head><body><title>Ringkasan Eksekutif Agustus 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── Cloud Hub tokens, light ───────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  --ink: #1d1d1f; --text: #46464d; --body: #74747b; --mute: #a6a6ad; --faint: #d3d3d8;
+  --canvas: #ffffff; --soft: #f7f7f8; --soft-2: #f3f3f5;
+  --hairline: #ececef; --hairline-2: #e4e4e8; --hairline-strong: #d8d8de;
+  --accent: #3c52f0; --accent-bg: #e9ebfc; --accent-wash: rgba(60, 82, 240, 0.10);
+  --accent-track: #dfe3fb;
+  --info: #2f86d8; --info-bg: #ddebfa; --info-fg: #2c57bf;
+  --ok: #36b827; --ok-bg: #d9f4d2; --ok-fg: #1d7a44;
+  --warn: #c9892e; --warn-bg: #faeacd; --warn-fg: #92611a;
+  --bad: #d05151; --bad-bg: #fbeaea; --bad-fg: #b23b3b;
+  --tooltip: #101012; --on-tooltip: #ffffff;
+  --shadow-soft: 0 1px 2px rgba(20,20,25,.03);
+  --shadow-pop: 0 8px 20px rgba(20,20,25,.08);
+  --r-card: 1rem; --r-inner: 0.5625rem;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ink: #f2f2f4; --text: #cfcfd4; --body: #9a9aa1; --mute: #6c6c74; --faint: #3a3a40;
+    --canvas: #141416; --soft: #1c1c1f; --soft-2: #212125;
+    --hairline: #2a2a2e; --hairline-2: #303035; --hairline-strong: #3c3c42;
+    --accent: #8c9bff; --accent-bg: #23285a; --accent-wash: rgba(140,155,255,.14);
+    --accent-track: #2b3060;
+    --info: #5aa3ec; --info-bg: #1b2d44; --info-fg: #8dbff5;
+    --ok: #5fcf8a; --ok-bg: #173424; --ok-fg: #7fdc9f;
+    --warn: #e0b060; --warn-bg: #3a2d14; --warn-fg: #e8c076;
+    --bad: #e07070; --bad-bg: #3d1f1f; --bad-fg: #ee8a8a;
+    --tooltip: #f2f2f4; --on-tooltip: #141416;
+    --shadow-soft: 0 1px 2px rgba(0,0,0,.3);
+    --shadow-pop: 0 8px 20px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #f2f2f4; --text: #cfcfd4; --body: #9a9aa1; --mute: #6c6c74; --faint: #3a3a40;
+  --canvas: #141416; --soft: #1c1c1f; --soft-2: #212125;
+  --hairline: #2a2a2e; --hairline-2: #303035; --hairline-strong: #3c3c42;
+  --accent: #8c9bff; --accent-bg: #23285a; --accent-wash: rgba(140,155,255,.14);
+  --accent-track: #2b3060;
+  --info: #5aa3ec; --info-bg: #1b2d44; --info-fg: #8dbff5;
+  --ok: #5fcf8a; --ok-bg: #173424; --ok-fg: #7fdc9f;
+  --warn: #e0b060; --warn-bg: #3a2d14; --warn-fg: #e8c076;
+  --bad: #e07070; --bad-bg: #3d1f1f; --bad-fg: #ee8a8a;
+  --tooltip: #f2f2f4; --on-tooltip: #141416;
+  --shadow-soft: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-pop: 0 8px 20px rgba(0,0,0,.45);
+}
+
+/* ── base ──────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; border-color: var(--hairline); }
+html { font-size: 16px; }
+body {
+  margin: 0; background: var(--canvas); color: var(--text);
+  font-family: var(--sans); font-size: 0.875rem; line-height: 1.55;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+h1, h2, h3, p { margin: 0; }
+a { color: inherit; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 0.75rem; }
+.fig { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.eyebrow {
+  font-size: 0.6875rem; letter-spacing: 0.04em; text-transform: uppercase;
+  font-weight: 500; color: var(--body);
+}
+
+/* ── frame ─────────────────────────────────────────────────────────────── */
+.page { display: grid; grid-template-columns: 1fr; max-width: 1240px; margin: 0 auto; padding: 0 1.5rem 5rem; }
+@media (min-width: 1100px) { .page { grid-template-columns: 184px minmax(0, 1fr); column-gap: 3rem; } }
+.toc { display: none; }
+@media (min-width: 1100px) {
+  .toc { display: block; position: sticky; top: 1.5rem; align-self: start; padding-top: 4.5rem; }
+  .toc ol { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 2px; }
+  .toc a {
+    display: block; padding: 0.3rem 0.625rem; border-radius: 999px; text-decoration: none;
+    font-size: 0.84375rem; color: var(--body); transition: background 120ms var(--ease), color 120ms;
+  }
+  .toc a:hover { background: var(--soft); color: var(--ink); }
+  .toc a.is-active { background: var(--accent-bg); color: var(--accent); font-weight: 500; }
+}
+main { min-width: 0; }
+
+/* header */
+.head { padding-top: 2.5rem; display: grid; gap: 1rem; }
+.head-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.seg { display: inline-flex; padding: 3px; background: var(--soft); border-radius: 999px; gap: 2px; }
+.seg button {
+  border: 0; background: transparent; padding: 0.3rem 0.8rem; border-radius: 999px;
+  font-size: 0.8125rem; color: var(--body); cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-soft); font-weight: 500; }
+.seg button:disabled { cursor: not-allowed; opacity: .55; }
+@media (max-width: 520px) { .seg button { padding: 0.3rem 0.5rem; font-size: 0.75rem; } .head-top { align-items: flex-start; } }
+.head h1 { font-size: 1.75rem; line-height: 1.15; letter-spacing: -0.024em; font-weight: 600; color: var(--ink); text-wrap: balance; }
+.head h1 span { color: var(--mute); font-weight: 500; }
+.meta { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; font-size: 0.8125rem; color: var(--body); }
+.meta b { font-weight: 500; color: var(--text); }
+.banner {
+  display: grid; grid-template-columns: auto 1fr; gap: 0.75rem; align-items: start;
+  padding: 0.75rem 1rem; border-radius: var(--r-inner); background: var(--warn-bg); color: var(--warn-fg);
+  font-size: 0.8125rem; line-height: 1.5;
+}
+.banner svg { width: 16px; height: 16px; margin-top: 2px; flex: none; }
+.banner code { font-family: var(--mono); font-size: 0.75rem; }
+
+/* hero + kpis */
+.hero { margin-top: 2rem; display: grid; gap: 1.25rem; }
+@media (min-width: 820px) { .hero { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: end; } }
+.hero-fig { font-size: 3.25rem; line-height: 1; letter-spacing: -0.03em; font-weight: 600; color: var(--ink); }
+.hero-fig small { font-size: 1.25rem; letter-spacing: -0.01em; color: var(--body); font-weight: 500; margin-left: 0.25rem; }
+.hero-sub { margin-top: 0.75rem; max-width: 34rem; color: var(--text); }
+.delta { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 500; }
+.delta.up { background: var(--ok-bg); color: var(--ok-fg); }
+.delta.down { background: var(--bad-bg); color: var(--bad-fg); }
+.delta.flat { background: var(--soft-2); color: var(--body); }
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+.kpi { padding: 0.875rem 1rem; border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--canvas); }
+.kpi .label { font-size: 0.75rem; color: var(--body); }
+.kpi .value { margin-top: 0.25rem; font-size: 1.4375rem; letter-spacing: -0.02em; font-weight: 600; color: var(--ink); line-height: 1.1; }
+.kpi .foot { margin-top: 0.35rem; font-size: 0.75rem; color: var(--body); }
+
+/* sections */
+.sec { margin-top: 3.5rem; scroll-margin-top: 1.5rem; }
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-bottom: 0.625rem; border-bottom: 1px solid var(--hairline-2); }
+.sec h2 { font-size: 1.125rem; letter-spacing: -0.015em; font-weight: 600; color: var(--ink); }
+.sec h2 .n { color: var(--mute); font-weight: 500; margin-right: 0.5rem; font-variant-numeric: tabular-nums; }
+.lead { margin-top: 1rem; max-width: 42rem; font-size: 0.9375rem; line-height: 1.6; color: var(--text); }
+.lead + .lead { margin-top: 0.5rem; }
+.grid { display: grid; gap: 1rem; margin-top: 1.25rem; }
+.grid.two { grid-template-columns: 1fr; }
+@media (min-width: 820px) { .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid.two.wide-left { grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); } }
+.grid.three { grid-template-columns: 1fr; }
+@media (min-width: 820px) { .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.card { border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--canvas); padding: 1rem 1.125rem 0.875rem; min-width: 0; }
+.card-title { font-size: 0.875rem; letter-spacing: -0.01em; font-weight: 600; color: var(--ink); display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+.card-title .hint { font-size: 0.75rem; color: var(--body); font-weight: 400; }
+.source { margin-top: 0.875rem; padding-top: 0.625rem; border-top: 1px solid var(--hairline); display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; font-family: var(--mono); font-size: 0.6875rem; color: var(--mute); }
+.source b { font-weight: 500; color: var(--body); }
+.source span, .banner code, .build code, .hero-fig small { overflow-wrap: anywhere; min-width: 0; }
+.note { margin-top: 0.75rem; font-size: 0.8125rem; color: var(--body); line-height: 1.5; }
+.note.warn { color: var(--warn-fg); }
+.pill { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 500; line-height: 1.5; white-space: nowrap; }
+.pill.ok { background: var(--ok-bg); color: var(--ok-fg); }
+.pill.warn { background: var(--warn-bg); color: var(--warn-fg); }
+.pill.bad { background: var(--bad-bg); color: var(--bad-fg); }
+.pill.info { background: var(--info-bg); color: var(--info-fg); }
+.pill.neutral { background: var(--soft-2); color: var(--body); }
+.dash { color: var(--mute); }
+
+/* tables */
+.tbl-wrap { overflow-x: auto; margin: 0 -1.125rem; padding: 0 1.125rem; }
+table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+th { text-align: left; font-weight: 500; font-size: 0.6875rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--body); padding: 0.5rem 0.625rem 0.5rem 0; border-bottom: 1px solid var(--hairline-2); white-space: nowrap; }
+td { padding: 0.5rem 0.625rem 0.5rem 0; border-bottom: 1px solid var(--hairline); vertical-align: middle; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+th.r, td.r { text-align: right; }
+td.r { font-variant-numeric: tabular-nums; }
+td.name { color: var(--ink); font-weight: 500; }
+td.id { font-family: var(--mono); font-size: 0.6875rem; color: var(--mute); }
+tr.total td { border-top: 1px solid var(--hairline-strong); color: var(--ink); font-weight: 600; }
+tbody tr:hover td { background: var(--soft); }
+.share { display: inline-flex; align-items: center; gap: 0.5rem; }
+.share .track { width: 72px; height: 6px; border-radius: 3px; background: var(--accent-track); overflow: hidden; }
+.share .fill { height: 100%; background: var(--accent); border-radius: 3px; }
+
+/* bar lists (one hue) */
+.bars { display: grid; gap: 0.5rem; margin-top: 0.875rem; }
+.bar { display: grid; grid-template-columns: minmax(96px, 9rem) 1fr auto; align-items: center; gap: 0.75rem; font-size: 0.8125rem; }
+.bar .lbl { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar .track { height: 14px; border-radius: 4px; background: var(--soft-2); position: relative; overflow: hidden; }
+.bar .fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 0 4px 4px 0; transition: opacity 120ms; }
+.bar:hover .fill { opacity: .8; }
+.bar .fill.muted { background: var(--faint); }
+.bar .fill.bad { background: var(--bad); }
+.bar .fill.warn { background: var(--warn); }
+.bar .val { color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.bar .val small { color: var(--body); font-weight: 400; margin-left: 0.35rem; }
+
+/* line chart */
+.chart { position: relative; margin-top: 0.75rem; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .grid-line { stroke: var(--hairline); stroke-width: 1; }
+.chart .axis { fill: var(--mute); font-size: 11px; font-family: var(--sans); }
+.chart .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .line.ctx { stroke: var(--faint); }
+.chart .area { fill: var(--accent-wash); }
+.chart .cross { stroke: var(--hairline-strong); stroke-width: 1; }
+.chart .dot { fill: var(--accent); stroke: var(--canvas); stroke-width: 2; }
+.chart .dot.ctx { fill: var(--mute); }
+.chart .band { fill: var(--soft); }
+.chart .band-lbl { fill: var(--body); font-size: 11px; font-weight: 500; font-family: var(--sans); }
+.tip {
+  position: absolute; pointer-events: none; z-index: 2; display: none;
+  background: var(--tooltip); color: var(--on-tooltip); padding: 0.4rem 0.6rem; border-radius: 0.5rem;
+  font-size: 0.75rem; line-height: 1.4; white-space: nowrap; box-shadow: var(--shadow-pop); transform: translate(-50%, calc(-100% - 10px));
+}
+.tip b { font-weight: 600; font-size: 0.8125rem; }
+.tip .k { opacity: .7; }
+.legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--body); }
+.legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.legend i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; background: var(--accent); }
+.legend i.ctx { background: var(--faint); }
+details.tv { margin-top: 0.5rem; }
+details.tv summary { cursor: pointer; font-size: 0.75rem; color: var(--body); list-style: none; display: inline-flex; gap: 0.35rem; align-items: center; padding: 0.15rem 0.5rem; border-radius: 999px; }
+details.tv summary::-webkit-details-marker { display: none; }
+details.tv summary:hover { background: var(--soft); color: var(--ink); }
+details.tv[open] summary { color: var(--ink); }
+details.tv .tbl-wrap { margin-top: 0.5rem; max-height: 260px; overflow: auto; }
+
+/* sparkline */
+.spark { width: 84px; height: 22px; display: block; }
+.spark path { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+.spark circle { fill: var(--accent); }
+
+/* week strip */
+.weeks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; margin-top: 1rem; }
+.week { padding: 0.625rem 0.75rem; border-radius: var(--r-inner); background: var(--soft); min-width: 0; }
+.week .w { font-size: 0.6875rem; color: var(--body); letter-spacing: .02em; }
+.week .v { margin-top: 0.15rem; font-size: 0.9375rem; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+.week .d { margin-top: 0.15rem; font-size: 0.75rem; color: var(--body); }
+@media (max-width: 560px) { .weeks { grid-template-columns: repeat(2, 1fr); } }
+
+/* facts list */
+.facts { display: grid; gap: 0.625rem; margin-top: 0.875rem; }
+.fact { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: baseline; padding-bottom: 0.625rem; border-bottom: 1px solid var(--hairline); font-size: 0.8125rem; }
+.fact:last-child { border-bottom: 0; padding-bottom: 0; }
+.fact .k { color: var(--text); }
+.fact .k small { display: block; color: var(--body); font-size: 0.75rem; margin-top: 0.1rem; }
+.fact .v { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fact .v .dash { font-weight: 400; }
+
+/* statement ladder */
+.ladder { display: grid; gap: 0; margin-top: 0.75rem; font-size: 0.8125rem; }
+.ladder .row { display: grid; grid-template-columns: 1fr auto; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid var(--hairline); }
+.ladder .row.l1 { color: var(--ink); font-weight: 600; }
+.ladder .row.l2 { padding-left: 1rem; color: var(--text); }
+.ladder .row.l2 .k::before { content: ""; display: inline-block; width: 8px; height: 1px; background: var(--faint); vertical-align: middle; margin-right: 0.5rem; }
+.ladder .row.sum { border-top: 1px solid var(--hairline-strong); border-bottom: 0; color: var(--ink); font-weight: 600; margin-top: 0.25rem; }
+.ladder .v { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ladder .v.neg { color: var(--bad-fg); }
+
+/* build section */
+.build { border: 1px solid var(--hairline); border-radius: var(--r-card); padding: 1.25rem 1.375rem; margin-top: 1.25rem; background: var(--soft); }
+.build h3 { font-size: 0.875rem; font-weight: 600; color: var(--ink); margin-bottom: 0.5rem; }
+.build p { max-width: 46rem; font-size: 0.8125rem; line-height: 1.6; color: var(--text); }
+.build p + p { margin-top: 0.5rem; }
+.build ol, .build ul { margin: 0.5rem 0 0; padding-left: 1.25rem; font-size: 0.8125rem; line-height: 1.6; color: var(--text); max-width: 46rem; }
+.build li + li { margin-top: 0.25rem; }
+.build code { font-family: var(--mono); font-size: 0.71875rem; background: var(--canvas); border: 1px solid var(--hairline-2); padding: 0.05rem 0.3rem; border-radius: 4px; color: var(--ink); }
+.build table { font-size: 0.78125rem; background: var(--canvas); border-radius: var(--r-inner); }
+.build td, .build th { padding: 0.45rem 0.625rem; white-space: normal; }
+.build td.mono { white-space: nowrap; }
+.build .tbl-wrap { margin: 0.75rem 0 0; padding: 0; border: 1px solid var(--hairline); border-radius: var(--r-inner); overflow: auto; }
+.gap { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 0.75rem; align-items: start; }
+.gap .pill { margin-top: 0.15rem; }
+
+@media print {
+  .toc, .seg, details.tv { display: none !important; }
+  .page { grid-template-columns: 1fr; padding: 0; max-width: none; }
+  .card, .sec { break-inside: avoid; }
+  body { font-size: 11pt; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Bagian laporan">
+    <div class="eyebrow">Bagian</div>
+    <ol id="toc"></ol>
+  </nav>
+
+  <main>
+    <header class="head">
+      <div class="head-top">
+        <div class="eyebrow">Ringkasan eksekutif · Retail Edge</div>
+        <div class="seg" role="group" aria-label="Periode">
+          <button type="button" aria-pressed="false" disabled title="Data Juli hanya 22–31 Jul">Juli 2026</button>
+          <button type="button" aria-pressed="true">Agustus 2026</button>
+          <button type="button" aria-pressed="false" disabled title="Berjalan; belum diterbitkan">September 2026</button>
+        </div>
+      </div>
+      <h1>Agustus 2026 <span>· 13 toko, 1 DC</span></h1>
+      <div class="meta">
+        <span>Disusun <b>4 Sep 2026, 09:38 WIB</b></span>
+        <span>Node <b>cloud-primary</b></span>
+        <span>Periode <b>1–31 Agu 2026</b>, jam WIB (UTC+7)</span>
+        <span>Status <b>prototipe, belum diterbitkan</b></span>
+      </div>
+      <div class="banner" role="note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 1.5 14.5 13H1.5L8 1.5Z"/><path d="M8 6v3.5M8 11.5v.5"/></svg>
+        <div>Prototipe ini menggabungkan dua database dev. Penjualan dibaca dari <code>itulah_assistant_demo</code> (2.316 struk, 22 Jul–2 Sep). Keuangan, komersial, SDM, dan audit dibaca dari node yang sedang jalan di <code>:8080</code> (<code>inventory_tanstack</code>), yang belum punya penjualan sama sekali. Di produksi keduanya satu database, dan tiap blok di bawah menyebut endpoint yang akan mengisinya.</div>
+      </div>
+    </header>
+
+    <section class="hero" aria-label="Angka utama">
+      <div>
+        <div class="eyebrow">Bruto Agustus, 13 toko</div>
+        <div class="hero-fig" id="hero-fig"></div>
+        <p class="hero-sub" id="hero-sub"></p>
+      </div>
+      <div class="kpis" id="kpis"></div>
+    </section>
+
+    <!-- 1 · Perdagangan -->
+    <section class="sec" id="perdagangan">
+      <div class="sec-head"><h2><span class="n">1</span>Perdagangan</h2><span class="pill neutral">dari sale</span></div>
+      <p class="lead" id="lead-trade"></p>
+      <div class="card">
+        <div class="card-title">Bruto harian, 22 Jul – 2 Sep <span class="hint">Agustus ditegaskan; Juli dan September sebagai konteks</span></div>
+        <div class="chart" id="daily-chart"></div>
+        <div class="legend"><span><i></i>Agustus 2026</span><span><i class="ctx"></i>Di luar periode</span></div>
+        <details class="tv"><summary>Lihat sebagai tabel</summary><div class="tbl-wrap"><table id="daily-table"></table></div></details>
+        <div class="weeks" id="weeks"></div>
+        <div class="source"><span><b>GET</b> /api/v1/reports/sales/series?bucket=day</span><span><b>DB</b> itulah_assistant_demo</span><span>COMPLETED saja; void dan keranjang terbuka tidak dihitung</span></div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="card-title">Struk per hari dalam seminggu <span class="hint">seluruh 43 hari data</span></div>
+          <div class="bars" id="weekday-bars"></div>
+          <p class="note">Senin dan Minggu terendah. Pola ini dari seed demo, bukan pola toko sungguhan; yang penting di sini bentuk pertanyaannya, bukan jawabannya.</p>
+          <div class="source"><span><b>POST</b> /api/v1/reports/run · dataset <b>sale</b>, dimensi <b>weekday</b></span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Struk per jam <span class="hint">jam WIB</span></div>
+          <div class="bars" id="hour-bars"></div>
+          <p class="note warn">Jam 00–02 terisi: seed demo menulis jam UTC, pelaporan menggeser +7 jam. Di data toko sungguhan sebaran ini yang akan menjawab jadwal shift.</p>
+          <div class="source"><span><b>POST</b> /api/v1/reports/run · dataset <b>sale</b>, dimensi <b>hour</b></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 · Toko -->
+    <section class="sec" id="toko">
+      <div class="sec-head"><h2><span class="n">2</span>Toko</h2><span class="pill neutral">13 toko</span></div>
+      <p class="lead" id="lead-stores"></p>
+      <div class="card">
+        <div class="card-title">Agustus per toko <span class="hint">diurutkan menurut bruto · Δ = minggu 24–30 Agu terhadap 17–23 Agu</span></div>
+        <div class="tbl-wrap"><table id="store-table"></table></div>
+        <div class="source"><span><b>GET</b> /api/v1/reports/sales/series?bucket=week</span><span><b>GET</b> /api/v1/reports/sales/window</span><span>Nama toko dari <b>commercial/activation</b> (label edge)</span></div>
+      </div>
+    </section>
+
+    <!-- 3 · Barang -->
+    <section class="sec" id="barang">
+      <div class="sec-head"><h2><span class="n">3</span>Barang</h2><span class="pill neutral">6 artikel, 18 SKU</span></div>
+      <p class="lead" id="lead-merch"></p>
+      <div class="card">
+        <div class="card-title">Artikel, Agustus <span class="hint">unit terjual · net · stok di toko dan DC saat ini</span></div>
+        <div class="tbl-wrap"><table id="article-table"></table></div>
+        <p class="note warn">Hari ketersediaan (cover) sengaja dikosongkan: di DB demo penjualan tidak memotong ledger, jadi stok toko tidak bergerak walau 4.102 unit terjual. Angkanya benar begitu penjualan sungguhan menulis cause <span class="mono">SALE</span>.</p>
+        <div class="source"><span><b>POST</b> /api/v1/reports/run · dataset <b>sale_line</b> grup <b>article_code</b></span><span><b>GET</b> /api/v1/inventory/pools</span></div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="card-title">Kurva ukuran <span class="hint">unit terjual Agustus</span></div>
+          <div class="bars" id="size-bars"></div>
+          <div class="source"><span><b>POST</b> /api/v1/reports/run · dataset <b>sale_line</b> grup <b>size</b></span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Cara bayar <span class="hint">nilai yang ditenderkan Agustus</span></div>
+          <div class="bars" id="tender-bars"></div>
+          <p class="note">Total tender melebihi bruto karena tunai yang diserahkan termasuk kembalian.</p>
+          <div class="source"><span><b>POST</b> /api/v1/reports/run · dataset <b>sale_payment</b> grup <b>method</b></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 · Stok & susut -->
+    <section class="sec" id="stok">
+      <div class="sec-head"><h2><span class="n">4</span>Stok &amp; susut</h2><span class="pill neutral">ledger movement</span></div>
+      <p class="lead" id="lead-stock"></p>
+      <div class="grid two">
+        <div class="card">
+          <div class="card-title">Di mana 6.294 potong berada <span class="hint">posisi saat ini</span></div>
+          <div class="bars" id="tier-bars"></div>
+          <div class="source"><span><b>GET</b> /api/v1/inventory/fleet-pools</span><span>projection dari ledger, bukan saldo terpisah</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Susut &amp; kendali</div>
+          <div class="facts" id="shrink-facts"></div>
+          <div class="source"><span><b>GET</b> /api/v1/inventory/missing</span><span><b>GET</b> /api/v1/inventory/counts</span><span><b>GET</b> /api/v1/inventory/movements?cause=</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 · Komersial -->
+    <section class="sec" id="komersial">
+      <div class="sec-head"><h2><span class="n">5</span>Komersial</h2><span class="pill neutral">buku harga v15</span></div>
+      <p class="lead" id="lead-commercial"></p>
+      <div class="grid two wide-left">
+        <div class="card">
+          <div class="card-title">Kampanye berjalan, Agustus <span class="hint">atribusi per keranjang</span></div>
+          <div class="tbl-wrap"><table id="campaign-table"></table></div>
+          <p class="note">Ketiganya berlaku 13 Agu – 12 Okt. Pendapatan keranjang melebih-lebihkan: satu promo pada satu baris menghitung seluruh keranjang.</p>
+          <div class="source"><span><b>GET</b> /api/v1/commercial/performance/campaigns</span><span><b>DB</b> inventory_tanstack (edge_sale)</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Aktivasi buku harga <span class="hint">v15 terbit; yang dijalankan toko</span></div>
+          <div class="facts" id="activation-facts"></div>
+          <div class="source"><span><b>GET</b> /api/v1/commercial/activation</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 · Keuangan -->
+    <section class="sec" id="keuangan">
+      <div class="sec-head"><h2><span class="n">6</span>Keuangan</h2><span class="pill neutral">COA klien, 7.528 akun</span></div>
+      <p class="lead" id="lead-finance"></p>
+      <div class="grid two">
+        <div class="card">
+          <div class="card-title">Neraca, 31 Agu 2026 <span class="hint">konsolidasi</span></div>
+          <div class="ladder" id="bs-ladder"></div>
+          <div class="source"><span><b>GET</b> /api/v1/finance/statement?kind=BALANCE_SHEET&amp;to=2026-08-31</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Laba rugi, Agustus <span class="hint">yang sudah diposting</span></div>
+          <div class="ladder" id="pl-ladder"></div>
+          <p class="note warn">Pendapatan nol bukan karena tidak ada penjualan: belum ada posting rule yang menulis <span class="mono">SALE_DAY</span> ke jurnal, meski jenisnya sudah dideklarasikan di migrasi 0051. Sampai itu ada, laba rugi hanya memuat beban.</p>
+          <div class="source"><span><b>GET</b> /api/v1/finance/statement?kind=PROFIT_LOSS&amp;from=2026-08-01&amp;to=2026-08-31</span></div>
+        </div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="card-title">Umur hutang supplier, 31 Agu <span class="hint">9 supplier, 17 tagihan</span></div>
+          <div class="bars" id="aging-bars"></div>
+          <div class="source"><span><b>GET</b> /api/v1/finance/payables-aging?as_of=2026-08-31</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Yang menunggu di antrean</div>
+          <div class="facts" id="finance-facts"></div>
+          <div class="source"><span><b>GET</b> /api/v1/finance/unbilled</span><span><b>GET</b> /api/v1/finance/bills?status=DRAFT</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 · Orang & anggota -->
+    <section class="sec" id="orang">
+      <div class="sec-head"><h2><span class="n">7</span>Orang &amp; anggota</h2></div>
+      <p class="lead" id="lead-people"></p>
+      <div class="grid two">
+        <div class="card">
+          <div class="card-title">Karyawan <span class="hint">kontrak aktif</span></div>
+          <div class="facts" id="people-facts"></div>
+          <div class="source"><span><b>GET</b> /api/v1/employees</span><span>kehadiran: policy ada, catatan belum ada</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Anggota &amp; voucher</div>
+          <div class="facts" id="member-facts"></div>
+          <div class="source"><span><b>GET</b> /api/v1/members/segments</span><span><b>GET</b> /api/v1/vouchers</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 · Kontrol -->
+    <section class="sec" id="kontrol">
+      <div class="sec-head"><h2><span class="n">8</span>Kontrol</h2><span class="pill neutral">audit_log</span></div>
+      <p class="lead" id="lead-controls"></p>
+      <div class="card">
+        <div class="facts" id="control-facts"></div>
+        <p class="note">Log audit baru mulai 2 Sep, jadi jendelanya tiga hari, bukan Agustus. Penolakan ditampilkan sengaja: baris "kasir tidak bisa menjual" adalah jejak pertama bahwa masalah sudah diketahui sebelum ada yang bertindak.</p>
+        <div class="source"><span><b>GET</b> /api/v1/audit?status=4xx</span><span><b>GET</b> /api/v1/reports/saved</span></div>
+      </div>
+    </section>
+
+    <!-- 9 · Cara laporan ini disusun -->
+    <section class="sec" id="cara">
+      <div class="sec-head"><h2><span class="n">9</span>Cara laporan ini disusun</h2></div>
+      <p class="lead">Tidak ada tabel baru untuk delapan blok di atas. Semuanya sudah punya pembaca di server; yang belum ada hanya satu endpoint yang memanggil mereka bersama, dan satu tempat menyimpan hasilnya.</p>
+
+      <div class="build">
+        <h3>Aturan yang sama dengan menu Reports</h3>
+        <p>Model tidak pernah dipanggil saat laporan dijalankan. <code>assistant::brief</code> sudah membuktikan polanya: empat angka disusun dari pembaca yang sudah ada, tanpa model, tanpa query baru. Laporan eksekutif adalah brief yang sama, diperluas ke sebulan dan delapan blok.</p>
+        <p>Bedanya satu: brief dibaca hari ini, laporan eksekutif dibaca <em>lagi</em> bulan depan. Angka Agustus tidak boleh berubah karena retur Juli yang telat dicatat, jadi hasilnya dibekukan saat diterbitkan.</p>
+      </div>
+
+      <div class="build">
+        <h3>Dua endpoint, satu tabel</h3>
+        <ol>
+          <li><code>GET /api/v1/reports/executive?month=2026-08</code> menyusun payload dari pembaca di tabel bawah, secara paralel, dan mengembalikan JSON yang bentuknya persis data di halaman ini. Ini <em>preview</em>: dihitung ulang tiap dibuka, tidak disimpan.</li>
+          <li><code>POST /api/v1/reports/executive/2026-08/publish</code> membekukan payload itu ke tabel <code>executive_report</code> (append-only, preseden <code>report_version</code> di migrasi 0089), lengkap dengan <code>catalogue_version</code>, siapa yang menerbitkan, dan kapan. Halaman yang sudah terbit membaca baris ini, bukan menghitung ulang.</li>
+          <li>Narasi lima kalimat (opsional) dikarang assistant <em>saat terbit</em>, dari payload beku, dan disimpan di sampingnya dengan <code>prompt</code> + <code>model</code> sebagai provenans. Sekali, bukan tiap dibuka.</li>
+        </ol>
+        <p>Periode disimpan absolut (<code>2026-08</code>), berbeda dari Reports yang relatif: laporan eksekutif memang tentang satu bulan tertentu.</p>
+      </div>
+
+      <div class="build">
+        <h3>Setiap blok dan pembacanya</h3>
+        <div class="tbl-wrap"><table id="source-table"></table></div>
+      </div>
+
+      <div class="build">
+        <h3>Yang belum bisa dijawab data hari ini</h3>
+        <div class="gap" id="gaps"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ── data: transcribed from psql on 4 Sep 2026 and from :8080 ──────────
+  const D = {
+    period: { from: "2026-08-01", to: "2026-08-31" },
+    august: { sales: 1662, gross: 1752300000, net: 1578648650, tax: 173651350, units: 4102 },
+    julyPartial: { days: 10, sales: 568, gross: 599425000 },
+    daily: [
+      ["2026-07-22",55,56025000],["2026-07-23",63,62025000],["2026-07-24",67,77150000],["2026-07-25",70,70575000],
+      ["2026-07-26",37,36850000],["2026-07-27",51,53600000],["2026-07-28",60,62450000],["2026-07-29",53,60800000],
+      ["2026-07-30",58,69075000],["2026-07-31",54,50875000],["2026-08-01",51,57225000],["2026-08-02",34,25800000],
+      ["2026-08-03",45,53500000],["2026-08-04",63,65400000],["2026-08-05",54,58675000],["2026-08-06",60,67550000],
+      ["2026-08-07",69,82500000],["2026-08-08",61,67800000],["2026-08-09",36,39850000],["2026-08-10",33,39025000],
+      ["2026-08-11",58,64625000],["2026-08-12",65,65350000],["2026-08-13",72,70900000],["2026-08-14",69,73175000],
+      ["2026-08-15",54,60300000],["2026-08-16",29,34200000],["2026-08-17",35,35875000],["2026-08-18",72,68025000],
+      ["2026-08-19",54,60450000],["2026-08-20",73,70625000],["2026-08-21",53,53350000],["2026-08-22",43,43800000],
+      ["2026-08-23",26,26300000],["2026-08-24",65,69150000],["2026-08-25",76,80100000],["2026-08-26",68,70775000],
+      ["2026-08-27",55,54300000],["2026-08-28",43,47025000],["2026-08-29",60,54975000],["2026-08-30",41,42350000],
+      ["2026-08-31",45,49325000],["2026-09-01",69,66350000],["2026-09-02",17,17825000]
+    ],
+    weeks: [
+      { from: "3 Agu", to: "9 Agu", sales: 392, gross: 436600000 },
+      { from: "10 Agu", to: "16 Agu", sales: 374, gross: 401400000 },
+      { from: "17 Agu", to: "23 Agu", sales: 363, gross: 366550000 },
+      { from: "24 Agu", to: "30 Agu", sales: 401, gross: 409975000 }
+    ],
+    labels: { "store-01":"Sudirman","store-02":"Kemang","store-03":"Cibubur","store-04":"Kelapa Gading","store-05":"Bintaro","store-06":"Serpong","store-07":"Bandung","store-08":"Surabaya","store-09":"Medan","store-10":"Semarang","store-11":"Makassar","store-12":"Denpasar","store-13":"Yogyakarta" },
+    stores: [
+      { id:"store-04", sales:202, gross:200325000, units:478, weekly:[59525000,54250000,27500000,43800000] },
+      { id:"store-03", sales:180, gross:189200000, units:441, weekly:[59875000,55675000,27700000,41325000] },
+      { id:"store-13", sales:168, gross:185425000, units:428, weekly:[46675000,33700000,47200000,51825000] },
+      { id:"store-09", sales:182, gross:182425000, units:431, weekly:[34125000,40525000,38700000,45200000] },
+      { id:"store-08", sales:170, gross:179250000, units:417, weekly:[54350000,39050000,33075000,45400000] },
+      { id:"store-02", sales:148, gross:158850000, units:374, weekly:[41375000,41025000,31800000,30050000] },
+      { id:"store-07", sales:147, gross:157450000, units:365, weekly:[27400000,37400000,43425000,33875000] },
+      { id:"store-12", sales:129, gross:133250000, units:309, weekly:[38250000,24625000,33125000,31925000] },
+      { id:"store-11", sales:95,  gross:107950000, units:251, weekly:[26050000,25850000,20475000,28200000] },
+      { id:"store-01", sales:85,  gross:90800000,  units:212, weekly:[20050000,21350000,14825000,26125000] },
+      { id:"store-06", sales:73,  gross:74175000,  units:176, weekly:[11625000,12725000,15725000,19050000] },
+      { id:"store-05", sales:39,  gross:48075000,  units:111, weekly:[6500000,12825000,13175000,10825000] },
+      { id:"store-10", sales:44,  gross:45125000,  units:109, weekly:[9475000,8575000,11700000,11075000] }
+    ],
+    articles: [
+      { code:"ART-TSHIRT", name:"Essential T-Shirt", units:707, net:276306320, store:343, dc:920 },
+      { code:"ART-DENIM",  name:"Straight Denim",    units:713, net:275472975, store:343, dc:937 },
+      { code:"ART-CAP",    name:"Classic Cap",       units:682, net:266531512, store:343, dc:605 },
+      { code:"ART-JACKET", name:"Light Jacket",      units:700, net:264166664, store:340, dc:599 },
+      { code:"ART-HOODIE", name:"Everyday Hoodie",   units:645, net:248400903, store:343, dc:578 },
+      { code:"ART-SHOES",  name:"Runner Shoes",      units:655, net:247770276, store:341, dc:588 }
+    ],
+    sizes: [["S",1428],["M",1355],["L",1319]],
+    tender: [["Tunai",841,845450000],["Kartu",664,697600000],["QRIS",195,201650000],["Lainnya",17,20725000]],
+    weekday: [["Senin",274],["Selasa",398],["Rabu",366],["Kamis",381],["Jumat",355],["Sabtu",339],["Minggu",203]],
+    hours: [["16",188],["17",236],["18",208],["19",213],["20",219],["21",204],["22",204],["23",219],["00",233],["01",206],["02",186]],
+    tiers: [["Gudang DC",3585],["Lantai toko",1434],["Outbound & transit",537],["Gudang toko",414],["Reject",310],["Missing",14]],
+    shrink: { missing:14, missingPlaces:11, oldestDays:17, lost30:6, base:6294, shortage:20, shortageOn:"18 Agu", corrections:539, counts:{ closed:1, review:1, active:1, pools:112, everCounted:3 } },
+    activation: { published:15, shops:13, behind:12, threeBehind:["Medan","Makassar"], never:["Yogyakarta"] },
+    campaigns: [
+      { name:"Lebaran Sale",  sales:16, revenue:4800000, benefit:400000, budget:25000000, customers:5 },
+      { name:"Back to School",sales:12, revenue:3500000, benefit:340500, budget:8000000,  customers:6 },
+      { name:"Q3 Clearance",  sales:4,  revenue:1150000, benefit:198000, budget:null,     customers:4 }
+    ],
+    bs: { cash:4549546000, inventory:587967000, prepaidTax:64676370, accDep:-100228425, assets:5101960945, payable:-643766020, equity:-4549546000, resultYtd:91351075 },
+    pl: { revenue:0, cogs:0, opex:0, depreciation:33409475, other:0 },
+    aging: { notDue:223338660, d1_30:232227540, d31_60:188199820, d61_90:0, over90:0, total:643766020, suppliers:9, oldest:{ days:56, name:"Cahaya Busana Mandiri", amount:40816360 } },
+    finance: { unbilled:{ count:2, value:5868000, days:3 }, draftBills:{ count:5, value:215135670 }, postedBills:{ count:23, value:937403200 }, periods:"Jun–Sep terbuka, belum ada yang ditutup" },
+    people: { total:24, pkwtt:18, pkwt:6, managers:13, cashiers:3, ho:8 },
+    members: { total:9, joinedInPeriod:0, firstJoin:"3 Sep", vouchers:{ active:4, balance:2130000, issued:2500000, spent:1, voided:1 } },
+    controls: { since:"2 Sep", actions:5703, rejected:25, errors:50, kept:["Penjualan per warna","Bruto & Unit per Toko per Minggu"] }
+  };
+
+  // ── formatting ───────────────────────────────────────────────────────
+  const idr = new Intl.NumberFormat("id-ID", { style:"currency", currency:"IDR", maximumFractionDigits:0 });
+  const plain = new Intl.NumberFormat("id-ID");
+  const money = v => v == null ? "—" : idr.format(v);
+  const count = v => v == null ? "—" : plain.format(v);
+  const dec = (v, n) => new Intl.NumberFormat("id-ID", { minimumFractionDigits:n, maximumFractionDigits:n }).format(v);
+  function compact(v) {
+    const a = Math.abs(v), sign = v < 0 ? "−" : "";
+    if (a >= 1e9) return sign + "Rp " + dec(a/1e9, 2) + " M";
+    if (a >= 1e6) return sign + "Rp " + dec(a/1e6, a >= 1e8 ? 0 : 1) + " jt";
+    return sign + money(a);
+  }
+  const pct = (part, whole, n=1) => whole ? dec(part/whole*100, n) + "%" : "—";
+  const signed = (v, n=1) => (v > 0 ? "+" : v < 0 ? "−" : "±") + dec(Math.abs(v), n) + "%";
+  const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+  const txt = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; e.textContent = text; return e; };
+  const $ = id => document.getElementById(id);
+  const fmtDay = iso => { const d = new Date(iso + "T00:00:00"); return d.toLocaleDateString("id-ID", { day:"2-digit", month:"short" }); };
+
+  // ── derived ──────────────────────────────────────────────────────────
+  const A = D.august;
+  const avgSale = Math.round(A.gross / A.sales);
+  const unitsPerSale = A.units / A.sales;
+  const augPerDay = A.gross / 31, julPerDay = D.julyPartial.gross / D.julyPartial.days;
+  const vsJuly = (augPerDay - julPerDay) / julPerDay * 100;
+  const w = D.weeks, lastWeekDelta = (w[3].gross - w[2].gross) / w[2].gross * 100;
+  const top5 = D.stores.slice(0,5).reduce((s,r) => s + r.gross, 0);
+  const bottom2 = D.stores.slice(-2).reduce((s,r) => s + r.gross, 0);
+
+  // ── hero + kpis ──────────────────────────────────────────────────────
+  $("hero-fig").innerHTML = compact(A.gross) + "<small>" + money(A.gross) + "</small>";
+  $("hero-sub").innerHTML =
+    "Rata-rata <span class='fig'>" + compact(Math.round(augPerDay)) + "</span> per hari, " +
+    "<span class='delta " + (vsJuly < 0 ? "down" : "up") + "'>" + signed(vsJuly) + " per hari</span> terhadap sepuluh hari terakhir Juli, satu-satunya pembanding yang ada. " +
+    "Net setelah pajak <span class='fig'>" + compact(A.net) + "</span>; PPN yang dipungut <span class='fig'>" + compact(A.tax) + "</span>.";
+  [
+    ["Struk", count(A.sales), "selesai; nol void, nol retur"],
+    ["Unit terjual", count(A.units), dec(unitsPerSale, 2) + " unit per struk"],
+    ["Nilai rata-rata struk", money(avgSale), "bruto ÷ struk"],
+    ["Minggu terakhir", compact(w[3].gross), "<span class='delta " + (lastWeekDelta >= 0 ? "up" : "down") + "'>" + signed(lastWeekDelta) + "</span> vs minggu sebelumnya"]
+  ].forEach(([l, v, f]) => {
+    const k = el("div", "kpi"); k.append(txt("div","label",l), txt("div","value",v), el("div","foot",f)); $("kpis").append(k);
+  });
+
+  // ── 1 · trade ────────────────────────────────────────────────────────
+  const peak = D.daily.filter(d => d[0] >= "2026-08-01" && d[0] <= "2026-08-31").reduce((m,d) => d[2] > m[2] ? d : m);
+  const low = D.daily.filter(d => d[0] >= "2026-08-01" && d[0] <= "2026-08-31").reduce((m,d) => d[2] < m[2] ? d : m);
+  $("lead-trade").innerHTML =
+    "Empat minggu penuh Agustus bergerak antara <span class='fig'>" + compact(w[2].gross) + "</span> dan <span class='fig'>" + compact(w[0].gross) + "</span>. " +
+    "Minggu ketiga (17–23 Agu) yang terendah, lalu pulih <span class='fig'>" + signed(lastWeekDelta) + "</span> di minggu terakhir. " +
+    "Hari terbaik <span class='fig'>" + fmtDay(peak[0]) + "</span> (" + compact(peak[2]) + ", " + peak[1] + " struk); terlemah <span class='fig'>" + fmtDay(low[0]) + "</span>, hari Minggu (" + compact(low[2]) + ").";
+
+  drawDaily($("daily-chart"), D.daily);
+  {
+    const t = $("daily-table");
+    t.innerHTML = "<thead><tr><th>Tanggal</th><th class='r'>Struk</th><th class='r'>Bruto</th></tr></thead>";
+    const tb = el("tbody");
+    D.daily.forEach(([d,s,g]) => { const tr = el("tr"); tr.append(txt("td","",fmtDay(d) + (d.startsWith("2026-08") ? "" : " ·")), txt("td","r",count(s)), txt("td","r",money(g))); tb.append(tr); });
+    t.append(tb);
+  }
+  w.forEach((wk, i) => {
+    const prev = i ? w[i-1] : null;
+    const d = prev ? (wk.gross - prev.gross) / prev.gross * 100 : null;
+    const c = el("div","week");
+    c.append(txt("div","w", wk.from + " – " + wk.to), txt("div","v", compact(wk.gross)),
+      el("div","d", count(wk.sales) + " struk" + (d == null ? "" : " · <span class='" + (d >= 0 ? "" : "") + "'>" + signed(d) + "</span>")));
+    $("weeks").append(c);
+  });
+  barList($("weekday-bars"), D.weekday.map(([k,v]) => ({ label:k, value:v, text:count(v) })), { tone:(r, i) => r.value === 203 || r.value === 274 ? "muted" : "" });
+  barList($("hour-bars"), D.hours.map(([k,v]) => ({ label:k + ":00", value:v, text:count(v) })), {});
+
+  // ── 2 · stores ───────────────────────────────────────────────────────
+  $("lead-stores").innerHTML =
+    "Lima toko teratas membawa <span class='fig'>" + pct(top5, A.gross, 0) + "</span> bruto; Bintaro dan Semarang bersama-sama <span class='fig'>" + pct(bottom2, A.gross) + "</span>. " +
+    "Kelapa Gading tertinggi (<span class='fig'>" + compact(D.stores[0].gross) + "</span>) tetapi minggu ketiganya jatuh ke separuh minggu pertama; Yogyakarta satu-satunya toko besar yang naik tiap minggu.";
+  {
+    const t = $("store-table");
+    t.innerHTML = "<thead><tr><th>Toko</th><th class='r'>Struk</th><th class='r'>Bruto</th><th>Pangsa</th><th class='r'>Rata-rata struk</th><th class='r'>Unit</th><th>4 minggu</th><th class='r'>Δ minggu terakhir</th></tr></thead>";
+    const tb = el("tbody");
+    D.stores.forEach(r => {
+      const tr = el("tr");
+      const name = el("td","name", D.labels[r.id] + " <span class='id'>" + r.id + "</span>");
+      const share = el("td","", "<span class='share'><span class='track'><span class='fill' style='width:" + (r.gross / D.stores[0].gross * 100).toFixed(1) + "%'></span></span><span class='num'>" + pct(r.gross, A.gross) + "</span></span>");
+      const sp = el("td",""); sp.append(spark(r.weekly));
+      const d = (r.weekly[3] - r.weekly[2]) / r.weekly[2] * 100;
+      const dd = el("td","r", "<span class='delta " + (d > 2 ? "up" : d < -2 ? "down" : "flat") + "'>" + signed(d) + "</span>");
+      tr.append(name, txt("td","r",count(r.sales)), txt("td","r",money(r.gross)), share, txt("td","r",money(Math.round(r.gross/r.sales))), txt("td","r",count(r.units)), sp, dd);
+      tb.append(tr);
+    });
+    const tot = el("tr","total");
+    tot.append(txt("td","","13 toko"), txt("td","r",count(A.sales)), txt("td","r",money(A.gross)), txt("td","","100%"), txt("td","r",money(avgSale)), txt("td","r",count(A.units)), txt("td","",""), txt("td","r",signed(lastWeekDelta)));
+    tb.append(tot); t.append(tb);
+  }
+
+  // ── 3 · merchandise ──────────────────────────────────────────────────
+  const spread = (Math.max(...D.articles.map(a => a.units)) - Math.min(...D.articles.map(a => a.units)));
+  const dcTotal = D.articles.reduce((s,a) => s + a.dc, 0), storeTotal = D.articles.reduce((s,a) => s + a.store, 0);
+  $("lead-merch").innerHTML =
+    "Enam artikel terjual nyaris rata: selisih terlaris dan terbawah hanya <span class='fig'>" + count(spread) + "</span> unit. " +
+    "Kurva ukuran juga datar (S <span class='fig'>" + pct(D.sizes[0][1], A.units, 0) + "</span>, M " + pct(D.sizes[1][1], A.units, 0) + ", L " + pct(D.sizes[2][1], A.units, 0) + "). " +
+    "Stok DC <span class='fig'>" + count(dcTotal) + "</span> potong berbanding <span class='fig'>" + count(storeTotal) + "</span> di lantai toko: dua bulan penjualan masih duduk di gudang.";
+  {
+    const t = $("article-table");
+    t.innerHTML = "<thead><tr><th>Artikel</th><th class='r'>Unit</th><th>Pangsa unit</th><th class='r'>Net</th><th class='r'>Stok toko</th><th class='r'>Stok DC</th><th class='r'>Hari ketersediaan</th></tr></thead>";
+    const tb = el("tbody"); const maxU = Math.max(...D.articles.map(a => a.units));
+    D.articles.forEach(a => {
+      const tr = el("tr");
+      tr.append(el("td","name", a.name + " <span class='id'>" + a.code + "</span>"), txt("td","r",count(a.units)),
+        el("td","", "<span class='share'><span class='track'><span class='fill' style='width:" + (a.units/maxU*100).toFixed(1) + "%'></span></span><span class='num'>" + pct(a.units, A.units) + "</span></span>"),
+        txt("td","r",money(a.net)), txt("td","r",count(a.store)), txt("td","r",count(a.dc)), el("td","r","<span class='dash' title='Penjualan demo tidak memotong ledger'>—</span>"));
+      tb.append(tr);
+    });
+    const tot = el("tr","total");
+    tot.append(txt("td","","6 artikel"), txt("td","r",count(A.units)), txt("td","","100%"), txt("td","r",money(A.net)), txt("td","r",count(storeTotal)), txt("td","r",count(dcTotal)), el("td","r","<span class='dash'>—</span>"));
+    tb.append(tot); t.append(tb);
+  }
+  barList($("size-bars"), D.sizes.map(([k,v]) => ({ label:k, value:v, text:count(v), sub:pct(v, A.units) })), {});
+  const tenderTotal = D.tender.reduce((s,t) => s + t[2], 0);
+  barList($("tender-bars"), D.tender.map(([k,n,v]) => ({ label:k, value:v, text:compact(v), sub:pct(v, tenderTotal) + " · " + count(n) + "×" })), {});
+
+  // ── 4 · stock ────────────────────────────────────────────────────────
+  const S = D.shrink;
+  $("lead-stock").innerHTML =
+    "<span class='fig'>" + count(S.missing) + "</span> potong hilang dari pandangan di " + S.missingPlaces + " pool, yang tertua <span class='fig'>" + S.oldestDays + " hari</span>. " +
+    "Dalam 30 hari <span class='fig'>" + S.lost30 + "</span> dinyatakan hilang: <span class='fig'>" + dec(S.lost30 / S.base * 100, 2) + "%</span> dari " + count(S.base) + " potong. " +
+    "Baru <span class='fig'>" + S.counts.everCounted + " dari " + S.counts.pools + "</span> pool yang pernah dihitung resmi; angka susut ini berdiri di atas penyebut yang belum pernah diverifikasi.";
+  barList($("tier-bars"), D.tiers.map(([k,v]) => ({ label:k, value:v, text:count(v), sub:pct(v, S.base) })), { tone:r => r.label === "Missing" ? "bad" : r.label === "Reject" ? "warn" : "" });
+  facts($("shrink-facts"), [
+    ["Missing saat ini", "di " + S.missingPlaces + " pool; 4 di gudang DC", count(S.missing) + " potong"],
+    ["Umur missing tertua", "sejak 18 Agu, belum ada sighting", S.oldestDays + " hari"],
+    ["Dinyatakan hilang, 30 hari", "CONFIRMED_LOST · terakhir 28 Agu", count(S.lost30) + " potong"],
+    ["Selisih opname", "COUNT_SHORTAGE · opname siklus " + S.shortageOn, count(S.shortage) + " potong"],
+    ["Koreksi penempatan", "PLACEMENT_CORRECTION · terakhir 1 Sep", count(S.corrections)],
+    ["Opname resmi", "1 selesai · 1 review (targeted) · 1 aktif (full)", S.counts.everCounted + " / " + S.counts.pools + " pool"],
+    ["Ditemukan kembali · dimusnahkan", "FOUND, COUNT_GAIN, DISPOSAL", "<span class='dash'>0 · 0</span>"]
+  ]);
+
+  // ── 5 · commercial ───────────────────────────────────────────────────
+  const C = D.activation;
+  const camp = D.campaigns.reduce((s,c) => ({ sales:s.sales + c.sales, revenue:s.revenue + c.revenue, benefit:s.benefit + c.benefit }), { sales:0, revenue:0, benefit:0 });
+  $("lead-commercial").innerHTML =
+    "Buku harga <span class='fig'>v" + C.published + "</span> sudah terbit, tetapi <span class='fig'>" + C.behind + " dari " + C.shops + "</span> toko masih menjalankan versi lama; " + C.threeBehind.join(" dan ") + " tertinggal tiga versi dan " + C.never[0] + " belum pernah mengaktifkan buku apa pun. " +
+    "Tiga kampanye memberi diskon <span class='fig'>" + compact(camp.benefit) + "</span> atas <span class='fig'>" + count(camp.sales) + "</span> struk; pada skala penjualan sebulan, ini belum terasa.";
+  {
+    const t = $("campaign-table");
+    t.innerHTML = "<thead><tr><th>Kampanye</th><th class='r'>Struk</th><th class='r'>Pendapatan</th><th class='r'>Diskon</th><th class='r'>Pelanggan</th><th>Anggaran terpakai</th></tr></thead>";
+    const tb = el("tbody");
+    D.campaigns.forEach(c => {
+      const tr = el("tr");
+      const used = c.budget ? c.benefit / c.budget * 100 : null;
+      const bud = c.budget
+        ? "<span class='share'><span class='track'><span class='fill' style='width:" + Math.max(used, 1.5).toFixed(1) + "%'></span></span><span class='num'>" + dec(used,1) + "% dari " + compact(c.budget) + "</span></span>"
+        : "<span class='dash'>tanpa anggaran</span>";
+      tr.append(txt("td","name",c.name), txt("td","r",count(c.sales)), txt("td","r",money(c.revenue)), txt("td","r",money(c.benefit)), txt("td","r",count(c.customers)), el("td","",bud));
+      tb.append(tr);
+    });
+    t.append(tb);
+  }
+  facts($("activation-facts"), [
+    ["Versi terbit terbaru", "commercial_publication", "v" + C.published],
+    ["Toko pada versi terbaru", "dari " + C.shops + " toko", "<span class='pill bad'>" + (C.shops - C.behind - C.never.length) + "</span>"],
+    ["Tertinggal satu versi", "v14 · 10 toko", "10"],
+    ["Tertinggal tiga versi", C.threeBehind.join(", ") + " · v12", "2"],
+    ["Belum pernah aktivasi", C.never.join(", "), "<span class='pill bad'>1</span>"],
+    ["Akibatnya", "label baju dan harga kasir bisa berbeda di 3 toko", ""]
+  ]);
+
+  // ── 6 · finance ──────────────────────────────────────────────────────
+  const B = D.bs, P = D.pl, G = D.aging;
+  $("lead-finance").innerHTML =
+    "Buku besar memegang kas <span class='fig'>" + compact(B.cash) + "</span> dan persediaan <span class='fig'>" + compact(B.inventory) + "</span>, dengan hutang supplier <span class='fig'>" + compact(-B.payable) + "</span> yang <span class='fig'>" + pct(G.d31_60, G.total, 0) + "</span>-nya sudah lewat 30 hari. " +
+    "Laba rugi Agustus belum berarti apa-apa: penjualan " + compact(A.gross) + " di kasir tidak pernah sampai ke jurnal, jadi yang tercatat hanya penyusutan <span class='fig'>" + compact(P.depreciation) + "</span>.";
+  ladder($("bs-ladder"), [
+    ["l1","Aset lancar", B.cash + B.inventory + B.prepaidTax],
+    ["l2","Kas & setara kas", B.cash],
+    ["l2","Persediaan barang dagang", B.inventory],
+    ["l2","Pajak dibayar di muka", B.prepaidTax],
+    ["l1","Aset tidak lancar", B.accDep],
+    ["l2","Akumulasi penyusutan", B.accDep],
+    ["sum","Total aset", B.assets],
+    ["l1","Hutang supplier", -B.payable],
+    ["l1","Modal", -B.equity],
+    ["l1","Rugi berjalan (tahun ini)", -B.resultYtd],
+    ["sum","Total kewajiban & modal", -B.payable - B.equity - B.resultYtd]
+  ]);
+  ladder($("pl-ladder"), [
+    ["l1","Pendapatan", null],
+    ["l1","Beban pokok", null],
+    ["l1","Beban usaha", null],
+    ["l1","Beban usaha lainnya", -P.depreciation],
+    ["l2","Depresiasi & amortisasi", -P.depreciation],
+    ["sum","Hasil Agustus (yang terposting)", -P.depreciation]
+  ]);
+  barList($("aging-bars"), [
+    { label:"Belum jatuh tempo", value:G.notDue, text:compact(G.notDue), sub:pct(G.notDue, G.total, 0) },
+    { label:"1–30 hari", value:G.d1_30, text:compact(G.d1_30), sub:pct(G.d1_30, G.total, 0) },
+    { label:"31–60 hari", value:G.d31_60, text:compact(G.d31_60), sub:pct(G.d31_60, G.total, 0) },
+    { label:"61–90 hari", value:G.d61_90, text:money(0), sub:"" },
+    { label:"> 90 hari", value:G.over90, text:money(0), sub:"" }
+  ], { tone:r => r.label === "31–60 hari" ? "warn" : "" , max:G.total });
+  const F = D.finance;
+  facts($("finance-facts"), [
+    ["Tagihan tertua", G.oldest.name + " · " + money(G.oldest.amount), G.oldest.days + " hari"],
+    ["Penerimaan belum ditagih", F.unbilled.count + " GRN di DC · menunggu " + F.unbilled.days + " hari", compact(F.unbilled.value)],
+    ["Tagihan supplier masih draf", F.draftBills.count + " tagihan belum diposting", compact(F.draftBills.value)],
+    ["Tagihan terposting, total", F.postedBills.count + " tagihan", compact(F.postedBills.value)],
+    ["Periode fiskal", F.periods, "<span class='pill warn'>4 terbuka</span>"]
+  ]);
+
+  // ── 7 · people ───────────────────────────────────────────────────────
+  const Pp = D.people, M = D.members;
+  $("lead-people").innerHTML =
+    "<span class='fig'>" + Pp.total + "</span> karyawan aktif, " + Pp.pkwtt + " tetap dan " + Pp.pkwt + " kontrak; tiap toko punya satu kepala toko, tetapi hanya <span class='fig'>" + Pp.cashiers + "</span> kasir tercatat untuk 13 toko, jadi kebanyakan penjualan Agustus dicatat atas nama akun toko, bukan orang. " +
+    "Program anggota baru mulai <span class='fig'>" + M.firstJoin + "</span>: nol anggota bergabung selama Agustus.";
+  facts($("people-facts"), [
+    ["Karyawan aktif", "kontrak tanpa tanggal akhir atau berakhir setelah hari ini", count(Pp.total)],
+    ["PKWTT · PKWT", "tetap · kontrak", Pp.pkwtt + " · " + Pp.pkwt],
+    ["Kepala toko", "satu per toko", count(Pp.managers)],
+    ["Kasir", "untuk 13 toko", "<span class='pill warn'>" + Pp.cashiers + "</span>"],
+    ["Kantor pusat & DC", "buyer, merchandiser, finance, gudang, IT, retail head", count(Pp.ho)],
+    ["Kehadiran Agustus", "policy ada, catatan absensi belum pernah ditulis", "<span class='dash'>—</span>"]
+  ]);
+  facts($("member-facts"), [
+    ["Anggota terdaftar", "semuanya bergabung " + M.firstJoin, count(M.total)],
+    ["Bergabung selama Agustus", "", count(M.joinedInPeriod)],
+    ["Voucher aktif", "saldo dari " + compact(M.vouchers.issued) + " yang diterbitkan", compact(M.vouchers.balance)],
+    ["Voucher terpakai · dibatalkan", "", M.vouchers.spent + " · " + M.vouchers.voided],
+    ["Penjualan ke anggota, Agustus", "belum ada atribusi; sale_customer kosong", "<span class='dash'>—</span>"]
+  ]);
+
+  // ── 8 · controls ─────────────────────────────────────────────────────
+  const K = D.controls;
+  $("lead-controls").innerHTML =
+    "Sejak log audit hidup pada " + K.since + ", <span class='fig'>" + count(K.actions) + "</span> tindakan tercatat; <span class='fig'>" + K.rejected + "</span> ditolak oleh hak atau aturan dan <span class='fig'>" + K.errors + "</span> gagal di server. " +
+    "Dua laporan tersimpan dijalankan tanpa model.";
+  facts($("control-facts"), [
+    ["Tindakan tercatat", "sejak " + K.since + ", semua metode", count(K.actions)],
+    ["Ditolak (4xx)", "17 validasi · 4 hak akses · 3 konflik · 1 tak terproses", "<span class='pill warn'>" + K.rejected + "</span>"],
+    ["Gagal di server (5xx)", "perlu ditelusuri, bukan dihitung", "<span class='pill bad'>" + K.errors + "</span>"],
+    ["Laporan tersimpan", K.kept.join(" · "), K.kept.length],
+    ["Eksepsi inventory terbuka", "belum ada record eksepsi; lihat 77 isu di audit 4 Sep", "<span class='dash'>—</span>"]
+  ]);
+
+  // ── 9 · how it is built ──────────────────────────────────────────────
+  {
+    const rows = [
+      ["Perdagangan", "reports/sales/series · reports/sales/window", "sale", "ada"],
+      ["Toko", "reports/sales/series?bucket=week", "sale, site", "ada"],
+      ["Barang", "reports/run (sale_line ÷ article, size) · inventory/pools", "sale_line, sku, article, inventory_projection", "ada"],
+      ["Cara bayar", "reports/run (sale_payment ÷ method)", "sale_payment", "ada"],
+      ["Stok & susut", "inventory/fleet-pools · inventory/missing · inventory/counts", "inventory_projection, movement, official_count", "ada; movement per cause butuh 1 query kecil"],
+      ["Komersial", "commercial/activation · commercial/performance/campaigns", "commercial_publication_activation, edge_sale_promotion", "ada"],
+      ["Keuangan", "finance/statement ×2 · finance/payables-aging · finance/unbilled", "journal_line, supplier_invoice, goods_receipt", "ada"],
+      ["Orang", "employees", "employee_contract", "ada; kehadiran belum"],
+      ["Anggota", "members/segments · vouchers", "member, voucher", "ada"],
+      ["Kontrol", "audit?status≥400 · reports/saved", "audit_log, report", "ada"]
+    ];
+    const t = $("source-table");
+    t.innerHTML = "<thead><tr><th>Blok</th><th>Pembaca yang sudah ada</th><th>Tabel</th><th>Status</th></tr></thead>";
+    const tb = el("tbody");
+    rows.forEach(([b, e, tbl, s]) => { const tr = el("tr"); tr.append(txt("td","name",b), txt("td","mono",e), txt("td","",tbl), txt("td","",s)); tb.append(tr); });
+    t.append(tb);
+  }
+  [
+    ["bad", "Margin & COGS", "movement tidak punya kolom harga pokok. Semantic key inventory, cogs, stock_loss sudah diwajibkan ledger.rs; posting rule-nya belum ada. Tanpa ini laporan eksekutif tidak bisa menyebut laba kotor, dan susut tidak punya satuan uang."],
+    ["bad", "Penjualan ke jurnal", "SALE_DAY dideklarasikan di 0051 tetapi tidak ada penulisnya. Laba rugi menampilkan pendapatan nol di bulan dengan bruto 1,75 M."],
+    ["warn", "Retur & void", "Kedua jalur sudah ada di kode; DB demo tidak memuat satu pun, jadi tingkat refund belum pernah teruji di laporan."],
+    ["warn", "Hari ketersediaan", "Rumusnya siap (stok toko ÷ unit per hari) begitu penjualan sungguhan menggerakkan ledger."],
+    ["warn", "Kehadiran", "attendance_policy ada, catatan absensi tidak ada. Blok Orang baru bisa menyebut tingkat kehadiran setelah edge menulisnya."],
+    ["neutral", "Dua database", "Penjualan di itulah_assistant_demo, sisanya di inventory_tanstack. Ini keadaan dev, bukan desain; endpoint executive membaca satu pool."]
+  ].forEach(([tone, k, v]) => {
+    const g = $("gaps");
+    g.append(el("span", "pill " + tone, k), el("p", "", v));
+  });
+
+  // ── toc ──────────────────────────────────────────────────────────────
+  const secs = [...document.querySelectorAll("section.sec")];
+  const toc = $("toc");
+  secs.forEach(s => { const a = el("a"); a.href = "#" + s.id; a.textContent = s.querySelector("h2").textContent.replace(/^\d+/, "").trim(); const li = el("li"); li.append(a); toc.append(li); });
+  if ("IntersectionObserver" in window) {
+    const links = new Map(secs.map(s => [s.id, toc.querySelector("a[href='#" + s.id + "']")]));
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) { links.forEach(l => l.classList.remove("is-active")); links.get(e.target.id).classList.add("is-active"); } });
+    }, { rootMargin: "-20% 0px -70% 0px" });
+    secs.forEach(s => io.observe(s));
+  }
+
+  // ── components ───────────────────────────────────────────────────────
+  function barList(root, rows, opt) {
+    const max = opt.max || Math.max(...rows.map(r => r.value));
+    rows.forEach((r, i) => {
+      const b = el("div","bar");
+      b.title = r.label + ": " + r.text + (r.sub ? " (" + r.sub + ")" : "");
+      const tone = opt.tone ? opt.tone(r, i) : "";
+      b.append(txt("div","lbl",r.label),
+        el("div","track","<div class='fill " + tone + "' style='width:" + (max ? Math.max(r.value / max * 100, r.value ? 0.6 : 0) : 0).toFixed(1) + "%'></div>"),
+        el("div","val", r.text + (r.sub ? "<small>" + r.sub + "</small>" : "")));
+      root.append(b);
+    });
+  }
+  function facts(root, rows) {
+    rows.forEach(([k, sub, v]) => {
+      const f = el("div","fact");
+      f.append(el("div","k", k + (sub ? "<small>" + sub + "</small>" : "")), el("div","v", v));
+      root.append(f);
+    });
+  }
+  function ladder(root, rows) {
+    rows.forEach(([lvl, k, v]) => {
+      const r = el("div","row " + lvl);
+      const val = el("div","v" + (v != null && v < 0 ? " neg" : ""), v == null ? "<span class='dash' title='belum ada posting'>—</span>" : (v < 0 ? "(" + money(-v) + ")" : money(v)));
+      r.append(txt("div","k",k), val); root.append(r);
+    });
+  }
+  function spark(vals) {
+    const W = 84, H = 22, p = 3, min = Math.min(...vals), max = Math.max(...vals);
+    const x = i => p + i * (W - 2*p) / (vals.length - 1);
+    const y = v => max === min ? H/2 : H - p - (v - min) / (max - min) * (H - 2*p);
+    const d = vals.map((v,i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" ");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+    svg.setAttribute("viewBox","0 0 " + W + " " + H); svg.setAttribute("class","spark"); svg.setAttribute("aria-hidden","true");
+    svg.innerHTML = "<path d='" + d + "'/><circle cx='" + x(vals.length-1).toFixed(1) + "' cy='" + y(vals[vals.length-1]).toFixed(1) + "' r='2.5'/>";
+    return svg;
+  }
+  function drawDaily(root, rows) {
+    const W = 920, H = 260, L = 56, R = 16, T = 22, Bm = 30;
+    const iw = W - L - R, ih = H - T - Bm;
+    const max = 90000000; // clean top tick above the 82.5M peak
+    const x = i => L + i * iw / (rows.length - 1);
+    const y = v => T + ih - v / max * ih;
+    const inAug = d => d >= "2026-08-01" && d <= "2026-08-31";
+    const aStart = rows.findIndex(r => inAug(r[0])), aEnd = rows.length - 1 - [...rows].reverse().findIndex(r => inAug(r[0]));
+    let s = "";
+    s += "<rect class='band' x='" + x(aStart).toFixed(1) + "' y='" + T + "' width='" + (x(aEnd) - x(aStart)).toFixed(1) + "' height='" + ih + "' rx='6'/>";
+    s += "<text class='band-lbl' x='" + (x(aStart) + 8).toFixed(1) + "' y='" + (T + 14) + "'>Agustus</text>";
+    [0, 30e6, 60e6, 90e6].forEach(v => {
+      s += "<line class='grid-line' x1='" + L + "' x2='" + (W - R) + "' y1='" + y(v).toFixed(1) + "' y2='" + y(v).toFixed(1) + "'/>";
+      s += "<text class='axis' x='" + (L - 8) + "' y='" + (y(v) + 4).toFixed(1) + "' text-anchor='end'>" + (v ? (v/1e6) + " jt" : "0") + "</text>";
+    });
+    const path = (from, to) => rows.slice(from, to + 1).map((r, i) => (i ? "L" : "M") + x(from + i).toFixed(1) + " " + y(r[2]).toFixed(1)).join(" ");
+    s += "<path class='area' d='" + path(aStart, aEnd) + " L" + x(aEnd).toFixed(1) + " " + y(0) + " L" + x(aStart).toFixed(1) + " " + y(0) + " Z'/>";
+    s += "<path class='line ctx' d='" + path(0, aStart) + "'/>";
+    s += "<path class='line ctx' d='" + path(aEnd, rows.length - 1) + "'/>";
+    s += "<path class='line' d='" + path(aStart, aEnd) + "'/>";
+    rows.forEach((r, i) => { if (r[0].endsWith("-01") || i === 0 || r[0] === "2026-08-15") s += "<text class='axis' x='" + x(i).toFixed(1) + "' y='" + (H - 8) + "' text-anchor='middle'>" + fmtDay(r[0]) + "</text>"; });
+    // peak label, the one direct label
+    const pk = rows.reduce((m, r, i) => r[2] > rows[m][2] ? i : m, 0);
+    s += "<circle class='dot' cx='" + x(pk).toFixed(1) + "' cy='" + y(rows[pk][2]).toFixed(1) + "' r='4'/>";
+    s += "<text class='axis' x='" + x(pk).toFixed(1) + "' y='" + (y(rows[pk][2]) - 10).toFixed(1) + "' text-anchor='middle'>" + compact(rows[pk][2]) + "</text>";
+    s += "<line class='cross' id='cross' x1='0' x2='0' y1='" + T + "' y2='" + (T + ih) + "' style='display:none'/>";
+    s += "<circle class='dot' id='cdot' r='4' style='display:none'/>";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+    svg.setAttribute("viewBox","0 0 " + W + " " + H); svg.setAttribute("role","img"); svg.setAttribute("aria-label","Bruto harian 22 Juli sampai 2 September 2026");
+    svg.innerHTML = s;
+    const tip = el("div","tip"); root.append(svg, tip);
+    const cross = svg.querySelector("#cross"), cdot = svg.querySelector("#cdot");
+    function show(i, clientX) {
+      const r = rows[i]; const box = svg.getBoundingClientRect(); const sx = box.width / W;
+      cross.style.display = cdot.style.display = "";
+      cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
+      cdot.setAttribute("cx", x(i)); cdot.setAttribute("cy", y(r[2])); cdot.setAttribute("class", "dot" + (inAug(r[0]) ? "" : " ctx"));
+      tip.style.display = "block"; tip.style.left = (x(i) * sx) + "px"; tip.style.top = (y(r[2]) * sx) + "px";
+      tip.innerHTML = "<b>" + money(r[2]) + "</b><br><span class='k'>" + fmtDay(r[0]) + " · " + r[1] + " struk</span>";
+    }
+    function hide() { cross.style.display = cdot.style.display = "none"; tip.style.display = "none"; }
+    svg.addEventListener("pointermove", e => {
+      const box = svg.getBoundingClientRect(); const px = (e.clientX - box.left) / box.width * W;
+      const i = Math.max(0, Math.min(rows.length - 1, Math.round((px - L) / iw * (rows.length - 1))));
+      show(i);
+    });
+    svg.addEventListener("pointerleave", hide);
+    svg.tabIndex = 0; let ki = pk;
+    svg.addEventListener("keydown", e => { if (e.key === "ArrowRight") { ki = Math.min(rows.length - 1, ki + 1); show(ki); e.preventDefault(); } if (e.key === "ArrowLeft") { ki = Math.max(0, ki - 1); show(ki); e.preventDefault(); } if (e.key === "Escape") hide(); });
+    svg.addEventListener("focus", () => show(ki)); svg.addEventListener("blur", hide);
+  }
+})();
+</script>
+</body></html>

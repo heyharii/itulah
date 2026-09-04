@@ -17,3 +17,12 @@ semantic-review/
 
 # The demo DC node runs from its own directory with its own .env and SQLite.
 demo/
+
+# The Android till builds into its own tree. Gradle's outputs are hundreds of
+# megabytes of dex, merged jars and signed APKs — a rebuild reproduces every
+# one of them, and none of them belong in a clone. `local.properties` is the
+# SDK path on whoever's laptop ran the build, which is never the next one's.
+tablet/.gradle/
+tablet/build/
+tablet/app/build/
+tablet/local.properties

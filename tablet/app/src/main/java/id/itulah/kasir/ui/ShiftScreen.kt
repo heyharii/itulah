@@ -1,0 +1,207 @@
+package id.itulah.kasir.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import id.itulah.kasir.data.Money
+import id.itulah.kasir.data.ShiftReport
+
+/**
+ * The drawer: opening it, feeding it, and counting it.
+ *
+ * The close is **blind**. What the cashier counted goes up with the request and
+ * the expected figure comes back with the answer — a cashier shown the
+ * expectation first counts toward it, and then the count has told nobody
+ * anything.
+ *
+ * Only cash is in the drawer. Card and QRIS takings are reported beside it and
+ * never added to it: a report that summed them would show a shortage every
+ * single evening, for exactly the card takings.
+ */
+@Composable
+fun ShiftScreen(
+    shift: ShiftReport?,
+    busy: Boolean,
+    onOpen: (Long) -> Unit,
+    onMovement: (kind: String, amountMinor: Long, reason: String) -> Unit,
+    onClose: (Long, String?) -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxSize().background(Soft).verticalScroll(rememberScrollState()).padding(16.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Shift", fontSize = 22.sp)
+            GhostButton("Kembali", onBack, Modifier.width(120.dp))
+        }
+        Spacer(Modifier.height(14.dp))
+
+        if (shift == null) {
+            OpenShift(busy, onOpen)
+            return@Column
+        }
+
+        Card(Modifier.fillMaxWidth()) {
+            SectionLabel("Laporan Z · ${shift.terminalId}")
+            Spacer(Modifier.height(8.dp))
+            KeyValue("Modal awal", Money.grouped(shift.openingFloatMinor))
+            KeyValue("Penjualan (${shift.saleCount})", Money.grouped(shift.salesTotalMinor))
+            KeyValue("Tunai", Money.grouped(shift.cashSalesMinor))
+            KeyValue("Non-tunai", Money.grouped(shift.nonCashMinor))
+            KeyValue("Kembalian keluar", "−" + Money.grouped(shift.changeGivenMinor))
+            KeyValue("Retur tunai", "−" + Money.grouped(shift.cashRefundsMinor))
+            KeyValue("Kas masuk/keluar", Money.grouped(shift.cashMovementsMinor))
+            if (shift.voidedCount > 0) KeyValue("Dibatalkan", "${shift.voidedCount}", tone = Warn)
+            Divider(Modifier.padding(vertical = 8.dp))
+            // Deliberately the only place the expectation appears, and only
+            // while the shift is still open — the close screen below must not
+            // show it.
+            KeyValue("Seharusnya di laci", Money.format(shift.expectedCashMinor), strong = true)
+        }
+
+        Spacer(Modifier.height(12.dp))
+        CashMovement(busy, onMovement)
+        Spacer(Modifier.height(12.dp))
+        CloseShift(busy, onClose)
+    }
+}
+
+@Composable
+private fun OpenShift(busy: Boolean, onOpen: (Long) -> Unit) {
+    var float by remember { mutableStateOf("") }
+    Card(Modifier.fillMaxWidth()) {
+        SectionLabel("Buka shift")
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Berapa uang yang ada di laci sekarang. Angka ini yang jadi dasar " +
+                "perhitungan sore nanti.",
+            fontSize = 13.sp,
+            color = Mute,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = float,
+            onValueChange = { float = it },
+            label = { Text("Modal awal") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        PrimaryButton("Buka", { onOpen(Money.parse(float)) }, Modifier.fillMaxWidth(), busy = busy)
+    }
+}
+
+@Composable
+private fun CashMovement(busy: Boolean, onMovement: (String, Long, String) -> Unit) {
+    var kind by remember { mutableStateOf("DROP") }
+    var amount by remember { mutableStateOf("") }
+    var reason by remember { mutableStateOf("") }
+    Card(Modifier.fillMaxWidth()) {
+        SectionLabel("Kas masuk / keluar")
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Signed at the node: money in is positive, out is negative. The
+            // four kinds are the vocabulary the ledger already speaks.
+            listOf("DROP", "PAYOUT", "PICKUP", "CORRECTION").forEach { candidate ->
+                GhostButton(
+                    candidate,
+                    { kind = candidate },
+                    Modifier.weight(1f),
+                    tone = if (candidate == kind) Ink else Mute,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = amount,
+            onValueChange = { amount = it },
+            label = { Text("Jumlah") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = reason,
+            onValueChange = { reason = it },
+            label = { Text("Alasan") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        GhostButton(
+            "Catat",
+            {
+                val value = Money.parse(amount)
+                val signed = if (kind == "PAYOUT" || kind == "PICKUP") -value else value
+                onMovement(kind, signed, reason)
+                amount = ""; reason = ""
+            },
+            Modifier.fillMaxWidth(),
+            enabled = !busy && amount.isNotBlank() && reason.isNotBlank(),
+        )
+    }
+}
+
+@Composable
+private fun CloseShift(busy: Boolean, onClose: (Long, String?) -> Unit) {
+    var counted by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    Card(Modifier.fillMaxWidth()) {
+        SectionLabel("Tutup shift")
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Hitung laci dulu, baru isi angkanya. Selisihnya muncul setelah " +
+                "dikirim — bukan sebelum.",
+            fontSize = 13.sp,
+            color = Mute,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = counted,
+            onValueChange = { counted = it },
+            label = { Text("Hasil hitungan") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = note,
+            onValueChange = { note = it },
+            label = { Text("Catatan (opsional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        PrimaryButton(
+            "Tutup shift",
+            { onClose(Money.parse(counted), note.takeIf { it.isNotBlank() }) },
+            Modifier.fillMaxWidth(),
+            enabled = counted.isNotBlank(),
+            busy = busy,
+        )
+    }
+}

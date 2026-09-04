@@ -1,0 +1,7 @@
+# Gradle and Android Studio build output. The APK is built on a machine with
+# the SDK; nothing here is source and the dex files alone are 300 MB.
+build/
+.gradle/
+.idea/
+# Points at whoever's SDK built it last.
+local.properties

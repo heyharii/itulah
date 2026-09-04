@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Inventory + Operations Exception Lifecycle",
+    "output": "docs/inventory-exception-lifecycle.html",
+    "viewBox": [980, 660],
+    "animation": "none",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "case-lifecycle", "label": "Siklus kasus utama", "focus": ["detected", "contained", "investigated", "resolved", "closed"], "note": "Amankan stok, selidiki, setujui, posting, lalu rekonsiliasi." },
+      { "id": "human-gates", "label": "Maker-checker gates", "focus": ["investigated", "approval", "finance", "resolved"], "note": "Loss, disposal, damage, dan gain membawa approval serta dampak finansial." },
+      { "id": "recovery", "label": "Recount + recovery", "focus": ["investigated", "recount", "contained", "finance", "escalated"], "note": "Bukti lemah memicu recount; unresolved mismatch tetap terlihat dan bereskalasi." }
+    ]
+  },
+  "lanes": [
+    { "id": "main", "label": "Case lifecycle" },
+    { "id": "waiting", "label": "Human control gates" },
+    { "id": "exceptions", "label": "Recovery loop" },
+    { "id": "terminal", "label": "Terminal exits" }
+  ],
+  "states": [
+    { "id": "detected", "type": "start", "label": "Detected", "sublabel": "scan · count · task", "lane": "main", "col": 0, "step": "01", "tag": "signal" },
+    { "id": "contained", "type": "active", "label": "Contained", "sublabel": "hold · quarantine", "lane": "main", "col": 1, "step": "02", "tag": "protect" },
+    { "id": "investigated", "type": "active", "label": "Investigated", "sublabel": "ledger · EPC · docs", "lane": "main", "col": 2, "step": "03", "tag": "evidence" },
+    { "id": "resolved", "type": "decision", "label": "Resolved", "sublabel": "approved posting", "lane": "main", "col": 3, "step": "04", "tag": "movement" },
+    { "id": "closed", "type": "success", "label": "Closed", "sublabel": "all books agree", "lane": "main", "col": 4, "step": "05", "tag": "audit" },
+    { "id": "approval", "type": "waiting", "label": "Supervisor", "sublabel": "maker ≠ checker", "lane": "waiting", "col": 0, "tag": "approval" },
+    { "id": "finance", "type": "waiting", "label": "Finance", "sublabel": "write-off / claim", "lane": "waiting", "col": 1, "tag": "value impact" },
+    { "id": "recount", "type": "failure", "label": "Recount", "sublabel": "evidence incomplete", "lane": "exceptions", "col": 0, "yOffset": 78, "tag": "recoverable" },
+    { "id": "rejected", "type": "failure", "label": "Rejected", "sublabel": "invalid resolution", "lane": "terminal", "col": 0, "tag": "terminal" },
+    { "id": "escalated", "type": "failure", "label": "Escalated", "sublabel": "SLA / sync blocked", "lane": "terminal", "col": 1, "tag": "terminal" }
+  ],
+  "transitions": [
+    { "id": "approval-needed", "from": "investigated", "to": "approval", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "straight" },
+    { "id": "finance-needed", "from": "resolved", "to": "finance", "variant": "default", "route": "drop" },
+    { "id": "evidence-failed", "from": "investigated", "to": "recount", "variant": "security", "fromSide": "left", "toSide": "left", "via": [[320, 157], [320, 385]] },
+    { "id": "recount-retry", "from": "recount", "to": "investigated", "variant": "emphasis", "fromSide": "left", "toSide": "top", "via": [[20, 385], [20, 80], [402, 80]] },
+    { "id": "finance-escalated", "from": "finance", "to": "escalated", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "straight" },
+    { "id": "approval-rejected", "from": "approval", "to": "rejected", "variant": "security", "fromSide": "bottom", "toSide": "top", "via": [[480, 336], [480, 432], [402, 432]] }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "Issue families", "items": ["Identity: wrong SKU, EPC, serial, batch, barcode, or supplier item", "Quantity/location: short, over, duplicate, misplaced, missing", "Condition/custody: damaged, expired, quarantine, transit loss, reject"] },
+    { "dot": "amber", "title": "Allowed dispositions", "items": ["Found, placement correction, count gain/shortage, reservation release", "Return to supplier/DC, repair, relabel, quarantine, or restock", "Confirm lost or dispose only with evidence, approval, and finance reference"] },
+    { "dot": "emerald", "title": "Never close early", "items": ["Physical containment precedes book adjustment", "Retry uses one idempotency key and never creates a second fact", "Close requires stock, document, sync, audit, and finance agreement"] }
+  ]
+}

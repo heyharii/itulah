@@ -1,0 +1,882 @@
+<title>Meja Pembeli</title>
+<meta name="color-scheme" content="light">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+/* ==========================================================================
+   PAPAN - sistem tampilan Sourcing untuk iPad
+
+   RASA: retro clean. Putih, hitam, satu kuning, radius nol, Plus Jakarta Sans.
+
+   ATURAN YANG PALING BANYAK MEMBUANG:
+   Garis tebal hanya untuk benda yang BISA DITEKAN. Kartu bukan tombol, jadi
+   kartu tidak digaris hitam - cuma hairline. Versi sebelumnya menggaris 2px
+   pada kartu, chip, tab, kolom cari dan dua tombol di tiap kartu sekaligus;
+   di layar berisi 65 kartu itu jadi pagar, bukan tata letak.
+
+   KUNING BERARTI "SUDAH DIPILIH". Tab divisi yang sedang dibuka, chip yang
+   menyala, barang yang sudah masuk nota, dan tombol Terbitkan. Tombol tambah
+   di kartu TIDAK kuning sampai barangnya benar-benar diambil - kalau 65
+   tombol kuning sejak awal, kuning berhenti berarti apa pun.
+
+   TIGA ATURAN TABLET
+   P1 - Sasaran sentuh minimum 44px, tidak ada yang bergantung pada hover.
+   P2 - Nota menetap di kanan; keranjang tidak boleh menutupi katalog.
+   P3 - Angka yang tidak bisa diperiksa tidak ditampilkan.
+   ========================================================================== */
+
+:root{
+  color-scheme:light;
+
+  --meja:#F1F1EE;
+  --kartu:#FFFFFF;
+  --kartu-2:#FAFAF8;
+
+  --tinta:#14151A;
+  --tinta-2:#63656F;
+  --tinta-3:#9497A0;
+  --garis:#14151A;          /* hanya untuk yang bisa ditekan */
+  --garis-2:#E5E5E0;        /* hairline: pemisah, bukan pagar */
+
+  --kuning:#FFD43B;
+  --kuning-2:#FFF6D6;
+  --merah:#D6342C;
+
+  --d-KIDS:#FF9F45;
+  --d-WOMENSWEAR:#FF7BA8;
+  --d-ACCESSORY:#4EA8DE;
+  --d-DIVIDED:#B197FC;
+  --d-MENSWEAR:#5FCF7F;
+  --d-FOOTWEAR:#AEB2BD;
+
+  --bayang:2px 2px 0 var(--tinta);
+  --lebar-nota:20.5rem;
+  --t:130ms;
+  --ease:cubic-bezier(.16,1,.3,1);
+
+  --sans:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;background:var(--meja);color:var(--tinta);
+  font-family:var(--sans);font-size:15px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;
+  overscroll-behavior:none;
+}
+button,input{font:inherit;color:inherit;touch-action:manipulation}
+button{background:none;border:0;padding:0;cursor:pointer}
+:focus-visible{outline:3px solid var(--tinta);outline-offset:2px}
+
+/* -- kerangka ----------------------------------------------------------- */
+.meja{
+  height:100dvh;max-width:1440px;margin:0 auto;
+  display:grid;grid-template-rows:auto auto 1fr;grid-template-columns:minmax(0,1fr);
+  background:var(--kartu);overflow:hidden;
+}
+
+/* -- kop ---------------------------------------------------------------- */
+.kop{
+  display:flex;align-items:center;gap:1.5rem;
+  padding:1rem 2rem calc(1rem + env(safe-area-inset-top,0px));
+  user-select:none;
+}
+.merek{display:flex;align-items:baseline;gap:.625rem;flex-shrink:0}
+.merek h1{margin:0;font-size:1.5rem;font-weight:800;line-height:1;letter-spacing:-.04em}
+.merek .sub{font-size:.6875rem;color:var(--tinta-3);letter-spacing:.09em;text-transform:uppercase;font-weight:700}
+
+.cari{position:relative;flex:1;max-width:24rem}
+.cari input{
+  width:100%;height:2.875rem;padding:0 2.75rem;
+  font-size:17px;                     /* >=17px: Safari iPad tidak memperbesar halaman */
+  background:var(--meja);border:0;border-radius:0;
+}
+.cari input::placeholder{color:var(--tinta-3);font-size:15px;font-weight:500}
+.cari input:focus{outline:none;background:var(--kuning-2)}
+.cari .kaca{position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:var(--tinta-3);pointer-events:none;display:flex}
+.cari .hapus{position:absolute;right:.125rem;top:50%;transform:translateY(-50%);width:2.75rem;height:2.75rem;display:none;place-items:center;color:var(--tinta-2)}
+.cari.terisi .hapus{display:grid}
+
+.buka-nota{
+  display:none;align-items:center;gap:.5rem;height:2.75rem;padding:0 1rem;margin-left:auto;
+  background:var(--kuning);border:2px solid var(--garis);box-shadow:var(--bayang);
+  font-size:.8125rem;font-weight:800;
+}
+.buka-nota:active{transform:translate(2px,2px);box-shadow:none}
+
+/* -- tab divisi: label + garis kuning, tanpa kotak ---------------------- */
+.tab-baris{
+  display:flex;gap:.25rem;padding:0 2rem;
+  border-bottom:1px solid var(--garis-2);
+  overflow-x:auto;scrollbar-width:none;user-select:none;
+}
+.tab-baris::-webkit-scrollbar{display:none}
+.tab{
+  flex-shrink:0;height:3rem;padding:0 .75rem;
+  display:flex;align-items:center;gap:.4375rem;
+  font-size:.84375rem;font-weight:700;color:var(--tinta-2);letter-spacing:-.012em;
+  border-bottom:3px solid transparent;
+  transition:color var(--t) var(--ease);
+}
+.tab .n{font-family:var(--mono);font-size:.6875rem;font-weight:500;color:var(--tinta-3)}
+.tab .tulang{width:.5rem;height:.5rem;background:var(--ink,var(--tinta-3))}
+.tab[aria-selected="true"]{color:var(--tinta);border-bottom-color:var(--kuning)}
+@media (hover:hover){.tab:hover{color:var(--tinta)}}
+
+/* -- lantai ------------------------------------------------------------- */
+.lantai{display:flex;min-height:0;min-width:0}
+.rak{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--meja)}
+
+.saring{
+  display:flex;align-items:center;gap:1rem;
+  padding:.6875rem 2rem;background:var(--kartu);
+  border-bottom:1px solid var(--garis-2);user-select:none;
+}
+.chips{display:flex;gap:.375rem;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0;padding:.125rem .75rem .125rem 0}
+.chips::-webkit-scrollbar{display:none}
+.chip{
+  flex-shrink:0;height:2.25rem;padding:0 .75rem;
+  display:flex;align-items:center;gap:.375rem;
+  border:1px solid var(--garis-2);background:var(--kartu);
+  font-size:.78125rem;font-weight:600;color:var(--tinta-2);
+  transition:background var(--t) var(--ease),color var(--t) var(--ease);
+}
+.chip .n{font-family:var(--mono);font-size:.65625rem;font-weight:500;color:var(--tinta-3)}
+.chip[aria-pressed="true"]{background:var(--kuning);border-color:var(--kuning);color:var(--tinta)}
+.chip[aria-pressed="true"] .n{color:var(--tinta-2)}
+
+.urut{display:flex;flex-shrink:0;gap:.125rem;padding-left:1rem;border-left:1px solid var(--garis-2)}
+.urut button{
+  height:2.25rem;padding:0 .625rem;font-size:.78125rem;font-weight:600;color:var(--tinta-3);
+  border-bottom:2px solid transparent;
+}
+.urut button[aria-pressed="true"]{color:var(--tinta);font-weight:700;border-bottom-color:var(--kuning)}
+
+.gulung{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.hitungan{padding:1.375rem 2rem .0625rem;font-size:.8125rem;color:var(--tinta-2);font-weight:500}
+.hitungan b{font-family:var(--mono);font-weight:600;color:var(--tinta)}
+.kisi{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:1.125rem;padding:1rem 2rem calc(2.5rem + env(safe-area-inset-bottom,0px));
+}
+
+/* -- kartu: hairline, bukan pagar --------------------------------------- */
+.kartu{
+  display:flex;flex-direction:column;
+  background:var(--kartu);border:1px solid var(--garis-2);
+  transition:border-color var(--t) var(--ease);
+}
+.kartu.diambil{border-color:var(--kuning);box-shadow:inset 3px 0 0 var(--kuning)}
+
+.kartu .muka{flex:1;padding:1rem 1.125rem .5rem;display:flex;flex-direction:column;text-align:left;min-height:0}
+.kartu .baris-kode{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.625rem}
+.kartu .kode{font-family:var(--mono);font-size:.6875rem;color:var(--tinta-3)}
+.kartu .divisi{display:flex;align-items:center;gap:.3125rem;font-size:.5625rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--tinta-3);white-space:nowrap}
+.kartu .divisi i{width:.4375rem;height:.4375rem;background:var(--ink,var(--tinta-3))}
+.kartu .nama{
+  font-size:1.0625rem;font-weight:700;line-height:1.24;letter-spacing:-.028em;text-wrap:balance;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.kartu .riwayat{margin-top:.4375rem;font-family:var(--mono);font-size:.6875rem;color:var(--tinta-2)}
+.kartu .harga-baris{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.5rem 1.125rem .875rem}
+.kartu .harga{font-family:var(--mono);font-size:1.0625rem;font-weight:600;font-variant-numeric:tabular-nums}
+
+.tambah{
+  flex-shrink:0;width:2.75rem;height:2.75rem;display:grid;place-items:center;
+  border:1.5px solid var(--tinta);background:var(--kartu);
+  font-family:var(--mono);font-size:.8125rem;font-weight:600;
+}
+.tambah:active{background:var(--kuning)}
+.tambah.punya{background:var(--kuning)}
+
+.kartu .pemasok{
+  display:flex;align-items:center;justify-content:space-between;gap:.5rem;
+  height:2.75rem;padding:0 1.125rem;width:100%;
+  border-top:1px solid var(--garis-2);
+  font-size:.75rem;font-weight:600;color:var(--tinta-2);text-align:left;
+}
+.kartu .pemasok span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kartu .pemasok svg{flex-shrink:0;color:var(--tinta-3)}
+.kartu .pemasok:active{background:var(--kuning-2);color:var(--tinta)}
+
+.kosong-rak{grid-column:1/-1;padding:4rem 1rem;text-align:center;color:var(--tinta-2)}
+.kosong-rak .besar{font-size:1.0625rem;font-weight:700;color:var(--tinta);margin-bottom:.375rem;letter-spacing:-.02em}
+
+/* -- kepala toko -------------------------------------------------------- */
+.toko{margin:1.375rem 2rem 0;background:var(--kartu);border:1px solid var(--garis-2)}
+.toko .atas{display:flex;align-items:center;gap:1rem;padding:1.125rem 1.25rem}
+.toko .balik{height:2.75rem;padding:0 .875rem;display:flex;align-items:center;gap:.4375rem;flex-shrink:0;border:1.5px solid var(--tinta);font-size:.78125rem;font-weight:700}
+.toko .balik:active{background:var(--kuning)}
+.toko h2{margin:0;font-size:1.25rem;font-weight:800;letter-spacing:-.035em}
+.toko .kode{font-family:var(--mono);font-size:.75rem;color:var(--tinta-3)}
+.toko dl{margin:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem 1.25rem;padding:0 1.25rem 1.25rem}
+.toko dt{font-size:.5625rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--tinta-3)}
+.toko dd{margin:.25rem 0 0;font-size:.8125rem;font-family:var(--mono)}
+.toko dd.kosong{color:var(--tinta-3);font-family:var(--sans);font-weight:500}
+
+/* -- nota --------------------------------------------------------------- */
+.nota{
+  width:var(--lebar-nota);flex-shrink:0;
+  display:flex;flex-direction:column;min-height:0;
+  background:var(--kartu);border-left:1px solid var(--garis-2);
+}
+.nota-kop{padding:1.0625rem 1.25rem .875rem;border-bottom:1px solid var(--garis-2);user-select:none}
+.nota-kop .judul{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.nota-kop h2{margin:0;font-size:1.0625rem;font-weight:800;letter-spacing:-.03em}
+.nota-kop .tutup{width:2.75rem;height:2.75rem;display:none;place-items:center;margin:-.625rem -.625rem}
+.nota-kop .meta{margin-top:.1875rem;font-family:var(--mono);font-size:.6875rem;color:var(--tinta-3);display:flex;justify-content:space-between;gap:.5rem}
+
+.nota-isi{flex:1;overflow-y:auto;overscroll-behavior:contain}
+.nota-isi:has(.nota-kosong){display:grid;align-content:center}
+.nota-kosong{padding:3rem 1.5rem;text-align:center;color:var(--tinta-2)}
+.nota-kosong .besar{font-size:.9375rem;font-weight:700;margin-bottom:.375rem;color:var(--tinta)}
+.nota-kosong .kecil{font-size:.78125rem;line-height:1.5}
+
+.grup{position:relative;padding-bottom:.875rem;border-bottom:1px solid var(--garis-2)}
+.grup-kop{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem;padding:.875rem 1.25rem .5rem}
+.grup-kop .nm{font-size:.75rem;font-weight:800;letter-spacing:-.005em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grup-kop .kd{font-family:var(--mono);font-size:.6875rem;color:var(--tinta-3);flex-shrink:0}
+
+.baris{display:flex;align-items:flex-start;gap:.625rem;padding:.5rem 1.25rem}
+.baris .no{font-family:var(--mono);font-size:.6875rem;color:var(--tinta-3);width:1.125rem;flex-shrink:0;padding-top:.25rem}
+.baris .isi{flex:1;min-width:0}
+.baris .nm{font-size:.8125rem;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.baris .kd{font-family:var(--mono);font-size:.625rem;color:var(--tinta-3)}
+.baris .kanan{display:flex;flex-direction:column;align-items:flex-end;gap:.3125rem;flex-shrink:0}
+.baris .nilai{font-family:var(--mono);font-size:.8125rem;font-weight:600;font-variant-numeric:tabular-nums}
+
+.stepper{display:flex;align-items:center;border:1px solid var(--garis-2)}
+.stepper button{width:2.25rem;height:2.25rem;display:grid;place-items:center;font-size:1.0625rem;line-height:1;font-weight:600;color:var(--tinta-2)}
+.stepper button:active{background:var(--kuning);color:var(--tinta)}
+.stepper .jml{min-width:2.25rem;text-align:center;font-family:var(--mono);font-size:.8125rem;font-weight:600;line-height:2.25rem}
+.stepper.besar button{width:3rem;height:3rem;font-size:1.375rem}
+.stepper.besar .jml{min-width:3.5rem;font-size:1rem;line-height:3rem}
+
+.grup-kaki{display:flex;align-items:center;gap:.625rem;padding:.75rem 1.25rem 0}
+.jumlah{flex:1;font-family:var(--mono);font-size:.6875rem;color:var(--tinta-3)}
+.jumlah b{display:block;font-size:.9375rem;color:var(--tinta);font-weight:600}
+.terbit{height:2.75rem;padding:0 1rem;background:var(--kuning);border:2px solid var(--garis);box-shadow:var(--bayang);font-size:.78125rem;font-weight:800;letter-spacing:-.01em}
+.terbit:active{transform:translate(2px,2px);box-shadow:none}
+.buang{width:2.75rem;height:2.75rem;display:grid;place-items:center;color:var(--tinta-3)}
+.buang:active{color:var(--merah)}
+
+.nota-kaki{border-top:1px solid var(--garis-2);padding:.875rem 1.25rem calc(1rem + env(safe-area-inset-bottom,0px))}
+.total-baris{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:.75rem;color:var(--tinta-3);padding:.1875rem 0}
+.total-baris .v{font-weight:600;font-variant-numeric:tabular-nums;color:var(--tinta-2)}
+.total-baris.akhir{
+  margin:.625rem -1.25rem calc(-1rem - env(safe-area-inset-bottom,0px));
+  padding:.75rem 1.25rem calc(.875rem + env(safe-area-inset-bottom,0px));
+  background:var(--kartu-2);color:var(--tinta-2);border-top:1px solid var(--garis-2);
+}
+.total-baris.akhir.terisi{background:var(--kuning);color:var(--tinta);border-top-color:var(--kuning)}
+.total-baris.akhir span:first-child{font-weight:700;font-family:var(--sans);font-size:.8125rem}
+.total-baris.akhir .v{font-size:1.0625rem;font-weight:700;color:var(--tinta)}
+
+.cap{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-7deg);
+  border:2px solid var(--tinta);color:var(--tinta);background:var(--kuning);
+  padding:.4375rem 1rem;text-align:center;pointer-events:none;z-index:3;
+}
+.cap .t{font-size:1rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;line-height:1}
+.cap .p{font-family:var(--mono);font-size:.6875rem;margin-top:.1875rem;letter-spacing:.04em}
+@keyframes turun{from{opacity:0;transform:translate(-50%,-50%) rotate(-15deg) scale(1.7)}to{opacity:1;transform:translate(-50%,-50%) rotate(-7deg) scale(1)}}
+.cap{animation:turun 240ms cubic-bezier(.3,1.5,.5,1) both}
+@keyframes masuk{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.baris.baru{animation:masuk 170ms var(--ease) both}
+
+.terbitkan-daftar{margin-top:.75rem;padding-top:.625rem;border-top:1px solid var(--garis-2)}
+.terbitkan-daftar .jd{font-size:.5625rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--tinta-3);margin-bottom:.3125rem}
+.terbitkan-daftar div.po{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.6875rem;color:var(--tinta-2);padding:.125rem 0}
+
+/* -- lembar ------------------------------------------------------------- */
+.tirai{position:fixed;inset:0;z-index:40;background:rgba(20,21,26,.32);display:grid;place-items:center;padding:2rem}
+.tirai[hidden]{display:none}
+.lembar{
+  width:min(32rem,100%);max-height:min(46rem,100%);
+  display:flex;flex-direction:column;
+  background:var(--kartu);border:2px solid var(--garis);box-shadow:var(--bayang);
+  animation:tarik 190ms var(--ease) both;
+}
+@keyframes tarik{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.lembar .atas{display:flex;align-items:flex-start;gap:.75rem;padding:1.25rem 1.375rem 1rem}
+.lembar .atas .kode{display:flex;align-items:center;gap:.375rem;font-family:var(--mono);font-size:.71875rem;color:var(--tinta-3)}
+.lembar .atas .kode i{width:.4375rem;height:.4375rem;background:var(--ink,var(--tinta-3))}
+.lembar .atas h2{margin:.3125rem 0 0;font-size:1.4375rem;font-weight:800;letter-spacing:-.04em;line-height:1.14;text-wrap:balance}
+.lembar .tutup{width:2.75rem;height:2.75rem;display:grid;place-items:center;margin:-.5rem -.5rem 0 auto;flex-shrink:0;color:var(--tinta-2)}
+.lembar .tutup:active{background:var(--kuning)}
+.lembar .badan{padding:0 1.375rem 1.375rem;overflow-y:auto;overscroll-behavior:contain}
+.lembar .salin{font-size:.9375rem;color:var(--tinta-2);line-height:1.55;max-width:52ch;margin:0 0 1.25rem}
+.lembar dl{margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem 1.25rem}
+.lembar dt{font-size:.5625rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--tinta-3)}
+.lembar dd{margin:.25rem 0 0;font-size:.875rem;font-family:var(--mono)}
+.lembar dd.kosong{color:var(--tinta-3);font-family:var(--sans);font-weight:500}
+.lembar dd.uang{font-weight:600;font-size:1.0625rem}
+.lembar .label{margin-top:1.25rem;display:flex;flex-wrap:wrap;gap:.375rem}
+.lembar .label span{font-family:var(--mono);font-size:.6875rem;border:1px solid var(--garis-2);padding:.1875rem .4375rem;color:var(--tinta-2)}
+.lembar .ke-toko{
+  margin-top:1.25rem;width:100%;height:2.75rem;display:flex;align-items:center;justify-content:space-between;
+  padding:0 .875rem;border:1.5px solid var(--tinta);font-size:.8125rem;font-weight:700;
+}
+.lembar .ke-toko:active{background:var(--kuning)}
+.lembar .nb{margin:1.25rem 0 0;font-size:.78125rem;color:var(--tinta-3);line-height:1.5}
+.lembar .kaki{border-top:1px solid var(--garis-2);padding:1rem 1.375rem calc(1rem + env(safe-area-inset-bottom,0px));display:flex;align-items:center;gap:.875rem}
+.ambil{
+  flex:1;height:3rem;display:flex;align-items:center;justify-content:center;gap:.375rem;
+  background:var(--kuning);border:2px solid var(--garis);box-shadow:var(--bayang);
+  font-size:.875rem;font-weight:800;letter-spacing:-.015em;
+}
+.ambil:active{transform:translate(2px,2px);box-shadow:none}
+
+/* -- catatan ------------------------------------------------------------ */
+.pita{
+  position:fixed;left:0;bottom:0;z-index:30;height:2.125rem;padding:0 .75rem;
+  display:flex;align-items:center;background:var(--tinta);color:var(--kartu);
+  font-family:var(--mono);font-size:.625rem;letter-spacing:.06em;text-transform:uppercase;
+}
+.catatan{max-width:44rem;text-align:left}
+.catatan h3{margin:1.75rem 0 .5rem;font-size:.8125rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.catatan h3:first-child{margin-top:0}
+.catatan p{margin:0 0 .625rem;font-size:.875rem;color:var(--tinta-2);line-height:1.6;max-width:64ch}
+.catatan b{color:var(--tinta)}
+.catatan code{font-family:var(--mono);font-size:.8125rem;background:var(--kuning-2);padding:.0625rem .25rem}
+
+/* -- potret & split view ------------------------------------------------ */
+@media (max-width:1120px){
+  .kisi{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .toko dl{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:900px){
+  .nota{position:fixed;top:0;right:0;bottom:0;width:min(22.5rem,90vw);z-index:35;
+        border-left:2px solid var(--garis);box-shadow:-6px 0 24px rgba(20,21,26,.12);
+        transform:translateX(101%);transition:transform 220ms var(--ease)}
+  .nota.buka{transform:none}
+  .nota-kop .tutup{display:grid}
+  .buka-nota{display:flex}
+}
+@media (max-width:640px){
+  .kisi{grid-template-columns:minmax(0,1fr)}
+  .kop,.tab-baris,.saring,.hitungan,.kisi,.toko{padding-left:1.25rem;padding-right:1.25rem}
+  .toko{margin-left:1.25rem;margin-right:1.25rem}
+  .kop{flex-wrap:wrap;gap:.75rem}
+  .cari{max-width:none;order:3;flex-basis:100%}
+  .toko dl,.lembar dl{grid-template-columns:minmax(0,1fr)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
+</style>
+
+<div class="meja">
+  <header class="kop">
+    <div class="merek">
+      <h1>Sourcing</h1>
+      <span class="sub">Meja Pembeli</span>
+    </div>
+
+    <label class="cari" id="cari">
+      <span class="kaca"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+      <input id="q" type="search" autocomplete="off" placeholder="Cari nama, kode, atau pemasok" aria-label="Cari katalog">
+      <button class="hapus" id="hapus-q" type="button" aria-label="Kosongkan pencarian"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </label>
+
+    <button class="buka-nota" id="buka-nota" type="button">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13l3 4v12H4z"/><path d="M8 10h8M8 14h5"/></svg>
+      Nota <span class="num" id="lencana">0</span>
+    </button>
+  </header>
+
+  <nav class="tab-baris" id="tabs" role="tablist" aria-label="Divisi"></nav>
+
+  <div class="lantai">
+    <section class="rak">
+      <div class="saring">
+        <div class="chips" id="chips" role="group" aria-label="Kategori"></div>
+        <div class="urut" id="urut" role="group" aria-label="Urutkan"></div>
+      </div>
+      <div class="gulung" id="gulung">
+        <div id="toko"></div>
+        <div class="hitungan" id="hitungan"></div>
+        <div class="kisi" id="kisi"></div>
+      </div>
+    </section>
+
+    <aside class="nota" id="nota" aria-label="Nota pesanan">
+      <div class="nota-kop">
+        <div class="judul">
+          <h2>Nota Pesanan</h2>
+          <button class="tutup" id="tutup-nota" type="button" aria-label="Tutup nota"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        </div>
+        <div class="meta"><span>Tujuan · DC</span><span id="nota-tanggal">—</span></div>
+      </div>
+      <div class="nota-isi" id="nota-isi"></div>
+      <div class="nota-kaki" id="nota-kaki"></div>
+    </aside>
+  </div>
+</div>
+
+<div class="tirai" id="tirai-barang" hidden></div>
+
+<button class="pita" id="buka-catatan" type="button">Catatan desain</button>
+<div class="tirai" id="tirai-catatan" hidden></div>
+
+<script>
+const DATA =
+[{"c":"0293433029","n":"2-p basic cotton tights SG","p":31000,"d":"KIDS","sn":"Anugerah Garmen Sejahtera","sc":"SUP02","g":["KAUS_KAKI"],"x":"Tights in a soft, fine knit with an elasticated waist.","bu":540,"bo":5},{"c":"0287645023","n":"2-p micro tights SG","p":53000,"d":"KIDS","sn":"Anugerah Garmen Sejahtera","sc":"SUP02","g":["KAUS_KAKI"],"x":"Thin tights with an elasticated waist.","bu":108,"bo":4},{"c":"0291333013","n":"2-p Keri tights SG","p":42000,"d":"KIDS","sn":"Anugerah Garmen Sejahtera","sc":"SUP02","g":["KAUS_KAKI"],"x":"Tights in a soft, fine-knit cotton blend with an elasticated waist.","bu":60,"bo":1},{"c":"0327144042","n":"Rally 2p tights","p":45000,"d":"KIDS","sn":"Karya Benang Abadi","sc":"SUP06","g":["KAUS_KAKI"],"x":"Fine-knit tights in a soft cotton blend with an elasticated waist."},{"c":"0293433047","n":"Basic 2PACK tights SG","p":27000,"d":"KIDS","sn":"Rukun Sandang Nusantara","sc":"SUP20","g":["KAUS_KAKI"],"x":"Tights in a soft, fine knit with an elasticated waist."},{"c":"0296476017","n":"DIVA ROBE","p":50000,"d":"KIDS","sn":"Prima Garmen Selaras","sc":"SUP17","g":["DALAMAN"],"x":"Dressing gown in soft, patterned fleece with a hood, side pockets and tie belt at the waist."},{"c":"0293433061","n":"Basic 2PACK tights KG","p":43000,"d":"KIDS","sn":"Srikandi Busana Mandiri","sc":"SUP28","g":["KAUS_KAKI"],"x":"Tights in a soft, fine knit with an elasticated waist."},{"c":"0291957007","n":"Chelsea welldressed trouser","p":290000,"d":"KIDS","sn":"Gemilang Sandang Persada","sc":"SUP11","g":["CELANA"],"x":"Suit trousers in woven fabric with an adjustable elasticated waist (in sizes 8-12Y), zip fly and concealed hook-and-eye fastening. Side pockets, jetted back pockets with a button and legs with creases."},{"c":"0217207047","n":"2P SS PYJAMA","p":83000,"d":"KIDS","sn":"Sejahtera Kain Utama","sc":"SUP15","g":["DALAMAN","TIDUR"],"x":"Pyjamas in soft organic cotton jersey with short sleeves and legs and press-stud fasteners."},{"c":"0244269018","n":"Basic Henley body","p":112000,"d":"KIDS","sn":"Sentosa Tekstil Mandiri","sc":"SUP18","g":["BASIC","KAOS"],"x":"Long-sleeved bodysuit in ribbed organic cotton jersey with ribbing at the cuffs and press-studs at the top and crotch."},{"c":"0399036011","n":"Vera sweater","p":488000,"d":"KIDS","sn":"Karya Benang Abadi","sc":"SUP06","g":["RAJUT"],"x":"Long-sleeved jumper in soft, fluffy yarn with ribbing around the neckline, cuffs and hem."},{"c":"0405636009","n":"JIMMY raglan tshirt BB","p":93000,"d":"KIDS","sn":"Arjuna Garmen Lestari","sc":"SUP26","g":["BASIC","KAOS","LENGAN_PENDEK"],"x":"Top in soft, organic cotton jersey with long raglan sleeves in a contrasting colour."},{"c":"0309864012","n":"Skinny Cheapo 89","p":290000,"d":"KIDS","sn":"Arjuna Garmen Lestari","sc":"SUP26","g":["CELANA","DENIM"],"x":"Slim-fit jeans in washed stretch denim with an adjustable elasticated waist (in sizes 8-12Y), zip fly and button, front and back pockets, and narrow hems."},{"c":"0405636013","n":"JIMMY raglan tshirt BB","p":96000,"d":"KIDS","sn":"Indah Busana Gemilang","sc":"SUP16","g":["BASIC","KAOS","LENGAN_PENDEK"],"x":"Top in soft, organic cotton jersey with long raglan sleeves in a contrasting colour."},{"c":"0331474025","n":"JOEL fancy sweatpant SB","p":155000,"d":"KIDS","sn":"Srikandi Busana Mandiri","sc":"SUP28","g":["BASIC","KAOS"],"x":"Joggers in sweatshirt fabric with elasticated ribbing at the waist, pockets in the side seams and ribbed hems."},{"c":"0341452001","n":"Venice molly padded softbra","p":106000,"d":"WOMENSWEAR","sn":"Rukun Sandang Nusantara","sc":"SUP20","g":["DALAMAN"],"x":"Soft, non-wired bra in lace and microfibre with lightly padded, moulded cups that shape the bust and provide good support. Narrow, adjustable shoulder straps, a wide lace trim at the hem, and a wide strap with three pair"},{"c":"0297067002","n":"Small dot 1p Tights","p":49000,"d":"WOMENSWEAR","sn":"Maju Bersama Konveksi","sc":"SUP19","g":["KAUS_KAKI"],"x":"Flock-print tights with an elasticated waist."},{"c":"0237347035","n":"Theron (1)","p":157000,"d":"WOMENSWEAR","sn":"Prima Garmen Selaras","sc":"SUP17","g":["BASIC","KAOS"],"x":"Jacket in sweatshirt fabric with a lined drawstring hood, zip down the front, side pockets and ribbing at the cuffs and hem."},{"c":"0249136006","n":"Skinny Ankel Denim","p":409000,"d":"WOMENSWEAR","sn":"Arjuna Garmen Lestari","sc":"SUP26","g":["CELANA"],"x":"Ankle-length jeans in washed stretch denim with fake front pockets, real back pockets and tapered legs. Wide jersey ribbing at the waist for best fit."},{"c":"0396135045","n":"Glamping","p":138000,"d":"WOMENSWEAR","sn":"Bintang Konveksi Utama","sc":"SUP04","g":["BASIC","KAOS"],"x":"Short shorts in sweatshirt fabric with an elasticated, drawstring jersey waistband, side pockets and rounded hems."},{"c":"0429313023","n":"Charlotte SP Andes","p":147000,"d":"WOMENSWEAR","sn":"Wijaya Tekstil Abadi","sc":"SUP22","g":["DALAMAN"],"x":"Super push-up lace bra with underwired, thickly padded cups to maximise the bust and create a fuller cleavage. Narrow, adjustable shoulder straps and a narrow fastening at the back with two pairs of hooks and eyes."},{"c":"0218354020","n":"Beyonce cropped tank","p":85000,"d":"WOMENSWEAR","sn":"Bintang Konveksi Utama","sc":"SUP04","g":["BASIC","KAOS","LENGAN_PENDEK"],"x":"Cropped vest top in slub jersey."},{"c":"0399256023","n":"Skinny Ankle R.W Brooklyn","p":437000,"d":"WOMENSWEAR","sn":"Damai Garmen Perkasa","sc":"SUP21","g":["CELANA","DENIM"],"x":"Ankle-length jeans in washed stretch denim with a regular waist, fake front pockets, real back pockets and skinny legs."},{"c":"0228257004","n":"20 den 2p Tights","p":34000,"d":"WOMENSWEAR","sn":"Cahaya Busana Mandiri","sc":"SUP03","g":["KAUS_KAKI"],"x":"Tights with an elasticated waist. 20 denier."},{"c":"0399256013","n":"Skinny Ankle R.W Brooklyn","p":392000,"d":"WOMENSWEAR","sn":"Arjuna Garmen Lestari","sc":"SUP26","g":["CELANA","DENIM"],"x":"Ankle-length jeans in washed stretch denim with a regular waist, fake front pockets, real back pockets and skinny legs."},{"c":"0424022011","n":"Annabel V neck","p":214000,"d":"WOMENSWEAR","sn":"Maju Bersama Konveksi","sc":"SUP19","g":["KAOS","LENGAN_PENDEK"],"x":"Fitted slub jersey top made from organic cotton with a V-neck and long sleeves."},{"c":"0433414030","n":"NT Maria 2-pack","p":212000,"d":"WOMENSWEAR","sn":"Nusantara Apparel Prima","sc":"SUP14","g":["KAOS","LENGAN_PENDEK"],"x":"Short-sleeved nursing tops in organic cotton jersey with a wrapover front and practical inner top for easier nursing access."},{"c":"0235596002","n":"Basic 4pk studs","p":239000,"d":"ACCESSORY","sn":"Mitra Sandang Perkasa","sc":"SUP05","g":["AKSESORI"],"x":"Earrings in various sizes."},{"c":"0315497012","n":"Otto Beanie","p":189000,"d":"ACCESSORY","sn":"Kencana Konveksi Jaya","sc":"SUP24","g":["AKSESORI"],"x":"Double-layered hat in a soft, fine knit."},{"c":"0322017015","n":"Mini Umbrella","p":241000,"d":"ACCESSORY","sn":"Sentosa Tekstil Mandiri","sc":"SUP18","g":["AKSESORI"],"x":"Small umbrella with a telescopic handle and a fabric wrist strap. Size 7x15.5 cm folded."},{"c":"0345922005","n":"Erling Necktube","p":67000,"d":"ACCESSORY","sn":"Mustika Sandang Utama","sc":"SUP25","g":["AKSESORI"],"x":"Tube scarf in a soft rib knit. Width 30 cm, circumference approx. 125 cm."},{"c":"0296366013","n":"Flirty Fiffi flower headband","p":203000,"d":"ACCESSORY","sn":"Maju Bersama Konveksi","sc":"SUP19","g":["AKSESORI"],"x":"Hairband with leaf and flower appliqués."},{"c":"0386678003","n":"Big Arjuna crossbag","p":201000,"d":"ACCESSORY","sn":"Arjuna Garmen Lestari","sc":"SUP26","g":["AKSESORI"],"x":"Shoulder bag in grained imitation leather with a narrow, adjustable shoulder strap, flap with a zip, and a zipped inner compartment. Lined. Size 8x18x23 cm."},{"c":"0214844008","n":"30p pins","p":116000,"d":"ACCESSORY","sn":"Berkah Konveksi Raya","sc":"SUP12","g":["AKSESORI"],"x":"Metal hair grips. Length 5 cm."},{"c":"0406724020","n":"Sunglasses Hendrix","p":236000,"d":"ACCESSORY","sn":"Permata Garmen Indonesia","sc":"SUP09","g":["AKSESORI"],"x":"Sunglasses with metal and plastic frames and tinted, UV-protective lenses."},{"c":"0302334003","n":"Sebastian braided belt","p":114000,"d":"ACCESSORY","sn":"Cemerlang Tekstil Jaya","sc":"SUP13","g":["AKSESORI"],"x":"Braided belt with imitation leather details and a metal buckle. Width 3.5 cm."},{"c":"0370737001","n":"Sunglasses Blixa CO","p":174000,"d":"ACCESSORY","sn":"Rukun Sandang Nusantara","sc":"SUP20","g":["AKSESORI"],"x":"Sunglasses with plastic frames with metal details and UV-protective tinted lenses."},{"c":"0301656026","n":"Shirtdress Lou","p":450000,"d":"DIVIDED","sn":"Karya Benang Abadi","sc":"SUP06","g":["CELANA","DENIM"],"x":"Long, straight-cut shirt in soft Tencel™ lyocell denim with a collar and buttons down the front. Chest pockets with a pleat, and long sleeves with buttoned cuffs."},{"c":"0399223035","n":"Jeggings H.W","p":208000,"d":"DIVIDED","sn":"Harapan Jaya Tekstil","sc":"SUP08","g":["CELANA","DENIM"],"x":"Jeggings in washed, superstretch denim with a high waist, fake front pockets, real back pockets and skinny legs."},{"c":"0406987003","n":"Tony woven jumpsuit","p":249000,"d":"DIVIDED","sn":"Berkah Konveksi Raya","sc":"SUP12","g":["GAUN"],"x":"Off-the-shoulder playsuit in an airy, patterned weave with a flounce at the top, an elasticated seam at the waist and short legs. Lined."},{"c":"0401136005","n":"Carla parka (1)","p":839000,"d":"DIVIDED","sn":"Gemilang Sandang Persada","sc":"SUP11","g":["JAKET"],"x":"Lightly padded parka in cotton twill with a pile-lined hood with a detachable faux fur trim, a zip and wind flap with press-studs down the front and a drawstring at the waist and hem. Flap front pockets with a press-stud"},{"c":"0417773007","n":"Star Wool Coat","p":1261000,"d":"DIVIDED","sn":"Prima Garmen Selaras","sc":"SUP17","g":["JAKET"],"x":"Short coat in marled bouclé yarn with a small stand-up collar, dropped shoulders, concealed zip and press-studs down the front and flap welt pockets. Lined."},{"c":"0272591026","n":"Lena Rib Dress (1)","p":75000,"d":"DIVIDED","sn":"Sejahtera Kain Utama","sc":"SUP15","g":["BASIC","KAOS"],"x":"Fitted, sleeveless dress in ribbed jersey."},{"c":"0252298014","n":"Danae jeans","p":214000,"d":"DIVIDED","sn":"Mitra Sandang Perkasa","sc":"SUP05","g":["CELANA"],"x":"Jeans in washed, stretch denim with hard-worn details, a regular waist, front and back pockets and skinny legs."},{"c":"0240670058","n":"Tess tee (1)","p":146000,"d":"DIVIDED","sn":"Damai Garmen Perkasa","sc":"SUP21","g":["BASIC","KAOS","LENGAN_PENDEK"],"x":"Long T-shirt in jersey with sewn-in turn-ups on the sleeves."},{"c":"0416511026","n":"Julia Denim Short TRS","p":181000,"d":"DIVIDED","sn":"Nusantara Apparel Prima","sc":"SUP14","g":["CELANA"],"x":"5-pocket jeans in washed stretch denim with a regular waist, zip fly and button, and super-skinny legs."},{"c":"0238197030","n":"Lima l/s","p":106000,"d":"DIVIDED","sn":"Karya Benang Abadi","sc":"SUP06","g":["BASIC","KAOS","LENGAN_PENDEK"],"x":"Long-sleeved fitted top in jersey."},{"c":"0378447030","n":"V-Neck Milan TVP","p":402000,"d":"MENSWEAR","sn":"Tunas Busana Lestari","sc":"SUP10","g":["RAJUT"],"x":"Jumper in fine-knit merino wool with a V-neck and ribbing around the neckline, cuffs and hem."},{"c":"0254303051","n":"Bernard half calf socks","p":129000,"d":"MENSWEAR","sn":"Nusantara Apparel Prima","sc":"SUP14","g":["AKSESORI"],"x":"Sports socks in fast-drying functional yarn with ventilating hole-knit sections over the feet. The polyester content of the socks is recycled."},{"c":"0398863007","n":"Wave shorts","p":246000,"d":"MENSWEAR","sn":"Anugerah Garmen Sejahtera","sc":"SUP02","g":["CELANA_PENDEK"],"x":"Short shorts in woven fabric in a relaxed fit with an elasticated waist with a concealed drawstring, side pockets in the side seams, a welt back pocket and a zip and button at the front."},{"c":"0368300006","n":"Rock Relaxed Shorts","p":189000,"d":"MENSWEAR","sn":"Cahaya Busana Mandiri","sc":"SUP03","g":["CELANA_PENDEK"],"x":"Shorts in soft, washed cotton twill with an elasticated drawstring waist, fake fly, side pockets and a welt back pocket."},{"c":"0283236026","n":"Howie SS Shirt","p":330000,"d":"MENSWEAR","sn":"Sinar Tekstil Nusantara","sc":"SUP01","g":["KEMEJA"],"x":"Shirt in a cotton weave with a button-down collar, classic front and yoke at the back. Open chest pocket, short sleeves with sewn-in turn-ups, and a rounded hem. Regular Fit – a classic fit with good room for movement an"},{"c":"0362931024","n":"WAFFLE L/S CTN basic","p":158000,"d":"MENSWEAR","sn":"Wijaya Tekstil Abadi","sc":"SUP22","g":["BASIC","KAOS","LENGAN_PENDEK"],"x":"Long-sleeved T-shirt in waffled cotton jersey with ribbed cuffs."},{"c":"0366686017","n":"Tail tee (1)","p":152000,"d":"MENSWEAR","sn":"Tunas Busana Lestari","sc":"SUP10","g":["KAOS","LENGAN_PENDEK"],"x":"Long T-shirt in hard-washed slub cotton jersey with raw, roll edges and short sleeves with sewn-in turn-ups. Longer at the back."},{"c":"0118458004","n":"Jerry jogger bottoms","p":55000,"d":"MENSWEAR","sn":"Mitra Sandang Perkasa","sc":"SUP05","g":["BASIC","KAOS"],"x":"Trousers in sweatshirt fabric with an elasticated drawstring waist, side pockets, a back pocket and ribbed hems. Soft brushed inside."},{"c":"0384482002","n":"Godfather slim chino","p":275000,"d":"MENSWEAR","sn":"Sinar Tekstil Nusantara","sc":"SUP01","g":["CELANA"],"x":"Chinos in washed stretch cotton twill with an extended waistband, concealed hook-and-eye fastener, side pockets, and welt back pockets with a button. Slim fit."},{"c":"0408104012","n":"TD Roger eller TD Poplin 29 by","p":329000,"d":"MENSWEAR","sn":"Damai Garmen Perkasa","sc":"SUP21","g":["KEMEJA"],"x":"Shirt in premium cotton with a narrow turn-down collar and French front. Long sleeves, narrow cuffs with adjustable buttoning, a yoke at the back and a rounded hem. Slim fit with narrow shoulders and a tapered waist for"},{"c":"0349301045","n":"GLASSIG ESPADRILLE","p":770000,"d":"FOOTWEAR","sn":"Karya Benang Abadi","sc":"SUP06","g":["SEPATU"],"x":"Espadrilles in cotton with a braided jute trim around the soles and concealed elastic at the back of the heels. Fabric linings and insoles and patterned soles."},{"c":"0319906002","n":"Steve Slipper","p":266000,"d":"FOOTWEAR","sn":"Srikandi Busana Mandiri","sc":"SUP28","g":["SEPATU"],"x":"Imitation suede slippers with soft pile linings and fluted soles."},{"c":"0349301024","n":"GLASSIG ESPADRILLE","p":595000,"d":"FOOTWEAR","sn":"Harapan Jaya Tekstil","sc":"SUP08","g":["SEPATU"],"x":"Espadrilles in cotton with a braided jute trim around the soles and concealed elastic at the back of the heels. Fabric linings and insoles and patterned soles."},{"c":"0349301028","n":"GLASSIG ESPADRILLE","p":626000,"d":"FOOTWEAR","sn":"Indah Busana Gemilang","sc":"SUP16","g":["SEPATU"],"x":"Espadrilles in cotton with a braided jute trim around the soles and concealed elastic at the back of the heels. Fabric linings and insoles and patterned soles."},{"c":"0212042036","n":"Mimmi sneaker","p":637000,"d":"FOOTWEAR","sn":"Cahaya Busana Mandiri","sc":"SUP03","g":["SEPATU"],"x":"Cotton trainers with closed lacing and a loop at the back. Fabric linings and insoles and rubber soles."},{"c":"0349301010","n":"GLASSIG ESPADRILLE","p":543000,"d":"FOOTWEAR","sn":"Rukun Sandang Nusantara","sc":"SUP20","g":["SEPATU"],"x":"Espadrilles in cotton with a braided jute trim around the soles and concealed elastic at the back of the heels. Fabric linings and insoles and patterned soles."},{"c":"0320880001","n":"JOAN SUEDE BOOT","p":535000,"d":"FOOTWEAR","sn":"Nusantara Apparel Prima","sc":"SUP14","g":["SEPATU"],"x":"Ankle boots in suede with a loop at the top of each side, warm pile lining and insoles and rubber soles."},{"c":"0349301011","n":"GLASSIG ESPADRILLE","p":457000,"d":"FOOTWEAR","sn":"Anugerah Garmen Sejahtera","sc":"SUP02","g":["SEPATU"],"x":"Espadrilles in cotton with a braided jute trim around the soles and concealed elastic at the back of the heels. Fabric linings and insoles and patterned soles."}];
+
+/* ── kosakata, persis seperti yang dipegang basis data ────────────────────
+   Label divisi masih berbahasa Inggris di tabel `division`; label tag sudah
+   Indonesia di tabel `tag`. Keduanya dicetak apa adanya di sini — menerjemah
+   di layar akan menyembunyikan bahwa kosakata itu sendiri belum satu bahasa. */
+const DIVISI = [
+  ["KIDS","Kids"],["WOMENSWEAR","Womenswear"],["ACCESSORY","Accessories"],
+  ["DIVIDED","Divided"],["MENSWEAR","Menswear"],["FOOTWEAR","Footwear"]
+];
+const TAG = {AKSESORI:"Aksesori",BASIC:"Basic",CELANA:"Celana",CELANA_PENDEK:"Celana Pendek",
+  DALAMAN:"Pakaian Dalam",DENIM:"Denim",GAUN:"Gaun",JAKET:"Jaket",KAOS:"Kaos",
+  KAUS_KAKI:"Kaus Kaki",KEMEJA:"Kemeja",LENGAN_PENDEK:"Lengan Pendek",RAJUT:"Rajut",
+  SEPATU:"Sepatu",TIDUR:"Pakaian Tidur"};
+
+/* Ukuran katalog yang sebenarnya, supaya cuplikan ini tidak mengaku utuh. */
+const UTUH = {barang:2806, pemasok:28};
+
+const S = {divisi:null, tags:new Set(), pemasok:null, q:"", urut:"cocok",
+           nota:new Map(), po:[], seq:5, notaBuka:false};
+
+const rupiah = new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0});
+const angka  = new Intl.NumberFormat("id-ID");
+const rp = n => rupiah.format(n);
+const nm = n => angka.format(n);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const $ = id => document.getElementById(id);
+const pelan = matchMedia("(prefers-reduced-motion: reduce)");
+
+const PEMASOK = [...new Map(DATA.map(r => [r.sc, {sc:r.sc, sn:r.sn}])).values()]
+  .sort((a,b) => a.sn.localeCompare(b.sn,"id"));
+
+/* ── penyaringan ──────────────────────────────────────────────────────────
+   Setiap dimensi facet dihitung TANPA pilihannya sendiri: memilih Kids tidak
+   boleh membuat divisi lain terbaca nol, karena daftar itulah cara pembeli
+   melihat apa lagi yang ada. */
+function lolos(r, o){
+  if (o.q){
+    const q = o.q.toLowerCase();
+    if (!(r.n.toLowerCase().includes(q) || r.c.includes(q) || r.sn.toLowerCase().includes(q))) return false;
+  }
+  if (o.divisi && r.d !== o.divisi) return false;
+  if (o.pemasok && r.sc !== o.pemasok) return false;
+  if (o.tags && o.tags.size && !r.g.some(t => o.tags.has(t))) return false;
+  return true;
+}
+const lingkup = (kecuali) => ({
+  q:S.q,
+  divisi: kecuali === "divisi" ? null : S.divisi,
+  tags:   kecuali === "tag"    ? null : S.tags,
+  pemasok:S.pemasok
+});
+
+function terlihat(){
+  const baris = DATA.filter(r => lolos(r, lingkup(null)));
+  if (S.urut === "murah") baris.sort((a,b) => a.p - b.p);
+  else if (S.urut === "mahal") baris.sort((a,b) => b.p - a.p);
+  else if (S.q){
+    const q = S.q.toLowerCase();
+    const skor = r => r.n.toLowerCase().startsWith(q) ? 0
+                    : r.n.toLowerCase().includes(q)   ? 1
+                    : r.c.includes(q)                 ? 2 : 3;
+    baris.sort((a,b) => skor(a) - skor(b) || a.n.localeCompare(b.n,"id"));
+  }
+  return baris;
+}
+
+/* ── tab divisi ───────────────────────────────────────────────────────── */
+function gambarTabs(){
+  const o = lingkup("divisi");
+  const dasar = DATA.filter(r => lolos(r,o));
+  const html = [`<button class="tab" role="tab" aria-selected="${S.divisi===null}" data-divisi="">
+      Semua <span class="n">${nm(dasar.length)}</span></button>`];
+  for (const [kode,label] of DIVISI){
+    const n = dasar.filter(r => r.d === kode).length;
+    html.push(`<button class="tab" role="tab" aria-selected="${S.divisi===kode}" data-divisi="${kode}"
+      style="--ink:var(--d-${kode})">
+      <span class="tulang"></span>${esc(label)} <span class="n">${nm(n)}</span></button>`);
+  }
+  $("tabs").innerHTML = html.join("");
+}
+
+/* ── chip tag + urutan ────────────────────────────────────────────────── */
+function gambarChips(){
+  const o = lingkup("tag");
+  const dasar = DATA.filter(r => lolos(r,o));
+  const hitung = new Map();
+  for (const r of dasar) for (const t of r.g) hitung.set(t,(hitung.get(t)||0)+1);
+  const urut = [...hitung.entries()].sort((a,b) => b[1]-a[1] || TAG[a[0]].localeCompare(TAG[b[0]],"id"));
+  $("chips").innerHTML = urut.map(([t,n]) =>
+    `<button class="chip" type="button" aria-pressed="${S.tags.has(t)}" data-tag="${t}">
+       ${esc(TAG[t]||t)} <span class="n">${nm(n)}</span></button>`).join("")
+    || `<span style="font-size:.78125rem;color:var(--tinta-3);font-style:italic">Tidak ada kategori pada hasil ini</span>`;
+}
+
+function gambarUrut(){
+  const pilihan = [["cocok","Paling cocok"],["murah","Termurah"],["mahal","Termahal"]];
+  $("urut").innerHTML = pilihan.map(([v,l]) =>
+    `<button type="button" aria-pressed="${S.urut===v}" data-urut="${v}">${l}</button>`).join("");
+}
+
+/* ── baris hitungan: apa yang ditampilkan, dari berapa ────────────────── */
+function gambarHitungan(baris){
+  const disaring = S.q || S.divisi || S.pemasok || S.tags.size;
+  const ekor = disaring
+    ? `dari <b>${nm(DATA.length)}</b> kartu cuplikan cocok dengan saringan ini`
+    : `kartu — cuplikan dari <b>${nm(UTUH.barang)}</b> barang aktif di ${nm(UTUH.pemasok)} pemasok`;
+  $("hitungan").innerHTML = `<b>${nm(baris.length)}</b> <span>${ekor}</span>`;
+}
+
+/* ── kepala toko ──────────────────────────────────────────────────────── */
+function gambarToko(){
+  const el = $("toko");
+  if (!S.pemasok){ el.innerHTML = ""; return; }
+  const p = PEMASOK.find(x => x.sc === S.pemasok);
+  const punya = DATA.filter(r => r.sc === S.pemasok).length;
+  /* Kontak, telepon, surel dan alamat memang NULL untuk seluruh 28 pemasok di
+     basis data. Dikosongkan dengan kalimat, bukan dengan strip: "belum
+     dicatat" adalah keadaan yang harus terbaca, bukan yang harus disamarkan. */
+  const kosong = `<dd class="kosong">Belum dicatat</dd>`;
+  el.innerHTML = `<div class="toko">
+    <div class="atas">
+      <button class="balik" id="keluar-toko" type="button">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l-7 7 7 7"/></svg>
+        Semua pemasok</button>
+      <div style="min-width:0">
+        <h2>${esc(p.sn)}</h2>
+        <span class="kode">${esc(p.sc)} · aktif</span>
+      </div>
+    </div>
+    <dl>
+      <div><dt>Ditawarkan</dt><dd>${nm(punya)} kartu</dd></div>
+      <div><dt>Kontak</dt>${kosong}</div>
+      <div><dt>Telepon</dt>${kosong}</div>
+      <div><dt>Alamat</dt>${kosong}</div>
+    </dl>
+  </div>`;
+  $("keluar-toko").onclick = () => { S.pemasok = null; gambar(); };
+}
+
+/* ── kartu indeks ─────────────────────────────────────────────────────── */
+function kartu(r){
+  const q = S.nota.get(r.c) || 0;
+  const divisi = (DIVISI.find(d => d[0] === r.d) || [,r.d])[1];
+  /* Deskripsi, kategori dan riwayat pembelian pindah ke lembar. Kartu hanya
+     menjawab apa yang dibaca sambil memindai: apa ini, berapa, dari siapa. */
+  const riwayat = r.bu ? `<div class="riwayat">${nm(r.bu)} pcs pernah dibeli</div>` : "";
+  return `<article class="kartu${q?" diambil":""}" style="--ink:var(--d-${r.d})" data-kode="${r.c}">
+    <button class="muka" type="button" data-buka="${r.c}">
+      <div class="baris-kode">
+        <span class="kode">${esc(r.c)}</span>
+        <span class="divisi"><i></i>${esc(divisi)}</span>
+      </div>
+      <div class="nama">${esc(r.n)}</div>
+      ${riwayat}
+    </button>
+    <div class="harga-baris">
+      <span class="harga">${rp(r.p)}</span>
+      <button class="tambah${q?" punya":""}" type="button" data-ambil="${r.c}"
+        aria-label="${q ? `${nm(q)} di nota, tambah satu lagi` : `Ambil ${esc(r.n)}`}">${q ? nm(q) : "+"}</button>
+    </div>
+    <button class="pemasok" type="button" data-toko="${r.sc}">
+      <span>${esc(r.sn)}</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+  </article>`;
+}
+
+function gambarKisi(baris){
+  $("kisi").innerHTML = baris.length
+    ? baris.map(kartu).join("")
+    : `<div class="kosong-rak">
+         <div class="besar">Tidak ada yang cocok</div>
+         <div>Lepas satu saringan, atau cari di seluruh katalog.</div>
+       </div>`;
+}
+
+/* ── nota pesanan ─────────────────────────────────────────────────────────
+   Dikelompokkan per pemasok karena satu pesanan pembelian hanya boleh punya
+   satu pemasok — pengelompokan ini bukan gaya, itu bentuk dokumennya. Nomor
+   baris di margin kiri juga nyata: `purchase_order_line.line_number`. */
+function grup(){
+  const peta = new Map();
+  for (const [kode,q] of S.nota){
+    const r = DATA.find(x => x.c === kode);
+    if (!peta.has(r.sc)) peta.set(r.sc, {sc:r.sc, sn:r.sn, baris:[]});
+    peta.get(r.sc).baris.push({r, q});
+  }
+  return [...peta.values()];
+}
+
+function gambarNota(baru){
+  const g = grup();
+  const isi = $("nota-isi"), kaki = $("nota-kaki");
+  $("lencana").textContent = nm([...S.nota.values()].reduce((a,b)=>a+b,0));
+
+  if (!g.length){
+    isi.innerHTML = `<div class="nota-kosong">
+      <div class="besar">Nota masih kosong</div>
+      <div class="kecil">Ketuk <b>+</b> pada sebuah kartu. Barisnya ditulis di sini, dan katalog tidak ikut tertutup.</div>
+    </div>`;
+  } else {
+    isi.innerHTML = g.map(gr => {
+      const nilai = gr.baris.reduce((a,b) => a + b.q*b.r.p, 0);
+      const potong = gr.baris.reduce((a,b) => a + b.q, 0);
+      return `<section class="grup" data-grup="${gr.sc}">
+        <div class="grup-kop"><span class="nm">${esc(gr.sn)}</span><span class="kd">${esc(gr.sc)}</span></div>
+        ${gr.baris.map((b,i) => `
+          <div class="baris${b.r.c===baru?" baru":""}">
+            <span class="no">${String(i+1).padStart(2,"0")}</span>
+            <div class="isi">
+              <div class="nm">${esc(b.r.n)}</div>
+              <div class="kd">${esc(b.r.c)} · ${rp(b.r.p)}</div>
+            </div>
+            <div class="kanan">
+              <div class="stepper">
+                <button type="button" data-kurang="${b.r.c}" aria-label="Kurangi ${esc(b.r.n)}">&minus;</button>
+                <span class="jml">${nm(b.q)}</span>
+                <button type="button" data-tambah="${b.r.c}" aria-label="Tambah ${esc(b.r.n)}">&plus;</button>
+              </div>
+              <span class="nilai">${rp(b.q*b.r.p)}</span>
+            </div>
+          </div>`).join("")}
+        <div class="grup-kaki">
+          <span class="jumlah">${nm(potong)} potong<b>${rp(nilai)}</b></span>
+          <button class="buang" type="button" data-buang="${gr.sc}" aria-label="Buang seluruh baris ${esc(gr.sn)}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/></svg>
+          </button>
+          <button class="terbit" type="button" data-terbit="${gr.sc}">Terbitkan</button>
+        </div>
+      </section>`;
+    }).join("");
+  }
+
+  const semua = g.flatMap(x => x.baris);
+  const potong = semua.reduce((a,b) => a + b.q, 0);
+  const nilai  = semua.reduce((a,b) => a + b.q*b.r.p, 0);
+  kaki.innerHTML = `
+    <div class="total-baris"><span>Pemasok</span><span class="v">${nm(g.length)}</span></div>
+    <div class="total-baris"><span>Baris</span><span class="v">${nm(semua.length)}</span></div>
+    <div class="total-baris"><span>Potong</span><span class="v">${nm(potong)}</span></div>
+    <div class="total-baris akhir${nilai?" terisi":""}"><span>Harga katalog</span><span class="v">${rp(nilai)}</span></div>
+    ${S.po.length ? `<div class="terbitkan-daftar"><div class="jd">Diterbitkan hari ini</div>
+      ${S.po.map(p => `<div class="po"><span>${p.no} · ${esc(p.sc)}</span><span>${rp(p.nilai)}</span></div>`).join("")}</div>` : ""}`;
+}
+
+/* ── mengambil barang, dan penerbangannya ke nota ─────────────────────── */
+function terbang(dari){
+  if (pelan.matches) return;
+  const a = dari.getBoundingClientRect();
+  const tujuan = (getComputedStyle($("nota")).position === "fixed" ? $("buka-nota") : $("nota-isi"));
+  const b = tujuan.getBoundingClientRect();
+  const bola = document.createElement("div");
+  bola.style.cssText = `position:fixed;left:${a.left+a.width/2-9}px;top:${a.top+a.height/2-9}px;
+    width:16px;height:16px;background:var(--kuning);border:2px solid var(--tinta);z-index:60;pointer-events:none`;
+  document.body.appendChild(bola);
+  bola.animate(
+    [{transform:"none",opacity:1},
+     {transform:`translate(${b.left+b.width/2-a.left-a.width/2}px,${b.top+40-a.top-a.height/2}px) scale(.4)`,opacity:.2}],
+    {duration:420, easing:"cubic-bezier(.4,0,.2,1)"}
+  ).onfinish = () => bola.remove();
+}
+
+function ambil(kode, n, dari){
+  S.nota.set(kode, (S.nota.get(kode)||0) + n);
+  if (dari) terbang(dari);
+  if (getComputedStyle($("nota")).position === "fixed" && !S.notaBuka) bukaNota(true);
+  gambar(kode);
+}
+function setJumlah(kode, q){
+  if (q <= 0) S.nota.delete(kode); else S.nota.set(kode, q);
+  gambar();
+}
+function bukaNota(ya){
+  S.notaBuka = ya;
+  $("nota").classList.toggle("buka", ya);
+}
+
+/* ── menerbitkan: cap turun, lalu barisnya pindah ke daftar ──────────── */
+function terbitkan(sc){
+  const gr = grup().find(g => g.sc === sc);
+  if (!gr) return;
+  const nilai = gr.baris.reduce((a,b) => a + b.q*b.r.p, 0);
+  const no = "PO-SRC-" + String(++S.seq).padStart(4,"0");
+  const el = $("nota-isi").querySelector(`[data-grup="${sc}"]`);
+  if (el){
+    el.querySelectorAll("button").forEach(b => b.disabled = true);
+    const cap = document.createElement("div");
+    cap.className = "cap";
+    cap.innerHTML = `<div class="t">Dipesan</div><div class="p">${no}</div>`;
+    el.appendChild(cap);
+  }
+  setTimeout(() => {
+    for (const b of gr.baris) S.nota.delete(b.r.c);
+    S.po.push({no, sc, nilai});
+    gambar();
+  }, pelan.matches ? 260 : 1150);
+}
+
+/* ── lembar barang ────────────────────────────────────────────────────── */
+let lembarKode = null, lembarJumlah = 1;
+function bukaBarang(kode){
+  lembarKode = kode; lembarJumlah = S.nota.get(kode) || 1;
+  gambarLembar();
+  $("tirai-barang").hidden = false;
+}
+function tutupBarang(){ $("tirai-barang").hidden = true; lembarKode = null; }
+
+function gambarLembar(){
+  const r = DATA.find(x => x.c === lembarKode);
+  if (!r) return;
+  const punya = S.nota.get(r.c) || 0;
+  const divisi = (DIVISI.find(d => d[0] === r.d) || [,r.d])[1];
+  $("tirai-barang").innerHTML = `<div class="lembar" style="--ink:var(--d-${r.d})" role="dialog" aria-modal="true" aria-label="${esc(r.n)}">
+    <div class="atas">
+      <div style="min-width:0">
+        <span class="kode"><i></i>${esc(r.c)} &middot; ${esc(divisi)}</span>
+        <h2>${esc(r.n)}</h2>
+      </div>
+      <button class="tutup" type="button" data-tutup-barang aria-label="Tutup"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="badan">
+      ${r.x ? `<p class="salin">${esc(r.x)}</p>` : ""}
+      <dl>
+        <div><dt>Harga satuan</dt><dd class="uang">${rp(r.p)}</dd></div>
+        <div><dt>Mata uang</dt><dd>IDR</dd></div>
+        ${r.bu ? `<div><dt>Sudah dibeli</dt><dd>${nm(r.bu)} potong</dd></div>
+                 <div><dt>Pada pesanan</dt><dd>${nm(r.bo)}</dd></div>` : ""}
+        <div><dt>Artikel kami</dt><dd class="kosong">Belum ditautkan</dd></div>
+        <div><dt>Status</dt><dd>Aktif</dd></div>
+      </dl>
+      ${r.g.length ? `<div class="label">${r.g.map(t => `<span>${esc(TAG[t]||t)}</span>`).join("")}</div>` : ""}
+      <button class="ke-toko" type="button" data-toko="${r.sc}">
+        <span>Semua dari ${esc(r.sn)}</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+      <p class="nb">Tanpa artikel internal, barang ini bisa dipesan tetapi belum bisa diberi harga jual. Seluruh ${nm(UTUH.barang)} barang aktif di katalog masih sama &mdash; tidak satu pun sudah ditautkan.</p>
+    </div>
+    <div class="kaki">
+      <div class="stepper besar">
+        <button type="button" data-lembar-kurang aria-label="Kurangi">&minus;</button>
+        <span class="jml">${nm(lembarJumlah)}</span>
+        <button type="button" data-lembar-tambah aria-label="Tambah">&plus;</button>
+      </div>
+      <button class="ambil" type="button" data-lembar-ambil>
+        ${punya ? `Ubah jadi ${nm(lembarJumlah)} di nota` : `Ambil &middot; ${rp(lembarJumlah*r.p)}`}
+      </button>
+    </div>
+  </div>`;
+}
+
+/* ── catatan desain ───────────────────────────────────────────────────── */
+const CATATAN = `<div class="lembar catatan" style="--ink:var(--kuning)" role="dialog" aria-modal="true" aria-label="Catatan desain">
+  <div class="atas">
+    <div style="min-width:0">
+      <span class="kode">PROTOTIPE &middot; SOURCING &middot; IPAD</span>
+      <h2>Meja Pembeli</h2>
+    </div>
+    <button class="tutup" type="button" data-tutup-catatan aria-label="Tutup"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <div class="badan">
+    <h3>Yang berubah dari layar aslinya</h3>
+    <p><b>Keranjang berhenti jadi sheet.</b> Di <code>sourcing.tsx</code> keranjang adalah drawer yang menutupi katalog; di tablet itu berarti pembeli bolak-balik antara melihat dan memesan. Di sini keranjang adalah <b>nota</b> yang menetap di kanan dan terisi baris demi baris.</p>
+    <p><b>Kolom saringan jadi tab.</b> 212px daftar checkbox adalah cara berpikir desktop. Divisi kini tab setinggi 44&ndash;48px, kategori jadi chip yang bisa digeser &mdash; semuanya sasaran sentuh, tidak ada yang bergantung pada hover.</p>
+    <p><b>Kartu berhenti berpura-pura punya foto.</b> Kode aslinya mencatat sebagian besar <code>image_url</code> sudah tidak bisa dibuka. Maka kartu di sini bertumpu pada tipografi, dan divisi dibawa oleh tulang warna di tepi kiri &mdash; itu informasi, bukan hiasan.</p>
+
+    <h3>Soal rasa</h3>
+    <p><b>Retro tidak harus coklat.</b> Versi pertama layar ini memakai kertas manila dan tinta stempel ungu; itu satu jalur retro, dan bukan yang diminta. Arah sekarang mengikuti rujukan: dasar putih, garis hitam 2px, radius nol, satu kuning, <b>Plus Jakarta Sans</b> &mdash; huruf yang memang dirancang untuk Jakarta.</p>
+    <p><b>Bayangannya dipendekkan.</b> Bahasa ini biasanya memakai offset 4px. Di sini 2px, dan hanya pada tiga hal yang benar-benar naik ke tangan: tombol utama, kolom cari, dan lembar yang mengambang. Kartu katalog tidak berbayang sama sekali &mdash; 65 kartu berbayang tebal membuat rak terlihat bergetar, dan garis 2px sudah cukup memisahkannya dari meja.</p>
+    <p>Kuning hanya berarti satu hal: <b>yang ini</b>. Tab terpilih, chip terpilih, tombol utama, blok total. Tidak pernah untuk hiasan. Enam warna divisi cuma muncul di tulang kartu, titik tab, dan tepi atas lembar.</p>
+
+    <h3>Yang ditemukan di data, bukan direka</h3>
+    <p>Seluruh <b>2.806</b> barang aktif belum punya <code>internal_article_code</code>. Tidak satu pun. Artinya seluruh katalog bisa dipesan tetapi belum bisa diberi harga jual &mdash; itu ditulis di lembar barang, bukan disembunyikan.</p>
+    <p>Kontak, telepon, surel dan alamat <b>kosong untuk 28 pemasok</b>. Kepala toko menyebutnya &ldquo;Belum dicatat&rdquo;, bukan strip.</p>
+    <p>Urutan <b>&ldquo;Terbaru&rdquo;</b> yang ada di layar asli dihapus di sini: seluruh 2.806 barang dimuat dalam dua menit yang sama, jadi urutan itu akan terlihat seperti informasi padahal bukan.</p>
+    <p>Riwayat <b>&ldquo;sudah dibeli&rdquo;</b> hanya muncul pada tiga barang, karena memang hanya tiga yang punya baris pesanan sungguhan.</p>
+
+    <h3>Ukuran uji</h3>
+    <p>iPad Pro 11&Prime; melintang (1194&times;834) tiga kolom dengan nota terbuka; tegak (834&times;1194) dua kolom dengan nota jadi laci dari kanan; Split View sempit satu kolom. Sasaran sentuh minimum 44px, kolom cari 17px agar Safari tidak ikut memperbesar halaman, dan <code>prefers-reduced-motion</code> mematikan penerbangan ke nota serta memperpendek cap.</p>
+
+    <h3>Yang belum dijawab</h3>
+    <p>Tujuan pengiriman dipaku ke <b>DC</b>; layar asli membiarkan pembeli memilih, dan juga menerima potongan harga per pesanan. Keduanya belum digambar di sini.</p>
+  </div>
+</div>`;
+
+/* ── kabel ────────────────────────────────────────────────────────────── */
+function gambar(baru){
+  const baris = terlihat();
+  gambarTabs(); gambarChips(); gambarUrut();
+  gambarHitungan(baris); gambarToko(); gambarKisi(baris); gambarNota(baru);
+  if (lembarKode) gambarLembar();
+}
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("button");
+  if (!t) return;
+
+  if (t.dataset.divisi !== undefined){ S.divisi = t.dataset.divisi || null; gambar(); $("gulung").scrollTop = 0; return; }
+  if (t.dataset.tag){ S.tags.has(t.dataset.tag) ? S.tags.delete(t.dataset.tag) : S.tags.add(t.dataset.tag); gambar(); return; }
+  if (t.dataset.urut){ S.urut = t.dataset.urut; gambar(); return; }
+  if (t.dataset.toko){ S.pemasok = t.dataset.toko; S.tags.clear(); tutupBarang(); gambar(); $("gulung").scrollTop = 0; return; }
+  if (t.dataset.buka){ bukaBarang(t.dataset.buka); return; }
+  if (t.dataset.ambil){ ambil(t.dataset.ambil, 1, t); return; }
+
+  if (t.dataset.tambah){ setJumlah(t.dataset.tambah, (S.nota.get(t.dataset.tambah)||0) + 1); return; }
+  if (t.dataset.kurang){ setJumlah(t.dataset.kurang, (S.nota.get(t.dataset.kurang)||0) - 1); return; }
+  if (t.dataset.buang){ for (const b of grup().find(g=>g.sc===t.dataset.buang).baris) S.nota.delete(b.r.c); gambar(); return; }
+  if (t.dataset.terbit){ terbitkan(t.dataset.terbit); return; }
+
+  if (t.hasAttribute("data-lembar-tambah")){ lembarJumlah++; gambarLembar(); return; }
+  if (t.hasAttribute("data-lembar-kurang")){ lembarJumlah = Math.max(1, lembarJumlah-1); gambarLembar(); return; }
+  if (t.hasAttribute("data-lembar-ambil")){
+    const kode = lembarKode;
+    S.nota.set(kode, lembarJumlah);
+    terbang(t); tutupBarang();
+    if (getComputedStyle($("nota")).position === "fixed") bukaNota(true);
+    gambar(kode); return;
+  }
+  if (t.hasAttribute("data-tutup-barang")){ tutupBarang(); return; }
+  if (t.hasAttribute("data-tutup-catatan")){ $("tirai-catatan").hidden = true; return; }
+});
+
+/* Ketuk latar untuk menutup — di tablet itu gerakan yang lebih murah daripada
+   mencari tombol silang dengan ibu jari. */
+for (const [id, tutup] of [["tirai-barang", tutupBarang], ["tirai-catatan", () => $("tirai-catatan").hidden = true]]){
+  $(id).addEventListener("pointerdown", e => { if (e.target === $(id)) tutup(); });
+}
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!$("tirai-barang").hidden) tutupBarang();
+  else if (!$("tirai-catatan").hidden) $("tirai-catatan").hidden = true;
+  else if (S.notaBuka) bukaNota(false);
+});
+
+$("q").addEventListener("input", e => {
+  S.q = e.target.value.trim();
+  $("cari").classList.toggle("terisi", S.q !== "");
+  gambar(); $("gulung").scrollTop = 0;
+});
+$("hapus-q").addEventListener("click", () => {
+  $("q").value = ""; S.q = ""; $("cari").classList.remove("terisi"); gambar();
+});
+$("buka-nota").addEventListener("click", () => bukaNota(!S.notaBuka));
+$("tutup-nota").addEventListener("click", () => bukaNota(false));
+$("buka-catatan").addEventListener("click", () => {
+  $("tirai-catatan").innerHTML = CATATAN;
+  $("tirai-catatan").hidden = false;
+});
+
+$("nota-tanggal").textContent =
+  new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"});
+
+gambar();
+</script>

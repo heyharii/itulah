@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Target Flow: Inventory Truth + Operations Execution",
+    "output": "docs/inventory-operations-target.workflow.html",
+    "animation": "none",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "goods-flow", "label": "Alur barang end-to-end", "focus": ["demand", "receive", "identify", "fulfill", "transit", "store", "trade"], "note": "Operations menggerakkan barang; setiap tahap menghasilkan fakta ke inventory ledger." },
+      { "id": "menu-ownership", "label": "Kepemilikan menu", "focus": ["receive", "identify", "fulfill", "transit", "stockControl", "exceptionCase"], "note": "Operations berisi antrean kerja; Inventory berisi kebenaran stok, kontrol, dan histori." },
+      { "id": "exception-route", "label": "Rute semua pengecualian", "focus": ["receive", "identify", "exceptionCase", "resolution", "store"], "note": "Salah barang/qty/lokasi, rusak, hilang, expired, dan sync failure masuk satu case desk." }
+    ]
+  },
+  "lanes": [
+    { "id": "planning", "label": "Supply + Demand" },
+    { "id": "inboundOps", "label": "Inbound Operations" },
+    { "id": "fulfillmentOps", "label": "Fulfillment Operations" },
+    { "id": "storeOps", "label": "Store Operations" },
+    { "id": "inventoryControl", "label": "Inventory Control" },
+    { "id": "exceptions", "label": "Exception Desk", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "inbound", "label": "Inbound", "fromCol": 0, "toCol": 1 },
+    { "id": "fulfillment", "label": "Fulfillment", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "storeAndClose", "label": "Store + close", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "inboundMenu", "label": "OPERATIONS · inbound", "lane": "inboundOps", "fromCol": 1, "toCol": 3, "variant": "emphasis" },
+    { "id": "exceptionMenu", "label": "CONTROL TOWER · issue ownership", "lane": "exceptions", "fromCol": 3, "toCol": 5, "variant": "security" }
+  ],
+  "mainPath": ["demand", "receive", "identify", "fulfill", "transit", "store", "trade"],
+  "nodes": [
+    { "id": "demand", "lane": "planning", "col": 0, "type": "external", "label": "PO / Transfer", "sublabel": "expected demand" },
+    { "id": "receive", "lane": "inboundOps", "col": 1, "width": 76, "type": "frontend", "label": "Receive", "sublabel": "blind count" },
+    { "id": "identify", "lane": "inboundOps", "col": 2, "width": 64, "type": "backend", "label": "Verify", "sublabel": "tag + putaway" },
+    { "id": "available", "lane": "inboundOps", "col": 3, "type": "database", "label": "Available", "sublabel": "stock truth", "tag": "LEDGER" },
+    { "id": "fulfill", "lane": "fulfillmentOps", "col": 3, "width": 72, "type": "backend", "label": "Pick + Pack", "sublabel": "reserve + sweep" },
+    { "id": "transit", "lane": "fulfillmentOps", "col": 4, "width": 52, "type": "cloud", "label": "Transit", "sublabel": "manifest" },
+    { "id": "store", "lane": "storeOps", "col": 5, "type": "frontend", "label": "Store", "sublabel": "match receipt", "tag": "VERIFY" },
+    { "id": "trade", "lane": "inventoryControl", "col": 5, "type": "external", "label": "Sell / Return", "sublabel": "movement + refund" },
+    { "id": "stockControl", "lane": "inventoryControl", "col": 3, "type": "security", "label": "Stock Control", "sublabel": "count + history" },
+    { "id": "exceptionCase", "lane": "exceptions", "col": 3, "width": 72, "type": "messagebus", "label": "Issue Case", "sublabel": "owner + evidence" },
+    { "id": "resolution", "lane": "exceptions", "col": 5, "type": "security", "label": "Resolution", "sublabel": "approve + post" }
+  ],
+  "edges": [
+    { "from": "demand", "to": "receive", "label": "expect", "variant": "emphasis", "route": "drop", "fromSide": "bottom", "toSide": "top" },
+    { "from": "receive", "to": "identify", "route": "bottom-channel", "fromSide": "bottom", "toSide": "bottom" },
+    { "from": "identify", "to": "fulfill", "variant": "emphasis", "route": "drop", "fromSide": "bottom", "toSide": "top" },
+    { "from": "fulfill", "to": "transit", "route": "bottom-channel", "fromSide": "bottom", "toSide": "bottom" },
+    { "from": "transit", "to": "store", "variant": "emphasis", "route": "drop", "fromSide": "bottom", "toSide": "top" },
+    { "from": "store", "to": "trade", "variant": "emphasis", "route": "drop", "fromSide": "bottom", "toSide": "top" },
+    { "from": "identify", "to": "available", "variant": "security" },
+    { "from": "available", "to": "stockControl", "variant": "dashed", "fromSide": "top", "toSide": "left", "via": [[430, 16], [20, 16], [20, 615]] },
+    { "from": "stockControl", "to": "exceptionCase", "variant": "security", "route": "drop", "fromSide": "bottom", "toSide": "top" },
+    { "from": "store", "to": "resolution", "variant": "security", "role": "error", "route": "outside-right", "fromSide": "right", "toSide": "right" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Menu boundary", "items": ["Operations: Work, Inbound, Identity, Outbound, Store, Incidents", "Inventory: Stock, Reservations, Movements, Counts, Exceptions, History", "One exception desk prevents issues from hiding inside each station"] },
+    { "dot": "rose", "title": "Exception coverage", "items": ["Wrong SKU, quantity, location, tag, destination, or document", "Short, over, damaged, expired, quarantined, missing, or lost", "Duplicate command, stale reservation, partial dispatch, or sync dead letter"] },
+    { "dot": "emerald", "title": "Closure contract", "items": ["Every case has reason code, evidence, owner, approval, and SLA", "Resolution creates immutable movement and finance references", "Close only after inventory, document, and sync reconciliation"] }
+  ]
+}

@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Itulah" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#F3F3F3</item>
+        <item name="android:navigationBarColor">#F3F3F3</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
