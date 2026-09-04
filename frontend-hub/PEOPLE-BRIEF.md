@@ -193,9 +193,9 @@ Each phase is verified and committed before the next starts.
 | 1 | Scope and grants: reach resolution, the new keys, bounded Supervisor reads and writes, `useReach()` in the hub, the four-group `nav.ts` | done, `93dd8b1` |
 | 2 | Leave + Holiday: leave types, holiday calendar with amendments, the Requests queue, balances on the Directory sheet, the employee app's leave screens live | done, `43c1d05` |
 | 3 | Overtime: orders, consent, withdrawal; "awaiting consent" joins the queue | backend done, `32cc6ed` |
-| 4 | Shift patterns + Roster: patterns at head office, the weekly grid and its revisions at the place | — |
-| 5 | Pay + Payroll, head office only: agreements, payroll identity, the run lifecycle with its two-person rule, slips, and the attendance-period closure machine | — |
-| 6 | Close-out: provenance, every gate green, both faces walked in the browser | — |
+| 4 | Shift patterns + Roster: patterns at head office, the weekly grid and its revisions at the place | done, `2ba7d09` |
+| 5 | Pay + Payroll, head office only: agreements, payroll identity, the run lifecycle with its two-person rule, slips, and the attendance-period closure machine | done, `664e68c` |
+| 6 | Close-out: provenance, every gate green, both faces walked in the browser | done |
 
 Leave comes before overtime because overtime's consent step is the same queue
 mechanism with one more state, and roster comes after both because a roster is
@@ -304,6 +304,85 @@ Two decisions worth hearing about:
 - **`people.overtime_policy.set` is a new key.** The manager who orders overtime
   must not be the one who decides how much of it is lawful.
 
+### Phase 4 — shift patterns, roster, and the close boundary
+
+Commit `2ba7d09`. Migration `0104`.
+
+A roster is the plan, and nothing about attendance means anything without one:
+"absent" only exists against a scheduled day. So the plan is upstream of money,
+every day names who planned it, and revisions are append-only — the dangerous
+edit is not tomorrow's plan but a scheduled day quietly added to a month already
+counted, which turns a day nobody worked into an absence and an absence into a
+deduction basis. A closed month refuses both.
+
+Shifts are clock positions on a 0..2879 timeline, so 22:00–06:00 needs no
+timezone machinery. Closing a month is the place's; reopening it is head
+office's.
+
+**The close records what it did not check.** The donor's blockers are all
+punch-derived and there is no punch source, so those counts come back `null`
+rather than `0` — and the screen says "not assessed" rather than drawing a row
+of zeros. Zero is a claim that somebody looked.
+
+The period state machine landed here rather than in phase 5, because the
+roster's freeze rule cannot be honoured without it.
+
+### Phase 5 — pay, payroll identity, and the run
+
+Commit `664e68c`. Migration `0105`.
+
+A salary is a history: no current-salary field, no setter, and backdating
+refused — a genuine backdated raise is a *rapel* in a current period rather than
+a rewrite of a settled month.
+
+**Two people sign a run.** Verify and approve are separate keys at the same
+rung, which is what lets the domain compare *actors*; the same person is refused
+on the transition and again on the way in from storage. The donor lets one actor
+do both — this rule is added, not ported.
+
+**Nothing statutory is computed and no column could hold it.** A slip carries
+the agreement in force plus the facts recorded. Account numbers are stored whole
+and served masked, with the masking in the storage layer so no caller reaches
+the number by asking a different one.
+
+The wire mismatch is settled: `/pay` keeps the agreement, payslips get
+`/employees/{id}/payslips`, and the employee app changed one path.
+
+### Phase 6 — what is green
+
+- `cargo test` across the HR suite: **52 integration tests** (leave 10, overtime
+  7, roster 6, payroll 6, employment 12, attendance policy 5, auth 6) and **68
+  kernel tests** (reach and audit 15, leave 22, overtime 15, pay 16). All pass.
+- `npm run build` clean in **frontend-hub** and **frontend-employee**.
+- `design-lint` clean; `endpoint-audit` **208/209**, the one gap being
+  `/api/v1/sync/ingest`, which is the edge→cloud path and was the sole gap
+  before this work began.
+- **Both faces walked in the browser** on the live node. Head office sees ten
+  items across Directory · Work · Pay · Setup; a place manager sees five —
+  Directory and Work — with the Pay and Setup groups gone entirely, labels and
+  all. `/employees/me/reach` answers `EVERYWHERE` for an Admin with no posting,
+  which is the rule.
+
+Two gates cannot pass in this tree, for reasons outside this lane:
+
+- **`make contract-check`** compares the generated wire against a clean tree.
+  Every People type matches its Rust exactly; the check fails on `AssetRow`,
+  `SupplierBill`, `PaymentMethod` and a dozen others whose Rust is uncommitted
+  in other lanes.
+- **`npm run build` in frontend-contract** — there is no build script; the
+  package is a barrel, and the hub and employee app compiling against it is the
+  check that matters.
+
+### Still open
+
+**The punch source.** Untouched, deliberately, and now the single thing standing
+between this module and a payroll somebody could pay from. Everything built
+above is honest about it rather than working around it: a period close records
+that the punch checks were not made, a payroll run says in a sentence that it
+knows what was planned and never what was worked, and there is no Today screen
+because there is nothing to put on it. The three options and their costs are
+above.
+
 ### One thing this lane broke, and how to fix it
 
 **Run `make contract` once the pricing refactor lands.** Regenerating the wire
@@ -349,6 +428,10 @@ they have not committed — `domain::voucher`, `http::{assistant,reports,vocabul
 and staging those registries by path publishes declarations with no file behind
 them. Both commits here reconstruct those four files from the previous commit
 plus their own lines, and each was verified by building the commit in isolation. The People files are
-`src/screens/people/{nav.ts,index.ts,directory.tsx,requests.tsx,leave-types.tsx,holidays.tsx,scope.ts}`,
-`src/lib/queries/people.ts`, and the `Audience` addition in `lib/navigation.ts`
-and `components/shell/sidebar.tsx`. Somebody should commit the hub as a whole.
+`src/screens/people/*` — `nav.ts`, `index.ts`, `directory.tsx`, `scope.ts`, and
+the screens `requests`, `overtime`, `roster`, `periods`, `pay`, `payroll`,
+`leave-types`, `holidays` — plus `src/lib/queries/people.ts`, three keys in
+`lib/sheets.ts` (`request`, `overtimeOrder`, `payrollRun`), and the `Audience`
+addition in `lib/navigation.ts` and `components/shell/sidebar.tsx`.
+
+Somebody should commit the hub as a whole.
