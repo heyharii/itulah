@@ -10,16 +10,18 @@ import { PoolsBody } from "@/screens/inventory/pools"
 
 /// Inventory — the fleet's numbers, then every pool behind them.
 ///
-/// Four figures and the pools they came from. The strip used to carry six and
-/// a paragraph: the server returns `fleet_total: null` whenever it will not
-/// certify the arithmetic, and the screen printed "Uncertified" where the
-/// number goes, then explained itself underneath at length.
+/// Four figures and the pools they came from. The strip used to carry six of
+/// them, a paragraph and a flag: the server returns `fleet_total: null`
+/// whenever it will not certify the arithmetic, and the screen printed
+/// "Uncertified" where the number goes, then explained itself underneath at
+/// length, then said "uncertified" a second time under that.
 ///
-/// The caveat survives; the lecture does not. The number is the arithmetic the
-/// server itself did (`calculated_total`), and the word under it — *certified*
-/// or *uncertified* — is the whole of the warning. Somebody who needs the
-/// reasons has Control, which lists them; somebody reading their stock at
-/// eight in the morning needs a figure and a flag, not an essay.
+/// All of it has gone, and the figure is the arithmetic the server itself did
+/// (`calculated_total`). A word like *uncertified* under a number tells a
+/// reader that something is wrong and not one thing about what — it is a
+/// warning nobody can act on, which is a worse read than no warning. The
+/// reasons are named, one per line, on **Control**, and that is where a person
+/// who wants them is going.
 
 export function InventoryOverview() {
   const fleet = useQuery({
@@ -58,8 +60,6 @@ export function InventoryOverview() {
                     data.fleet_total ??
                       data.fleet_total_diagnostics.calculated_total
                   )}
-                  delta={data.fleet_total_status.toLowerCase()}
-                  tone={data.fleet_total === null ? "down" : "flat"}
                 />
                 <Kpi label="On hand" value={count(total((p) => p.on_hand))} />
                 <Kpi
