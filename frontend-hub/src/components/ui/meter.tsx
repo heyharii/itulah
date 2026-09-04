@@ -42,3 +42,67 @@ export function Meter({
     </span>
   )
 }
+
+/// The same proportion, drawn round.
+///
+/// A bar needs width to be read and a table cell has none to spare — so where
+/// a list wants "how much of it" beside a figure it already prints, this is
+/// the mark: sixteen pixels, no label, no percentage. It is a density cue next
+/// to its own number, not a chart, and it is deliberately too small to be read
+/// as one.
+///
+/// Colours come from the tokens directly rather than from `stroke-*` classes,
+/// which is what every other SVG in this app does — see `ui/chart.tsx`.
+export function Dial({
+  value,
+  tone = "accent",
+  className,
+}: {
+  /// 0–1. Clamped for the reason `<Meter>` clamps: more found than expected
+  /// is a full ring, never a ring that overruns itself.
+  value: number
+  tone?: "accent" | "ok" | "warn" | "bad"
+  className?: string
+}) {
+  const clamped = Math.max(0, Math.min(1, value))
+  const circumference = 2 * Math.PI * 6
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={cn("size-4 shrink-0 -rotate-90", className)}
+      role="meter"
+      aria-valuenow={clamped}
+      aria-valuemin={0}
+      aria-valuemax={1}
+    >
+      <circle
+        cx="8"
+        cy="8"
+        r="6"
+        fill="none"
+        strokeWidth="2.5"
+        stroke="var(--soft-2)"
+      />
+      {clamped > 0 && (
+        <circle
+          cx="8"
+          cy="8"
+          r="6"
+          fill="none"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray={`${clamped * circumference} ${circumference}`}
+          stroke={
+            tone === "ok"
+              ? "var(--ok)"
+              : tone === "warn"
+                ? "var(--warn)"
+                : tone === "bad"
+                  ? "var(--bad)"
+                  : "var(--accent)"
+          }
+        />
+      )}
+    </svg>
+  )
+}

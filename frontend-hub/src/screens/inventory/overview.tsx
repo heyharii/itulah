@@ -3,38 +3,28 @@ import { useQuery } from "@tanstack/react-query"
 import { PageContent } from "@/components/shell/app-shell"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Banner } from "@/components/ui/states"
 import { count } from "@/lib/format"
-import {
-  controlStatus,
-  fleetPools,
-  inventoryKeys,
-} from "@/lib/queries/inventory"
+import { fleetPools, inventoryKeys } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { PoolsBody } from "@/screens/inventory/pools"
 
 /// Inventory — the fleet's numbers, then every pool behind them.
 ///
-/// DESIGN.md is blunt that an overview leads with a queue of problems and not
-/// with vanity KPIs, and inventory has an unusually sharp version of that: the
-/// fleet total is **null** whenever the server cannot certify it. A screen that
-/// rendered `fleet_total ?? 0` would print a confident zero over a stale Edge
-/// checkpoint, which is the exact failure the server refused to commit. So the
-/// strip says "Uncertified", and the reasons are the first thing in the queue.
+/// Four figures and the pools they came from. The strip used to carry six and
+/// a paragraph: the server returns `fleet_total: null` whenever it will not
+/// certify the arithmetic, and the screen printed "Uncertified" where the
+/// number goes, then explained itself underneath at length.
 ///
-/// Three reads, and only one of them governs the screen. The fleet read is the
-/// page; the ledger-control and missing reads add rows to the queue and are
-/// allowed to be absent — a broken control endpoint should cost the reader the
-/// two lines it contributes, not the whole overview.
+/// The caveat survives; the lecture does not. The number is the arithmetic the
+/// server itself did (`calculated_total`), and the word under it — *certified*
+/// or *uncertified* — is the whole of the warning. Somebody who needs the
+/// reasons has Control, which lists them; somebody reading their stock at
+/// eight in the morning needs a figure and a flag, not an essay.
 
 export function InventoryOverview() {
   const fleet = useQuery({
     queryKey: inventoryKeys.fleet(),
     queryFn: ({ signal }) => fleetPools(signal),
-  })
-  const control = useQuery({
-    queryKey: inventoryKeys.control(),
-    queryFn: ({ signal }) => controlStatus(signal),
   })
 
   return (
@@ -42,100 +32,47 @@ export function InventoryOverview() {
       <PageHeader
         crumb="Inventory"
         title="Stock"
-        sub="What the business holds, what is stopping anybody from being sure of it, and every pool it is standing in."
+        sub="What the business holds, and every pool it is standing in."
       />
-
-      {control.isError && (
-        <Banner tone="bad" className="mb-3">
-          The ledger check could not be read:{" "}
-          {control.error instanceof Error
-            ? control.error.message
-            : "the server could not be reached."}
-        </Banner>
-      )}
 
       {queryState(fleet, {
         loading: "Counting the fleet…",
-        render: (data) => (
-          <>
-            <KpiStrip>
-              <Kpi
-                label="Fleet stock"
-                value={
-                  data.fleet_total === null
-                    ? "Uncertified"
-                    : count(data.fleet_total)
-                }
-                delta={data.fleet_total_status.toLowerCase()}
-                tone={data.fleet_total === null ? "down" : "flat"}
-              />
-              <Kpi
-                label="On hand"
-                value={count(
-                  data.items.reduce(
-                    (total, pool) =>
-                      pool.authority.included_in_fleet_total
-                        ? total + pool.on_hand
-                        : total,
-                    0
-                  )
-                )}
-              />
-              <Kpi
-                label="Allotted"
-                value={count(
-                  data.items.reduce(
-                    (total, pool) =>
-                      pool.authority.included_in_fleet_total
-                        ? total + (pool.allotted ?? 0)
-                        : total,
-                    0
-                  )
-                )}
-              />
-              <Kpi
-                label="Missing"
-                value={count(
-                  data.items.reduce(
-                    (total, pool) =>
-                      pool.authority.included_in_fleet_total
-                        ? total + pool.missing
-                        : total,
-                    0
-                  )
-                )}
-              />
-              <Kpi
-                label="Matched transfers"
-                value={count(data.reconciliation_summary.matched)}
-                delta={`${count(data.reconciliation_summary.dc_only)} in the air`}
-              />
-              <Kpi
-                label="Ledger facts"
-                value={
-                  control.data ? count(control.data.ledger_fact_count) : "—"
-                }
-                delta={control.data?.ledger_health.toLowerCase()}
-                tone={control.data?.ledger_health === "HEALTHY" ? "up" : "down"}
-              />
-            </KpiStrip>
+        render: (data) => {
+          /// Only rows the server counts. A shadowed Cloud row and a stage
+          /// rollup are both real rows and neither is a second piece of stock.
+          const total = (pick: (pool: (typeof data.items)[number]) => number) =>
+            data.items.reduce(
+              (running, pool) =>
+                pool.authority.included_in_fleet_total
+                  ? running + pick(pool)
+                  : running,
+              0
+            )
 
-            {data.fleet_total === null && (
-              <Banner tone="warn" className="mb-[1.125rem]">
-                The server will not publish a fleet total it cannot stand
-                behind.{" "}
-                {data.fleet_total_diagnostics.calculated_total.toLocaleString(
-                  "id-ID"
-                )}{" "}
-                is what the arithmetic gives — it is shown here and nowhere
-                else, because until the reasons above are cleared it is a
-                number, not an answer.
-              </Banner>
-            )}
+          return (
+            <>
+              <KpiStrip className="md:grid-cols-4 xl:grid-cols-4">
+                <Kpi
+                  label="Stock"
+                  value={count(
+                    data.fleet_total ??
+                      data.fleet_total_diagnostics.calculated_total
+                  )}
+                  delta={data.fleet_total_status.toLowerCase()}
+                  tone={data.fleet_total === null ? "down" : "flat"}
+                />
+                <Kpi label="On hand" value={count(total((p) => p.on_hand))} />
+                <Kpi
+                  label="Allotted"
+                  value={count(total((p) => p.allotted ?? 0))}
+                />
+                <Kpi label="Missing" value={count(total((p) => p.missing))} />
+              </KpiStrip>
 
-            <PoolsBody />
-          </>
-        ),
+              <PoolsBody />
+            </>
+          )
+        },
       })}
     </PageContent>
   )

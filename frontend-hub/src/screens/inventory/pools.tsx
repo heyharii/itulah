@@ -6,6 +6,7 @@ import type {
   SortingState,
 } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -14,21 +15,22 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterBar } from "@/components/ui/filter-bar"
+import { Dial } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
-import { count, label as humanise, moment } from "@/lib/format"
+import { ago, count, label as humanise, moment } from "@/lib/format"
 import {
   correctPlacement,
   fleetPools,
   idempotencyKey,
   inventoryKeys,
+  listCounts,
   poolDetail,
   type FleetPool,
   type PoolItem,
@@ -36,6 +38,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { cn } from "@/lib/utils"
 import { Choice } from "@/screens/inventory/parts"
 import {
   age,
@@ -68,9 +71,17 @@ export interface PoolRow {
   /// The pool this row is, or null on a site row.
   readonly pool: FleetPool | null
   readonly stock: number
-  readonly allotted: number | null
   readonly on_hand: number
+  readonly allotted: number | null
+  /// Distinct tags sighted in the observation window — null where there was
+  /// never anything to sight: Cloud holds each Edge node's fact positions but
+  /// not the readings behind them, so an Edge row has no observation rather
+  /// than an observation of nought.
+  readonly observed: number | null
   readonly missing: number
+  /// The latest count of this pool whatever its status, so one opened this
+  /// morning reads as counted today rather than as never counted.
+  readonly last_count: string | null
   /// False on the Cloud row for a site a live Edge node owns. Those rows are
   /// shown — they hold the last numbers the centre saw — but they are NOT in
   /// the site's total, because the Edge row for the same pool is. Reading the
@@ -80,6 +91,20 @@ export interface PoolRow {
   readonly subRows?: readonly PoolRow[]
 }
 
+/// A quantity that may be absent, and an absence that is not a nought.
+function figure(value: number | null) {
+  return value === null ? <span className="text-mute">—</span> : count(value)
+}
+
+/// Stock, then what it is made of, then what is wrong with it.
+///
+/// The order is the inventory equation the server states in the same response
+/// — `Stock = On hand + Allotted + Missing` — with the two readings that are
+/// *about* the number rather than in it on the outside: **Observed** is what a
+/// scanner actually saw of it, and **Last count** is when a person last stood
+/// in front of it. A row whose ring is empty and whose last count says Never
+/// is a number nobody has checked, and those two columns are the only place
+/// this table says so.
 const columns: ColumnDef<TableSetup, PoolRow>[] = [
   {
     id: "pool",
@@ -94,31 +119,40 @@ const columns: ColumnDef<TableSetup, PoolRow>[] = [
           className="flex min-w-0 items-center gap-1.5"
           style={{ paddingLeft: `${row.depth * 1.125}rem` }}
         >
-          <span className="w-3 shrink-0 text-center text-[0.625rem] text-line-ico">
-            {row.getCanExpand() ? (row.getIsExpanded() ? "▾" : "▸") : ""}
-          </span>
-          {site ? (
+          {row.getCanExpand() ? (
+            // A real button, even though the whole row toggles too: the row is
+            // a click target and this is the keyboard's way in.
             <button
               type="button"
+              aria-expanded={row.getIsExpanded()}
+              aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} ${row.original.label}`}
               onClick={(event) => {
                 event.stopPropagation()
                 row.toggleExpanded()
               }}
-              className="truncate rounded-inner font-medium text-ink hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+              className="grid size-4 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-accent"
             >
-              {row.original.label}
+              <ChevronRight
+                className={cn(
+                  "size-3.5 transition-transform",
+                  row.getIsExpanded() && "rotate-90"
+                )}
+              />
             </button>
           ) : (
-            <span
-              className={
-                row.original.counted
+            <span className="w-4 shrink-0" />
+          )}
+          <span
+            className={
+              site
+                ? "truncate font-medium text-ink"
+                : row.original.counted
                   ? "truncate text-text"
                   : "truncate text-mute"
-              }
-            >
-              {row.original.label}
-            </span>
-          )}
+            }
+          >
+            {row.original.label}
+          </span>
           {!site && !row.original.counted && (
             <span className="shrink-0 text-[0.625rem] text-mute">
               not counted
@@ -136,23 +170,42 @@ const columns: ColumnDef<TableSetup, PoolRow>[] = [
     cell: ({ row }) => count(row.original.stock),
   },
   {
-    accessorKey: "allotted",
-    header: "Allotted",
-    size: 100,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) =>
-      row.original.allotted === null ? (
-        <span className="text-mute">—</span>
-      ) : (
-        count(row.original.allotted)
-      ),
-  },
-  {
     accessorKey: "on_hand",
     header: "On hand",
     size: 100,
     meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     cell: ({ row }) => count(row.original.on_hand),
+  },
+  {
+    accessorKey: "allotted",
+    header: "Allotted",
+    size: 100,
+    meta: {
+      align: "right",
+      priority: 2,
+      filter: { kind: "number", unit: "pcs" },
+    },
+    cell: ({ row }) => figure(row.original.allotted),
+  },
+  {
+    accessorKey: "observed",
+    header: "Observed",
+    size: 120,
+    meta: {
+      align: "right",
+      priority: 3,
+      filter: { kind: "number", unit: "tags" },
+    },
+    cell: ({ row }) => {
+      const { observed, stock } = row.original
+      if (observed === null) return <span className="text-mute">—</span>
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          <Dial value={stock > 0 ? observed / stock : 0} />
+          {count(observed)}
+        </span>
+      )
+    },
   },
   {
     accessorKey: "missing",
@@ -170,28 +223,16 @@ const columns: ColumnDef<TableSetup, PoolRow>[] = [
     ),
   },
   {
-    id: "sync",
-    accessorFn: (row) => row.pool?.sync_status ?? "",
-    header: "Sync",
-    size: 110,
-    meta: { filter: { kind: "option", format: humanise } },
-    cell: ({ row }) => {
-      const status = row.original.pool?.sync_status
-      if (!status) return null
-      return (
-        <Pill
-          tone={
-            status === "CURRENT" || status === "LOCAL"
-              ? "ok"
-              : status === "STALE"
-                ? "warn"
-                : "info"
-          }
-        >
-          {status === "LOCAL" ? "Cloud" : humanise(status)}
-        </Pill>
-      )
-    },
+    accessorKey: "last_count",
+    header: "Last count",
+    size: 120,
+    meta: { priority: 3, filter: { kind: "date" } },
+    cell: ({ row }) =>
+      row.original.last_count === null ? (
+        <span className="text-mute">Never</span>
+      ) : (
+        ago(row.original.last_count)
+      ),
   },
 ]
 
@@ -205,7 +246,6 @@ const columns: ColumnDef<TableSetup, PoolRow>[] = [
 /// findable in ⌘K for anyone who arrives at a pool from a link.
 export function PoolsBody() {
   const [query, setQuery] = useState("")
-  const [scope, setScope] = useState("all")
   const pool = useSheet("pool")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "missing", desc: true },
@@ -219,6 +259,45 @@ export function PoolsBody() {
     queryFn: ({ signal }) => fleetPools(signal),
   })
 
+  /// The count board, for one column of this table.
+  ///
+  /// The fleet read carries balances and no history, so when a pool was last
+  /// counted is only knowable from here. Its failure costs the column and
+  /// nothing else: a board that will not load leaves every row reading
+  /// "Never", which is what an uncounted pool reads as anyway — losing the
+  /// whole table over it would be the worse trade.
+  const counts = useQuery({
+    queryKey: inventoryKeys.counts(),
+    queryFn: ({ signal }) => listCounts(signal),
+  })
+
+  /// The newest count per pool, from a board the server hands over already
+  /// partitioned. Whichever moment the count actually reached — closed,
+  /// submitted, activated, or merely created — is the one that counts as
+  /// "last": a count still open is not a pool nobody has been to.
+  const lastCounts = useMemo(() => {
+    const newest = new Map<string, string>()
+    const board = counts.data
+    if (!board) return newest
+    for (const record of [
+      ...board.drafts,
+      ...board.active,
+      ...board.needs_review,
+      ...board.history,
+    ]) {
+      const when =
+        record.closed_at ??
+        record.submitted_at ??
+        record.activated_at ??
+        record.created_at
+      const held = newest.get(record.pool_id)
+      if (held === undefined || Date.parse(when) > Date.parse(held)) {
+        newest.set(record.pool_id, when)
+      }
+    }
+    return newest
+  }, [counts.data])
+
   /// The pools of one site, folded into the row that stands for the site.
   ///
   /// **Only rows the server counts are added up.** 160 rows describe 112 pools:
@@ -230,15 +309,9 @@ export function PoolsBody() {
   /// and the rows it leaves out are still shown, dimmed and labelled.
   const tree = useMemo<PoolRow[]>(() => {
     const items = fleet.data?.items ?? []
-    const scoped =
-      scope === "counted"
-        ? items.filter((item) => item.authority.included_in_fleet_total)
-        : scope === "edge"
-          ? items.filter((item) => item.source_type === "EDGE_FACT_POSITION")
-          : items
 
     const bySite = new Map<string, FleetPool[]>()
-    for (const item of scoped) {
+    for (const item of items) {
       const list = bySite.get(item.site_id)
       if (list) list.push(item)
       else bySite.set(item.site_id, [item])
@@ -258,32 +331,53 @@ export function PoolsBody() {
             label: item.label,
             pool: item,
             stock: item.stock,
-            allotted: item.allotted,
             on_hand: item.on_hand,
+            allotted: item.allotted,
+            observed: item.observed,
             missing: item.missing,
+            last_count: lastCounts.get(item.id) ?? null,
             counted: item.authority.included_in_fleet_total,
           }))
 
         const counted = children.filter((child) => child.counted)
         const sum = (pick: (row: PoolRow) => number) =>
           counted.reduce((total, row) => total + pick(row), 0)
-        const allotted = counted.filter((row) => row.allotted !== null)
+        /// The same fold over a column that is allowed to be absent. A site
+        /// where nothing can be allotted or nothing can be sighted reports no
+        /// reading, not a reading of nought — a nought is a claim.
+        const known = (pick: (row: PoolRow) => number | null) => {
+          const readable = counted.filter((row) => pick(row) !== null)
+          return readable.length === 0
+            ? null
+            : readable.reduce((total, row) => total + (pick(row) ?? 0), 0)
+        }
+        /// The site was last counted when the most recently counted pool in it
+        /// was — including the pools its total leaves out, because somebody did
+        /// stand there and count them.
+        const latest = children.reduce<string | null>(
+          (newest, row) =>
+            row.last_count !== null &&
+            (newest === null || Date.parse(row.last_count) > Date.parse(newest))
+              ? row.last_count
+              : newest,
+          null
+        )
 
         return {
           key: `site/${siteId}`,
           label: pools[0].site_name ?? siteId,
           pool: null,
           stock: sum((row) => row.stock),
-          allotted: allotted.length
-            ? allotted.reduce((total, row) => total + (row.allotted ?? 0), 0)
-            : null,
           on_hand: sum((row) => row.on_hand),
+          allotted: known((row) => row.allotted),
+          observed: known((row) => row.observed),
           missing: sum((row) => row.missing),
+          last_count: latest,
           counted: true,
           subRows: children,
         }
       })
-  }, [fleet.data, scope])
+  }, [fleet.data, lastCounts])
 
   const filters = useFilters(columns)
 
@@ -315,22 +409,6 @@ export function PoolsBody() {
 
   return (
     <>
-      <SubTabs
-        tabs={[
-          { value: "all", label: "Every pool" },
-          { value: "counted", label: "Counted in the fleet" },
-          { value: "edge", label: "Edge-owned" },
-        ]}
-        value={scope}
-        onChange={setScope}
-      />
-
-      {fleet.data && fleet.data.fleet_total === null && (
-        <Banner tone="warn" className="mb-3.5">
-          {fleet.data.aggregation_policy}
-        </Banner>
-      )}
-
       <Toolbar>
         <Input
           value={query}
@@ -354,18 +432,25 @@ export function PoolsBody() {
           render: () =>
             tree.length === 0 ? (
               <EmptyState>
-                {scope === "all"
-                  ? "This node has no active operational pool."
-                  : "No pool matches this slice."}
+                This node has no active operational pool.
               </EmptyState>
             ) : (
               <DataTable<PoolRow>
                 table={table}
-                onRowClick={(row) =>
-                  row.pool ? pool.open(row.pool.id) : undefined
+                // A pool row opens its own page; a site row has none, so the
+                // whole row is the chevron's click target rather than a dead
+                // strip beside a 14-pixel control.
+                onRowClick={(row) => {
+                  if (row.pool) pool.open(row.pool.id)
+                  else table.getRow(row.key).toggleExpanded()
+                }}
+                // `row.pool?.id === pool.value` was `undefined === undefined`
+                // on every site row with no sheet open, which tinted all
+                // fourteen of them as selected.
+                isSelected={(row) =>
+                  row.pool !== null && row.pool.id === pool.value
                 }
-                isSelected={(row) => row.pool?.id === pool.value}
-                className="max-h-[calc(100vh-19rem)]"
+                className="max-h-[calc(100vh-16rem)]"
               />
             ),
         })}
