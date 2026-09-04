@@ -160,6 +160,7 @@ export type { PurchaseVerifyResult } from "./contract/PurchaseVerifyResult";
 export type { PurchaseWorkLine } from "./contract/PurchaseWorkLine";
 export type { Quote } from "./contract/Quote";
 export type { QuotedLine } from "./contract/QuotedLine";
+export type { ReachView } from "./contract/ReachView";
 export type { ReceiveRequest } from "./contract/ReceiveRequest";
 export type { RecordBillRequest } from "./contract/RecordBillRequest";
 export type { RecordInvoiceRequest } from "./contract/RecordInvoiceRequest";

@@ -565,6 +565,15 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/employees/contracts/expiring",
             get(employment::expiring),
         )
+        // How far the caller reaches, and where they are posted. Above `{id}`
+        // for the same reason `contracts/expiring` is: the router ranks a
+        // static segment over a dynamic one, so `me` here is never an id.
+        //
+        // Its own route rather than a field on `/auth/me`: a session says who
+        // signed in and which rung they hold, and where somebody is posted is
+        // HR data with a history behind it — a place copied into the session
+        // is wrong from the transfer until the next sign-in.
+        .route("/api/v1/employees/me/reach", get(employment::reach))
         .route("/api/v1/employees/{id}", get(employment::detail))
         .route(
             "/api/v1/employees/{id}/employment",

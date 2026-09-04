@@ -64,6 +64,62 @@ pub mod actions {
     /// governs is a trap rather than a rule. Setting it is head office's.
     pub const ATTENDANCE_POLICY_SET: &str = "people.attendance_policy.set";
 
+    // ── the place manager's day ──────────────────────────────────
+    //
+    // Five keys at the supervisor rung, and they are the reason
+    // `super::super::reach` exists. Every store manager holds the same rung,
+    // so the rung alone cannot tell store-07's manager from store-03's — each
+    // of these is bounded by the caller's own open posting, and Admin is
+    // unbounded. `required_role` still answers *which rung*; `Reach` answers
+    // *where*.
+
+    /// Build next week's schedule, and revise it.
+    pub const ROSTER_MANAGE: &str = "people.roster.manage";
+    /// Approve or refuse a leave request.
+    pub const LEAVE_DECIDE: &str = "people.leave.decide";
+    /// Order overtime. Consenting to it is the employee's, and is not a grant:
+    /// a consent somebody else may give on your behalf is not a consent.
+    pub const OVERTIME_ORDER: &str = "people.overtime.order";
+    /// Decide an attendance correction.
+    pub const CORRECTION_DECIDE: &str = "people.correction.decide";
+    /// Sign off a month's attendance for one place. Reopening a closed period
+    /// is [`ATTENDANCE_PERIOD_REOPEN`] and is head office's — a place that
+    /// could reopen its own sign-off has not signed anything off.
+    pub const ATTENDANCE_PERIOD_CLOSE: &str = "people.attendance_period.close";
+    /// Undo a closure, at head office.
+    pub const ATTENDANCE_PERIOD_REOPEN: &str = "people.attendance_period.reopen";
+
+    // ── the rules everybody else is measured against ───────────────────
+    //
+    // Head office's, all of them. These are not decisions about one person in
+    // one shop; they are the vocabulary the shops decide in.
+
+    /// Define the kinds of leave and their entitlements.
+    pub const LEAVE_TYPE_SET: &str = "people.leave_type.set";
+    /// Publish the year's public holidays, and amend them when the government
+    /// moves one — which it does, by decree, in the middle of the year.
+    pub const HOLIDAY_SET: &str = "people.holiday.set";
+    /// Define the shift patterns a roster may be built from.
+    pub const SHIFT_PATTERN_SET: &str = "people.shift_pattern.set";
+
+    // ── money ────────────────────────────────────────────
+
+    /// Agree or amend somebody's pay. An agreement, effective-dated: a salary
+    /// is a history, not a number.
+    pub const PAY_CHANGE: &str = "people.pay.change";
+    /// Check a payroll run's figures against what it was computed from.
+    pub const PAYROLL_VERIFY: &str = "people.payroll.verify";
+    /// Approve a verified run. Deliberately a separate key from
+    /// [`PAYROLL_VERIFY`] even though both map to the same rung today: the
+    /// two-person rule is enforced on the actor, and a rule stated in one key
+    /// could not be.
+    pub const PAYROLL_APPROVE: &str = "people.payroll.approve";
+    /// Seal an approved run, after which its figures do not move.
+    pub const PAYROLL_SEAL: &str = "people.payroll.seal";
+    /// Reopen a run. The one that undoes work somebody has signed for, which
+    /// is why it is its own key and not a mode of the others.
+    pub const PAYROLL_REOPEN: &str = "people.payroll.reopen";
+
     /// The keys that may move the employment state machine.
     pub const EMPLOYMENT_CHANGING: &[&str] = &[EMPLOYMENT_CHANGE];
     /// The keys that may change personal data.
@@ -74,17 +130,31 @@ pub mod actions {
 
 /// Which rung of the ladder an action key needs.
 ///
-/// Reading the roster is supervisor work — a shop's manager has to know who is
-/// on today. Everything else is head office: hiring, ending employment, moving
-/// somebody between shops, and reading a NIK are all things a shift supervisor
-/// has no business doing from a till.
+/// Running a place is supervisor work — a shop's manager has to know who is on
+/// today, schedule next week, approve the leave that breaks it, order the
+/// overtime that repairs it, and sign off the month. Everything else is head
+/// office: hiring, ending employment, moving somebody between shops, reading a
+/// NIK, and every rule the places are measured against are things a shift
+/// supervisor has no business doing from a till.
+///
+/// **This is only half of "may they."** Every supervisor holds the same rung,
+/// so a rung cannot say that store-07's manager may decide store-07's leave and
+/// not store-03's. The other half is [`super::reach::Reach`], resolved from the
+/// caller's own posting; the supervisor-rung keys below are bounded by it and
+/// Admin is unbounded. Keeping the two apart is what lets this stay one mapping
+/// rather than growing a second directory of grants.
 ///
 /// The unknown key maps to `Admin` rather than to a permissive default. A key
 /// this function has not been taught about is a bug, and the safe reading of a
 /// bug is "nobody", not "everybody".
 pub fn required_role(action_key: &str) -> Role {
     match action_key {
-        actions::EMPLOYEE_READ => Role::Supervisor,
+        actions::EMPLOYEE_READ
+        | actions::ROSTER_MANAGE
+        | actions::LEAVE_DECIDE
+        | actions::OVERTIME_ORDER
+        | actions::CORRECTION_DECIDE
+        | actions::ATTENDANCE_PERIOD_CLOSE => Role::Supervisor,
         _ => Role::Admin,
     }
 }
@@ -181,6 +251,52 @@ mod tests {
         assert_eq!(required_role(actions::PROFILE_READ), Role::Admin);
         assert_eq!(required_role(actions::EMPLOYMENT_CHANGE), Role::Admin);
         assert_eq!(required_role(actions::CONTRACT_CHANGE), Role::Admin);
+    }
+
+    /// Running a place is the shop manager's; the rules the places are measured
+    /// against are head office's. The split is the formulation approved on
+    /// 2026-09-04, and this is where it is stated once.
+    #[test]
+    fn a_place_manager_runs_their_week_and_head_office_writes_the_rules() {
+        for key in [
+            actions::ROSTER_MANAGE,
+            actions::LEAVE_DECIDE,
+            actions::OVERTIME_ORDER,
+            actions::CORRECTION_DECIDE,
+            actions::ATTENDANCE_PERIOD_CLOSE,
+        ] {
+            assert_eq!(required_role(key), Role::Supervisor, "{key}");
+        }
+        for key in [
+            actions::ATTENDANCE_PERIOD_REOPEN,
+            actions::LEAVE_TYPE_SET,
+            actions::HOLIDAY_SET,
+            actions::SHIFT_PATTERN_SET,
+            actions::ATTENDANCE_POLICY_SET,
+        ] {
+            assert_eq!(required_role(key), Role::Admin, "{key}");
+        }
+    }
+
+    /// Hari's explicit decision: a place manager closes their attendance period
+    /// and never touches a payroll run. Verify, approve, seal and reopen are
+    /// head office's, and a run a shop could approve is a run the shop approves
+    /// for itself.
+    #[test]
+    fn payroll_is_head_office_from_verify_to_seal() {
+        for key in [
+            actions::PAY_CHANGE,
+            actions::PAYROLL_VERIFY,
+            actions::PAYROLL_APPROVE,
+            actions::PAYROLL_SEAL,
+            actions::PAYROLL_REOPEN,
+        ] {
+            assert_eq!(required_role(key), Role::Admin, "{key}");
+        }
+        // Distinct keys, not one key used twice: the two-person rule compares
+        // the actor who verified with the actor who approved, and it could not
+        // if the same grant covered both.
+        assert_ne!(actions::PAYROLL_VERIFY, actions::PAYROLL_APPROVE);
     }
 
     /// A key nobody taught this function about must not be a way in.

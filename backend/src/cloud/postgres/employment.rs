@@ -354,10 +354,16 @@ pub async fn list_employees(
 }
 
 /// Which fixed terms end on or before `before`.
+///
+/// `place_id` bounds the answer to one place — a place manager's reach. `None`
+/// means unbounded, which is head office's, and not "no place": a contract for
+/// somebody nobody has posted anywhere is still a contract about to lapse, and
+/// it is head office who has to renew it.
 pub async fn expiring_contracts(
     pool: &PgPool,
     as_of: NaiveDate,
     before: NaiveDate,
+    place_id: Option<&str>,
 ) -> Result<Vec<ExpiringContract>, AppError> {
     let rows = sqlx::query(
         "SELECT e.id, e.code, p.full_name, c.position, c.ends_on, a.place_id
@@ -368,6 +374,7 @@ pub async fn expiring_contracts(
                   ON a.employee_id = e.id AND a.valid_to IS NULL
           WHERE c.ends_on IS NOT NULL
             AND c.ends_on <= $1
+            AND ($2::text IS NULL OR a.place_id = $2)
             -- Somebody already gone is not a contract to renew.
             AND e.status <> 'TERMINATED'
             -- Only the latest term counts: an earlier one that expired on its
@@ -378,6 +385,7 @@ pub async fn expiring_contracts(
           ORDER BY c.ends_on, e.code",
     )
     .bind(before)
+    .bind(place_id)
     .fetch_all(pool)
     .await?;
 
@@ -395,6 +403,62 @@ pub async fn expiring_contracts(
             })
         })
         .collect()
+}
+
+/// What one login is, as far as the employment module is concerned: whose
+/// record it is, and where that person is posted.
+///
+/// One struct and one query rather than two, because every route that resolves
+/// `me` also needs to know the caller's reach, and asking twice would mean two
+/// round trips on every screen the employee app opens.
+pub struct CallerRecord {
+    /// The employment record bound to this login, when one is.
+    pub employee_id: Option<String>,
+    /// The caller's own open posting — the place, and its `org_place.kind`.
+    ///
+    /// Open means `valid_to IS NULL`, which is what
+    /// `AssignmentTimeline::current` means by "current" and what the unique
+    /// partial index in 0060 permits at most one of. A posting with an end
+    /// date is a posting somebody has already been moved out of, even when
+    /// that date is in the future: the decision has been taken, and reach
+    /// should not outlive it by the length of the notice period.
+    pub posting: Option<(String, String)>,
+    /// The place's name, for saying `Head Office` where the id says `ho`.
+    pub place_name: Option<String>,
+}
+
+/// Who this login is and where they are posted — for resolving `me`, and for
+/// resolving how far they may reach.
+pub async fn caller_record(pool: &PgPool, username: &str) -> Result<CallerRecord, AppError> {
+    let row = sqlx::query(
+        "SELECT u.employee_id, a.place_id, place.kind, place.name
+           FROM app_user u
+           LEFT JOIN employee_assignment a
+                  ON a.employee_id = u.employee_id AND a.valid_to IS NULL
+           LEFT JOIN org_place place ON place.id = a.place_id
+          WHERE u.username = $1",
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(row) = row else {
+        // The session is valid and the account is gone — a race with a delete,
+        // not something to guess about. No record, no posting, no reach.
+        return Ok(CallerRecord {
+            employee_id: None,
+            posting: None,
+            place_name: None,
+        });
+    };
+
+    let place_id: Option<String> = row.try_get("place_id")?;
+    let kind: Option<String> = row.try_get("kind")?;
+    Ok(CallerRecord {
+        employee_id: row.try_get("employee_id")?,
+        posting: place_id.zip(kind),
+        place_name: row.try_get("name")?,
+    })
 }
 
 /// The employment record bound to a login, for resolving `me`.

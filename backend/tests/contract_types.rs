@@ -507,6 +507,12 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PersonalDataView: {e}"));
     inventory_backend::cloud::http::employment::ContractsView::export_all(&config)
         .unwrap_or_else(|e| panic!("ContractsView: {e}"));
+    // How far the caller reaches. The head-office console draws a different
+    // People module for a shop manager than for HR, and the difference is this
+    // answer — generated rather than transcribed, because a browser that
+    // guessed the rule would be a second place the bound is decided.
+    inventory_backend::cloud::http::employment::ReachView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReachView: {e}"));
     // The attendance policy. One root: `export_all` pulls the version view and
     // `Minutes` in behind it.
     inventory_backend::cloud::http::attendance::PolicyScheduleView::export_all(&config)

@@ -42,6 +42,7 @@ mod employee;
 mod error;
 mod ids;
 mod profile;
+mod reach;
 
 pub use assignment::{AssignmentSpan, AssignmentTimeline};
 pub use audit::{actions, required_role as required_role_for_action, Authorization};
@@ -54,3 +55,4 @@ pub use ids::{ActorId, EmployeeCode, EmployeeId, PlaceId, ReasonText};
 pub use profile::{
     Address, Contact, FullName, Nik, Profile, ProfileAmendment, ProfileChange, ProfileField,
 };
+pub use reach::{PlaceKind, Posting, Reach};

@@ -641,3 +641,399 @@ async fn a_status_the_history_does_not_produce_refuses_to_load(pool: PgPool) {
         "the projection reads the column, and the column was tampered with"
     );
 }
+
+// ── reach: which places a caller may act in ───────────────────────────────
+//
+// A rung answers *what* somebody may do; it cannot answer *where*, because
+// every shop manager holds the same rung. Until this bound arrived, a
+// supervisor at any store could page through the whole company's workforce and
+// read any rota in it — a gap nobody had noticed only because head office was
+// the only caller of the route.
+//
+// These three mirror the domain tests in `employment::reach`, at the level that
+// actually matters: over HTTP, with a real session, against a real posting.
+
+/// Post somebody, give them a login at a rung, and bind the two.
+///
+/// Returns the cookies for that person's own session, which is what every
+/// assertion below is made through: the point is what a supervisor sees when
+/// they sign in, not what the admin who set them up can see.
+async fn supervisor_at(
+    app: &axum::Router,
+    cookies: &str,
+    csrf: &str,
+    username: &str,
+    code: &str,
+    place_id: Option<&str>,
+    role: &str,
+) -> String {
+    let employee_id = hire(app, cookies, csrf, code).await;
+    if let Some(place_id) = place_id {
+        let assigned = send(
+            app.clone(),
+            "POST",
+            &format!("/api/v1/employees/{employee_id}/assignments"),
+            write_headers(cookies, csrf),
+            Some(json!({
+                "place_id": place_id,
+                "valid_from": "2026-01-06",
+                "reason": "penempatan awal",
+            })),
+        )
+        .await;
+        assert_eq!(
+            assigned.status,
+            StatusCode::OK,
+            "assign: {:?}",
+            assigned.body
+        );
+    }
+    let created = send(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/users",
+        write_headers(cookies, csrf),
+        Some(json!({
+            "username": username,
+            "display_name": username,
+            "password": SUPERVISOR_PASSWORD,
+            "role": role,
+        })),
+    )
+    .await;
+    assert_eq!(
+        created.status,
+        StatusCode::OK,
+        "create user: {:?}",
+        created.body
+    );
+
+    let linked = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{employee_id}/account"),
+        write_headers(cookies, csrf),
+        Some(json!({ "username": username })),
+    )
+    .await;
+    assert_eq!(linked.status, StatusCode::OK, "link: {:?}", linked.body);
+    employee_id
+}
+
+const SUPERVISOR_PASSWORD: &str = "supervisor-password-employment-1";
+
+/// Somebody to be found in a shop, so a bounded list has something to omit.
+async fn staff_at(
+    app: &axum::Router,
+    cookies: &str,
+    csrf: &str,
+    code: &str,
+    place_id: &str,
+) -> String {
+    let employee_id = hire(app, cookies, csrf, code).await;
+    let assigned = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{employee_id}/assignments"),
+        write_headers(cookies, csrf),
+        Some(json!({
+            "place_id": place_id,
+            "valid_from": "2026-01-06",
+            "reason": "penempatan awal",
+        })),
+    )
+    .await;
+    assert_eq!(
+        assigned.status,
+        StatusCode::OK,
+        "assign: {:?}",
+        assigned.body
+    );
+    employee_id
+}
+
+fn codes(body: &Value) -> Vec<String> {
+    body.as_array()
+        .unwrap_or_else(|| panic!("a list: {body:?}"))
+        .iter()
+        .map(|row| row["employee_code"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_supervisor_reaches_only_the_shop_they_are_posted_to(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let mine = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
+    let theirs = staff_at(&app, &cookies, &csrf, "K0301", "store-03").await;
+    supervisor_at(
+        &app,
+        &cookies,
+        &csrf,
+        "rina",
+        "K0700",
+        Some("store-07"),
+        "SUPERVISOR",
+    )
+    .await;
+
+    let (hers, _) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
+
+    // What the sidebar reads to decide which face of People to draw.
+    let reach = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees/me/reach",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(reach.status, StatusCode::OK, "reach: {:?}", reach.body);
+    assert_eq!(reach.body["scope"], "ONE_PLACE");
+    assert_eq!(reach.body["place_id"], "store-07");
+    assert_eq!(reach.body["place_kind"], "STORE");
+    assert_eq!(reach.body["role"], "SUPERVISOR");
+
+    // The list is her shop, and only her shop.
+    let listed = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(listed.status, StatusCode::OK, "list: {:?}", listed.body);
+    let seen = codes(&listed.body);
+    assert!(seen.contains(&"K0701".to_owned()), "her own shop: {seen:?}");
+    assert!(seen.contains(&"K0700".to_owned()), "herself: {seen:?}");
+    assert!(
+        !seen.contains(&"K0301".to_owned()),
+        "store-03 must not be in a store-07 manager's list: {seen:?}"
+    );
+
+    // And asking for somebody else's shop is refused rather than quietly
+    // re-filtered: answering a different question than the one asked is how
+    // somebody concludes two shops have the same staff.
+    let elsewhere = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees?place_id=store-03",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(
+        elsewhere.status,
+        StatusCode::FORBIDDEN,
+        "store-03: {:?}",
+        elsewhere.body
+    );
+
+    // One record at a time, the same bound.
+    let ours = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/employees/{mine}"),
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(ours.status, StatusCode::OK, "own shop: {:?}", ours.body);
+
+    for route in ["", "/profile", "/contracts"] {
+        let refused = send(
+            app.clone(),
+            "GET",
+            &format!("/api/v1/employees/{theirs}{route}"),
+            read_headers(&hers),
+            None,
+        )
+        .await;
+        assert_eq!(
+            refused.status,
+            StatusCode::FORBIDDEN,
+            "another shop's {route:?}: {:?}",
+            refused.body
+        );
+    }
+
+    // Head office still sees everybody. The bound is on the rung below it, not
+    // on the employer.
+    let all = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees",
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    let seen = codes(&all.body);
+    assert!(
+        seen.contains(&"K0301".to_owned()),
+        "admin sees all: {seen:?}"
+    );
+    assert!(
+        seen.contains(&"K0701".to_owned()),
+        "admin sees all: {seen:?}"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_supervisor_with_no_posting_reaches_nothing(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let somebody = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
+
+    // A login with an employment record and no posting: hired, paperwork not
+    // finished. The safe reading of "we do not know where this person works"
+    // is not "everywhere".
+    supervisor_at(&app, &cookies, &csrf, "budi", "K9000", None, "SUPERVISOR").await;
+    let (his, _) = sign_in(&app, "budi", SUPERVISOR_PASSWORD).await;
+
+    let reach = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees/me/reach",
+        read_headers(&his),
+        None,
+    )
+    .await;
+    assert_eq!(reach.status, StatusCode::OK, "reach: {:?}", reach.body);
+    assert_eq!(reach.body["scope"], "NOWHERE");
+    assert_eq!(reach.body["place_id"], Value::Null);
+    // The record exists; it is the posting that does not.
+    assert!(reach.body["employee_id"].is_string());
+
+    for route in ["/api/v1/employees", "/api/v1/employees/contracts/expiring"] {
+        let refused = send(app.clone(), "GET", route, read_headers(&his), None).await;
+        assert_eq!(
+            refused.status,
+            StatusCode::FORBIDDEN,
+            "{route}: {:?}",
+            refused.body
+        );
+    }
+
+    let refused = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/employees/{somebody}"),
+        read_headers(&his),
+        None,
+    )
+    .await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.body);
+
+    // But his own record is still his. A new joiner whose posting has not been
+    // filed must not be locked out of the app that shows it to them.
+    let own = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees/me/profile",
+        read_headers(&his),
+        None,
+    )
+    .await;
+    assert_eq!(own.status, StatusCode::OK, "own profile: {:?}", own.body);
+    assert_eq!(own.body["employee_code"], "K9000");
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn head_office_reaches_every_place_without_being_admin(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
+    staff_at(&app, &cookies, &csrf, "K0301", "store-03").await;
+    // An HR assistant: supervisor rung, posted to head office. Head office is
+    // the employer in this model rather than a fourteenth shop, so the whole
+    // workforce is what they administer.
+    supervisor_at(
+        &app,
+        &cookies,
+        &csrf,
+        "dewi",
+        "K0001",
+        Some("ho"),
+        "SUPERVISOR",
+    )
+    .await;
+
+    let (hers, _) = sign_in(&app, "dewi", SUPERVISOR_PASSWORD).await;
+
+    let reach = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees/me/reach",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(reach.status, StatusCode::OK, "reach: {:?}", reach.body);
+    assert_eq!(reach.body["scope"], "EVERYWHERE");
+    assert_eq!(reach.body["place_id"], "ho");
+    assert_eq!(reach.body["place_kind"], "HO");
+    assert_eq!(reach.body["place_name"], "Head Office");
+    assert_eq!(reach.body["role"], "SUPERVISOR");
+
+    let listed = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(listed.status, StatusCode::OK, "list: {:?}", listed.body);
+    let seen = codes(&listed.body);
+    assert!(seen.contains(&"K0701".to_owned()), "{seen:?}");
+    assert!(seen.contains(&"K0301".to_owned()), "{seen:?}");
+
+    // Including one shop at a time, which a bounded caller cannot do.
+    let one = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees?place_id=store-03",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(one.status, StatusCode::OK, "one place: {:?}", one.body);
+    assert_eq!(codes(&one.body), vec!["K0301".to_owned()]);
+
+    // Reading is not deciding. The rung is still what stops her ending
+    // somebody's employment, and head office's reach does not touch it.
+    let refused = send(
+        app.clone(),
+        "POST",
+        &format!(
+            "/api/v1/employees/{}/employment",
+            listed.body[0]["employee_id"].as_str().unwrap_or_default()
+        ),
+        read_headers(&hers),
+        Some(json!({
+            "transition": "TERMINATE",
+            "effective_on": "2026-06-30",
+            "reason": "percobaan",
+        })),
+    )
+    .await;
+    assert_ne!(
+        refused.status,
+        StatusCode::OK,
+        "a supervisor may not terminate: {:?}",
+        refused.body
+    );
+}

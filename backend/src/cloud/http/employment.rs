@@ -30,6 +30,19 @@
 //! Writes are not softened the same way. Somebody amending their own address is
 //! still an amendment to a record HR owns, and it still records who authorised
 //! it — a person cannot promote themselves by asking about themselves.
+//!
+//! # Three questions, not two: who, what, and where
+//!
+//! A rung answers *what*. It does not answer *where*, and every supervisor
+//! holds the same one — so until [`Reach`] arrived, a supervisor at any shop
+//! could list the whole company's workforce and read any rota in it. Nobody had
+//! noticed, because head office was the only caller.
+//!
+//! So [`Access`] now carries a reach as well as a rung, resolved once per
+//! request from the caller's own open posting. A read of somebody else's record
+//! passes both gates: the rung says supervisors may read a rota, the reach says
+//! *this* supervisor may read *this* shop's. Self-reads bypass both, as before.
+//! Admin's reach is everywhere, so nothing head office does changes.
 
 use super::auth::Principal;
 use crate::cloud::{
@@ -37,7 +50,8 @@ use crate::cloud::{
     domain::{
         actions, required_role_for_action, role_allows, Address, AssignmentSpan, Authorization,
         Contact, Contract, ContractKind, Employee, EmployeeCode, EmploymentStatus,
-        EmploymentTransition, FullName, Grade, Nik, PlaceId, Position, Profile, ProfileField,
+        EmploymentTransition, FullName, Grade, Nik, PlaceId, PlaceKind, Position, Posting, Profile,
+        ProfileField, Reach,
     },
     postgres::{self as infrastructure, EmployeeRecord, EmployeeSummary, ExpiringContract},
 };
@@ -61,13 +75,17 @@ struct Access {
     employee_id: String,
     own: bool,
     principal: Principal,
+    /// The places this caller may act in, from their own open posting.
+    reach: Reach,
 }
 
 impl Access {
     /// A read the caller is entitled to.
     ///
     /// Reading your own record is not a privilege. Reading somebody else's is,
-    /// and the rung comes from the action key.
+    /// and the rung comes from the action key. The *place* is a second gate —
+    /// see [`Access::reaches`] — because a rung cannot tell one shop's
+    /// supervisor from another's.
     fn may_read(&self, action_key: &str) -> Result<(), AppError> {
         if self.own {
             return Ok(());
@@ -86,6 +104,27 @@ impl Access {
         )))
     }
 
+    /// Is the subject somewhere this caller may reach?
+    ///
+    /// Called *after* the record is loaded, because the place is a fact about
+    /// the record and asking the database twice to avoid loading a row we then
+    /// discard would cost a query on every read to save one on the refusals.
+    /// Nothing about the record reaches the caller either way.
+    ///
+    /// Self-reads bypass it for the same reason they bypass the rung: a person
+    /// posted nowhere still has their own record, and refusing them their own
+    /// employment history because HR has not filed their posting would break
+    /// the employee app for exactly the new joiners it is most useful to.
+    fn reaches(&self, place_id: Option<&str>) -> Result<(), AppError> {
+        if self.own || self.reach.covers(place_id) {
+            return Ok(());
+        }
+        Err(AppError::Forbidden(format!(
+            "{} is not posted anywhere that reaches this record",
+            self.principal.username
+        )))
+    }
+
     /// The recorded authority for a decision the caller is about to take.
     ///
     /// The actor and the instant come from here, never from the request body:
@@ -97,9 +136,35 @@ impl Access {
     }
 }
 
+/// The caller's reach, from their own open posting.
+///
+/// One query, on the routes that need it. Not carried in the session: a rung is
+/// a property of the credential and a posting is HR data with a history, so a
+/// place stamped into a session is wrong from the transfer until the next
+/// sign-in — which is exactly the week it matters.
+async fn reach_of(state: &AppState, principal: &Principal) -> Result<Reach, AppError> {
+    let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
+    Ok(reach_from(principal, &caller.posting))
+}
+
+fn reach_from(principal: &Principal, posting: &Option<(String, String)>) -> Reach {
+    let posting = posting.as_ref().and_then(|(place_id, kind)| {
+        Some(Posting::new(
+            PlaceId::try_new(place_id).ok()?,
+            // A kind this build has not been taught is not head office. It is
+            // also not a reason to refuse the request: the place is still a
+            // place, and `Only` is the conservative reading of an id we can
+            // name but cannot classify.
+            PlaceKind::parse(kind).unwrap_or(PlaceKind::Store),
+        ))
+    });
+    Reach::resolve(principal.role, posting.as_ref())
+}
+
 /// Turn a path segment into an employee id, resolving `me` from the session.
 async fn resolve(state: &AppState, principal: &Principal, raw: &str) -> Result<Access, AppError> {
-    let mine = infrastructure::employee_id_for_username(&state.db, &principal.username).await?;
+    let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
+    let mine = caller.employee_id.clone();
     let employee_id = if raw == SELF {
         mine.clone().ok_or_else(|| {
             // Not a 404: the route exists and the session is valid. There is
@@ -116,8 +181,18 @@ async fn resolve(state: &AppState, principal: &Principal, raw: &str) -> Result<A
     Ok(Access {
         own: mine.as_deref() == Some(employee_id.as_str()),
         employee_id,
+        reach: reach_from(principal, &caller.posting),
         principal: principal.clone(),
     })
+}
+
+/// Where a record sits, for the reach check. `None` for somebody nobody has
+/// posted yet.
+fn current_place(record: &EmployeeRecord) -> Option<&str> {
+    record
+        .assignments
+        .current()
+        .map(|span| span.place_id().as_str())
 }
 
 async fn record(state: &AppState, employee_id: &str) -> Result<EmployeeRecord, AppError> {
@@ -490,6 +565,16 @@ pub struct ExpiringQuery {
 
 // ── handlers ─────────────────────────────────────────────────────────────
 
+/// The workforce, as far as the caller can see it.
+///
+/// The reach bound is the fix for a gap nobody had noticed: this route was
+/// rung-only, so a supervisor at any shop could page through every employee in
+/// the company. The Directory was the only caller and only head office opened
+/// it, which is how it went unremarked rather than why it was safe.
+///
+/// A bounded caller who names a place they cannot reach is refused rather than
+/// silently re-filtered. Quietly answering a different question than the one
+/// asked is how somebody concludes store-03 has the same staff as store-07.
 pub async fn list(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -504,16 +589,85 @@ pub async fn list(
             principal.username
         )));
     }
+    let reach = reach_of(&state, &principal).await?;
+    if reach.is_nowhere() {
+        return Err(AppError::Forbidden(format!(
+            "{} has no open posting, so no place's workforce is theirs to read",
+            principal.username
+        )));
+    }
+    let place_filter = match (reach.sole_place(), query.place_id.as_deref()) {
+        // Unbounded: the caller's filter, whatever it is.
+        (None, asked) => asked.map(str::to_owned),
+        // Bounded and asked for their own place, or asked for nothing.
+        (Some(mine), None) => Some(mine.to_string()),
+        (Some(mine), Some(asked)) if asked == mine.as_str() => Some(mine.to_string()),
+        (Some(_), Some(asked)) => {
+            return Err(AppError::Forbidden(format!(
+                "{} is not posted to {asked}",
+                principal.username
+            )));
+        }
+    };
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     Ok(Json(
         infrastructure::list_employees(
             &state.db,
             query.status.as_deref(),
-            query.place_id.as_deref(),
+            place_filter.as_deref(),
             limit,
         )
         .await?,
     ))
+}
+
+/// How far this caller reaches, and where they are posted.
+///
+/// One read so the head-office console can draw the right sidebar without
+/// re-deriving the rule in the browser. It answers *scope*, not permission:
+/// what a caller may do at the places they reach is still `required_role`'s,
+/// and every route re-checks both. A screen hidden here is a convenience; a
+/// route refused there is the control.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReachView {
+    /// `EVERYWHERE`, `ONE_PLACE` or `NOWHERE`.
+    pub scope: String,
+    /// The caller's own open posting, when they have one. Present even for
+    /// `EVERYWHERE`: an HR officer posted to head office is still posted
+    /// somewhere, and the screen says so.
+    pub place_id: Option<String>,
+    pub place_name: Option<String>,
+    /// `HO`, `DC` or `STORE`.
+    pub place_kind: Option<String>,
+    /// The rung the session holds. Sent here rather than left to a second call
+    /// to `/auth/me`, because scope and rung are one decision on the screen
+    /// that reads them and two requests would let them disagree by a refresh.
+    pub role: String,
+    /// Whether an employment record is bound to this login at all. `null` says
+    /// "this account is nobody's" — a machine account, or a login HR has not
+    /// finished the paperwork for — which is why the reach is `NOWHERE`.
+    pub employee_id: Option<String>,
+}
+
+pub async fn reach(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<ReachView>, AppError> {
+    let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
+    let reach = reach_from(&principal, &caller.posting);
+    let (place_id, place_kind) = match caller.posting {
+        Some((place_id, kind)) => (Some(place_id), Some(kind)),
+        None => (None, None),
+    };
+    Ok(Json(ReachView {
+        scope: reach.code().to_owned(),
+        place_id,
+        place_name: caller.place_name,
+        place_kind,
+        role: principal.role.as_str().to_owned(),
+        employee_id: caller.employee_id,
+    }))
 }
 
 pub async fn register(
@@ -521,9 +675,14 @@ pub async fn register(
     Extension(principal): Extension<Principal>,
     Json(body): Json<RegisterBody>,
 ) -> Result<Json<EmployeeView>, AppError> {
+    // A registration has no subject yet, so there is no place to reach into —
+    // but the reach is resolved rather than stubbed, so that a later gate added
+    // here asks the caller's real posting instead of a placeholder that would
+    // refuse head office.
     let access = Access {
         employee_id: String::new(),
         own: false,
+        reach: reach_of(&state, &principal).await?,
         principal,
     };
     access.may(actions::EMPLOYEE_CREATE)?;
@@ -543,9 +702,9 @@ pub async fn detail(
 ) -> Result<Json<EmployeeView>, AppError> {
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
-    Ok(Json(employee_view(
-        &record(&state, &access.employee_id).await?,
-    )))
+    let record = record(&state, &access.employee_id).await?;
+    access.reaches(current_place(&record))?;
+    Ok(Json(employee_view(&record)))
 }
 
 pub async fn transition(
@@ -649,6 +808,7 @@ pub async fn employment_profile(
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
     let record = record(&state, &access.employee_id).await?;
+    access.reaches(current_place(&record))?;
 
     let current = record.assignments.current();
     let place_id = current.map(|span| span.place_id().to_string());
@@ -688,6 +848,7 @@ pub async fn read_personal_data(
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::PROFILE_READ)?;
     let record = record(&state, &access.employee_id).await?;
+    access.reaches(current_place(&record))?;
     let profile = record.profile.ok_or_else(|| {
         AppError::NotFound(format!(
             "no personal data has been recorded for {}",
@@ -789,6 +950,7 @@ pub async fn read_contracts(
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
     let record = record(&state, &access.employee_id).await?;
+    access.reaches(current_place(&record))?;
     Ok(Json(contracts_view(&record, Utc::now().date_naive())))
 }
 
@@ -858,10 +1020,23 @@ pub async fn expiring(
             principal.username
         )));
     }
+    let reach = reach_of(&state, &principal).await?;
+    if reach.is_nowhere() {
+        return Err(AppError::Forbidden(format!(
+            "{} has no open posting, so no place's contracts are theirs to read",
+            principal.username
+        )));
+    }
     let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
     let within = query.within_days.unwrap_or(30).clamp(0, 3650);
     let before = as_of + chrono::Duration::days(within);
     Ok(Json(
-        infrastructure::expiring_contracts(&state.db, as_of, before).await?,
+        infrastructure::expiring_contracts(
+            &state.db,
+            as_of,
+            before,
+            reach.sole_place().map(|place| place.as_str()),
+        )
+        .await?,
     ))
 }
