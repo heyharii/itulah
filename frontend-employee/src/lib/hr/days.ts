@@ -12,3 +12,16 @@ export function readDays(centidays: number): string {
   }
   return `${whole}.${String(fraction).padStart(2, "0")} days`
 }
+
+/// Minutes as a person would say them.
+///
+/// Overtime is counted in whole minutes because a fractional hour cannot
+/// round-trip, so two systems reading the same order would disagree about it.
+/// A phone reads "2h", not "120".
+export function readMinutes(minutes: number): string {
+  if (minutes === 0) return "none"
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (hours === 0) return `${rest}m`
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`
+}

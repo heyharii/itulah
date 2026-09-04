@@ -10,12 +10,13 @@ record follows the person rather than the building.
 ## Half the backend exists now
 
 **Live, against real routes, with no stand-in behind them:** the profile
-(`/employees/me/profile`), and leave — `/api/v1/leave-types`,
+(`/employees/me/profile`), leave — `/api/v1/leave-types`,
 `/employees/me/leave-balances`, `/employees/me/leave-requests` and its
-`withdraw`. A failure on those is a failure and says so.
+`withdraw` — and overtime: `/employees/me/overtime-orders` and its `consent`.
+A failure on those is a failure and says so.
 
-**Still standing in:** attendance, corrections, overtime, pay and payslips,
-device sessions. The server answers 404 to those, and `demo.ts` covers them.
+**Still standing in:** attendance, corrections, pay and payslips, device
+sessions. The server answers 404 to those, and `demo.ts` covers them.
 
 Two things changed shape when leave landed, and they are worth knowing before
 reading the diff. The proposal's `LeaveType` carried the reader's own balance
@@ -26,6 +27,12 @@ where the screens want them joined. And `cancel` became `withdraw`, because
 only the person who filed a request may take it back; anybody else who wants it
 gone must *reject* it under their own name, and one word for both would have
 hidden which had happened.
+
+Overtime renamed two things for the same kind of reason. `acknowledge` became
+`consent` and `accepted` became `agreed`: acknowledging an instruction is
+admitting you received it, and what PP 35/2021 art. 26(2) asks for is your
+agreement. The answer is recorded under a key your supervisor does not hold —
+which is why this app can answer an order and the head-office console cannot.
 
 So `src/lib/hr/` makes the real request and falls back to `demo.ts` **only** on
 a 404 or a 501:

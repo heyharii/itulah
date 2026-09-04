@@ -14,7 +14,7 @@ import {
   relativeDay,
   shortDate,
 } from "@/lib/format"
-import { readDays } from "@/lib/hr/days"
+import { readDays, readMinutes } from "@/lib/hr/days"
 import {
   useAttendance,
   useHolidays,
@@ -42,8 +42,11 @@ export function Home() {
 
   const days = attendance.data ?? []
   const today = days[days.length - 1]
+  // Waiting on *them*, specifically. An order nobody has answered authorizes
+  // nothing, so this is the one card on this screen that is a task rather than
+  // a fact.
   const awaiting = (overtime.data ?? []).filter(
-    (order) => order.status === "ORDERED"
+    (order) => order.state === "AWAITING_CONSENT"
   )
   // The first kind that actually draws on a balance, rather than one named
   // `annual`: the kinds are the operator's to define and their codes are their
@@ -78,13 +81,13 @@ export function Home() {
       {awaiting.length > 0 && (
         <Panel title="Waiting on you">
           {awaiting.map((order) => (
-            <div key={order.order_id} className="flex flex-col gap-1">
+            <div key={order.id} className="flex flex-col gap-1">
               <p className="text-[13px] font-medium">
-                Overtime {relativeDay(order.date)} · {order.planned_from}–
-                {order.planned_to}
+                Overtime {relativeDay(order.on_date)} ·{" "}
+                {readMinutes(order.planned_minutes)}
               </p>
               <p className="text-[13px] text-muted-foreground">
-                {order.reason}
+                {order.ordered_reason}
               </p>
             </div>
           ))}

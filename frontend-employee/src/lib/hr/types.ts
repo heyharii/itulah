@@ -98,24 +98,6 @@ export interface PaySlip {
   readonly lines: readonly PayLine[]
 }
 
-/// Overtime the employee was *ordered* to work.
-///
-/// Ordered, not claimed: an order is issued by a supervisor and the employee
-/// acknowledges it. That direction is the law's — overtime is instructed and
-/// consented to — and it is why this screen has an "Acknowledge" button and no
-/// "Add overtime" one.
-export interface OvertimeOrder {
-  readonly order_id: string
-  readonly date: IsoDate
-  readonly planned_from: string
-  readonly planned_to: string
-  readonly hours: number
-  readonly reason: string
-  readonly ordered_by: string
-  readonly status: "ORDERED" | "ACKNOWLEDGED" | "DECLINED" | "WORKED"
-  readonly acknowledged_at: IsoInstant | null
-}
-
 export type AttendanceStatus =
   "PRESENT" | "LATE" | "INCOMPLETE" | "ABSENT" | "LEAVE" | "HOLIDAY" | "REST"
 

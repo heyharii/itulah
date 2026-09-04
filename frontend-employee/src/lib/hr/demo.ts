@@ -8,7 +8,6 @@ import type {
   HolidayCalendar,
   IsoDate,
   Notification,
-  OvertimeOrder,
   PayrollIdentity,
   PaySlip,
 } from "./types"
@@ -128,31 +127,6 @@ export const demoPaySlips: readonly PaySlip[] = [
   },
 ]
 
-
-export const demoOvertimeOrders: OvertimeOrder[] = [
-  {
-    order_id: "ot_0114",
-    date: dayOffset(2),
-    planned_from: "18:00",
-    planned_to: "21:00",
-    hours: 3,
-    reason: "New season floor set.",
-    ordered_by: "Bagus Prakoso",
-    status: "ORDERED",
-    acknowledged_at: null,
-  },
-  {
-    order_id: "ot_0109",
-    date: dayOffset(-6),
-    planned_from: "18:00",
-    planned_to: "20:30",
-    hours: 2.5,
-    reason: "Stock count.",
-    ordered_by: "Bagus Prakoso",
-    status: "WORKED",
-    acknowledged_at: instantOffset(-8, 11, 2),
-  },
-]
 
 /// Fourteen days back from today, with the shape of a real fortnight in it:
 /// a rest day a week, one late morning, one missing clock-out, one national

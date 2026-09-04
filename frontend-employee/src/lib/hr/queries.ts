@@ -164,19 +164,25 @@ export function useOvertimeOrders() {
   })
 }
 
-export function useAcknowledgeOvertime() {
+/// Answering is yours, and it carries your words either way.
+///
+/// A refusal with no reason recorded is a refusal somebody can later
+/// characterise however they like, so the screen asks for one — briefly, on a
+/// phone, but it asks.
+export function useAnswerOvertime() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: ({
       orderId,
-      accepted,
+      agreed,
+      reason,
     }: {
       orderId: string
-      accepted: boolean
-    }) => hr.acknowledgeOvertime(orderId, accepted),
+      agreed: boolean
+      reason: string
+    }) => hr.answerOvertime(orderId, agreed, reason),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: key.overtime })
-      void client.invalidateQueries({ queryKey: key.notifications })
     },
   })
 }

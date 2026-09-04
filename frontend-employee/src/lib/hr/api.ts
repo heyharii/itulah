@@ -5,6 +5,7 @@ import type {
   LeaveBalanceRow,
   LeaveRequestView,
   LeaveTypeView,
+  OvertimeOrderView,
   Notification as ContractNotification,
   NotificationPage,
 } from "@itulah/contract"
@@ -17,7 +18,6 @@ import type {
   HolidayCalendar,
   NewAttendanceCorrection,
   Notification,
-  OvertimeOrder,
   PayrollIdentity,
   PaySlip,
 } from "./types"
@@ -274,39 +274,41 @@ function newRequestId(): string {
   return `LV-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`
 }
 
+// ── overtime: live, and the answer is yours ──────────────────
+//
+// An order is the employer's instruction; the answer is yours, under a key your
+// supervisor does not hold. PP 35/2021 art. 26(2) wants both, which is why this
+// screen has two buttons and no "add overtime" one — you cannot order your own.
+//
+// `acknowledge` became `consent`, and `accepted` became `agreed`. The words are
+// the server's and they are the better ones: acknowledging an instruction is
+// admitting you received it, and what the law asks for is agreement.
+
+/// The orders addressed to you, newest first.
 export function overtimeOrders(
   signal?: AbortSignal
-): Promise<readonly OvertimeOrder[]> {
-  return read(
+): Promise<OvertimeOrderView[]> {
+  return node.get<OvertimeOrderView[]>(
     `/api/v1/employees/${SELF}/overtime-orders`,
-    () => demo.demoOvertimeOrders,
-    signal
+    { signal }
   )
 }
 
-export function acknowledgeOvertime(
+/// Answer one: yes or no, in your own words.
+///
+/// There is no third value — an order is answered yes or no, and "pending" is
+/// the state it is already in. A refusal is final: nobody can reverse it, which
+/// is what makes it a refusal rather than a first offer.
+export function answerOvertime(
   orderId: string,
-  accepted: boolean
-): Promise<OvertimeOrder> {
-  return write(
-    "POST",
-    `/api/v1/employees/${SELF}/overtime-orders/${orderId}/acknowledge`,
-    { accepted },
-    () => {
-      const index = demo.demoOvertimeOrders.findIndex(
-        (candidate) => candidate.order_id === orderId
-      )
-      const decided: OvertimeOrder = {
-        ...demo.demoOvertimeOrders[index],
-        status: accepted ? "ACKNOWLEDGED" : "DECLINED",
-        acknowledged_at: new Date().toISOString(),
-      }
-      demo.demoOvertimeOrders[index] = decided
-      return decided
-    }
+  agreed: boolean,
+  reason: string
+): Promise<OvertimeOrderView> {
+  return node.post<OvertimeOrderView>(
+    `/api/v1/employees/${SELF}/overtime-orders/${encodeURIComponent(orderId)}/consent`,
+    { agreed, reason }
   )
 }
-
 export function attendance(
   from: string,
   to: string,
