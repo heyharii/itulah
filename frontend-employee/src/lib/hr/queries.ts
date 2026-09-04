@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react"
 
 import * as hr from "./api"
 import { isoDate } from "./demo"
-import type { NewAttendanceCorrection, NewLeaveRequest } from "./types"
+import type { NewAttendanceCorrection } from "./types"
 
 /// The cache keys, written out in one place.
 ///
@@ -18,6 +18,7 @@ export const key = {
   pay: ["hr", "pay"] as const,
   leaveTypes: ["hr", "leave-types"] as const,
   leaveRequests: ["hr", "leave-requests"] as const,
+  leaveBalances: ["hr", "leave-balances"] as const,
   overtime: ["hr", "overtime"] as const,
   attendance: (from: string, to: string) =>
     ["hr", "attendance", from, to] as const,
@@ -63,11 +64,63 @@ export function usePaySlips() {
   })
 }
 
-export function useLeaveTypes() {
-  return useQuery({
+/// The kinds of leave, joined with this person's own balances.
+///
+/// Two reads because the server keeps two things apart, and one hook because
+/// the screens want them together: "annual leave" without "you have 6 days
+/// left" is not an answer to anything anybody opens this screen to ask.
+///
+/// The join is where the honesty lives. A kind that draws on no balance gets
+/// `balance: null` rather than a zero — sick leave is granted for as long as
+/// the certificate says, and a screen showing "0 left" beside it would be
+/// telling somebody they had run out of something that cannot run out.
+export interface Entitlement {
+  readonly code: string
+  readonly name: string
+  readonly drawsOnBalance: boolean
+  readonly requiresEvidence: boolean
+  /// Hundredths of a day. `null` when the kind draws on nothing.
+  readonly remainingCentidays: number | null
+  readonly pendingCentidays: number | null
+}
+
+export function useLeaveEntitlements() {
+  const types = useQuery({
     queryKey: key.leaveTypes,
     queryFn: ({ signal }) => hr.leaveTypes(signal),
   })
+  const balances = useQuery({
+    queryKey: key.leaveBalances,
+    queryFn: ({ signal }) => hr.leaveBalances(signal),
+  })
+
+  const rows: Entitlement[] = (types.data ?? []).map((kind) => {
+    const balance = (balances.data ?? []).find(
+      (row) => row.leave_type === kind.code
+    )
+    return {
+      code: kind.code,
+      name: kind.name,
+      drawsOnBalance: kind.draws_on_balance,
+      requiresEvidence: kind.requires_evidence,
+      remainingCentidays: kind.draws_on_balance
+        ? (balance?.centidays ?? 0)
+        : null,
+      pendingCentidays: kind.draws_on_balance
+        ? (balance?.pending_centidays ?? 0)
+        : null,
+    }
+  })
+
+  return {
+    data: rows,
+    // The pair reads as one query to the screen: still loading while either is,
+    // and failed if either failed. A screen that rendered the kinds before the
+    // balances arrived would show every entitlement as zero for a frame.
+    isPending: types.isPending || balances.isPending,
+    isError: types.isError || balances.isError,
+    error: types.error ?? balances.error,
+  }
 }
 
 export function useLeaveRequests() {
@@ -77,25 +130,29 @@ export function useLeaveRequests() {
   })
 }
 
-/// Applying moves a balance as well as adding a row, so both are invalidated.
+/// Filing moves nothing yet — a request is pending until somebody decides it —
+/// but it does change what is pending, which is the number people plan around.
 export function useApplyForLeave() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (request: NewLeaveRequest) => hr.applyForLeave(request),
+    mutationFn: (request: hr.NewLeaveRequest) => hr.applyForLeave(request),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: key.leaveRequests })
-      void client.invalidateQueries({ queryKey: key.leaveTypes })
+      void client.invalidateQueries({ queryKey: key.leaveBalances })
     },
   })
 }
 
-export function useCancelLeave() {
+/// Withdrawing carries a reason, because the server records one against every
+/// decision — including the ones you take about yourself.
+export function useWithdrawLeave() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (requestId: string) => hr.cancelLeave(requestId),
+    mutationFn: ({ requestId, reason }: { requestId: string; reason: string }) =>
+      hr.withdrawLeave(requestId, reason),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: key.leaveRequests })
-      void client.invalidateQueries({ queryKey: key.leaveTypes })
+      void client.invalidateQueries({ queryKey: key.leaveBalances })
     },
   })
 }

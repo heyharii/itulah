@@ -71,12 +71,17 @@ const DEFAULT_LIMIT: i64 = 200;
 const MAX_LIMIT: i64 = 1000;
 
 /// A resolved subject, and whether the caller is asking about themselves.
-struct Access {
-    employee_id: String,
-    own: bool,
-    principal: Principal,
+///
+/// Shared with the other HR surfaces — leave, and the roster and payroll that
+/// follow — rather than copied into each. A second spelling of "may this caller
+/// read this record" is a second answer, and the one that drifts is always the
+/// one nobody is looking at.
+pub(super) struct Access {
+    pub(super) employee_id: String,
+    pub(super) own: bool,
+    pub(super) principal: Principal,
     /// The places this caller may act in, from their own open posting.
-    reach: Reach,
+    pub(super) reach: Reach,
 }
 
 impl Access {
@@ -86,7 +91,7 @@ impl Access {
     /// and the rung comes from the action key. The *place* is a second gate —
     /// see [`Access::reaches`] — because a rung cannot tell one shop's
     /// supervisor from another's.
-    fn may_read(&self, action_key: &str) -> Result<(), AppError> {
+    pub(super) fn may_read(&self, action_key: &str) -> Result<(), AppError> {
         if self.own {
             return Ok(());
         }
@@ -94,7 +99,7 @@ impl Access {
     }
 
     /// A write. Never softened by asking about yourself.
-    fn may(&self, action_key: &str) -> Result<(), AppError> {
+    pub(super) fn may(&self, action_key: &str) -> Result<(), AppError> {
         if role_allows(required_role_for_action(action_key), self.principal.role) {
             return Ok(());
         }
@@ -115,7 +120,7 @@ impl Access {
     /// posted nowhere still has their own record, and refusing them their own
     /// employment history because HR has not filed their posting would break
     /// the employee app for exactly the new joiners it is most useful to.
-    fn reaches(&self, place_id: Option<&str>) -> Result<(), AppError> {
+    pub(super) fn reaches(&self, place_id: Option<&str>) -> Result<(), AppError> {
         if self.own || self.reach.covers(place_id) {
             return Ok(());
         }
@@ -130,7 +135,7 @@ impl Access {
     /// The actor and the instant come from here, never from the request body:
     /// a handler that accepted either would let a caller sign somebody else's
     /// name to their own decision.
-    fn authorize(&self, action_key: &str, reason: &str) -> Result<Authorization, AppError> {
+    pub(super) fn authorize(&self, action_key: &str, reason: &str) -> Result<Authorization, AppError> {
         Authorization::try_new(&self.principal.username, action_key, Utc::now(), reason)
             .map_err(|error| AppError::Validation(error.to_string()))
     }
@@ -142,7 +147,7 @@ impl Access {
 /// a property of the credential and a posting is HR data with a history, so a
 /// place stamped into a session is wrong from the transfer until the next
 /// sign-in — which is exactly the week it matters.
-async fn reach_of(state: &AppState, principal: &Principal) -> Result<Reach, AppError> {
+pub(super) async fn reach_of(state: &AppState, principal: &Principal) -> Result<Reach, AppError> {
     let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
     Ok(reach_from(principal, &caller.posting))
 }
@@ -162,7 +167,7 @@ fn reach_from(principal: &Principal, posting: &Option<(String, String)>) -> Reac
 }
 
 /// Turn a path segment into an employee id, resolving `me` from the session.
-async fn resolve(state: &AppState, principal: &Principal, raw: &str) -> Result<Access, AppError> {
+pub(super) async fn resolve(state: &AppState, principal: &Principal, raw: &str) -> Result<Access, AppError> {
     let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
     let mine = caller.employee_id.clone();
     let employee_id = if raw == SELF {
@@ -188,7 +193,7 @@ async fn resolve(state: &AppState, principal: &Principal, raw: &str) -> Result<A
 
 /// Where a record sits, for the reach check. `None` for somebody nobody has
 /// posted yet.
-fn current_place(record: &EmployeeRecord) -> Option<&str> {
+pub(super) fn current_place(record: &EmployeeRecord) -> Option<&str> {
     record
         .assignments
         .current()

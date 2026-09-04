@@ -513,6 +513,27 @@ fn the_wire_types_are_written_for_the_browser() {
     // guessed the rule would be a second place the bound is decided.
     inventory_backend::cloud::http::employment::ReachView::export_all(&config)
         .unwrap_or_else(|e| panic!("ReachView: {e}"));
+    // Leave, and the calendar it is counted against. Both roots pull their
+    // nested views in behind them, so this is the set a screen fetches rather
+    // than every struct in the two modules.
+    //
+    // `LeaveBalanceRow` carries centidays rather than days, and it is generated
+    // rather than transcribed for exactly that reason: a browser that assumed
+    // days would be wrong by a factor of a hundred on every half day.
+    inventory_backend::cloud::http::holiday::CalendarView::export_all(&config)
+        .unwrap_or_else(|e| panic!("CalendarView: {e}"));
+    inventory_backend::cloud::http::holiday::CalendarYearsView::export_all(&config)
+        .unwrap_or_else(|e| panic!("CalendarYearsView: {e}"));
+    inventory_backend::cloud::http::holiday::HolidayOnDayView::export_all(&config)
+        .unwrap_or_else(|e| panic!("HolidayOnDayView: {e}"));
+    inventory_backend::cloud::http::leave::LeaveTypeView::export_all(&config)
+        .unwrap_or_else(|e| panic!("LeaveTypeView: {e}"));
+    inventory_backend::cloud::http::leave::LeaveRequestView::export_all(&config)
+        .unwrap_or_else(|e| panic!("LeaveRequestView: {e}"));
+    inventory_backend::cloud::http::leave::LeavePolicyView::export_all(&config)
+        .unwrap_or_else(|e| panic!("LeavePolicyView: {e}"));
+    inventory_backend::cloud::postgres::LeaveBalanceRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("LeaveBalanceRow: {e}"));
     // The attendance policy. One root: `export_all` pulls the version view and
     // `Minutes` in behind it.
     inventory_backend::cloud::http::attendance::PolicyScheduleView::export_all(&config)

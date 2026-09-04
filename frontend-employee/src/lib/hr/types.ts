@@ -98,51 +98,6 @@ export interface PaySlip {
   readonly lines: readonly PayLine[]
 }
 
-/// A kind of leave, with this person's own balance already applied.
-///
-/// The balance travels with the type because they are only ever read
-/// together: "annual leave" without "you have 6 days left" is not an answer to
-/// anything anybody opens this screen to ask.
-export interface LeaveType {
-  readonly leave_type_id: string
-  readonly name: string
-  readonly paid: boolean
-  readonly requires_document: boolean
-  readonly entitled_days: number
-  readonly taken_days: number
-  readonly pending_days: number
-  readonly remaining_days: number
-  /// Annual leave expires; sick leave does not. Null means it does not.
-  readonly expires_on: IsoDate | null
-}
-
-export type LeaveStatus =
-  "SUBMITTED" | "APPROVED" | "REJECTED" | "CANCELLED" | "TAKEN"
-
-export interface LeaveRequest {
-  readonly request_id: string
-  readonly leave_type_id: string
-  readonly leave_type_name: string
-  readonly from_date: IsoDate
-  readonly to_date: IsoDate
-  /// Working days, counted by the server against the site's holiday calendar.
-  /// A browser counting weekends would get the joint leave days wrong.
-  readonly days: number
-  readonly reason: string
-  readonly status: LeaveStatus
-  readonly submitted_at: IsoInstant
-  readonly decided_by: string | null
-  readonly decided_at: IsoInstant | null
-  readonly decision_note: string | null
-}
-
-export interface NewLeaveRequest {
-  readonly leave_type_id: string
-  readonly from_date: IsoDate
-  readonly to_date: IsoDate
-  readonly reason: string
-}
-
 /// Overtime the employee was *ordered* to work.
 ///
 /// Ordered, not claimed: an order is issued by a supervisor and the employee

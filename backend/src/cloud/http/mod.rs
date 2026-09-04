@@ -25,6 +25,8 @@ pub mod employment;
 pub mod documents;
 pub mod files;
 pub mod finance;
+pub mod holiday;
+pub mod leave;
 pub mod audit;
 pub mod notifications;
 pub mod performance;
@@ -612,6 +614,73 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/employees/{id}/contracts",
             get(employment::read_contracts).post(employment::add_contract),
+        )
+        // Which days are red, for a year.
+        //
+        // Reading needs no key, for the reason the attendance policy's read
+        // needs none: somebody planning leave has to know which days are
+        // holidays before they can ask for any, and a rule kept from the people
+        // it governs is a trap rather than a rule. Publishing and amending are
+        // head office's, and they share one key — adding a cuti bersama in
+        // March changes what people are owed exactly as much as publishing the
+        // year in January did.
+        .route(
+            "/api/v1/holiday-calendars",
+            get(holiday::years).post(holiday::publish),
+        )
+        .route(
+            "/api/v1/holiday-calendars/{year}",
+            get(holiday::read_calendar),
+        )
+        .route(
+            "/api/v1/holiday-calendars/{year}/amendments",
+            post(holiday::amend),
+        )
+        // A regional day is a holiday in some shops and a working day in
+        // others, so this asks per place and there is no place-free form of it.
+        .route(
+            "/api/v1/holiday-calendars/{year}/on/{date}",
+            get(holiday::on_day),
+        )
+        // The kinds of leave, and the rules a balance folds under. Both
+        // readable by anybody signed in — somebody filing their own leave has
+        // to know which kinds exist, and somebody whose days are counted under
+        // a rule is entitled to read it — and both set at head office.
+        .route(
+            "/api/v1/leave-types",
+            get(leave::list_types).post(leave::define_type),
+        )
+        .route(
+            "/api/v1/leave-policy",
+            get(leave::read_policy).post(leave::install_policy),
+        )
+        // Everything waiting on a decision, bounded by the caller's posting.
+        // One queue rather than one screen per kind of thing: a manager has
+        // five minutes and a list, not three tasks.
+        .route("/api/v1/leave-requests/pending", get(leave::pending))
+        // `{id}` accepts `me` on all four, like the rest of the employee
+        // surface. There is deliberately no route that spends a balance: days
+        // leave one only through an approval, which mints the deduction and
+        // stores it in the same transaction.
+        .route(
+            "/api/v1/employees/{id}/leave-balances",
+            get(leave::balances).post(leave::move_balance),
+        )
+        .route(
+            "/api/v1/employees/{id}/leave-requests",
+            get(leave::list_requests).post(leave::file),
+        )
+        .route(
+            "/api/v1/employees/{id}/leave-requests/{request_id}/approve",
+            post(leave::approve),
+        )
+        .route(
+            "/api/v1/employees/{id}/leave-requests/{request_id}/reject",
+            post(leave::reject),
+        )
+        .route(
+            "/api/v1/employees/{id}/leave-requests/{request_id}/withdraw",
+            post(leave::withdraw),
         )
         .route("/api/v1/notifications", get(notifications::list))
         .route(

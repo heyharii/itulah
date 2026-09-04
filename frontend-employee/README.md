@@ -7,11 +7,25 @@ sized for one hand in an apron pocket — and a sidebar layout from `md` up.
 It talks to the **CLOUD** node, like head office does, because an employee's
 record follows the person rather than the building.
 
-## The backend does not exist yet
+## Half the backend exists now
 
-None of the HR routes are implemented. `/api/v1/employees/*`, `/api/v1/leave-types`,
-`/api/v1/notifications`, `/api/v1/me/sessions` — the server answers 404 to all
-of them today.
+**Live, against real routes, with no stand-in behind them:** the profile
+(`/employees/me/profile`), and leave — `/api/v1/leave-types`,
+`/employees/me/leave-balances`, `/employees/me/leave-requests` and its
+`withdraw`. A failure on those is a failure and says so.
+
+**Still standing in:** attendance, corrections, overtime, pay and payslips,
+device sessions. The server answers 404 to those, and `demo.ts` covers them.
+
+Two things changed shape when leave landed, and they are worth knowing before
+reading the diff. The proposal's `LeaveType` carried the reader's own balance
+inside it; the server keeps the kind and the balance apart, because a kind is
+one row for the company and a balance is a fold over one person's ledger — and
+most kinds have no balance at all. `useLeaveEntitlements` joins the two reads
+where the screens want them joined. And `cancel` became `withdraw`, because
+only the person who filed a request may take it back; anybody else who wants it
+gone must *reject* it under their own name, and one word for both would have
+hidden which had happened.
 
 So `src/lib/hr/` makes the real request and falls back to `demo.ts` **only** on
 a 404 or a 501:

@@ -77,6 +77,21 @@ pub mod actions {
     pub const ROSTER_MANAGE: &str = "people.roster.manage";
     /// Approve or refuse a leave request.
     pub const LEAVE_DECIDE: &str = "people.leave.decide";
+    /// File a leave request on somebody else's behalf.
+    ///
+    /// A place manager's, and bounded by their reach. It exists because not
+    /// every warehouse hand carries a phone, and a system where the only way to
+    /// ask for leave is an app is a system where those people stop asking.
+    pub const LEAVE_REQUEST: &str = "people.leave.request";
+    /// Ask for your own leave.
+    ///
+    /// The cashier rung — everybody signed in holds it — and the bound is the
+    /// record, not the rung: it reaches the caller's own employment record and
+    /// no other. Deliberately a separate key from [`LEAVE_REQUEST`], because
+    /// "may ask for their own" and "may ask on anyone's behalf" are different
+    /// grants and one key covering both is how a self-service app becomes a way
+    /// to file leave against a colleague.
+    pub const LEAVE_REQUEST_OWN: &str = "people.leave.request_own";
     /// Order overtime. Consenting to it is the employee's, and is not a grant:
     /// a consent somebody else may give on your behalf is not a consent.
     pub const OVERTIME_ORDER: &str = "people.overtime.order";
@@ -94,8 +109,25 @@ pub mod actions {
     // Head office's, all of them. These are not decisions about one person in
     // one shop; they are the vocabulary the shops decide in.
 
-    /// Define the kinds of leave and their entitlements.
+    /// Define the kinds of leave and their entitlements, and ratify the policy
+    /// a balance folds under.
+    ///
+    /// One key for both because they are one decision: how many days a year,
+    /// how they accrue, what carries forward and what a kind of leave draws on
+    /// are answers to the same question, and a grant that could set the kinds
+    /// but not the entitlement would be a grant that could not finish the job.
     pub const LEAVE_TYPE_SET: &str = "people.leave_type.set";
+    /// Put days into somebody's balance, or correct one.
+    ///
+    /// Head office's, and separate from [`LEAVE_TYPE_SET`] because it is about
+    /// one person rather than about the rules. A manager who could hand
+    /// somebody days could hand themselves some, which is why it is not at the
+    /// rung that decides requests.
+    ///
+    /// It cannot spend a balance: `USAGE` is refused on this path, and the only
+    /// way days leave a balance is an approval that mints the deduction in the
+    /// same transaction.
+    pub const LEAVE_GRANT: &str = "people.leave.grant";
     /// Publish the year's public holidays, and amend them when the government
     /// moves one — which it does, by decree, in the middle of the year.
     pub const HOLIDAY_SET: &str = "people.holiday.set";
@@ -126,6 +158,20 @@ pub mod actions {
     pub const PROFILE_CHANGING: &[&str] = &[PROFILE_CHANGE];
     /// The keys that may write a contract.
     pub const CONTRACT_CHANGING: &[&str] = &[CONTRACT_CHANGE];
+    /// The keys that may publish or amend a holiday calendar.
+    ///
+    /// One key for both, deliberately: adding a *cuti bersama* in March is the
+    /// same act with the same consequence as publishing the year in January —
+    /// it changes what people are owed. Splitting them would suggest the later
+    /// change is the smaller one, and it is usually the larger, because by then
+    /// the year is running.
+    pub const HOLIDAY_SETTING: &[&str] = &[HOLIDAY_SET];
+    /// The keys that may ask for leave. Deliberately excludes
+    /// [`LEAVE_DECIDE`]: granting leave is not asking for it.
+    pub const LEAVE_REQUESTING: &[&str] = &[LEAVE_REQUEST, LEAVE_REQUEST_OWN];
+    /// The keys that may decide one. Deliberately excludes both requesting
+    /// keys: asking for leave is not granting it.
+    pub const LEAVE_DECIDING: &[&str] = &[LEAVE_DECIDE];
 }
 
 /// Which rung of the ladder an action key needs.
@@ -154,7 +200,13 @@ pub fn required_role(action_key: &str) -> Role {
         | actions::LEAVE_DECIDE
         | actions::OVERTIME_ORDER
         | actions::CORRECTION_DECIDE
-        | actions::ATTENDANCE_PERIOD_CLOSE => Role::Supervisor,
+        | actions::ATTENDANCE_PERIOD_CLOSE
+        | actions::LEAVE_REQUEST => Role::Supervisor,
+        // Everybody signed in may ask for their own leave. The bound is the
+        // record rather than the rung — the handler serves this key only for
+        // the caller's own employment record — because a cashier who could not
+        // ask for their own holiday would have to ask their manager to ask.
+        actions::LEAVE_REQUEST_OWN => Role::Cashier,
         _ => Role::Admin,
     }
 }
@@ -239,6 +291,29 @@ impl Authorization {
     pub fn authorizes_contract_change(&self) -> bool {
         actions::CONTRACT_CHANGING.contains(&self.action_key.as_str())
     }
+
+    /// May this authority publish or amend a holiday calendar?
+    ///
+    /// Re-checked on decode like the others: a calendar stored under a key that
+    /// never permitted it must not become the year's red days by way of a row.
+    pub fn authorizes_holiday_change(&self) -> bool {
+        actions::HOLIDAY_SETTING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority file a leave request?
+    pub fn authorizes_leave_request(&self) -> bool {
+        actions::LEAVE_REQUESTING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority decide one?
+    ///
+    /// The gate that keeps an approval from being recorded under the key
+    /// somebody used to ask — which would be the employee approving their own
+    /// leave, wearing the shape of a decision.
+    pub fn authorizes_leave_decision(&self) -> bool {
+        actions::LEAVE_DECIDING.contains(&self.action_key.as_str())
+    }
+
 }
 
 #[cfg(test)]

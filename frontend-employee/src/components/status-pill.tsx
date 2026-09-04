@@ -18,11 +18,15 @@ const tones: Record<Tone, string> = {
 /// Written out rather than inferred from the string, so a status the server
 /// adds later shows up quietly grey instead of silently reading as approved.
 const known: Record<string, { tone: Tone; label: string }> = {
-  SUBMITTED: { tone: "waiting", label: "Waiting" },
+  // Leave, as the server's state machine actually spells it. The proposal in
+  // `types.ts` guessed SUBMITTED/CANCELLED/TAKEN; the real one is
+  // PENDING/APPROVED/REJECTED/WITHDRAWN, and `WITHDRAWN` is a word worth
+  // keeping — only the person who filed a request may take it back, and
+  // anybody else who wants it gone must reject it under their own name.
+  PENDING: { tone: "waiting", label: "Waiting" },
   APPROVED: { tone: "good", label: "Approved" },
-  TAKEN: { tone: "quiet", label: "Taken" },
-  REJECTED: { tone: "bad", label: "Rejected" },
-  CANCELLED: { tone: "quiet", label: "Cancelled" },
+  REJECTED: { tone: "bad", label: "Refused" },
+  WITHDRAWN: { tone: "quiet", label: "Taken back" },
   ORDERED: { tone: "waiting", label: "Needs your reply" },
   ACKNOWLEDGED: { tone: "good", label: "Accepted" },
   DECLINED: { tone: "bad", label: "Declined" },

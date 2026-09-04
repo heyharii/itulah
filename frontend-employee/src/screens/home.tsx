@@ -14,10 +14,11 @@ import {
   relativeDay,
   shortDate,
 } from "@/lib/format"
+import { readDays } from "@/lib/hr/days"
 import {
   useAttendance,
   useHolidays,
-  useLeaveTypes,
+  useLeaveEntitlements,
   useOvertimeOrders,
   usePaySlips,
   useProfile,
@@ -34,7 +35,7 @@ export function Home() {
   const session = useSession()
   const profile = useProfile()
   const attendance = useAttendance()
-  const leaveTypes = useLeaveTypes()
+  const entitlements = useLeaveEntitlements()
   const overtime = useOvertimeOrders()
   const holidays = useHolidays()
   const pay = usePaySlips()
@@ -44,9 +45,12 @@ export function Home() {
   const awaiting = (overtime.data ?? []).filter(
     (order) => order.status === "ORDERED"
   )
-  const annual = (leaveTypes.data ?? []).find(
-    (type) => type.leave_type_id === "annual"
-  )
+  // The first kind that actually draws on a balance, rather than one named
+  // `annual`: the kinds are the operator's to define and their codes are their
+  // own — `CUTI_TAHUNAN` here, something else at the next company — so a card
+  // keyed to a hardcoded id is a card that is blank wherever it was not
+  // written.
+  const annual = entitlements.data.find((kind) => kind.drawsOnBalance)
   const nextHoliday = (holidays.data?.days ?? []).find((day) =>
     isUpcoming(day.date)
   )
@@ -138,22 +142,20 @@ export function Home() {
       >
         {annual === undefined ? (
           <p className="text-[13px] text-muted-foreground">
-            No entitlement on record.
+            No kind of leave draws on a balance yet.
           </p>
         ) : (
           <>
             <p className="text-3xl font-semibold tabular-nums">
-              {annual.remaining_days}
+              {readDays(annual.remainingCentidays ?? 0)}
               <span className="ml-2 text-sm font-normal text-muted-foreground">
-                days left
+                left
               </span>
             </p>
             <p className="text-[13px] text-muted-foreground">
-              {annual.taken_days} taken
-              {annual.pending_days > 0 &&
-                `, ${annual.pending_days} awaiting approval`}
-              {annual.expires_on !== null &&
-                ` · expires ${shortDate(annual.expires_on)}`}
+              {annual.name}
+              {(annual.pendingCentidays ?? 0) > 0 &&
+                ` · ${readDays(annual.pendingCentidays ?? 0)} awaiting a decision`}
             </p>
           </>
         )}

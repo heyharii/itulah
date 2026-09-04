@@ -151,9 +151,7 @@ Adaptations:
 | Area | Donor source | Blocked on |
 |---|---|---|
 | Salary structure and payroll identity | `employee-pay-domain`, `cloud-employee-pay`, migration 042 | nothing — buildable now |
-| Holiday calendar | `cloud-holiday`, migration 040 | nothing — buildable now |
-| Leave | `leave-domain`, `cloud-leave`, migration 043 | screens belong to the store surface |
-| Overtime | `cloud-overtime`, migration 045 | screens belong to the store surface |
+| Overtime | `cloud-overtime`, migration 045 | nothing — buildable now |
 | Attendance corrections | `attendance-domain`, `cloud-attendance`, migration 044 | needs punches, and the punch source is undecided |
 | Payroll runs | second source only (`payroll-domain`, `cloud-payroll`) | needs attendance and salary structure first |
 
@@ -171,3 +169,134 @@ Same path, different meaning. This is the only mismatch found between the
 employee app and the donor; every other route matches path for path, with
 `cancel`↔`withdraw` and `acknowledge`↔`consent` the only naming differences.
 When salary structure lands, one of the two has to give up the route name.
+
+## Holiday calendar
+
+Source: `fresh/crates/holiday-domain` and `cloud-holiday`, migration
+`040_holiday_calendar_v1.sql`.
+
+Destination: `backend/src/cloud/domain/holiday/`, `postgres/holiday.rs`,
+`http/holiday.rs`, migration
+`backend/migrations/postgres/0101_a_day_off_is_counted_not_assumed.sql`.
+
+Kept as-is, because all of it is load-bearing: the three kinds and the fact
+that only *cuti bersama* consumes annual leave; the refusal of a regional day
+that names nowhere and of a national day narrowed to some places; the stored
+set being what was **published**, with the set in force replayed from
+append-only amendments rather than stored beside them; and
+`as_published_at`, which is what makes "the calendar March payroll was settled
+under" answerable in June.
+
+Adaptations:
+
+- **One authority type.** The donor carries its own; amendments here record
+  `employment::Authorization`, and `authorizes_holiday_change` joins the gates
+  `Authorization` already re-checks on decode.
+- **One action key for publishing and amending.** `people.holiday.set`, rather
+  than the donor's `people.holiday_calendar.publish` plus a second for
+  amendments. Adding a *cuti bersama* in March changes what people are owed
+  exactly as much as publishing the year in January did — and usually more,
+  because by then the year is running.
+- **Reading needs no key at all.** The donor gates it. Here any signed-in
+  caller may read a calendar, for the reason the attendance policy's read needs
+  none: somebody planning leave has to know which days are red before they can
+  ask for any.
+- **`places` is a list on the wire**, empty meaning nationwide, rather than the
+  donor's tagged enum. Unambiguous only because a scope naming no places is
+  refused — `[]` cannot mean "observed nowhere", because no such holiday exists.
+- Table name singular (`holiday_calendar`).
+
+## Leave
+
+Source: `fresh/crates/leave-domain` and `cloud-leave`, migration
+`043_leave_v1.sql`.
+
+Destination: `backend/src/cloud/domain/leave/`, `postgres/leave.rs`,
+`http/leave.rs`, same migration `0101`.
+
+The five properties worth the port, all kept:
+
+1. **A balance is a fold, never a stored number.** There is no balance column
+   anywhere and no setter. The implementation the donor itself replaced kept a
+   balances table beside the ledger, so a crash between two statements parted
+   them silently and for ever.
+2. **Unratified policy has no constructor.** Four questions — how much carries
+   forward, when it expires, whether encashment needs a second approver, whether
+   protected leave keeps accruing — have no defaults. A deployment that has not
+   decided gets `PolicyNotRatified` naming the open question.
+3. **Not every kind of leave draws on a balance.** UU 13/2003 art. 93 makes
+   *cuti sakit* an entitlement rather than a withdrawal, art. 82 the same for
+   maternity, and art. 93(4) bounds *alasan penting* per occurrence. Asking a
+   balance of those is a malformed question, not one whose answer is zero.
+4. **Days are exact integers** — hundredths of a day, for the reason money is
+   an integer of the smallest unit.
+5. **An approval and its deduction happen together, or neither happens.**
+   `LeaveRequestState::Approved` carries the ledger entry id, `approve` is the
+   only way to reach it, `decide_request` writes both in one transaction, and
+   `leave_request_deduction_only_when_approved` refuses the halfway row. Three
+   guards, because the first two are code.
+
+Adaptations:
+
+- **The event vocabulary is a CHECK constraint.** The donor leaves
+  `leave_ledger_entry.event` unconstrained; the eight codes are spelled out in
+  0101 for the reason every other vocabulary in this schema is.
+- **`leave_request.place_id` is a real foreign key.** The donor has no place
+  table to point at. Which shop a request belongs to is what bounds the manager
+  who may decide it, so it is `org_place(id)` here — and the partial index on
+  `(place_id, from_date) WHERE state = 'PENDING'` is exactly the queue query.
+- **The policy table is read.** The donor writes `leave_policies` and never
+  loads it; `load_policies` folds the whole timeline and `approve` resolves the
+  generation in force on the day the leave *starts*.
+- **Four action keys rather than the donor's role vocabulary.**
+  `people.leave.decide` matches the donor's; `people.leave.request` and
+  `people.leave.request_own` are the two halves of asking (a manager filing on
+  somebody's behalf, and somebody asking about themselves — the second at the
+  CASHIER rung, bounded to their own record); `people.leave.grant` is new and
+  covers putting days *into* a balance, which is head office's and is not
+  something a manager who can decide requests should also be able to do.
+  `people.leave_type.set` covers both the kinds and the policy, because they
+  are one decision.
+- **There is no route that spends a balance.** `POST /leave-balances` refuses
+  `USAGE` outright. A "just adjust it" path would put the halfway state back
+  within reach of one careless caller.
+- **`withdraw`, not `cancel`.** The employee app's proposal used the second
+  word; the mismatch recorded below is resolved in the server's favour, because
+  the distinction the donor draws is worth keeping — only the requester may
+  withdraw, and anybody else must *reject* under their own name.
+- **The employee app's `LeaveType` was two things.** Its proposal fused the
+  kind and the reader's own balance. The server keeps them apart — a kind is
+  one row for the company, a balance is a fold over one person's ledger, and
+  most kinds have no balance at all — so `frontend-employee` joins the two reads
+  in `useLeaveEntitlements` and is honest about the kinds that have none.
+- Table names singular.
+
+Not ported from `cloud-leave`: its in-memory store, and its own authority
+directory.
+
+## A gate that was one rung too high
+
+`domain::auth::required_role(method, path)` derives a minimum rung from the
+path, ahead of any handler. Its fall-through makes every unlisted write
+SUPERVISOR — which silently made "ask for your own leave" a supervisor act, and
+the employee app got a 403 before `people.leave.request_own` was ever consulted.
+
+`POST /api/v1/employees/me/…` is now CASHIER. That widens the *path* gate and
+grants nothing: every handler under `/employees/{id}/…` re-checks its own action
+key, so `POST /employees/me/employment` is still `people.employment.change` and
+still ADMIN. What it removes is a second gate that could not tell changing your
+own address from ending your own employment, and answered the same to both.
+
+## Migration numbering, as it actually happened
+
+HR was given the `0100–0119` block. `0097_a_login_leaves_with_the_person.sql`
+sits outside it: it was written by the account-provisioning lane and was already
+applied to the dev database by the time this was noticed, and renumbering an
+applied migration changes its checksum and stops the node for every lane. It
+keeps its number.
+
+`0100` was taken by a proposed-hires feature that the owner then decided against
+(*"kita ga perlu hiring menu"*, 2026-09-04). It was removed before it reached
+git, so the number is free but is deliberately not reused: leave and holiday are
+`0101`.
+

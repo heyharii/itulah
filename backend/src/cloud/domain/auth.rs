@@ -102,6 +102,21 @@ pub fn required_role(method: &str, path: &str) -> Role {
         // login / change-password / me: any authenticated user.
         return Role::Cashier;
     }
+    // Self-service. `me` is the caller's own record by definition — the
+    // handler resolves it from the session and it can name nobody else — so a
+    // write under it is somebody acting on themselves, which the fall-through
+    // at the bottom would otherwise make Supervisor work. A cashier who could
+    // not ask for her own holiday would have to ask her manager to ask.
+    //
+    // This widens the *path* gate and grants nothing: every handler under
+    // `/employees/{id}/…` re-checks its own action key against the ladder, so
+    // `POST /employees/me/employment` is still `people.employment.change` and
+    // still ADMIN. What this removes is a second gate that could not tell
+    // "changing your own address" from "ending your own employment", and
+    // answered Supervisor to both.
+    if path.starts_with("/api/v1/employees/me/") {
+        return Role::Cashier;
+    }
     // Talking is not an administrative act. Without this, the fall-through at
     // the bottom would make posting a message require Supervisor — a cashier
     // could read a conversation they are in and not answer it.
@@ -204,6 +219,50 @@ mod tests {
             Role::Cashier
         );
         assert_eq!(required_role("POST", "/api/v1/files"), Role::Cashier);
+    }
+
+    /// A cashier who could not ask for her own holiday would have to ask her
+    /// manager to ask. `me` is the caller's own record by definition, so a
+    /// write under it is somebody acting on themselves.
+    #[test]
+    fn asking_about_yourself_is_cashier_work() {
+        assert_eq!(
+            required_role("POST", "/api/v1/employees/me/leave-requests"),
+            Role::Cashier
+        );
+        assert_eq!(
+            required_role("POST", "/api/v1/employees/me/leave-requests/LV-1/withdraw"),
+            Role::Cashier
+        );
+        // Somebody *else's* record is not self-service, and falls through to
+        // Supervisor with the rest of the write surface.
+        assert_eq!(
+            required_role("POST", "/api/v1/employees/emp_abc/leave-requests"),
+            Role::Supervisor
+        );
+    }
+
+    /// The carve-out above widens the path gate and grants nothing: every
+    /// handler under `/employees/{id}/…` re-checks its own action key, so the
+    /// acts that were ADMIN before it are ADMIN after it.
+    ///
+    /// Stated as a test because the path gate cannot express the difference
+    /// between changing your own address and ending your own employment, and
+    /// the reason that is safe lives in another module.
+    #[test]
+    fn self_service_does_not_let_anybody_end_their_own_employment() {
+        use crate::cloud::domain::{actions, required_role_for_action};
+        assert_eq!(
+            required_role_for_action(actions::EMPLOYMENT_CHANGE),
+            Role::Admin
+        );
+        assert_eq!(required_role_for_action(actions::PROFILE_CHANGE), Role::Admin);
+        assert_eq!(required_role_for_action(actions::LEAVE_GRANT), Role::Admin);
+        // And the one act the carve-out exists for really is cashier work.
+        assert_eq!(
+            required_role_for_action(actions::LEAVE_REQUEST_OWN),
+            Role::Cashier
+        );
     }
 
     #[test]

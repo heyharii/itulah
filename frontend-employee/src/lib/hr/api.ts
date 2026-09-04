@@ -2,6 +2,9 @@ import { node } from "@/lib/api"
 import { ApiError } from "@itulah/contract/client"
 import type {
   EmploymentProfileView,
+  LeaveBalanceRow,
+  LeaveRequestView,
+  LeaveTypeView,
   Notification as ContractNotification,
   NotificationPage,
 } from "@itulah/contract"
@@ -12,10 +15,7 @@ import type {
   DeviceSession,
   EmploymentContract,
   HolidayCalendar,
-  LeaveRequest,
-  LeaveType,
   NewAttendanceCorrection,
-  NewLeaveRequest,
   Notification,
   OvertimeOrder,
   PayrollIdentity,
@@ -170,105 +170,108 @@ export function paySlips(signal?: AbortSignal): Promise<readonly PaySlip[]> {
   return read(`/api/v1/employees/${SELF}/pay`, () => demo.demoPaySlips, signal)
 }
 
-/// The vocabulary of leave, carrying the caller's own balance.
+// ── leave: live, against the real routes ──────────────────────
+//
+// The first family to land. There is no stand-in below and no fallback: the
+// routes exist, so a failure here is a failure and says so, which is the whole
+// point of the narrow fallback rule above.
+//
+// # The proposal fused two things the server keeps apart
+//
+// `types.ts` had one `LeaveType` carrying both the kind of leave and this
+// person's balance in it, because the screens read them together. The server
+// does not, and it is right not to: a kind is one row for the whole company
+// and a balance is a fold over one person's ledger, and most kinds have no
+// balance at all — sick leave deducts from nothing, so "days remaining" is a
+// malformed question rather than one whose answer is zero.
+//
+// So there are two reads, joined in `queries.ts` where the screens want them
+// joined, and the join is honest about the kinds that have no balance.
+
+/// The kinds of leave that exist. One row for the company, no balances in it.
+export function leaveTypes(signal?: AbortSignal): Promise<LeaveTypeView[]> {
+  return node.get<LeaveTypeView[]>("/api/v1/leave-types", { signal })
+}
+
+/// What this person has left, per kind, and what they have pending.
 ///
-/// One request rather than two: the route is authenticated and there is no
-/// anonymous view of it, so the balance can ride along with the type it
-/// belongs to. Nobody opens this screen to read a list of leave names.
-export function leaveTypes(
+/// Only balance-backed kinds come back. A kind that draws on nothing is absent
+/// rather than reported as zero.
+export function leaveBalances(
   signal?: AbortSignal
-): Promise<readonly LeaveType[]> {
-  return read("/api/v1/leave-types", () => demo.demoLeaveTypes, signal)
+): Promise<LeaveBalanceRow[]> {
+  return node.get<LeaveBalanceRow[]>(
+    `/api/v1/employees/${SELF}/leave-balances`,
+    { signal }
+  )
 }
 
 export function leaveRequests(
   signal?: AbortSignal
-): Promise<readonly LeaveRequest[]> {
-  return read(
+): Promise<LeaveRequestView[]> {
+  return node.get<LeaveRequestView[]>(
     `/api/v1/employees/${SELF}/leave-requests`,
-    () => demo.demoLeaveRequests,
-    signal
+    { signal }
   )
 }
 
-export function applyForLeave(request: NewLeaveRequest): Promise<LeaveRequest> {
-  return write(
-    "POST",
-    `/api/v1/employees/${SELF}/leave-requests`,
-    request,
-    () => {
-      const type = demo.demoLeaveTypes.find(
-        (candidate) => candidate.leave_type_id === request.leave_type_id
-      )
-      const created: LeaveRequest = {
-        request_id: demo.demoId("lv"),
-        leave_type_id: request.leave_type_id,
-        leave_type_name: type?.name ?? request.leave_type_id,
-        from_date: request.from_date,
-        to_date: request.to_date,
-        days: countDays(request.from_date, request.to_date),
-        reason: request.reason,
-        status: "SUBMITTED",
-        submitted_at: new Date().toISOString(),
-        decided_by: null,
-        decided_at: null,
-        decision_note: null,
-      }
-      demo.demoLeaveRequests.unshift(created)
-      applyPendingToBalance(request.leave_type_id, created.days)
-      return created
-    }
-  )
+export interface NewLeaveRequest {
+  readonly leave_type: string
+  readonly from_date: string
+  readonly to_date: string
+  readonly reason: string
+  readonly evidence?: string
 }
 
-export function cancelLeave(requestId: string): Promise<LeaveRequest> {
-  return write(
-    "POST",
-    `/api/v1/employees/${SELF}/leave-requests/${requestId}/cancel`,
-    {},
-    () => {
-      const index = demo.demoLeaveRequests.findIndex(
-        (candidate) => candidate.request_id === requestId
-      )
-      const found = demo.demoLeaveRequests[index]
-      const cancelled: LeaveRequest = { ...found, status: "CANCELLED" }
-      demo.demoLeaveRequests[index] = cancelled
-      applyPendingToBalance(found.leave_type_id, -found.days)
-      return cancelled
-    }
-  )
-}
-
-/// The stand-in has to move the balance too.
+/// File one.
 ///
-/// A request that appeared in the list while the days left beside it did not
-/// change would teach whoever is reviewing this screen the wrong thing about
-/// what the server is expected to do.
-function applyPendingToBalance(leaveTypeId: string, days: number) {
-  const index = demo.demoLeaveTypes.findIndex(
-    (candidate) => candidate.leave_type_id === leaveTypeId
+/// The id is minted here rather than by the server, and that is deliberate:
+/// this is a phone in an apron pocket on a bad connection, and a request whose
+/// id the client chose can be retried without filing it twice. A second POST
+/// with the same id is refused as a conflict rather than becoming a second
+/// request for the same days.
+export function applyForLeave(
+  request: NewLeaveRequest
+): Promise<LeaveRequestView> {
+  return node.post<LeaveRequestView>(
+    `/api/v1/employees/${SELF}/leave-requests`,
+    {
+      request_id: newRequestId(),
+      leave_type: request.leave_type,
+      from_date: request.from_date,
+      to_date: request.to_date,
+      evidence: request.evidence ?? null,
+      reason: request.reason,
+    }
   )
-  if (index < 0) {
-    return
-  }
-  const type = demo.demoLeaveTypes[index]
-  demo.demoLeaveTypes[index] = {
-    ...type,
-    pending_days: type.pending_days + days,
-    remaining_days: type.remaining_days - days,
-  }
 }
 
-/// Calendar days, inclusive. The server counts working days against the site's
-/// holiday calendar; this is only the stand-in's guess and is not what the
-/// screens show once a real answer arrives.
-function countDays(from: string, to: string): number {
-  const start = Date.parse(`${from}T00:00:00`)
-  const end = Date.parse(`${to}T00:00:00`)
-  if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
-    return 1
-  }
-  return Math.round((end - start) / 86_400_000) + 1
+/// Take your own back.
+///
+/// `withdraw`, not `cancel`. The proposal used the second word; the server uses
+/// the first, and the distinction it draws is worth keeping — only the person
+/// who filed a request may withdraw it, and anybody else who wants it gone must
+/// *reject* it under their own name. One word for both would have hidden which
+/// of the two had happened.
+export function withdrawLeave(
+  requestId: string,
+  reason: string
+): Promise<LeaveRequestView> {
+  return node.post<LeaveRequestView>(
+    `/api/v1/employees/${SELF}/leave-requests/${encodeURIComponent(requestId)}/withdraw`,
+    { reason }
+  )
+}
+
+/// A client-minted request id.
+///
+/// `crypto.randomUUID` where it exists, and a timestamped fallback where it
+/// does not — some Android WebViews on http origins do not expose it, and this
+/// app runs on exactly those.
+function newRequestId(): string {
+  const random = globalThis.crypto?.randomUUID?.()
+  if (random !== undefined) return `LV-${random}`
+  return `LV-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`
 }
 
 export function overtimeOrders(

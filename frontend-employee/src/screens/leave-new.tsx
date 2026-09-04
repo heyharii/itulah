@@ -13,8 +13,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { isoDate } from "@/lib/hr/demo"
-import { useApplyForLeave, useLeaveTypes } from "@/lib/hr/queries"
-import type { LeaveType } from "@/lib/hr/types"
+import {
+  useApplyForLeave,
+  useLeaveEntitlements,
+  type Entitlement,
+} from "@/lib/hr/queries"
+import { readDays } from "@/lib/hr/days"
 
 /// Calendar days, and labelled as such. The server counts working days
 /// against the site's holiday calendar, and a number computed here that
@@ -32,9 +36,9 @@ function calendarDays(from: string, to: string): number {
 /// chosen, and both of those are the same sentence to the person reading it.
 function complaint(
   value: { leaveTypeId: string; from: string; to: string; reason: string },
-  types: readonly LeaveType[]
+  types: readonly Entitlement[]
 ): string | null {
-  const chosen = types.find((type) => type.leave_type_id === value.leaveTypeId)
+  const chosen = types.find((type) => type.code === value.leaveTypeId)
   const span = calendarDays(value.from, value.to)
   if (span === 0) {
     return "The last day cannot be before the first."
@@ -45,12 +49,20 @@ function complaint(
   if (value.reason.trim() === "") {
     return "Say why, so your manager can decide."
   }
+  // Only a kind that draws on a balance can be asked for more of than is
+  // left. Sick leave has none to run out of, and refusing it here would be
+  // this app inventing a limit the law does not have.
+  //
+  // The check is a courtesy and not the rule: the span counted here is
+  // calendar days, and the server charges working days against the holiday
+  // calendar — so it will sometimes allow what this warns about, and its
+  // answer is the one that counts.
   if (
     chosen !== undefined &&
-    chosen.entitled_days > 0 &&
-    span > chosen.remaining_days
+    chosen.drawsOnBalance &&
+    span * 100 > (chosen.remainingCentidays ?? 0)
   ) {
-    return `That is more than the ${chosen.remaining_days} days you have left.`
+    return `That is more than the ${readDays(chosen.remainingCentidays ?? 0)} you have left.`
   }
   return null
 }
@@ -64,7 +76,7 @@ function complaint(
 /// the platform control is plainly better than the design system's.
 export function LeaveNew() {
   const navigate = useNavigate()
-  const types = useLeaveTypes()
+  const types = useLeaveEntitlements()
   const apply = useApplyForLeave()
 
   const today = isoDate(new Date())
@@ -82,11 +94,11 @@ export function LeaveNew() {
       reason: "",
     },
     onSubmit: async ({ value }) => {
-      if (complaint(value, types.data ?? []) !== null) {
+      if (complaint(value, types.data) !== null) {
         return
       }
       await apply.mutateAsync({
-        leave_type_id: value.leaveTypeId,
+        leave_type: value.leaveTypeId,
         from_date: value.from,
         to_date: value.to,
         reason: value.reason.trim(),
@@ -100,7 +112,7 @@ export function LeaveNew() {
   // the day count follow their thumb rather than after they submit.
   const values = useStore(form.store, (state) => state.values)
   const span = calendarDays(values.from, values.to)
-  const problem = complaint(values, types.data ?? [])
+  const problem = complaint(values, types.data)
 
   return (
     <form
@@ -115,8 +127,8 @@ export function LeaveNew() {
         <FieldGroup>
           <form.Field name="leaveTypeId">
             {(field) => {
-              const chosen = (types.data ?? []).find(
-                (type) => type.leave_type_id === field.state.value
+              const chosen = types.data.find(
+                (type) => type.code === field.state.value
               )
               return (
                 <Field>
@@ -136,19 +148,15 @@ export function LeaveNew() {
                     <option value="" disabled>
                       Choose…
                     </option>
-                    {(types.data ?? []).map((type) => (
-                      <option
-                        key={type.leave_type_id}
-                        value={type.leave_type_id}
-                      >
+                    {types.data.map((type) => (
+                      <option key={type.code} value={type.code}>
                         {type.name}
-                        {type.entitled_days > 0 &&
-                          ` — ${type.remaining_days} left`}
-                        {!type.paid && " (unpaid)"}
+                        {type.drawsOnBalance &&
+                          ` — ${readDays(type.remainingCentidays ?? 0)} left`}
                       </option>
                     ))}
                   </select>
-                  {chosen?.requires_document === true && (
+                  {chosen?.requiresEvidence === true && (
                     <FieldDescription>
                       Bring the doctor's note to your manager — this app does
                       not take attachments yet.

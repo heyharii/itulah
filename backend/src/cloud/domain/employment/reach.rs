@@ -234,7 +234,10 @@ mod tests {
 
     #[test]
     fn head_office_reaches_every_place_without_being_admin() {
-        let reach = Reach::resolve(Role::Supervisor, Some(&posting("ho", PlaceKind::HeadOffice)));
+        let reach = Reach::resolve(
+            Role::Supervisor,
+            Some(&posting("ho", PlaceKind::HeadOffice)),
+        );
         assert_eq!(reach, Reach::Everywhere);
         assert!(reach.covers(Some("store-03")));
         assert!(reach.covers(Some("dc")));
