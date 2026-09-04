@@ -46,6 +46,16 @@ pub mod actions {
     pub const ASSIGNMENT_MANAGE: &str = "people.assignment.manage";
     /// Bind an employment record to a login account.
     pub const ACCOUNT_LINK: &str = "people.account.link";
+    /// Issue a login for somebody who has none: create the account, set its
+    /// rung, bind it to the employment record, and grant it a till.
+    ///
+    /// Its own key rather than [`ACCOUNT_LINK`] because it does more than bind:
+    /// binding says an existing credential is this person's, and this one
+    /// *creates* the credential and decides what it may do. A grant that could
+    /// bind but not issue is a real position to hold — it is the one an HR
+    /// assistant should have — and one key covering both could not express it.
+    pub const ACCOUNT_PROVISION: &str = "people.account.provision";
+
     /// Read personal data — name, NIK, address, contact, date of birth.
     ///
     /// Separate from [`EMPLOYEE_READ`] on purpose. "Who is on shift" and "what
@@ -64,7 +74,7 @@ pub mod actions {
     /// governs is a trap rather than a rule. Setting it is head office's.
     pub const ATTENDANCE_POLICY_SET: &str = "people.attendance_policy.set";
 
-    // ── the place manager's day ──────────────────────────────────
+    // ── the place manager's day ──────────────────────────────────────────
     //
     // Five keys at the supervisor rung, and they are the reason
     // `super::super::reach` exists. Every store manager holds the same rung,
@@ -114,7 +124,7 @@ pub mod actions {
     /// Undo a closure, at head office.
     pub const ATTENDANCE_PERIOD_REOPEN: &str = "people.attendance_period.reopen";
 
-    // ── the rules everybody else is measured against ───────────────────
+    // ── the rules everybody else is measured against ─────────────────────
     //
     // Head office's, all of them. These are not decisions about one person in
     // one shop; they are the vocabulary the shops decide in.
@@ -150,7 +160,7 @@ pub mod actions {
     /// who decides how much of it is lawful.
     pub const OVERTIME_POLICY_SET: &str = "people.overtime_policy.set";
 
-    // ── money ────────────────────────────────────────────
+    // ── money ────────────────────────────────────────────────────────────
 
     /// Agree or amend somebody's pay. An agreement, effective-dated: a salary
     /// is a history, not a number.
@@ -425,6 +435,7 @@ impl Authorization {
     pub fn authorizes_overtime_consent(&self) -> bool {
         actions::OVERTIME_CONSENTING.contains(&self.action_key.as_str())
     }
+
 }
 
 #[cfg(test)]
@@ -484,6 +495,17 @@ mod tests {
         // if the same grant covered both.
         assert_ne!(actions::PAYROLL_VERIFY, actions::PAYROLL_APPROVE);
     }
+
+    /// Issuing a credential is head office's, because it is the act that
+    /// decides what the person may do.
+    #[test]
+    fn only_head_office_may_issue_a_login() {
+        assert_eq!(required_role(actions::ACCOUNT_PROVISION), Role::Admin);
+        // Issuing a credential is not the same grant as binding one that
+        // already exists, and the distinction is recorded from the first day.
+        assert_ne!(actions::ACCOUNT_PROVISION, actions::ACCOUNT_LINK);
+    }
+
 
     /// A key nobody taught this function about must not be a way in.
     #[test]

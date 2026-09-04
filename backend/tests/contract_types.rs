@@ -90,6 +90,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("CatalogRow: {e}"));
     inventory_backend::edge::pricing::Quote::export_all(&config)
         .unwrap_or_else(|e| panic!("Quote: {e}"));
+    inventory_backend::edge::pricing::StoreOffers::export_all(&config)
+        .unwrap_or_else(|e| panic!("StoreOffers: {e}"));
 
     // The promotion document itself, exported from the engine that reads it.
     //
@@ -425,6 +427,13 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SupplierBill: {e}"));
     inventory_backend::cloud::postgres::RecordBillRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("RecordBillRequest: {e}"));
+    // The expense half of a bill. `RecordBillLine` names the account, because
+    // only the person holding the paper knows which one; `SupplierBillLine` is
+    // what comes back, with the client's own name for it beside the code.
+    inventory_backend::cloud::postgres::RecordBillLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordBillLine: {e}"));
+    inventory_backend::cloud::postgres::SupplierBillLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierBillLine: {e}"));
     inventory_backend::cloud::postgres::UnbilledReceipt::export_all(&config)
         .unwrap_or_else(|e| panic!("UnbilledReceipt: {e}"));
 
@@ -466,6 +475,27 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("DepreciationMethod: {e}"));
     inventory_backend::cloud::domain::SkipReason::export_all(&config)
         .unwrap_or_else(|e| panic!("SkipReason: {e}"));
+    // The other end of an asset's life, and the record of the one it had.
+    // `AssetSchedule` carries both what was charged and what is left, because
+    // the gap between the two is the only way to see a run quietly skipping an
+    // asset.
+    inventory_backend::cloud::postgres::DisposeAssetRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("DisposeAssetRequest: {e}"));
+    inventory_backend::cloud::postgres::TransferAssetRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("TransferAssetRequest: {e}"));
+    inventory_backend::cloud::postgres::AssetSchedule::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetSchedule: {e}"));
+    inventory_backend::cloud::postgres::AssetScheduleRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetScheduleRow: {e}"));
+    // Where the register and the books disagree about what was bought. Two
+    // lists and not one number: an unbacked asset and an unclaimed capital
+    // purchase are different faults with different fixes.
+    inventory_backend::cloud::postgres::AcquisitionGap::export_all(&config)
+        .unwrap_or_else(|e| panic!("AcquisitionGap: {e}"));
+    inventory_backend::cloud::postgres::UnbackedAsset::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnbackedAsset: {e}"));
+    inventory_backend::cloud::postgres::UnclaimedAcquisitionLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnclaimedAcquisitionLine: {e}"));
 
     // Bank reconciliation. `Suggestion.reasons` is the field that matters: a
     // 0-100 score explains nothing about which field agreed, and the person
@@ -484,6 +514,16 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("LineSuggestions: {e}"));
     inventory_backend::cloud::postgres::ConfirmMatchRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("ConfirmMatchRequest: {e}"));
+    inventory_backend::cloud::postgres::BookBankLineRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("BookBankLineRequest: {e}"));
+    // Where the money is. Driven off `account_map`, so a meaning nobody has
+    // mapped produces no row — which is the honest answer and a visible one.
+    inventory_backend::cloud::postgres::MoneyOverview::export_all(&config)
+        .unwrap_or_else(|e| panic!("MoneyOverview: {e}"));
+    inventory_backend::cloud::postgres::MoneyAccountRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("MoneyAccountRow: {e}"));
+    inventory_backend::cloud::postgres::MoneyStatementRef::export_all(&config)
+        .unwrap_or_else(|e| panic!("MoneyStatementRef: {e}"));
     inventory_backend::cloud::domain::Suggestion::export_all(&config)
         .unwrap_or_else(|e| panic!("Suggestion: {e}"));
     inventory_backend::cloud::domain::Assignment::export_all(&config)
@@ -513,6 +553,22 @@ fn the_wire_types_are_written_for_the_browser() {
     // guessed the rule would be a second place the bound is decided.
     inventory_backend::cloud::http::employment::ReachView::export_all(&config)
         .unwrap_or_else(|e| panic!("ReachView: {e}"));
+    // Proposed hires. The queue and one request are separate shapes because
+    // they are separate privileges: the summary carries a name, a job and a
+    // date, and the full view carries the NIK and the home address a proposal
+    // has to state. Generating both is what stops a screen reaching for the
+    // second when it only needed the first.
+    // Issuing a login: which tills a person's place is served by, what the
+    // request looks like, and what came back. The two rungs — one at the centre
+    // and one at the till — are separate fields on the request, and a
+    // hand-written shape that collapsed them into one is precisely the mistake
+    // this generation exists to prevent.
+    inventory_backend::cloud::postgres::EdgeTarget::export_all(&config)
+        .unwrap_or_else(|e| panic!("EdgeTarget: {e}"));
+    inventory_backend::contract::ProvisionAccountRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ProvisionAccountRequest: {e}"));
+    inventory_backend::contract::ProvisionedAccount::export_all(&config)
+        .unwrap_or_else(|e| panic!("ProvisionedAccount: {e}"));
     // Leave, and the calendar it is counted against. Both roots pull their
     // nested views in behind them, so this is the set a screen fetches rather
     // than every struct in the two modules.
@@ -585,4 +641,31 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("IssuedPairingCode: {e}"));
     inventory_backend::cloud::http::member::MemberSessionResponse::export_all(&config)
         .unwrap_or_else(|e| panic!("MemberSessionResponse: {e}"));
+
+    // The till's day. The drawer, the reversal, and the paper the customer
+    // walks out with. Every one of these is posted by a screen a cashier uses
+    // while somebody waits, which is the worst possible place to discover that
+    // a hand-written shape had a field spelled differently.
+    inventory_backend::edge::till::OpenShiftRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpenShiftRequest: {e}"));
+    inventory_backend::edge::till::CashMovementRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CashMovementRequest: {e}"));
+    inventory_backend::edge::till::CloseShiftRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CloseShiftRequest: {e}"));
+    // One root: `export_all` pulls `CashMovementView` and `TenderTotal` in
+    // behind the report.
+    inventory_backend::edge::till::ShiftReport::export_all(&config)
+        .unwrap_or_else(|e| panic!("ShiftReport: {e}"));
+    inventory_backend::edge::till::VoidSaleRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("VoidSaleRequest: {e}"));
+    inventory_backend::edge::till::VoidResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("VoidResult: {e}"));
+    inventory_backend::edge::till::ReturnRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReturnRequest: {e}"));
+    inventory_backend::edge::till::ReturnResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReturnResult: {e}"));
+    inventory_backend::edge::till::PrintReceiptRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PrintReceiptRequest: {e}"));
+    inventory_backend::edge::escpos::ReceiptDocument::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReceiptDocument: {e}"));
 }

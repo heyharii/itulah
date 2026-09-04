@@ -646,10 +646,8 @@ pub trait EdgeInventory: Send + Sync {
     fn receive_store(&self, request: ReceiveRequest) -> Result<CommandResult, EdgeError>;
 
     /// Receive a whole delivery in one transaction — see [`ReceiveBatchRequest`].
-    fn receive_store_batch(
-        &self,
-        request: ReceiveBatchRequest,
-    ) -> Result<CommandResult, EdgeError>;
+    fn receive_store_batch(&self, request: ReceiveBatchRequest)
+        -> Result<CommandResult, EdgeError>;
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError>;
     fn complete_sale(&self, request: SaleRequest) -> Result<SaleResult, EdgeError>;
     fn list_pools(&self) -> Result<Vec<PoolBalance>, EdgeError>;
@@ -672,6 +670,22 @@ pub trait EdgeInventory: Send + Sync {
         &self,
         query: super::pricing::CatalogQuery,
     ) -> Result<super::pricing::CatalogPage, EdgeError>;
+    /// What this shop is offering, and what it is about to offer.
+    ///
+    /// The other half of the price book. `store_catalog` says what a garment
+    /// costs, which already includes any markdown — but a promotion is not a
+    /// price, it is a thing that happens to a basket, so it appears nowhere on
+    /// a shelf edge and nowhere in the catalogue. A shop that has been sent six
+    /// offers has had no way to see that it holds them, and a cashier asked
+    /// "what promos are on today?" has had nowhere to look.
+    fn store_offers(&self) -> Result<super::pricing::StoreOffers, EdgeError>;
+    /// Where one campaign's banner lives, as the centre last told this node.
+    ///
+    /// Read on its own rather than through the offers list: a browser asking
+    /// for a picture has already read the list and knows the campaign's id, and
+    /// rebuilding every offer to answer one `<img>` would price the whole book
+    /// per image.
+    fn campaign_image_url(&self, campaign_id: &str) -> Result<Option<String>, EdgeError>;
     /// Price a basket without selling it.
     ///
     /// The engine already produces everything a counter needs to talk to a
@@ -702,6 +716,67 @@ pub trait EdgeInventory: Send + Sync {
         query: super::reports::SalesWindowQuery,
     ) -> Result<super::reports::SalesWindow, EdgeError>;
     fn list_movements(&self, limit: usize) -> Result<Vec<MovementView>, EdgeError>;
+
+    // ── The till's day ──────────────────────────────────────────────────
+    //
+    // A drawer that opens and closes, and a sale the shop can take back. None
+    // of it existed until `sale.status` stopped being `CHECK (status =
+    // 'COMPLETED')`, which is to say the two things a counter does most after
+    // taking money were shut at the schema.
+
+    /// Open the drawer for the day. Refuses a second shift on a terminal that
+    /// already has one open.
+    fn open_shift(
+        &self,
+        request: super::till::OpenShiftRequest,
+    ) -> Result<super::till::ShiftReport, EdgeError>;
+    /// The shift currently running — on a named terminal, or on this node at
+    /// all when none is named.
+    fn active_shift(
+        &self,
+        terminal_id: Option<&str>,
+    ) -> Result<Option<super::till::ShiftReport>, EdgeError>;
+    /// Cash that moved for a reason other than a sale: a safe drop, a payout,
+    /// a correction.
+    fn record_cash_movement(
+        &self,
+        shift_id: &str,
+        request: super::till::CashMovementRequest,
+    ) -> Result<super::till::ShiftReport, EdgeError>;
+    /// Close against what the cashier counted. Blind: the declaration arrives
+    /// with the request and the expectation is computed here, so the two
+    /// cannot be reconciled after the fact into agreeing.
+    fn close_shift(
+        &self,
+        shift_id: &str,
+        request: super::till::CloseShiftRequest,
+    ) -> Result<super::till::ShiftReport, EdgeError>;
+    /// The Z report for one shift, closed or still running.
+    fn shift_report(&self, shift_id: &str) -> Result<super::till::ShiftReport, EdgeError>;
+
+    /// Undo a whole sale. Every unit still out with the customer comes home on
+    /// one movement, and the sale keeps its total — a void is a reversal, not
+    /// a delete.
+    fn void_sale(
+        &self,
+        sale_id: &str,
+        request: super::till::VoidSaleRequest,
+    ) -> Result<super::till::VoidResult, EdgeError>;
+    /// Take back some of a basket. Each unit is scanned, refunded at what it
+    /// was charged on the day, and sent to the floor or to reject.
+    fn return_sale(
+        &self,
+        request: super::till::ReturnRequest,
+    ) -> Result<super::till::ReturnResult, EdgeError>;
+    /// What the customer walks out with, resolved and ready to render.
+    fn sale_receipt(&self, sale_id: &str) -> Result<super::escpos::ReceiptDocument, EdgeError>;
+    /// Render it and put it on the shop's own printer. The drawer kick rides
+    /// the same socket.
+    fn print_sale_receipt(
+        &self,
+        sale_id: &str,
+        request: super::till::PrintReceiptRequest,
+    ) -> Result<serde_json::Value, EdgeError>;
     fn list_official_counts(&self) -> Result<Vec<EdgeOfficialCountSummary>, EdgeError>;
     fn official_count(&self, count_id: Uuid) -> Result<EdgeOfficialCountDetail, EdgeError>;
     fn record_official_count_entries(

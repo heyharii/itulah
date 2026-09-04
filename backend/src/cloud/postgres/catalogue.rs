@@ -56,9 +56,11 @@ const ACTIVATED_BY: &str = "COALESCE((
 /// promotions, from none" look identical without it and mean opposite things.
 async fn published_book_count(pool: &PgPool) -> Result<i64, AppError> {
     Ok(
-        sqlx::query_scalar("SELECT count(*) FROM commercial_publication WHERE status = 'PUBLISHED'")
-            .fetch_one(pool)
-            .await?,
+        sqlx::query_scalar(
+            "SELECT count(*) FROM commercial_publication WHERE status = 'PUBLISHED'",
+        )
+        .fetch_one(pool)
+        .await?,
     )
 }
 
@@ -166,7 +168,7 @@ pub async fn commercial_campaigns(pool: &PgPool) -> Result<Value, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT DISTINCT ON (g.campaign_id)
                 g.campaign_id, g.name, g.status, g.valid_from, g.valid_to,
-                g.budget_minor, g.max_uses,
+                g.budget_minor, g.max_uses, g.image_url, g.headline, g.terms,
                 p.id AS publication_id, p.version, p.name AS book_name,
                 p.effective_from, p.effective_to, {activated}
            FROM commercial_campaign g
@@ -189,6 +191,11 @@ pub async fn commercial_campaigns(pool: &PgPool) -> Result<Value, AppError> {
                 "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
                 "budget_minor": row.get::<Option<i64>, _>("budget_minor"),
                 "max_uses": row.get::<Option<i32>, _>("max_uses"),
+                // What a shopper sees. Editable after publication, unlike
+                // everything above it — a banner is not a price.
+                "image_url": row.get::<Option<String>, _>("image_url"),
+                "headline": row.get::<Option<String>, _>("headline"),
+                "terms": row.get::<Option<String>, _>("terms"),
                 "publication_id": row.get::<Uuid, _>("publication_id"),
                 "version": row.get::<i64, _>("version"),
                 "book_name": row.get::<String, _>("book_name"),

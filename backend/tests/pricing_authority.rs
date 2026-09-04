@@ -43,7 +43,7 @@ const PRICE_TABLES: [&str; 5] = [
 /// engine its inputs, one per node. The rest only ever WRITE: authoring,
 /// publishing, and the sync lanes that carry a book to a shop and apply it
 /// there. Nothing else has business knowing these tables exist.
-const ALLOWED: [(&str, &str); 8] = [
+const ALLOWED: [(&str, &str); 9] = [
     (
         "src/cloud/postgres/pricing.rs",
         "reads: builds the centre's snapshot for the engine",
@@ -69,6 +69,12 @@ const ALLOWED: [(&str, &str); 8] = [
         "writes: applies a book that arrived at a shop",
     ),
     ("src/edge/sqlite.rs", "writes: the shop's own schema"),
+    (
+        "src/cloud/postgres/performance.rs",
+        "reads ONE thing: which campaign a sold clearance belonged to, so a \
+         flash sale's cost can be reported. It never resolves a price — the \
+         line it reads was priced at a till months ago.",
+    ),
     (
         "src/cloud/postgres/sales.rs",
         "reads ONE thing: which currency a shop sells in, to open a sale. It \

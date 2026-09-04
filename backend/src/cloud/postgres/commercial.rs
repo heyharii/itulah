@@ -1,7 +1,8 @@
 use super::{begin_idempotent, complete_idempotent, payload_digest};
 use crate::cloud::{
     application::{
-        AppError, CommandRequest, CreateCommercialPublicationRequest, ResolveOfferQuery,
+        AppError, CampaignSwitchRequest, CommandRequest, CreateCommercialPublicationRequest,
+        ResolveOfferQuery,
     },
     domain::{CommercialChannel, CurrencyCode, SiteId},
 };
@@ -46,11 +47,10 @@ pub async fn create_commercial_publication(
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext('commercial_publication_version'))")
         .execute(&mut *tx)
         .await?;
-    let highest: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(version), 0) FROM commercial_publication",
-    )
-    .fetch_one(&mut *tx)
-    .await?;
+    let highest: i64 =
+        sqlx::query_scalar("SELECT COALESCE(MAX(version), 0) FROM commercial_publication")
+            .fetch_one(&mut *tx)
+            .await?;
     if request.version <= highest {
         return Err(AppError::Validation(format!(
             "book v{} would be written below v{highest}, which is already here. \
@@ -107,7 +107,7 @@ pub async fn create_commercial_publication(
             .await?;
     }
     for markdown in &request.markdowns {
-        sqlx::query("INSERT INTO commercial_markdown(id,publication_id,markdown_id,sku_id,sku_code,article_code,site_id,site_ids,replacement_unit_price_minor,priority,effective_from,effective_to) VALUES($1,$2,$3,$4,$5,$6,$7,$12,$8,$9,$10,$11)")
+        sqlx::query("INSERT INTO commercial_markdown(id,publication_id,markdown_id,sku_id,sku_code,article_code,site_id,site_ids,replacement_unit_price_minor,priority,effective_from,effective_to,campaign_id,iso_weekdays,from_minute,to_minute) VALUES($1,$2,$3,$4,$5,$6,$7,$12,$8,$9,$10,$11,$13,$14,$15,$16)")
             .bind(Uuid::new_v4())
             .bind(publication_id)
             .bind(markdown.markdown_id.trim())
@@ -120,11 +120,21 @@ pub async fn create_commercial_publication(
             .bind(markdown.effective_from)
             .bind(markdown.effective_to)
             .bind(group_of(markdown.site_ids.as_deref()))
+            .bind(markdown.campaign_id.as_deref().map(str::trim))
+            .bind(
+                markdown
+                    .iso_weekdays
+                    .iter()
+                    .map(|day| i16::try_from(*day).unwrap_or(0))
+                    .collect::<Vec<i16>>(),
+            )
+            .bind(markdown.from_minute.map(|m| i32::try_from(m).unwrap_or(0)))
+            .bind(markdown.to_minute.map(|m| i32::try_from(m).unwrap_or(0)))
             .execute(&mut *tx)
             .await?;
     }
     for campaign in &request.campaigns {
-        sqlx::query("INSERT INTO commercial_campaign(id,publication_id,campaign_id,name,status,valid_from,valid_to,budget_minor,max_uses) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+        sqlx::query("INSERT INTO commercial_campaign(id,publication_id,campaign_id,name,status,valid_from,valid_to,budget_minor,max_uses,image_url,headline,terms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
             .bind(Uuid::new_v4())
             .bind(publication_id)
             .bind(campaign.campaign_id.trim())
@@ -134,6 +144,9 @@ pub async fn create_commercial_publication(
             .bind(campaign.valid_to)
             .bind(campaign.budget_minor)
             .bind(campaign.max_uses.map(|max| i32::try_from(max).unwrap_or(i32::MAX)))
+            .bind(campaign.image_url.as_deref().map(str::trim))
+            .bind(campaign.headline.as_deref().map(str::trim))
+            .bind(campaign.terms.as_deref())
             .execute(&mut *tx)
             .await?;
     }
@@ -284,8 +297,7 @@ fn validate_publication_request(
     if request.offer_rules.is_empty() {
         if !request.tax_rules.is_empty() {
             return Err(AppError::Validation(
-                "this book sets no prices, so its tax rules would categorise nothing."
-                    .into(),
+                "this book sets no prices, so its tax rules would categorise nothing.".into(),
             ));
         }
     } else if request.tax_rules.is_empty() {
@@ -710,7 +722,7 @@ pub(super) async fn dispatch_publication(
 
     let campaigns: Vec<Value> = sqlx::query(
         "SELECT campaign_id,name,status,valid_from,valid_to,budget_minor,
-                max_uses
+                max_uses,image_url,headline,terms
            FROM commercial_campaign WHERE publication_id=$1 ORDER BY campaign_id",
     )
     .bind(publication_id)
@@ -726,6 +738,12 @@ pub(super) async fn dispatch_publication(
             "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
             "budget_minor": row.get::<Option<i64>, _>("budget_minor"),
             "max_uses": row.get::<Option<i32>, _>("max_uses"),
+            // What a shopper reads. Carried to every shop rather than fetched
+            // on demand: a till that had to ask the centre what the banner says
+            // is a till with a blank banner the moment the line drops.
+            "image_url": row.get::<Option<String>, _>("image_url"),
+            "headline": row.get::<Option<String>, _>("headline"),
+            "terms": row.get::<Option<String>, _>("terms"),
         })
     })
     .collect();
@@ -773,7 +791,8 @@ pub(super) async fn dispatch_publication(
         // this shop's own. A branch has no business holding another branch's.
         let markdowns: Vec<Value> = sqlx::query(
             "SELECT markdown_id,sku_code,article_code,site_id,site_ids,
-                    replacement_unit_price_minor,priority,effective_from,effective_to
+                    replacement_unit_price_minor,priority,effective_from,effective_to,
+                    campaign_id,iso_weekdays,from_minute,to_minute
                FROM commercial_markdown
               WHERE publication_id=$1
                 AND (site_id IS NULL OR site_id=$2)
@@ -796,6 +815,12 @@ pub(super) async fn dispatch_publication(
                 "priority": row.get::<i32, _>("priority"),
                 "effective_from": row.get::<DateTime<Utc>, _>("effective_from"),
                 "effective_to": row.get::<Option<DateTime<Utc>>, _>("effective_to"),
+                "campaign_id": row.get::<Option<String>, _>("campaign_id"),
+                // When in the week and in the day. A flash sale is a clearance
+                // with an hour on it, not a separate kind of price.
+                "iso_weekdays": row.get::<Vec<i16>, _>("iso_weekdays"),
+                "from_minute": row.get::<Option<i32>, _>("from_minute"),
+                "to_minute": row.get::<Option<i32>, _>("to_minute"),
             })
         })
         .collect();
@@ -889,6 +914,75 @@ pub async fn publish_commercial_usage(
         issued_by,
         // No expiry: a shop that has been offline for a week needs the newest
         // count it can get, not to be told the message is too old to use.
+        None,
+        targets,
+    )
+    .await
+}
+
+/// Tell every shop which campaigns are running, and between which dates.
+///
+/// The lever, delivered. A campaign's `status` is what the business pulls when
+/// it says "stop the promo", and until this existed pulling it changed
+/// Postgres and nothing else: a shop learned a campaign's status only from the
+/// publication that carried it, and publications are frozen and seasonal. So a
+/// pause reached a till when somebody next happened to cut a price book.
+///
+/// Sent whole, like the usage counts and for the same reason: a shop that
+/// missed one is behind rather than permanently wrong about what it is running.
+/// Only campaigns from published books are sent — a draft's switch is not a
+/// switch yet.
+///
+/// This is the prerequisite for gating a **markdown** on its campaign at all.
+/// That gate reads an absent campaign as "leave the cleared price standing",
+/// because charging more than the ticket on the garment is the worse failure —
+/// so ending a campaign early has to be an instruction that arrives, and this is
+/// the thing that carries it.
+pub async fn publish_campaign_switches(
+    pool: &PgPool,
+    issued_by: &str,
+    targets: &[String],
+) -> Result<(Uuid, Vec<String>), AppError> {
+    let switched_at = Utc::now();
+    let campaigns: Vec<Value> = sqlx::query(
+        // The newest book that names a campaign owns it, the same rule the shop
+        // applies when it replaces on `campaign_id`. Without DISTINCT ON, a
+        // campaign carried by three publications would be sent three times with
+        // the oldest one landing last.
+        "SELECT DISTINCT ON (c.campaign_id)
+                c.campaign_id, c.status, c.valid_from, c.valid_to,
+                c.image_url, c.headline, c.terms
+           FROM commercial_campaign c
+           JOIN commercial_publication p ON p.id = c.publication_id
+          WHERE p.status = 'PUBLISHED'
+          ORDER BY c.campaign_id, p.version DESC",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "campaign_id": row.get::<String, _>("campaign_id"),
+            "status": row.get::<String, _>("status"),
+            "valid_from": row.get::<Option<DateTime<Utc>>, _>("valid_from"),
+            "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
+            "image_url": row.get::<Option<String>, _>("image_url"),
+            "headline": row.get::<Option<String>, _>("headline"),
+            "terms": row.get::<Option<String>, _>("terms"),
+        })
+    })
+    .collect();
+
+    let payload = json!({ "switched_at": switched_at, "campaigns": campaigns });
+    super::sync::issue_command(
+        pool,
+        crate::cloud::domain::COMMAND_COMMERCIAL_CAMPAIGN,
+        &payload,
+        issued_by,
+        // No expiry, for the reason the usage lane has none: a shop back from a
+        // week offline needs the newest switch it can get, not to be told the
+        // message is stale. A stale switch is still nearer the truth than the
+        // one it is holding.
         None,
         targets,
     )
@@ -1352,7 +1446,7 @@ pub async fn commercial_publication_detail(
 
     let campaigns: Vec<Value> = sqlx::query(
         "SELECT campaign_id, name, status, valid_from, valid_to, budget_minor,
-                max_uses
+                max_uses, image_url, headline, terms
            FROM commercial_campaign WHERE publication_id = $1 ORDER BY campaign_id",
     )
     .bind(publication_id)
@@ -1368,6 +1462,20 @@ pub async fn commercial_publication_detail(
             "valid_to": row.get::<Option<DateTime<Utc>>, _>("valid_to"),
             "budget_minor": row.get::<Option<i64>, _>("budget_minor"),
             "max_uses": row.get::<Option<i32>, _>("max_uses"),
+            // The poster, read back — the dispatch payload has carried these
+            // three since they existed, and this reader did not, so the console
+            // read every published campaign with a blank banner.
+            //
+            // Not cosmetic. A promotion joining a campaign has to RESTATE that
+            // campaign in its own book, because a shop drops a rule whose
+            // campaign it does not hold — and the console assembles that
+            // restatement out of this response. With the poster missing here,
+            // filing one offer under the Lebaran sale republished the Lebaran
+            // sale with its banner, its headline and its small print blanked,
+            // to every shop in the fleet.
+            "image_url": row.get::<Option<String>, _>("image_url"),
+            "headline": row.get::<Option<String>, _>("headline"),
+            "terms": row.get::<Option<String>, _>("terms"),
         })
     })
     .collect();
@@ -1455,7 +1563,8 @@ pub async fn simulate(
     let merchandise = super::pricing::load_merchandise(&mut tx).await?;
     tx.commit().await?;
 
-    let mut context = crate::reporting::pricing_context(&request.site_id, request.channel.as_str(), at);
+    let mut context =
+        crate::reporting::pricing_context(&request.site_id, request.channel.as_str(), at);
     context.coupon_codes = request.coupon_codes.clone();
     context.customer_id = request.customer_id.clone();
 
@@ -1600,6 +1709,125 @@ pub async fn publish_commercial_usage_to_fleet(
     }))
 }
 
+/// Pull the lever on one campaign: stop it, restart it, or move its dates.
+///
+/// The one thing in a published price book that is meant to change afterwards,
+/// and migration 0073 says why: a campaign's `status` is what somebody reaches
+/// for when they say "stop the Lebaran promo", and freezing it would take the
+/// lever away. Everything else here — the prices, the markdowns, the rule
+/// documents — stays frozen.
+///
+/// Every row for the campaign is updated, not only the newest book's. A shop
+/// keys campaigns by their business id and holds exactly one; the centre scopes
+/// per publication and may hold several. Updating one of several would leave
+/// the centre disagreeing with itself about whether a campaign is running,
+/// depending on which book a query happened to rank first.
+///
+/// The switch is dispatched in the same call. A pause that reached Postgres and
+/// waited for the next broadcast would still be a pause that had not reached
+/// the shop floor — which is the whole fault this exists to fix.
+pub async fn switch_campaign(
+    pool: &PgPool,
+    campaign_id: &str,
+    request: CampaignSwitchRequest,
+) -> Result<Value, AppError> {
+    let campaign_id = campaign_id.trim();
+    if campaign_id.is_empty() {
+        return Err(AppError::Validation("campaign_id is required".into()));
+    }
+    let status = request.status.trim().to_ascii_uppercase();
+    if !matches!(
+        status.as_str(),
+        "DRAFT" | "SCHEDULED" | "ACTIVE" | "PAUSED" | "EXPIRED" | "CANCELLED"
+    ) {
+        return Err(AppError::Validation(format!("unknown status {status}")));
+    }
+    if let (Some(from), Some(to)) = (request.valid_from, request.valid_to) {
+        if to <= from {
+            return Err(AppError::Validation(
+                "a campaign cannot end before it starts".into(),
+            ));
+        }
+    }
+
+    let mut tx = pool.begin().await?;
+    // `COALESCE($n, column)` on every optional field: absence leaves what is
+    // there. A screen that sends `{"status":"PAUSED"}` must not silently clear
+    // the dates that decide when the campaign was going to end, or blank the
+    // banner. Clearing is an empty string, which is a value and survives the
+    // COALESCE — so "I did not mention it" and "remove it" stay different
+    // instructions.
+    let affected = sqlx::query(
+        "UPDATE commercial_campaign
+            SET status     = $2,
+                valid_from = COALESCE($3, valid_from),
+                valid_to   = COALESCE($4, valid_to),
+                image_url  = COALESCE($5, image_url),
+                headline   = COALESCE($6, headline),
+                terms      = COALESCE($7, terms)
+          WHERE campaign_id = $1",
+    )
+    .bind(campaign_id)
+    .bind(&status)
+    .bind(request.valid_from)
+    .bind(request.valid_to)
+    .bind(request.image_url.as_deref().map(str::trim))
+    .bind(request.headline.as_deref().map(str::trim))
+    .bind(request.terms.as_deref())
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if affected == 0 {
+        return Err(AppError::NotFound(format!(
+            "no campaign {campaign_id} in any price book"
+        )));
+    }
+    tx.commit().await?;
+
+    let dispatch = publish_campaign_switches_to_fleet(pool, request.actor_id.trim()).await;
+    Ok(json!({
+        "campaign_id": campaign_id,
+        "status": status,
+        "rows": affected,
+        // The dispatch is reported rather than being allowed to fail the
+        // switch. A fleet with no shop registered is a legitimate state — a
+        // business setting up — and refusing to pause a campaign because there
+        // is nobody to tell would be refusing the safer of the two outcomes.
+        "dispatch": match dispatch {
+            Ok(report) => report,
+            Err(error) => json!({ "error": error.to_string() }),
+        },
+    }))
+}
+
+/// Send the campaign switches to every shop.
+///
+/// Targets resolved here rather than asked for, for the reason
+/// `publish_commercial_usage_to_fleet` gives: "which shops" has one right
+/// answer, and a caller passing a list can quietly miss one.
+pub async fn publish_campaign_switches_to_fleet(
+    pool: &PgPool,
+    issued_by: &str,
+) -> Result<Value, AppError> {
+    let targets: Vec<String> = sqlx::query_scalar(
+        "SELECT origin_id FROM sync_origin_credential
+          WHERE node_role = 'STORE' AND site_id IS NOT NULL ORDER BY origin_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    if targets.is_empty() {
+        return Err(AppError::Conflict(
+            "no shop is registered to send campaign switches to".into(),
+        ));
+    }
+    let (command_id, sent_to) = publish_campaign_switches(pool, issued_by, &targets).await?;
+    Ok(json!({
+        "command_id": command_id,
+        "sent_to": sent_to,
+        "switched_at": Utc::now(),
+    }))
+}
+
 /// Every price every shop could charge for a style, and which one wins.
 ///
 /// The offers list answers "what does this cost here" with one number per SKU,
@@ -1613,11 +1841,25 @@ pub async fn publish_commercial_usage_to_fleet(
 /// is the engine's own — `price_stacks` — never a second ranking written here:
 /// a screen that showed the cascade in a different order from the order that
 /// decides it would look authoritative and be wrong.
+/// How a caller narrows the range before it is priced.
+///
+/// Empty everywhere means "the whole catalogue, capped by `limit`", which is
+/// what the screen asks for when it first opens.
+#[derive(Clone, Debug, Default)]
+pub struct ArticlePriceFilter {
+    pub q: Option<String>,
+    pub divisions: Vec<String>,
+    pub tags: Vec<String>,
+    pub min_price: Option<i64>,
+    pub max_price: Option<i64>,
+}
+
 pub async fn article_prices(
     pool: &PgPool,
     channel: CommercialChannel,
     at: DateTime<Utc>,
     limit: i64,
+    filter: ArticlePriceFilter,
 ) -> Result<Value, AppError> {
     let shops = sqlx::query(
         "SELECT origin_id, site_id, label FROM sync_origin_credential
@@ -1630,21 +1872,72 @@ pub async fn article_prices(
     // The styles, and the products under each. One query rather than one per
     // article: a screen that fetched per row would be as slow as the catalogue
     // is long.
-    let article_rows = sqlx::query(
+    // The narrowing, written once and bound to both queries below.
+    //
+    // `q` reaches SKU codes as well as the style's own code and name, because
+    // the code somebody has in their hand is as often a product's as a style's
+    // — off a label, off a count sheet — and a search box that answered only
+    // two of the three would look broken exactly when it mattered.
+    //
+    // The price bounds are here as well as on the way out, and that is the
+    // difference between a filter and a lie. Applied only afterwards, they
+    // narrowed the two hundred styles this request happened to price and left
+    // the other three hundred unexamined — so "styles over 500.000" quietly
+    // meant "styles over 500.000 in the first two hundred alphabetically".
+    //
+    // What it matches is deliberately a SUPERSET of the answer: every amount
+    // the engine can end up charging is stored either as a price rule or as a
+    // markdown's replacement, so a style with neither in range cannot come out
+    // in range, while a style kept here may still be dropped below once the
+    // cascade has actually run. Wider than the truth is safe; narrower is not.
+    let narrow = "
+        AND ($2::text IS NULL
+             OR a.article_code ILIKE '%' || $2 || '%'
+             OR a.name ILIKE '%' || $2 || '%'
+             OR EXISTS (SELECT 1 FROM sku q WHERE q.article_id = a.id
+                          AND q.sku_code ILIKE '%' || $2 || '%'))
+        AND (cardinality($3::text[]) = 0
+             OR a.division_code = ANY($3))
+        AND (cardinality($4::text[]) = 0
+             OR EXISTS (SELECT 1 FROM article_tag t
+                         WHERE t.article_id = a.id AND t.tag_code = ANY($4)))
+        AND ($5::bigint IS NULL AND $6::bigint IS NULL
+             OR EXISTS (SELECT 1 FROM commercial_price_rule pr
+                          JOIN commercial_publication p ON p.id = pr.publication_id
+                          JOIN sku ps ON ps.id = pr.sku_id
+                         WHERE ps.article_id = a.id AND p.status = 'PUBLISHED'
+                           AND ($5 IS NULL OR pr.unit_price_minor >= $5)
+                           AND ($6 IS NULL OR pr.unit_price_minor <= $6))
+             OR EXISTS (SELECT 1 FROM commercial_markdown m
+                          JOIN commercial_publication p ON p.id = m.publication_id
+                          LEFT JOIN sku ms ON ms.id = m.sku_id
+                         WHERE p.status = 'PUBLISHED'
+                           AND (ms.article_id = a.id
+                                OR m.article_code = a.article_code)
+                           AND ($5 IS NULL OR m.replacement_unit_price_minor >= $5)
+                           AND ($6 IS NULL OR m.replacement_unit_price_minor <= $6)))";
+
+    let article_rows = sqlx::query(&format!(
         "SELECT a.article_code, a.name article_name, a.image_url, a.division_code,
                 array_agg(s.sku_code ORDER BY s.sku_code) sku_codes,
                 COALESCE(
                     (SELECT array_agg(t.tag_code ORDER BY t.tag_code)
                        FROM article_tag t WHERE t.article_id = a.id),
-                    '{}'
+                    '{{}}'
                 ) tags
            FROM article a
            JOIN sku s ON s.article_id = a.id AND s.active
+          WHERE true {narrow}
           GROUP BY a.id, a.article_code, a.name, a.image_url, a.division_code
           ORDER BY a.article_code
-          LIMIT $1",
-    )
+          LIMIT $1"
+    ))
     .bind(limit.clamp(1, 2_000))
+    .bind(filter.q.as_deref())
+    .bind(&filter.divisions)
+    .bind(&filter.tags)
+    .bind(filter.min_price)
+    .bind(filter.max_price)
     .fetch_all(pool)
     .await?;
 
@@ -1652,12 +1945,58 @@ pub async fn article_prices(
     // not say it capped reads as "this is all of them", and a merchandiser who
     // cannot find a style would go looking for a pricing fault rather than for
     // the next page.
-    let total_styles: i64 = sqlx::query_scalar(
+    //
+    // Counted through the SAME narrowing, so "200 of 506" means 200 of the 506
+    // that match — a total counting the whole catalogue while the list counts a
+    // search is a fraction whose two halves are answers to different questions.
+    let total_styles: i64 = sqlx::query_scalar(&format!(
         "SELECT count(DISTINCT a.id) FROM article a
-           JOIN sku s ON s.article_id = a.id AND s.active",
-    )
+           JOIN sku s ON s.article_id = a.id AND s.active
+          WHERE true {narrow}"
+    ))
+    // `$1` is unused here, and bound anyway: the fragment is shared, so the
+    // parameter numbering has to be.
+    .bind(limit)
+    .bind(filter.q.as_deref())
+    .bind(&filter.divisions)
+    .bind(&filter.tags)
+    .bind(filter.min_price)
+    .bind(filter.max_price)
     .fetch_one(pool)
     .await?;
+
+    // What the whole catalogue holds, for the filter pickers.
+    //
+    // Counted over everything rather than over the narrowed set on purpose: a
+    // facet list that only counts what is already showing cannot tell you what
+    // ticking a second box would add, which is the one thing a facet is for.
+    let facet_rows = sqlx::query(
+        "SELECT 'division' kind, COALESCE(a.division_code, '') value, count(DISTINCT a.id) n
+           FROM article a JOIN sku s ON s.article_id = a.id AND s.active
+          GROUP BY 1, 2
+          UNION ALL
+         SELECT 'tag', t.tag_code, count(DISTINCT a.id)
+           FROM article a
+           JOIN sku s ON s.article_id = a.id AND s.active
+           JOIN article_tag t ON t.article_id = a.id
+          GROUP BY 1, 2
+          ORDER BY 1, 3 DESC, 2",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut divisions = Vec::new();
+    let mut tag_counts = Vec::new();
+    for row in &facet_rows {
+        let kind: String = row.get("kind");
+        let entry = json!({ "value": row.get::<String, _>("value"),
+                            "count": row.get::<i64, _>("n") });
+        if kind == "division" {
+            divisions.push(entry);
+        } else {
+            tag_counts.push(entry);
+        }
+    }
 
     struct Style {
         article_code: String,
@@ -1692,6 +2031,26 @@ pub async fn article_prices(
         std::collections::BTreeMap::new();
     let mut shop_list = Vec::with_capacity(shops.len());
 
+    // Every style's cart lines, once, with the slice each style owns.
+    //
+    // What a product IS does not change from shop to shop, so building these
+    // inside the shop loop was thirteen constructions of one answer. They are
+    // also the reason the whole range can be priced in ONE engine call per
+    // shop rather than one per style — see below, which is where the real cost
+    // was.
+    let mut lines: Vec<CartLine> = Vec::new();
+    let mut spans: Vec<(usize, usize)> = Vec::with_capacity(styles.len());
+    for style in &styles {
+        let from = lines.len();
+        lines.extend(
+            style
+                .sku_codes
+                .iter()
+                .map(|code| super::pricing::cart_line(code, 1, &merchandise)),
+        );
+        spans.push((from, lines.len()));
+    }
+
     for shop in &shops {
         let site_id: String = shop.get("site_id");
         let label: Option<String> = shop.get("label");
@@ -1710,14 +2069,23 @@ pub async fn article_prices(
         tx.commit().await?;
         let context = crate::reporting::pricing_context(&site_id, channel.as_str(), at);
 
-        for style in &styles {
-            let products: Vec<CartLine> = style
-                .sku_codes
-                .iter()
-                .map(|code| super::pricing::cart_line(code, 1, &merchandise))
-                .collect();
-            let stacks = pricing_engine::price_stacks(&pricing.snapshot, &context, &products);
-            let collapsed = collapse(&stacks);
+        // ONE call for the whole range, not one per style.
+        //
+        // `price_stacks` builds its `PriceIndex` on entry — every price and
+        // markdown the shop holds, into two BTreeMaps — and that index is the
+        // same for every style in the shop. Called per style it was rebuilt
+        // once per style: thirteen shops times two hundred styles is 2.600
+        // builds over some four thousand entries each, and it was the whole
+        // ten seconds this screen used to take to open. Called once per shop
+        // it is built thirteen times.
+        //
+        // Safe because `stacks` maps products to stacks one for one and in
+        // order, so a style's answers are exactly the slice its lines went in
+        // as. `spans` is that slice, recorded when the lines were built.
+        let stacks = pricing_engine::price_stacks(&pricing.snapshot, &context, &lines);
+
+        for (style, (from, to)) in styles.iter().zip(&spans) {
+            let collapsed = collapse(&stacks[*from..*to]);
             if collapsed.is_empty() {
                 // This style is not sellable at this shop. Absent rather than
                 // reported as zero: no price is not a price.
@@ -1734,11 +2102,48 @@ pub async fn article_prices(
         }
     }
 
+    // The price bounds, applied here because this is the first moment a price
+    // exists. A style is kept when what the till charges falls inside the
+    // bounds at ANY shop — the question "which styles sell under 100.000" is
+    // asked of a fleet, and a style that is under at one branch and over at
+    // another is an answer to it, not an exception to be dropped.
+    //
+    // Read off rank 0 only. The rungs below it are prices that were BEATEN,
+    // and filtering on those would return styles on the strength of an amount
+    // no shop is charging.
+    let charged = |shops: &[Value]| -> Option<(i64, i64)> {
+        let mut low = i64::MAX;
+        let mut high = i64::MIN;
+        for shop in shops {
+            let Some(top) = shop.get("stack").and_then(|s| s.get(0)) else {
+                continue;
+            };
+            if let Some(min) = top.get("min_unit_price_minor").and_then(Value::as_i64) {
+                low = low.min(min);
+            }
+            if let Some(max) = top.get("max_unit_price_minor").and_then(Value::as_i64) {
+                high = high.max(max);
+            }
+        }
+        (low <= high).then_some((low, high))
+    };
+
     let items: Vec<Value> = styles
         .into_iter()
-        .map(|style| {
+        .filter_map(|style| {
             let shops = by_style.remove(&style.article_code).unwrap_or_default();
-            json!({
+            if filter.min_price.is_some() || filter.max_price.is_some() {
+                // A style no shop prices cannot satisfy a price bound. Dropped
+                // rather than kept: it is absent, and absent is not "cheap".
+                let (low, high) = charged(&shops)?;
+                if filter.min_price.is_some_and(|bound| high < bound) {
+                    return None;
+                }
+                if filter.max_price.is_some_and(|bound| low > bound) {
+                    return None;
+                }
+            }
+            Some(json!({
                 "article_code": style.article_code,
                 "article_name": style.article_name,
                 "image_url": style.image_url,
@@ -1746,7 +2151,7 @@ pub async fn article_prices(
                 "tags": style.tags,
                 "sku_count": style.sku_codes.len(),
                 "shops": shops,
-            })
+            }))
         })
         .collect();
 
@@ -1756,6 +2161,7 @@ pub async fn article_prices(
         "shops": shop_list,
         "article_count": items.len(),
         "total_article_count": total_styles,
+        "facets": { "divisions": divisions, "tags": tag_counts },
         "items": items,
     }))
 }

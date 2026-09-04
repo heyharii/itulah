@@ -13,7 +13,6 @@
 //! projection would, and asserts the centre NOTICES. A cross-check that never
 //! fires when it should is worse than no cross-check, because it is trusted.
 
-use inventory_backend::tender::{PaymentMethod, SaleTender};
 use async_trait::async_trait;
 use inventory_backend::cloud::domain::{
     BreakerPolicy, IngestBatch, IngestResponse, FACT_SALES_COMPLETED,
@@ -25,6 +24,7 @@ use inventory_backend::edge::{
 };
 use inventory_backend::sync::port::{SyncConfig, SyncTransport};
 use inventory_backend::sync::{run_cycle, CycleReport};
+use inventory_backend::tender::{PaymentMethod, SaleTender};
 use sqlx::PgPool;
 
 const ORIGIN: &str = "store-07";

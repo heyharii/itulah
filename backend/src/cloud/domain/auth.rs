@@ -130,7 +130,22 @@ pub fn required_role(method: &str, path: &str) -> Role {
     // the customer standing there. Without this they would fall through to
     // Supervisor at the bottom, and a cashier could hand somebody a card they
     // are then unable to activate.
-    if path.starts_with("/api/v1/members") {
+    //
+    // Segments are under the same prefix and are NOT that act: writing one is
+    // deciding who the company talks to, and retiring one changes what a
+    // campaign already sent was sent against. They fall through to Supervisor
+    // with the rest of the marketing surface. The exclusion is written before
+    // the arm rather than as a narrower prefix on it, because the acts a
+    // cashier may perform are the two named above and a third added under
+    // `/members/…` later should have to say so.
+    if path.starts_with("/api/v1/members") && !path.starts_with("/api/v1/members/segments") {
+        return Role::Cashier;
+    }
+    // Spending a voucher happens at a counter with a shopper standing there,
+    // so it is the same rung as taking their cash. Issuing one and stopping one
+    // are not: both move value on somebody's say-so and fall through to
+    // Supervisor at the bottom with the rest of Commercial.
+    if path.starts_with("/api/v1/commercial/vouchers") && path.ends_with("/redeem") {
         return Role::Cashier;
     }
     if path.starts_with("/api/v1/sales") {
@@ -203,6 +218,63 @@ mod tests {
         assert_eq!(
             required_role("POST", "/api/v1/commercial/publications"),
             Role::Supervisor
+        );
+    }
+
+    /// A card is presented at a counter, so a cashier can spend one — and
+    /// cannot issue one or stop one, because both are giving value away.
+    #[test]
+    fn a_cashier_may_spend_a_voucher_and_not_issue_one() {
+        assert_eq!(
+            required_role("POST", "/api/v1/commercial/vouchers/GIFT123456/redeem"),
+            Role::Cashier
+        );
+        assert_eq!(
+            required_role("POST", "/api/v1/commercial/vouchers"),
+            Role::Supervisor
+        );
+        assert_eq!(
+            required_role("POST", "/api/v1/commercial/vouchers/GIFT123456/void"),
+            Role::Supervisor
+        );
+    }
+
+    /// A card is enrolled and activated with the shopper standing at the
+    /// counter, so both are the same rung as taking their money.
+    ///
+    /// Worth pinning rather than leaving to the fall-through: without the
+    /// `/api/v1/members` arm both land on Supervisor, and a cashier could hand
+    /// somebody a card they are then unable to activate — a loyalty scheme
+    /// whose sign-in needs a manager is a loyalty scheme nobody signs in to.
+    ///
+    /// The second half is the one that needed a test: segments live under the
+    /// same prefix and are a different act. Writing one decides who the company
+    /// talks to and retiring one changes what a campaign already sent was sent
+    /// against, so both stay Supervisor. Reading is Cashier like every other
+    /// read on this API.
+    #[test]
+    fn a_cashier_may_enrol_a_card_and_activate_it_but_not_write_a_segment() {
+        assert_eq!(required_role("POST", "/api/v1/members"), Role::Cashier);
+        assert_eq!(
+            required_role("POST", "/api/v1/members/M-000123/pairing-code"),
+            Role::Cashier
+        );
+        assert_eq!(required_role("GET", "/api/v1/members"), Role::Cashier);
+        assert_eq!(
+            required_role("POST", "/api/v1/members/segments/saved"),
+            Role::Supervisor
+        );
+        assert_eq!(
+            required_role("POST", "/api/v1/members/segments/saved/abc/retire"),
+            Role::Supervisor
+        );
+        assert_eq!(
+            required_role("POST", "/api/v1/members/segments/preview"),
+            Role::Supervisor
+        );
+        assert_eq!(
+            required_role("GET", "/api/v1/members/segments"),
+            Role::Cashier
         );
     }
 

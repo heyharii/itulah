@@ -180,7 +180,7 @@ pub async fn add_to_basket(
         Some(value) if value != SupplierStatus::Active.as_str() => {
             return Err(AppError::Validation(
                 "that item is on hold and cannot be ordered".into(),
-            ))
+            ));
         }
         Some(_) => {}
     }

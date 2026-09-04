@@ -52,6 +52,50 @@ pub struct SourcingQuery {
     division: Option<String>,
     #[serde(default)]
     tags: Option<String>,
+    /// The same three facets, negated — `division_not=KIDS` is "anything but
+    /// kidswear".
+    ///
+    /// A separate parameter rather than a sign inside the existing one, because
+    /// the two are ANDed and a buyer may legitimately ask for both at once:
+    /// "menswear or kidswear, but not the socks". Packing a negation into
+    /// `division=` would make that unsayable, and would make every value
+    /// ambiguous the first time a code begins with a minus.
+    #[serde(default)]
+    supplier_id_not: Option<String>,
+    #[serde(default)]
+    division_not: Option<String>,
+    #[serde(default)]
+    tags_not: Option<String>,
+    /// Whether the column is empty. `true` asks for the unclassified rows only,
+    /// `false` for the classified ones, absent for both.
+    ///
+    /// This is the question the facet list has been asking since it was written
+    /// and the filter could not answer: `sourcing_facets` counts unclassified
+    /// items under the synthetic value `Unclassified`, but `division = ANY(…)`
+    /// matches no such code, so ticking that facet returned an empty page.
+    #[serde(default)]
+    division_null: Option<bool>,
+    #[serde(default)]
+    tags_null: Option<bool>,
+    /// What the item comes in — `colour=NAVY,BLACK`, `size=02,03`. The same
+    /// three shapes the other facets have: the selection, its negation and
+    /// whether the list is empty at all.
+    ///
+    /// `colour_null=true` is "no colours recorded", which on a scraped feed is
+    /// most of the catalogue and is exactly the pile somebody filling the gaps
+    /// wants in front of them.
+    #[serde(default)]
+    colour: Option<String>,
+    #[serde(default)]
+    colour_not: Option<String>,
+    #[serde(default)]
+    colour_null: Option<bool>,
+    #[serde(default)]
+    size: Option<String>,
+    #[serde(default)]
+    size_not: Option<String>,
+    #[serde(default)]
+    size_null: Option<bool>,
     /// From a previous page's `next_cursor`. Absent asks for the first page.
     #[serde(default)]
     cursor: Option<String>,
@@ -96,13 +140,6 @@ pub async fn search_supplier_items(
     State(state): State<AppState>,
     Query(query): Query<SourcingQuery>,
 ) -> Result<Json<infrastructure::SourcingPage>, AppError> {
-    let supplier_ids = facet_values(query.supplier_id.as_deref())
-        .into_iter()
-        .map(|value| {
-            Uuid::parse_str(&value)
-                .map_err(|_| AppError::Validation(format!("supplier_id {value:?} is not a uuid")))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     Ok(Json(
         infrastructure::search_supplier_items(
             &state.db,
@@ -110,9 +147,20 @@ pub async fn search_supplier_items(
                 sort: infrastructure::SourcingSort::parse(query.sort.as_deref()),
                 needle: query.q,
                 status: query.status,
-                supplier_ids,
+                supplier_ids: supplier_uuids(query.supplier_id.as_deref())?,
+                excluded_supplier_ids: supplier_uuids(query.supplier_id_not.as_deref())?,
                 division_codes: facet_values(query.division.as_deref()),
+                excluded_division_codes: facet_values(query.division_not.as_deref()),
+                division_null: query.division_null,
                 tag_codes: facet_values(query.tags.as_deref()),
+                excluded_tag_codes: facet_values(query.tags_not.as_deref()),
+                tags_null: query.tags_null,
+                colour_codes: facet_values(query.colour.as_deref()),
+                excluded_colour_codes: facet_values(query.colour_not.as_deref()),
+                colours_null: query.colour_null,
+                size_codes: facet_values(query.size.as_deref()),
+                excluded_size_codes: facet_values(query.size_not.as_deref()),
+                sizes_null: query.size_null,
                 cursor: query.cursor,
                 price_min: query.price_min,
                 price_max: query.price_max,
@@ -121,6 +169,21 @@ pub async fn search_supplier_items(
         )
         .await?,
     ))
+}
+
+/// A comma-separated supplier selection, parsed.
+///
+/// Refused rather than dropped: a malformed id is a link that has been
+/// hand-edited or a bug upstream, and answering it with the unfiltered
+/// catalogue would look like a filter that silently does nothing.
+fn supplier_uuids(raw: Option<&str>) -> Result<Vec<Uuid>, AppError> {
+    facet_values(raw)
+        .into_iter()
+        .map(|value| {
+            Uuid::parse_str(&value)
+                .map_err(|_| AppError::Validation(format!("supplier_id {value:?} is not a uuid")))
+        })
+        .collect()
 }
 
 fn idempotency_key(headers: &HeaderMap) -> Result<String, AppError> {

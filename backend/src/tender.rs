@@ -29,6 +29,20 @@ pub enum PaymentMethod {
     Cash,
     Card,
     Qris,
+    /// Value the shopper already held, spent against this basket.
+    ///
+    /// It is here rather than under `Other` because it is not a payment at
+    /// all in the way the other three are: no money arrives when a voucher is
+    /// presented. The money arrived when the card was sold — possibly at
+    /// another shop, possibly last year — and this is the liability being
+    /// settled. A takings report that cannot tell the two apart reports cash
+    /// the shop never took.
+    ///
+    /// It buckets as non-cash below, which is the rule that matters at the
+    /// counter: only cash can produce change, so a 200,000 card against a
+    /// 150,000 basket leaves 50,000 on the card and nothing in the shopper's
+    /// hand.
+    Voucher,
     Other,
 }
 
@@ -38,6 +52,7 @@ impl PaymentMethod {
             Self::Cash => "CASH",
             Self::Card => "CARD",
             Self::Qris => "QRIS",
+            Self::Voucher => "VOUCHER",
             Self::Other => "OTHER",
         }
     }
@@ -57,6 +72,7 @@ impl FromStr for PaymentMethod {
             "CASH" => Ok(Self::Cash),
             "CARD" => Ok(Self::Card),
             "QRIS" => Ok(Self::Qris),
+            "VOUCHER" => Ok(Self::Voucher),
             "OTHER" => Ok(Self::Other),
             _ => Err(SalesError::InvalidPaymentMethod(value.into())),
         }
@@ -173,9 +189,16 @@ pub fn validate_payment(total_minor: i64, paid_minor: i64) -> Result<PaymentSumm
 /// Tender-aware completion rule: change can only ever be given from CASH.
 ///
 /// The rule is aggregate and therefore order-independent — it does not matter
-/// whether the cashier keyed CASH before CARD or after: electronic tenders
-/// (CARD/QRIS/OTHER) may never exceed the sale total, so any change owed is
-/// covered by physical cash in the drawer.
+/// whether the cashier keyed CASH before CARD or after: every non-cash tender
+/// (CARD/QRIS/VOUCHER/OTHER) may never exceed the sale total, so any change
+/// owed is covered by physical cash in the drawer.
+///
+/// VOUCHER sits on that side for a reason of its own rather than by analogy to
+/// a card. A gift card over-presented against a smaller basket must leave the
+/// remainder ON THE CARD, which is what a shopper expects and what the balance
+/// in `voucher` is for; paying it out of the drawer would turn stored value
+/// into cash the shop never took, and it is how a gift card becomes a way to
+/// launder a refund.
 pub fn validate_tender(
     total_minor: i64,
     cash_minor: i64,

@@ -127,6 +127,9 @@ fn cloud_config() -> AppConfig {
         media: None,
         attachments: None,
         default_destination_site_id: "dc".into(),
+        assistant_api_key: None,
+        assistant_base_url: "https://openrouter.ai/api/v1".into(),
+        assistant_model: "anthropic/claude-opus-5".into(),
     }
 }
 
@@ -177,7 +180,13 @@ async fn call(
 
 /// A call that must succeed. The body goes in the panic, because a bare
 /// status code tells whoever is reading the failure nothing about what to fix.
-async fn ok(pool: &PgPool, method: &str, uri: &str, headers: &[(&str, &str)], body: Option<Value>) -> Value {
+async fn ok(
+    pool: &PgPool,
+    method: &str,
+    uri: &str,
+    headers: &[(&str, &str)],
+    body: Option<Value>,
+) -> Value {
     let (status, value) = call(pool, method, uri, headers, body).await;
     assert!(
         status.is_success(),
@@ -437,7 +446,11 @@ async fn catalogue(pool: &PgPool) {
             division: "MENSWEAR",
             tags: &["KEMEJA", "LENGAN_PANJANG"],
             colours: &[("1", "TEST_NAVY"), ("2", "TEST_PUTIH"), ("3", "TEST_MERAH")],
-            skus: &[("1", "03", 250_000), ("1", "04", 250_000), ("2", "03", 260_000)],
+            skus: &[
+                ("1", "03", 250_000),
+                ("1", "04", 250_000),
+                ("2", "03", 260_000),
+            ],
         },
     )
     .await;
@@ -504,11 +517,17 @@ async fn every_code_on_every_piece_of_paper_finds_the_same_shirt(pool: PgPool) {
     // returned the shirt plus a handful of near misses would still be wrong:
     // the operator scanned a specific thing.
     for (what, needle) in [
-        ("the article code stencilled on the carton", KEMEJA.to_owned()),
+        (
+            "the article code stencilled on the carton",
+            KEMEJA.to_owned(),
+        ),
         ("the SKU on the swing ticket", large_navy.clone()),
         ("the QR printed on the label", qr),
         ("the EPC the handheld read", epc),
-        ("the code on the supplier's invoice", SUPPLIER_CODE.to_owned()),
+        (
+            "the code on the supplier's invoice",
+            SUPPLIER_CODE.to_owned(),
+        ),
     ] {
         let page = search(&pool, &format!("q={needle}")).await;
         assert_eq!(
@@ -800,7 +819,14 @@ async fn an_eleventh_colourway_cannot_exist_and_is_refused_in_words(pool: PgPool
          typo they can fix: {body}"
     );
 
-    let detail = ok(&pool, "GET", &format!("/api/v1/articles/{PAYUNG}"), &[], None).await;
+    let detail = ok(
+        &pool,
+        "GET",
+        &format!("/api/v1/articles/{PAYUNG}"),
+        &[],
+        None,
+    )
+    .await;
     assert_eq!(
         detail["colours"].as_array().map(Vec::len),
         Some(10),
@@ -843,7 +869,14 @@ async fn an_eleventh_colourway_cannot_exist_and_is_refused_in_words(pool: PgPool
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_colour_digit_with_goods_behind_it_cannot_be_repointed(pool: PgPool) {
     catalogue(&pool).await;
-    let before = ok(&pool, "GET", &format!("/api/v1/articles/{KEMEJA}"), &[], None).await;
+    let before = ok(
+        &pool,
+        "GET",
+        &format!("/api/v1/articles/{KEMEJA}"),
+        &[],
+        None,
+    )
+    .await;
 
     // Digit 3 was declared and never minted, so it may be moved. Nothing on
     // any shelf says anything about it.
@@ -851,7 +884,10 @@ async fn a_colour_digit_with_goods_behind_it_cannot_be_repointed(pool: PgPool) {
         &pool,
         "PATCH",
         &format!("/api/v1/articles/{KEMEJA}"),
-        &[("idempotency-key", "repoint-unminted"), ("if-match", "\"1\"")],
+        &[
+            ("idempotency-key", "repoint-unminted"),
+            ("if-match", "\"1\""),
+        ],
         Some(json!({
             "colours": [
                 { "colour_digit": "1", "colour_code": "TEST_NAVY" },
@@ -901,7 +937,14 @@ async fn a_colour_digit_with_goods_behind_it_cannot_be_repointed(pool: PgPool) {
         "the refusal must say why, or it reads as a bug in the form: {body}"
     );
 
-    let after = ok(&pool, "GET", &format!("/api/v1/articles/{KEMEJA}"), &[], None).await;
+    let after = ok(
+        &pool,
+        "GET",
+        &format!("/api/v1/articles/{KEMEJA}"),
+        &[],
+        None,
+    )
+    .await;
     assert_eq!(
         colourway_codes(&after)[0],
         "TEST_NAVY".to_owned(),
@@ -927,7 +970,14 @@ async fn a_colour_digit_with_goods_behind_it_cannot_be_repointed(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn an_edit_that_never_saw_the_last_one_is_refused(pool: PgPool) {
     catalogue(&pool).await;
-    let opened = ok(&pool, "GET", &format!("/api/v1/articles/{KEMEJA}"), &[], None).await;
+    let opened = ok(
+        &pool,
+        "GET",
+        &format!("/api/v1/articles/{KEMEJA}"),
+        &[],
+        None,
+    )
+    .await;
     let seen = version_of(&opened);
 
     let saved = ok(
@@ -965,7 +1015,14 @@ async fn an_edit_that_never_saw_the_last_one_is_refused(pool: PgPool) {
         "a stale If-Match is a conflict, not a success and not a bad request: {body}"
     );
 
-    let after = ok(&pool, "GET", &format!("/api/v1/articles/{KEMEJA}"), &[], None).await;
+    let after = ok(
+        &pool,
+        "GET",
+        &format!("/api/v1/articles/{KEMEJA}"),
+        &[],
+        None,
+    )
+    .await;
     assert_eq!(
         after["name"], "Kemeja Cendana Lengan Panjang Premium",
         "the refused save did not quietly restore the old name: {after}"
@@ -991,7 +1048,14 @@ async fn an_edit_that_never_saw_the_last_one_is_refused(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn nothing_in_a_patch_can_move_an_article_code_or_a_sku_code(pool: PgPool) {
     catalogue(&pool).await;
-    let before = ok(&pool, "GET", &format!("/api/v1/articles/{KEMEJA}"), &[], None).await;
+    let before = ok(
+        &pool,
+        "GET",
+        &format!("/api/v1/articles/{KEMEJA}"),
+        &[],
+        None,
+    )
+    .await;
     let sku_codes: Vec<String> = before["skus"]
         .as_array()
         .unwrap_or_else(|| panic!("no skus in {before}"))
@@ -1020,7 +1084,14 @@ async fn nothing_in_a_patch_can_move_an_article_code_or_a_sku_code(pool: PgPool)
     )
     .await;
 
-    let after = ok(&pool, "GET", &format!("/api/v1/articles/{KEMEJA}"), &[], None).await;
+    let after = ok(
+        &pool,
+        "GET",
+        &format!("/api/v1/articles/{KEMEJA}"),
+        &[],
+        None,
+    )
+    .await;
     assert_eq!(
         after["article_code"], KEMEJA,
         "the article is still itself: {after}"

@@ -176,6 +176,7 @@ async fn a_machine(pool: &PgPool) -> Uuid {
             acquired_on: date(2026, 1, 5),
             serial_number: Some("JK-99".into()),
             notes: None,
+            acquired_via_line_id: None,
         },
         ACTOR,
     )
@@ -211,6 +212,7 @@ async fn an_asset_carries_no_money_until_finance_says_so(pool: PgPool) {
             method: Some("STRAIGHT_LINE".into()),
             in_service_on: Some(date(2026, 1, 1)),
             reason: "mesin produksi, umur ekonomis 1 tahun".into(),
+            acquired_via_line_id: None,
         },
         ACTOR,
     )
@@ -245,6 +247,7 @@ async fn an_assessment_is_appended_and_the_latest_wins(pool: PgPool) {
                 method: None,
                 in_service_on: None,
                 reason: reason.into(),
+                acquired_via_line_id: None,
             }
         } else {
             cloud::AssessAssetRequest {
@@ -255,6 +258,7 @@ async fn an_assessment_is_appended_and_the_latest_wins(pool: PgPool) {
                 method: Some("STRAIGHT_LINE".into()),
                 in_service_on: Some(date(2026, 1, 1)),
                 reason: reason.into(),
+                acquired_via_line_id: None,
             }
         };
         cloud::assess_asset(&pool, asset_id, &request, ACTOR)
@@ -298,6 +302,7 @@ async fn a_month_is_charged_once_however_often_it_is_run(pool: PgPool) {
             method: Some("STRAIGHT_LINE".into()),
             in_service_on: Some(date(2026, 1, 1)),
             reason: "mesin produksi".into(),
+            acquired_via_line_id: None,
         },
         ACTOR,
     )
@@ -357,6 +362,7 @@ async fn an_unmapped_category_is_named_before_the_run_not_during(pool: PgPool) {
             method: Some("STRAIGHT_LINE".into()),
             in_service_on: Some(date(2026, 1, 1)),
             reason: "mesin".into(),
+            acquired_via_line_id: None,
         },
         ACTOR,
     )
@@ -532,7 +538,7 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
     .unwrap_or_else(|error| panic!("confirm: {error}"));
 
     // Matching records agreement and writes no journal.
-    let entries = cloud::journal_register(&pool, None, None, None, 100)
+    let entries = cloud::journal_register(&pool, None, None, None, None, 100)
         .await
         .unwrap_or_else(|error| panic!("register: {error}"));
     assert_eq!(entries.len(), 1, "reconciling posts nothing");

@@ -387,6 +387,29 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             true,
             "Fixed Assets",
         ),
+        // Where the difference between what an asset was worth and what it
+        // fetched lands. The client's chart has no account named for it — they
+        // keep no "Laba (Rugi) Penjualan Aktiva Tetap" — so the expectation
+        // below points at the general other-income-and-expense leaf they do
+        // keep, and it is a suggestion like every other on this screen.
+        //
+        // One key for both directions rather than a gain key and a loss key.
+        // Which way it falls is arithmetic — proceeds against net book value —
+        // and two keys would mean two mappings that have to agree about the
+        // same event, plus a rule choosing between them. The client's own
+        // account is signed, so a gain is a credit to it and a loss a debit.
+        //
+        // Unmapped, disposal refuses and names this key, which is the whole
+        // point: the Account Map screen lists it as unset from the day this
+        // ships, rather than somebody discovering it while trying to write off
+        // a stolen laptop.
+        key(
+            "asset_disposal_result",
+            "Gain or loss on disposal",
+            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            false,
+            "Fixed Assets",
+        ),
         key(
             "loan_principal",
             "Loan principal",

@@ -733,13 +733,20 @@ mod tests {
         let second = serde_json::to_vec(&sweep("batch-b", &["EPCB", "EPCC"]))
             .unwrap_or_else(|error| panic!("second body: {error}"));
         service
-            .ingest(proof_for("RFID-02", &signing_key, &second, 1), &second, None)
+            .ingest(
+                proof_for("RFID-02", &signing_key, &second, 1),
+                &second,
+                None,
+            )
             .unwrap_or_else(|error| panic!("second ingest: {error}"));
 
         let summary = service
             .session("S-SHARED")
             .unwrap_or_else(|error| panic!("session: {error}"));
-        assert_eq!(summary.tag_count, 3, "EPCB was seen twice but is one garment");
+        assert_eq!(
+            summary.tag_count, 3,
+            "EPCB was seen twice but is one garment"
+        );
         assert_eq!(summary.sighting_count, 4, "every filing is still on record");
         assert_eq!(summary.devices.len(), 2);
         assert_eq!(summary.epcs, vec!["EPCA", "EPCB", "EPCC"]);

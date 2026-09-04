@@ -425,8 +425,9 @@ fn apply_activation(
             "INSERT OR REPLACE INTO commercial_markdown
                  (markdown_id, publication_id, sku_code, article_code, site_id,
                   site_ids_json, replacement_unit_price_minor, priority,
-                  effective_from, effective_to)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?10, ?6, ?7, ?8, ?9)",
+                  effective_from, effective_to, campaign_id,
+                  iso_weekdays_json, from_minute, to_minute)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?10, ?6, ?7, ?8, ?9, ?11, ?12, ?13, ?14)",
             params![
                 markdown.markdown_id,
                 publication_id,
@@ -438,6 +439,18 @@ fn apply_activation(
                 time_text(markdown.effective_from),
                 markdown.effective_to.map(time_text),
                 site_ids_document(markdown.site_ids.as_deref())?,
+                // The campaign it is part of. An older centre sends none and
+                // the drop stands on its own, which is what every clearance
+                // did before a campaign could hold one.
+                markdown.campaign_id.as_deref(),
+                // When in the week and in the day it runs, in the shop's own
+                // time. Absent from an older centre, and absent means all day.
+                (!markdown.iso_weekdays.is_empty())
+                    .then(|| serde_json::to_string(&markdown.iso_weekdays))
+                    .transpose()
+                    .map_err(err)?,
+                markdown.from_minute,
+                markdown.to_minute,
             ],
         )
         .map_err(err)?;
@@ -448,8 +461,8 @@ fn apply_activation(
         tx.execute(
             "INSERT OR REPLACE INTO commercial_campaign
                  (campaign_id, publication_id, name, status, valid_from, valid_to,
-                  budget_minor, max_uses)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                  budget_minor, max_uses, image_url, headline, terms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 campaign.campaign_id,
                 publication_id,
@@ -459,6 +472,13 @@ fn apply_activation(
                 campaign.valid_to.map(time_text),
                 campaign.budget_minor,
                 campaign.max_uses,
+                // The only part of a price book a SHOPPER reads. Carried down
+                // with the rest rather than fetched: a shop with the line down
+                // still has a customer in front of it asking what the poster
+                // means.
+                campaign.image_url.as_deref(),
+                campaign.headline.as_deref(),
+                campaign.terms.as_deref(),
             ],
         )
         .map_err(err)?;
@@ -573,6 +593,50 @@ fn apply_commercial_usage(
     Ok(())
 }
 
+/// Flip the switch on the campaigns this shop holds.
+///
+/// An UPDATE, never an INSERT. A campaign arrives with the price book that
+/// declared it — its budget, its limits, its banner — and this lane carries
+/// only the two things that change between books: whether it is running, and
+/// between when. Inserting here would let a switch conjure a campaign with no
+/// budget and no name, and a promotion naming a campaign the shop "holds" but
+/// knows nothing about is worse than one naming a campaign it plainly lacks:
+/// the first applies, the second fails closed.
+///
+/// A switch for a campaign this shop has never received therefore changes
+/// nothing, and that is right. It will arrive with its own publication.
+fn apply_commercial_campaign(
+    tx: &Transaction<'_>,
+    payload: &crate::cloud::domain::CampaignSwitchPayload,
+) -> Result<(), SyncError> {
+    for campaign in &payload.campaigns {
+        tx.execute(
+            // COALESCE on everything but the status: a switch that does not
+            // mention the poster leaves the poster alone, so an older centre's
+            // message cannot blank a banner it has never heard of.
+            "UPDATE commercial_campaign
+                SET status=?2,
+                    valid_from=COALESCE(?3, valid_from),
+                    valid_to=COALESCE(?4, valid_to),
+                    image_url=COALESCE(?5, image_url),
+                    headline=COALESCE(?6, headline),
+                    terms=COALESCE(?7, terms)
+              WHERE campaign_id=?1",
+            params![
+                campaign.campaign_id.trim(),
+                campaign.status.trim().to_ascii_uppercase(),
+                campaign.valid_from.map(time_text),
+                campaign.valid_to.map(time_text),
+                campaign.image_url.as_deref(),
+                campaign.headline.as_deref(),
+                campaign.terms.as_deref(),
+            ],
+        )
+        .map_err(err)?;
+    }
+    Ok(())
+}
+
 /// Land one catalogue chunk, and swap the whole snapshot in when the last
 /// one arrives.
 ///
@@ -678,8 +742,9 @@ fn apply_catalog_chunk(tx: &Transaction<'_>, chunk: &CatalogChunkPayload) -> Res
         tx.execute(
             "INSERT INTO catalog_item
                  (sku_code, name, uom, barcode, tax_category, active, generation,
-                  updated_at, base_price_minor, article_code, division_code, tags_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                  updated_at, base_price_minor, article_code, division_code, tags_json,
+                  image_url)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 item.sku_code,
                 item.name,
@@ -698,6 +763,9 @@ fn apply_catalog_chunk(tx: &Transaction<'_>, chunk: &CatalogChunkPayload) -> Res
                 item.article_code,
                 item.division_code,
                 serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".into()),
+                // The one place a shop can get a photograph. See migration 0025:
+                // the DC's tagging jobs and order lines are not here.
+                item.image_url,
             ],
         )
         .map_err(err)?;
@@ -2156,6 +2224,11 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             let counts =
                 crate::cloud::domain::parse_commercial_usage(&command.payload).map_err(err)?;
             apply_commercial_usage(tx, &counts)
+        }
+        crate::cloud::domain::COMMAND_COMMERCIAL_CAMPAIGN => {
+            let switches =
+                crate::cloud::domain::parse_campaign_switch(&command.payload).map_err(err)?;
+            apply_commercial_campaign(tx, &switches)
         }
         COMMAND_PURCHASE_ORDER_ACTIVATE => {
             let order = parse_purchase_order(&command.payload).map_err(err)?;

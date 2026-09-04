@@ -39,10 +39,7 @@ pub struct SitePricing {
 /// The four levels live in three nullable columns and only one may be set —
 /// a CHECK constraint says so. Reading them narrowest first means a row that
 /// somehow carries two resolves the same way here as it does at a shop.
-fn level_of(
-    site_id: Option<String>,
-    site_ids: Option<Vec<String>>,
-) -> PriceLevel {
+fn level_of(site_id: Option<String>, site_ids: Option<Vec<String>>) -> PriceLevel {
     if let Some(site_id) = site_id {
         return PriceLevel::Site { site_id };
     }
@@ -98,17 +95,19 @@ pub async fn load_site_pricing(
 type UsageCounts = BTreeMap<(String, String), (i64, i64)>;
 
 async fn load_usage(tx: &mut Transaction<'_, Postgres>) -> Result<UsageCounts, AppError> {
-    Ok(sqlx::query("SELECT kind, key, uses, spent_minor FROM commercial_usage")
-        .fetch_all(&mut **tx)
-        .await?
-        .into_iter()
-        .map(|row| {
-            (
-                (row.get::<String, _>("kind"), row.get::<String, _>("key")),
-                (row.get::<i64, _>("uses"), row.get::<i64, _>("spent_minor")),
-            )
-        })
-        .collect())
+    Ok(
+        sqlx::query("SELECT kind, key, uses, spent_minor FROM commercial_usage")
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .map(|row| {
+                (
+                    (row.get::<String, _>("kind"), row.get::<String, _>("key")),
+                    (row.get::<i64, _>("uses"), row.get::<i64, _>("spent_minor")),
+                )
+            })
+            .collect(),
+    )
 }
 
 /// Overlay what has actually been spent onto the limits a publication declared.
@@ -221,7 +220,8 @@ pub async fn load_site_price_book(
         "SELECT DISTINCT ON (m.markdown_id)
                 m.markdown_id, m.sku_code, m.article_code, m.site_id, m.site_ids,
                 m.replacement_unit_price_minor, m.priority, p.version,
-                m.effective_from, m.effective_to
+                m.effective_from, m.effective_to, m.campaign_id,
+                m.iso_weekdays, m.from_minute, m.to_minute
            FROM commercial_markdown m
            JOIN commercial_publication p ON p.id = m.publication_id
           WHERE p.status = 'PUBLISHED'
@@ -244,10 +244,50 @@ pub async fn load_site_price_book(
         replacement_unit_price: Money::new(row.get::<i64, _>("replacement_unit_price_minor")),
         priority: i64::from(row.get::<i32, _>("priority")),
         publication_version: row.get("version"),
+        // The campaign it belongs to, so the centre's own shelf list is gated by
+        // the same switch the till is. Without it the merchandiser's screen
+        // would keep showing a paused flash sale's prices.
+        campaign_id: row.get("campaign_id"),
+        // Read here as well as at the shop, so the merchandiser's own price
+        // check is dark at the same minutes the till is.
+        days: pricing_engine::DaySet {
+            iso_weekdays: row
+                .get::<Vec<i16>, _>("iso_weekdays")
+                .into_iter()
+                .filter_map(|day| u32::try_from(day).ok())
+                .collect(),
+        },
+        time_window: row
+            .get::<Option<i32>, _>("from_minute")
+            .zip(row.get::<Option<i32>, _>("to_minute"))
+            .map(|(from, to)| pricing_engine::TimeWindow {
+                from_minute: from.max(0) as u32,
+                to_minute: to.max(0) as u32,
+            }),
         effective_from: row.get("effective_from"),
         effective_to: row.get("effective_to"),
     })
     .collect();
+
+    // Campaigns, and only campaigns.
+    //
+    // This loader used to carry none, and the comment at its one caller still
+    // explains why: a stack is base prices and markdowns, a promotion is a
+    // statement about a basket, so reading the promotion tables here would be
+    // three queries per branch thrown away.
+    //
+    // That stopped being true the day a MARKDOWN could name a campaign. A
+    // campaign is now a switch over prices, not only over offers — and with
+    // none loaded, the engine reads every clearance as belonging to a campaign
+    // this reader does not hold, which it deliberately treats as "leave the
+    // cleared price standing". The console would then keep showing a paused
+    // flash sale's prices while every till in the fleet had already put them
+    // back up: the merchandiser's own price check disagreeing with the counter,
+    // which is the exact fault `resolve_offer` was rewritten to end.
+    //
+    // Rules and coupons stay out. Nothing here evaluates a rule, so their caps
+    // are not consulted either — which is why the usage counts are not read.
+    let campaigns = load_campaigns(tx, &UsageCounts::new()).await?;
 
     Ok(SitePricing {
         snapshot: PricingSnapshot {
@@ -256,7 +296,7 @@ pub async fn load_site_price_book(
             markdowns,
             rules: Vec::new(),
             coupons: Vec::new(),
-            campaigns: Vec::new(),
+            campaigns,
         },
         sku_code_by_id,
         sku_id_by_code,
@@ -405,22 +445,22 @@ async fn load_campaigns(
     .map(|row| {
         let campaign_id: String = row.get("campaign_id");
         Campaign {
-        campaign_id: campaign_id.clone(),
-        name: row.get("name"),
-        status: campaign_status(&row.get::<String, _>("status")),
-        valid_from: row.get("valid_from"),
-        valid_to: row.get("valid_to"),
-        caps: with_usage(
-            Caps {
-                budget: row.get::<Option<i64>, _>("budget_minor").map(Money::new),
-                // As the coupons above: one source for a count, and it is not
-                // a column frozen into the book that declared the limit.
-                spent: Money::ZERO,
-                max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
-                used: 0,
-            },
-            usage.get(&("CAMPAIGN".to_string(), campaign_id)),
-        ),
+            campaign_id: campaign_id.clone(),
+            name: row.get("name"),
+            status: campaign_status(&row.get::<String, _>("status")),
+            valid_from: row.get("valid_from"),
+            valid_to: row.get("valid_to"),
+            caps: with_usage(
+                Caps {
+                    budget: row.get::<Option<i64>, _>("budget_minor").map(Money::new),
+                    // As the coupons above: one source for a count, and it is not
+                    // a column frozen into the book that declared the limit.
+                    spent: Money::ZERO,
+                    max_uses: row.get::<Option<i32>, _>("max_uses").map(i64::from),
+                    used: 0,
+                },
+                usage.get(&("CAMPAIGN".to_string(), campaign_id)),
+            ),
         }
     })
     .collect())

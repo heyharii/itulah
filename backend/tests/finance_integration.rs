@@ -444,7 +444,7 @@ async fn a_reversal_mirrors_the_original_and_leaves_it_alone(pool: PgPool) {
 
     // Both entries are still there. The original is a record of what somebody
     // did, and it does not stop being true because it was wrong.
-    let register = cloud::journal_register(&pool, None, None, None, 100)
+    let register = cloud::journal_register(&pool, None, None, None, None, 100)
         .await
         .unwrap_or_else(|error| panic!("register: {error}"));
     assert_eq!(register.len(), 2);
@@ -570,6 +570,8 @@ async fn a_bill_debits_inventory_gross_and_credits_the_discount(pool: PgPool) {
             tax_minor: 1_100_000,
             discount_minor: 500_000,
             note: None,
+            kind: None,
+            lines: None,
         },
         ACTOR,
     )
@@ -639,6 +641,8 @@ async fn the_balance_sheet_balances_once_the_result_is_counted(pool: PgPool) {
             tax_minor: 0,
             discount_minor: 100_000,
             note: None,
+            kind: None,
+            lines: None,
         },
         ACTOR,
     )

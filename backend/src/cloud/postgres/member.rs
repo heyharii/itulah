@@ -318,13 +318,12 @@ pub async fn revoke_member_session(pool: &PgPool, session_id: Uuid) -> Result<()
 }
 
 pub async fn member_identity(pool: &PgPool, member_id: &str) -> Result<MemberIdentity, AppError> {
-    let row = sqlx::query(
-        "SELECT member_id, display_name, joined_on FROM member WHERE member_id = $1",
-    )
-    .bind(member_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("member".into()))?;
+    let row =
+        sqlx::query("SELECT member_id, display_name, joined_on FROM member WHERE member_id = $1")
+            .bind(member_id)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("member".into()))?;
     Ok(MemberIdentity {
         member_id: row.get("member_id"),
         display_name: row.get("display_name"),

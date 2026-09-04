@@ -4,5 +4,6 @@ pub mod domain;
 pub mod http;
 pub mod media;
 pub mod postgres;
+pub mod reports;
 
 pub use application::{AppConfig, AppError, AppState};

@@ -61,6 +61,10 @@ pub struct EmployeeRecord {
     pub place_names: std::collections::HashMap<String, String>,
     pub profile: Option<Profile>,
     pub contracts: ContractTimeline,
+    /// The login bound to this record, when there is one. Loaded with the
+    /// record rather than fetched by whoever wants it, so no caller can serve
+    /// an employee whose account it forgot to ask about.
+    pub account: Option<AccountBinding>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -289,6 +293,7 @@ pub async fn load_employee(
         place_names,
         profile: load_profile(pool, employee_id).await?,
         contracts: load_contracts(pool, employee_id).await?,
+        account: load_account(pool, employee_id).await?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     }))
@@ -634,27 +639,135 @@ pub async fn replace_contracts(
     Ok(())
 }
 
-/// Bind an employment record to a login.
+/// The login bound to an employment record, and how it came to be bound.
 ///
-/// The unique partial index refuses a second account for one employee; this
-/// turns that into an answer rather than a 500.
+/// The provenance is optional because 0097 deliberately did not backfill it: a
+/// binding made before that migration has no recorded decision behind it, and
+/// naming an actor who never typed a reason would put a fabricated statement in
+/// the middle of the evidence. Absent means "made before this was kept", and
+/// the screens say that rather than guessing.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AccountBinding {
+    pub username: String,
+    pub display_name: String,
+    /// Whether the credential still opens anything. False for somebody who has
+    /// been walked out: the record stays and the door does not.
+    pub active: bool,
+    pub linked_by: Option<String>,
+    pub linked_at: Option<DateTime<Utc>>,
+    pub link_reason: Option<String>,
+}
+
+/// What the employment side needs to walk somebody out: which account, and
+/// whether it is still open. Separate from [`AccountBinding`] because it is not
+/// a view — nothing serialises it, and it carries the id that does the work.
+pub struct BoundAccount {
+    pub user_id: Uuid,
+    pub username: String,
+    pub active: bool,
+}
+
+/// The login bound to this record, for a screen.
+pub async fn load_account(
+    pool: &PgPool,
+    employee_id: &str,
+) -> Result<Option<AccountBinding>, AppError> {
+    let row = sqlx::query(
+        "SELECT u.username, u.display_name, u.active,
+                l.actor AS linked_by, l.at AS linked_at, l.reason AS link_reason
+           FROM app_user u
+           LEFT JOIN LATERAL (
+                SELECT actor, at, reason
+                  FROM employee_account_link
+                 WHERE user_id = u.id AND employee_id = $1 AND act = 'LINK'
+                 ORDER BY at DESC, id DESC
+                 LIMIT 1
+           ) l ON TRUE
+          WHERE u.employee_id = $1",
+    )
+    .bind(employee_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    Ok(Some(AccountBinding {
+        username: row.try_get("username")?,
+        display_name: row.try_get("display_name")?,
+        active: row.try_get("active")?,
+        linked_by: row.try_get("linked_by")?,
+        linked_at: row.try_get("linked_at")?,
+        link_reason: row.try_get("link_reason")?,
+    }))
+}
+
+/// The login bound to this record, for the code that closes it.
+pub async fn bound_account(
+    pool: &PgPool,
+    employee_id: &str,
+) -> Result<Option<BoundAccount>, AppError> {
+    let row = sqlx::query("SELECT id, username, active FROM app_user WHERE employee_id = $1")
+        .bind(employee_id)
+        .fetch_optional(pool)
+        .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    Ok(Some(BoundAccount {
+        user_id: row.try_get("id")?,
+        username: row.try_get("username")?,
+        active: row.try_get("active")?,
+    }))
+}
+
+/// Bind a login to an employment record.
+///
+/// Three refusals, and the middle one is the reason this function was rewritten.
+///
+///  * **The person has left.** A credential is not issued to somebody whose
+///    employment is over; the whole of [`super::super::http::employment`] is
+///    otherwise busy taking one away from them.
+///  * **The login is already somebody else's.** The previous version was a bare
+///    `UPDATE ... WHERE username = $1`, which quietly moved an account from one
+///    employee to another — the earlier person losing their binding with no row
+///    anywhere saying it had happened. Two people's identities silently swapped
+///    is the worst outcome this table has, and it took one statement to reach.
+///  * **This record already has a different login.** Already refused before, and
+///    kept: one person, one credential, or "who is this" has two answers at the
+///    moment somebody asks it in earnest.
+///
+/// Re-binding the same login to the same person changes nothing and records
+/// nothing. It is not an error — an idempotent write from a retried request is
+/// not a decision — and there is no new fact for the history to hold.
 pub async fn link_account(
     pool: &PgPool,
     employee_id: &str,
     username: &str,
+    authorization: &Authorization,
 ) -> Result<(), AppError> {
-    let exists: Option<String> = sqlx::query_scalar("SELECT id FROM employee WHERE id = $1")
-        .bind(employee_id)
-        .fetch_optional(pool)
-        .await?;
-    if exists.is_none() {
+    let mut tx = pool.begin().await?;
+
+    let status: Option<String> =
+        sqlx::query_scalar("SELECT status FROM employee WHERE id = $1 FOR UPDATE")
+            .bind(employee_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some(status) = status else {
         return Err(AppError::NotFound(format!("employee {employee_id}")));
+    };
+    if status == EmploymentStatus::Terminated.code() {
+        return Err(AppError::Conflict(format!(
+            "employee {employee_id} has left; a login is not bound to somebody \
+             whose employment is over"
+        )));
     }
 
     let held_by: Option<String> =
         sqlx::query_scalar("SELECT username FROM app_user WHERE employee_id = $1")
             .bind(employee_id)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *tx)
             .await?;
     if let Some(held_by) = held_by {
         if held_by != username {
@@ -665,13 +778,92 @@ pub async fn link_account(
         return Ok(());
     }
 
-    let updated = sqlx::query("UPDATE app_user SET employee_id = $2 WHERE username = $1")
-        .bind(username)
-        .bind(employee_id)
-        .execute(pool)
-        .await?;
-    if updated.rows_affected() == 0 {
+    let account =
+        sqlx::query("SELECT id, employee_id FROM app_user WHERE username = $1 FOR UPDATE")
+            .bind(username)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some(account) = account else {
         return Err(AppError::NotFound(format!("user {username}")));
+    };
+    let user_id: Uuid = account.try_get("id")?;
+    let bound_to: Option<String> = account.try_get("employee_id")?;
+    if let Some(bound_to) = bound_to {
+        return Err(AppError::Conflict(format!(
+            "{username} is already the login of employee {bound_to}; release it there first"
+        )));
     }
+
+    sqlx::query("UPDATE app_user SET employee_id = $2, updated_at = now() WHERE id = $1")
+        .bind(user_id)
+        .bind(employee_id)
+        .execute(&mut *tx)
+        .await?;
+    record_link(&mut tx, employee_id, user_id, "LINK", authorization).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Unbind a login from an employment record, and say why.
+///
+/// The counterpart the first version lacked. Refusing to steal an account
+/// without a way to give one back would turn a typo into a permanent one: the
+/// login stays bound to the wrong person, and the right person can never be
+/// given it.
+///
+/// It does **not** deactivate the account. A release says "this credential is
+/// not this person's", which is often because it never was — and closing
+/// somebody's login on the strength of a correction to a different record is
+/// how a mistake becomes an outage. Walking somebody out is
+/// [`super::super::http::employment::transition`]'s job and has its own key.
+pub async fn release_account(
+    pool: &PgPool,
+    employee_id: &str,
+    authorization: &Authorization,
+) -> Result<String, AppError> {
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query("SELECT id, username FROM app_user WHERE employee_id = $1 FOR UPDATE")
+        .bind(employee_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let Some(row) = row else {
+        return Err(AppError::Conflict(format!(
+            "no login is bound to employee {employee_id}"
+        )));
+    };
+    let user_id: Uuid = row.try_get("id")?;
+    let username: String = row.try_get("username")?;
+
+    sqlx::query("UPDATE app_user SET employee_id = NULL, updated_at = now() WHERE id = $1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    record_link(&mut tx, employee_id, user_id, "RELEASE", authorization).await?;
+    tx.commit().await?;
+    Ok(username)
+}
+
+/// One decision about a binding, written in the same transaction as the
+/// binding itself. Separately committed evidence is evidence that can be
+/// missing.
+async fn record_link(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+    user_id: Uuid,
+    act: &str,
+    authorization: &Authorization,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO employee_account_link (employee_id, user_id, act, actor, reason, at)
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(employee_id)
+    .bind(user_id)
+    .bind(act)
+    .bind(authorization.actor().to_string())
+    .bind(authorization.reason().to_string())
+    .bind(authorization.at())
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }

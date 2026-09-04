@@ -110,3 +110,30 @@ pub async fn download_url(
     let url = infrastructure::download_url(&state, document_id).await?;
     Ok(Json(json!({ "url": url, "expires_in_seconds": 300 })))
 }
+
+/// The bytes themselves, through the node.
+///
+/// The sibling of [`download_url`], and both are needed for the same reason
+/// `postgres::read_file` has two arms. A document filed against an object
+/// store gets a presigned URL and the bytes never touch this process; a
+/// document whose bytes sit in `stored_file.bytes` — every seeded one, and
+/// every one filed on a node with no bucket configured — has no key to presign,
+/// so `download_url` answers 404 and the drawer has no way to open its own
+/// files at all.
+///
+/// This route is also what makes a preview possible. A tile draws through an
+/// `<img>` or an `<object>`, and neither can carry a signed URL fetched later:
+/// by the time the fetch answers the tile has painted, and a presigned link
+/// held for the life of a screen has expired before anybody clicks it. So the
+/// tile points here, at a stable same-origin path, and `download_response`
+/// decides — from the same inert allow-list the attachment routes use — whether
+/// the browser may draw it or must save it.
+pub async fn content(
+    State(state): State<AppState>,
+    Path(document_id): Path<Uuid>,
+) -> Result<axum::response::Response, AppError> {
+    let document = infrastructure::read_document(&state.db, document_id).await?;
+    Ok(super::files::download_response(
+        infrastructure::read_file(&state, document.file_id).await?,
+    ))
+}

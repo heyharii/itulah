@@ -131,6 +131,9 @@ fn config() -> AppConfig {
         media: None,
         attachments: None,
         default_destination_site_id: "dc".into(),
+        assistant_api_key: None,
+        assistant_base_url: "https://openrouter.ai/api/v1".into(),
+        assistant_model: "anthropic/claude-opus-5".into(),
     }
 }
 
@@ -246,7 +249,7 @@ async fn login_for(
         "POST",
         &format!("/api/v1/employees/{employee_id}/account"),
         write_headers(cookies, csrf),
-        Some(json!({ "username": username })),
+        Some(json!({ "username": username, "reason": "akun untuk staf" })),
     )
     .await;
     assert_eq!(linked.status, StatusCode::OK, "link: {:?}", linked.body);

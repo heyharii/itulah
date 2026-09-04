@@ -81,9 +81,56 @@ export class Node {
   /// different cookie — see `cloud/http/member.rs`.
   private readonly csrfCookie: string;
 
+  /// A bearer token, when this node is addressed without cookies.
+  ///
+  /// Normally undefined: a surface served from its own node authenticates with
+  /// the session cookie, and that is the whole story. It is set on the *second*
+  /// node a surface talks to — the hub reaching a DC edge node — because both
+  /// backends name their cookies identically (`inventory_session`,
+  /// `inventory_csrf`, from `security.rs`). Two sessions under one cookie name
+  /// on one origin is not a nuisance, it is signing out of the centre by
+  /// signing in to the warehouse, and back again on the next login. A token
+  /// carried in a header belongs to the client that holds it, so the two
+  /// sessions cannot overwrite each other.
+  ///
+  /// While it is set, this node sends no cookies at all — neither the session
+  /// nor the CSRF echo. Both would be the *other* node's, and the CSRF header
+  /// built from a foreign cookie is refused rather than ignored. The server
+  /// agrees: `edge/http.rs` demands the CSRF pair only of cookie-authenticated
+  /// requests.
+  private bearer: string | undefined;
+
   constructor(baseUrl: string = "", csrfCookie: string = CSRF_COOKIE) {
     this.baseUrl = baseUrl;
     this.csrfCookie = csrfCookie;
+  }
+
+  /// Hand this node a session token, or `null` to forget the one it has.
+  setBearer(token: string | null | undefined): void {
+    this.bearer = token ?? undefined;
+  }
+
+  /// Whether this node currently holds a token. A surface asks before deciding
+  /// to draw a login box for a second backend.
+  get hasBearer(): boolean {
+    return this.bearer !== undefined;
+  }
+
+  /// The transport bits every request shares: who we are, and whether cookies
+  /// travel. In one place because getting it wrong on one verb is a session
+  /// that works for reads and 403s on writes.
+  private authorise(headers: Record<string, string>, method: string): RequestCredentials {
+    if (this.bearer !== undefined) {
+      headers["authorization"] = `Bearer ${this.bearer}`;
+      return "omit";
+    }
+    if (!SAFE_METHODS.has(method.toUpperCase())) {
+      const csrf = readCookie(this.csrfCookie);
+      if (csrf !== undefined) {
+        headers["x-csrf-token"] = csrf;
+      }
+    }
+    return "include";
   }
 
   async request<T>(
@@ -129,13 +176,9 @@ export class Node {
     // A cookie-authenticated write must carry the CSRF token in a header as
     // well as the cookie; the server compares the two and rejects the request
     // when either is missing. Omitting this header is why a signed-in browser
-    // gets 403 on everything except reads.
-    if (!SAFE_METHODS.has(method.toUpperCase())) {
-      const csrf = readCookie(this.csrfCookie);
-      if (csrf !== undefined) {
-        headers["x-csrf-token"] = csrf;
-      }
-    }
+    // gets 403 on everything except reads. A token-authenticated node sends
+    // neither — see `bearer`.
+    const credentials = this.authorise(headers, method);
     for (const [name, value] of Object.entries(options.headers ?? {})) {
       headers[name] = value;
     }
@@ -144,7 +187,7 @@ export class Node {
       headers,
       body,
       // The session cookie the node sets when auth is on.
-      credentials: "include",
+      credentials,
       signal: options.signal,
     });
     if (!response.ok) {
@@ -162,6 +205,108 @@ export class Node {
 
   post<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
     return this.request<T>("POST", path, body, options);
+  }
+
+  /// Change one field of something that already exists.
+  ///
+  /// Distinct from `post` because the server distinguishes them: pulling a
+  /// campaign's switch is `PATCH`, and routing it as a POST would 405. Added
+  /// when the first such endpoint arrived rather than in advance — a verb with
+  /// no route behind it is a verb somebody uses wrongly.
+  patch<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
+    return this.request<T>("PATCH", path, body, options);
+  }
+
+  /// Put something away.
+  ///
+  /// Here for the same reason `patch` is: a route that answers `DELETE` and
+  /// nothing else exists — archiving an assistant conversation — and sending it
+  /// as a POST would 405. What the server does with it is the server's
+  /// business; several of these archive rather than erase.
+  delete<T>(path: string, options?: RequestOptions): Promise<T> {
+    return this.request<T>("DELETE", path, undefined, options);
+  }
+
+  /// A POST whose answer arrives in pieces, as server-sent events.
+  ///
+  /// The assistant is the only caller: its reply is written a word at a time
+  /// and the tool calls behind it happen while it is being written, so waiting
+  /// for a whole body would throw away the only part of an agent's turn worth
+  /// watching. `EventSource` cannot be used for it — that is GET-only and
+  /// cannot carry a CSRF header — so this is `fetch` reading the body itself.
+  ///
+  /// It lives here for the same reason every other verb does: the session
+  /// cookie, the CSRF token and the error shape are set in one place, and a
+  /// loose `fetch` in a screen is a request missing all three.
+  ///
+  /// `onEvent` is called with each frame's event name and its parsed `data`.
+  /// A frame whose data is not JSON is skipped rather than thrown: the server
+  /// also sends keep-alive comments, and a heartbeat must not end a stream.
+  async stream(
+    path: string,
+    body: unknown,
+    onEvent: (event: string, data: unknown) => void,
+    options: RequestOptions = {},
+  ): Promise<void> {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+    };
+    const credentials = this.authorise(headers, "POST");
+    for (const [name, value] of Object.entries(options.headers ?? {})) {
+      headers[name] = value;
+    }
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      credentials,
+      signal: options.signal,
+    });
+    if (!response.ok) {
+      throw await readError(response);
+    }
+    if (!response.body) {
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    // Frames are separated by a blank line and a frame can be split across
+    // two network chunks, so whatever follows the last blank line is held
+    // back rather than parsed.
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf("\n\n");
+
+        let name = "message";
+        let data = "";
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event:")) {
+            name = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            data += line.slice(5).trim();
+          }
+        }
+        if (data === "") {
+          continue;
+        }
+        try {
+          onEvent(name, JSON.parse(data));
+        } catch {
+          // Not JSON, so not ours. Skipping beats tearing down the stream.
+        }
+      }
+    }
   }
 
   /// Who am I talking to.

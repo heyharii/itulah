@@ -54,9 +54,9 @@ pub mod rule;
 pub use money::{Currency, Money};
 pub use price::{resolve_price, Markdown, PriceEntry, PriceLevel};
 pub use rule::{
-    Applicability, Campaign, CampaignStatus, Caps, Conditions, Coupon,
-    CustomerScope, DaySet, EarnBasis, EarnEffect, Effect, RejectionReason, Rule, RuleScope,
-    RuleStatus, Stacking, TimeWindow,
+    Applicability, Campaign, CampaignStatus, Caps, Conditions, Coupon, CustomerScope, DaySet,
+    EarnBasis, EarnEffect, Effect, RejectionReason, Rule, RuleScope, RuleStatus, Stacking,
+    TimeWindow,
 };
 
 // ---------------------------------------------------------------------------
@@ -126,7 +126,6 @@ impl PricingContext {
         self.customer_id = Some(customer_id.into());
         self
     }
-
 }
 
 /// One thing a shopper is buying.
@@ -174,7 +173,6 @@ impl CartLine {
         self.tags.push(tag.into());
         self
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +489,25 @@ pub fn price_stacks(
     products: &[CartLine],
 ) -> Vec<ProductStack> {
     engine::stacks(snapshot, context, products)
+}
+
+/// Whether one promotion may run right now, and why not when it may not.
+///
+/// The gate `price_cart` applies, asked without a basket. A screen that lists
+/// what a shop is running reads this rather than the rule's own `status` field:
+/// a rule can be `ACTIVE` and still be dead — outside its window, at the wrong
+/// shop, under a campaign somebody paused, or out of budget — and a promotions
+/// board that reported `status` would advertise every one of those.
+///
+/// The reasons are the caller's to sort. [`RejectionReason::NotStarted`] is the
+/// interesting one: it is not a refusal so much as a date, and it is what tells
+/// a shop floor that Friday's prices are already in the building.
+pub fn rule_standing(
+    rule: &Rule,
+    snapshot: &PricingSnapshot,
+    context: &PricingContext,
+) -> Result<(), RejectionReason> {
+    engine::standing(rule, snapshot, context)
 }
 
 /// Whether a coupon code would be accepted, before there is a basket to price.

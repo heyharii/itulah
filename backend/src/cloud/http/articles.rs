@@ -130,7 +130,7 @@ pub async fn search_articles(
         Some(other) => {
             return Err(AppError::Validation(format!(
                 "active must be true or false, not {other:?}"
-            )))
+            )));
         }
     };
     let limit = match single_value(&params, "limit") {

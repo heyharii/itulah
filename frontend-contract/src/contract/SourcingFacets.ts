@@ -10,4 +10,12 @@ import type { FacetCount } from "./FacetCount";
  * that only describes what they have already chosen cannot answer "what if I
  * looked at menswear instead".
  */
-export type SourcingFacets = { divisions: Array<FacetCount>, tags: Array<FacetCount>, suppliers: Array<FacetCount>, };
+export type SourcingFacets = { divisions: Array<FacetCount>, tags: Array<FacetCount>, suppliers: Array<FacetCount>, 
+/**
+ * Counted by ITEM, not by variant: an item offered in five colours adds
+ * one to each of five rows, so the numbers answer "how many things could
+ * I buy in navy" rather than "how many navy rows exist". Summing them
+ * therefore exceeds the total, which is correct and is the same thing the
+ * tag counts already do.
+ */
+colours: Array<FacetCount>, sizes: Array<FacetCount>, };

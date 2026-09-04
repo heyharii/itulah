@@ -81,6 +81,15 @@ pub struct LabelData<'a> {
 pub struct LabelSize {
     pub width_mm: f64,
     pub height_mm: f64,
+    /// How far the label sits from the left edge of what the print head sweeps.
+    ///
+    /// A reel is not all label. The die-cut tag sits on a liner, and on RFID
+    /// stock it is usually inset — so ink placed at x=0 lands on the backing
+    /// paper and the tag comes out with its left column missing. This shifts
+    /// everything the printer draws by that much; it does NOT change the
+    /// layout, and the preview does not shift, because the tag is unchanged.
+    /// It is where the tag IS, not what it looks like.
+    pub left_offset_mm: f64,
 }
 
 impl Default for LabelSize {
@@ -91,6 +100,7 @@ impl Default for LabelSize {
         Self {
             width_mm: 50.0,
             height_mm: 30.0,
+            left_offset_mm: 0.0,
         }
     }
 }
@@ -204,6 +214,9 @@ enum Mark {
 struct Sheet {
     w_dots: i64,
     h_dots: i64,
+    /// Where the printer starts drawing. Only the two printer emitters read
+    /// it: the screen draws the tag, and the tag does not move.
+    offset_dots: i64,
     copies: u32,
     marks: Vec<Mark>,
 }
@@ -230,12 +243,17 @@ impl Sheet {
         // UTF-8. Indonesian article names carry accented characters, and the
         // default code page renders them as noise.
         out.push_str("^CI28\n");
+        // `^LH` moves the origin every `^FO` below is measured from. Written
+        // even when it is nought: a printer remembers the last one it was
+        // given, and a run that leaves it unsaid inherits whatever the
+        // previous job set.
+        out.push_str(&format!("^LH{},0\n", self.offset_dots));
 
         for mark in &self.marks {
             match mark {
-                Mark::Text { x, y, font, text } => out.push_str(&format!(
-                    "^FO{x},{y}^A0N,{font},{font}^FD{text}^FS\n"
-                )),
+                Mark::Text { x, y, font, text } => {
+                    out.push_str(&format!("^FO{x},{y}^A0N,{font},{font}^FD{text}^FS\n"))
+                }
                 // ^BY sets the module width and ratio; ^BC is Code 128 with
                 // the human readable line below and no ZPL-computed check
                 // digit — the payload is already exactly what should be
@@ -252,11 +270,24 @@ impl Sheet {
                 )),
                 // Full form `^RFW,t,b,n,r`: hex, EPC bank, byte count, one
                 // retry. The shorthand `^RFW,E` works on modern Zebra Link-OS
-                // but is not guaranteed under T6204e ZGL emulation, so it is
-                // not used.
-                Mark::Rfid { hex } => {
-                    out.push_str(&format!("^RFW,H,1,{},1^FD{hex}^FS\n", hex.len() / 2))
-                }
+                // but is not guaranteed under ZGL emulation, so it is not used.
+                //
+                // THE PAYLOAD LEADS WITH THE PC WORD, and that is not a
+                // detail. Bank 1 does not begin at the EPC: word 0 is the CRC
+                // and word 1 is the Protocol Control word, which declares how
+                // long the EPC is. This printer starts writing at word 0, so a
+                // payload of bare EPC lands one word early — the first four
+                // hex characters are eaten by the PC word and the tag reads
+                // back short, padded with zeroes at the tail.
+                //
+                // Measured, not assumed: sending 24 hex read back as 20 of
+                // ours plus `0000`; sending 28 read back as 24. Prefixing the
+                // PC word read back exactly what was sent.
+                Mark::Rfid { hex } => out.push_str(&format!(
+                    "^RFW,H,1,{},1^FD{}{hex}^FS\n",
+                    hex.len() / 2 + PC_WORD_BYTES,
+                    protocol_control_word(hex)
+                )),
             }
         }
 
@@ -265,7 +296,6 @@ impl Sheet {
         out.push_str("^XZ\n");
         out
     }
-
 
     /// The same label for a TSC printer speaking its own language.
     ///
@@ -293,6 +323,8 @@ impl Sheet {
         out.push_str("DIRECTION 1\n");
         // UTF-8, for the same reason `^CI28` is set on the ZPL side.
         out.push_str("CODEPAGE UTF-8\n");
+        // TSPL's own origin shift, and stated for the same reason `^LH` is.
+        out.push_str(&format!("REFERENCE {},0\n", self.offset_dots));
         out.push_str("CLS\n");
 
         for mark in &self.marks {
@@ -317,6 +349,10 @@ impl Sheet {
                     module * 3,
                     tspl_quoted(payload)
                 )),
+                // The PC word question has NOT been put to a printer in
+                // TSPL mode. `RFWRITE` names its start block explicitly, so it
+                // may well address the EPC directly and need no prefix — but
+                // that is a guess, and the ZPL side is what the field runs.
                 Mark::Rfid { hex } => out.push_str(&rfid_write_tspl(hex)),
             }
         }
@@ -566,6 +602,7 @@ fn lay_out_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -
     Sheet {
         w_dots: l.w_dots,
         h_dots: l.h_dots,
+        offset_dots: scale_round(1, size.left_offset_mm.max(0.0) * DOTS_PER_MM),
         copies: data.copies.max(1),
         marks,
     }
@@ -676,12 +713,7 @@ fn lay_out_koli(data: &KoliLabelData<'_>, size: LabelSize, brand: LabelBrand<'_>
         x: l.x(30),
         y: l.y(112),
         height: scale_round(72, l.scale_y),
-        module: barcode_module(
-            koli_number.chars().count(),
-            l.x(30),
-            l.w_dots,
-            l.scale_x,
-        ),
+        module: barcode_module(koli_number.chars().count(), l.x(30), l.w_dots, l.scale_x),
         hri_font: l.font(18),
         payload: koli_number,
     });
@@ -689,6 +721,7 @@ fn lay_out_koli(data: &KoliLabelData<'_>, size: LabelSize, brand: LabelBrand<'_>
     Sheet {
         w_dots: l.w_dots,
         h_dots: l.h_dots,
+        offset_dots: scale_round(1, size.left_offset_mm.max(0.0) * DOTS_PER_MM),
         copies: 1,
         marks,
     }
@@ -803,6 +836,21 @@ fn tspl_quoted(text: &str) -> String {
 /// which is why a printed tag is not evidence and a tag read back is.
 fn rfid_write_tspl(hex: &str) -> String {
     format!("RFWRITE 1,0,{},\"{hex}\"\n", hex.len() / 2)
+}
+
+/// The CRC and PC words that sit in front of the EPC in bank 1.
+const PC_WORD_BYTES: usize = 2;
+
+/// The Protocol Control word for an EPC of this length.
+///
+/// Its top five bits are the EPC's length in 16-bit words, and a reader
+/// believes it over anything else: a tag whose PC word says six words returns
+/// 96 bits no matter what the rest of the bank holds. Writing the EPC without
+/// it leaves whatever the previous owner declared, which is how a tag comes
+/// back with somebody else's trailing bytes attached.
+fn protocol_control_word(hex: &str) -> String {
+    let words = hex.len() / 4;
+    format!("{:04X}", (words as u16) << 11)
 }
 
 /// Which language to hand the printer.
@@ -956,6 +1004,34 @@ mod tests {
 
     #[test]
     #[test]
+    fn the_rfid_write_leads_with_the_protocol_control_word() {
+        let data = sample();
+        let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
+
+        // 12 bytes of EPC plus the 2-byte PC word, and the payload is the PC
+        // word followed by the EPC exactly as given.
+        assert!(
+            zpl.contains("^RFW,H,1,14,1^FD3000A01234567812300000000064^FS"),
+            "{zpl}"
+        );
+
+        // Measured on a TSC MB241: without the prefix the first four hex
+        // characters are eaten by the PC word and the tag reads back short.
+        assert!(
+            !zpl.contains("^RFW,H,1,12,1^FDA0"),
+            "the bare EPC form writes one word early: {zpl}"
+        );
+    }
+
+    #[test]
+    fn the_control_word_states_the_epc_length_in_words() {
+        // Top five bits are the length in 16-bit words: six for EPC-96,
+        // eight for EPC-128. A reader believes this over the bank's contents.
+        assert_eq!(protocol_control_word(&"A".repeat(24)), "3000");
+        assert_eq!(protocol_control_word(&"A".repeat(32)), "4000");
+    }
+
+    #[test]
     fn tspl_draws_the_same_tag_the_zpl_emitter_does() {
         let data = sample();
         let size = LabelSize::default();
@@ -966,7 +1042,10 @@ mod tests {
         assert!(tspl.starts_with("SIZE 58 mm,40 mm\n"), "{tspl}");
         assert!(tspl.contains("CLS\n"), "{tspl}");
         assert!(tspl.ends_with("PRINT 1,1\n"), "{tspl}");
-        assert!(!tspl.contains("^XA"), "ZPL leaked into the TSPL job: {tspl}");
+        assert!(
+            !tspl.contains("^XA"),
+            "ZPL leaked into the TSPL job: {tspl}"
+        );
 
         // Same words, same EPC. Whatever the ZPL emitter puts on the tag, this
         // one puts there too — that is the point of sharing the marks.
@@ -1009,6 +1088,7 @@ mod tests {
         assert_eq!(line.matches('"').count(), 4, "{line}");
     }
 
+    #[test]
     fn a_malformed_epc_is_left_off_the_tag_rather_than_half_written() {
         for bad in ["", "A0123", "not-hexadecimal-at-all-xx", &"A".repeat(25)] {
             let mut data = sample();
@@ -1049,6 +1129,7 @@ mod tests {
         let small = LabelSize {
             width_mm: 40.0,
             height_mm: 30.0,
+            left_offset_mm: 0.0,
         };
         let zpl = render_label(&sample(), small, LabelBrand("CENTRAL"));
         assert!(zpl.contains("^PW320\n"), "{zpl}");
@@ -1078,7 +1159,10 @@ mod tests {
         assert!(svg.contains("viewBox=\"0 0 464 320\""), "{svg}");
 
         // Brand: ^FO16,14 at 48 dots, so a baseline at 14 + 48 × 0.78.
-        assert!(svg.contains("x=\"16\" y=\"51.4\" font-size=\"48\""), "{svg}");
+        assert!(
+            svg.contains("x=\"16\" y=\"51.4\" font-size=\"48\""),
+            "{svg}"
+        );
         // The price, which is the other thing anybody squints at.
         assert!(svg.contains("Rp 89.000"), "{svg}");
         // And the size, at the weight the rail is shopped by.
@@ -1095,7 +1179,14 @@ mod tests {
         let zpl = render_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
         let svg = preview_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
 
-        for field in ["CENTRAL", "12345678123", "Kemeja katun", "L", "Navy", "Rp 89.000"] {
+        for field in [
+            "CENTRAL",
+            "12345678123",
+            "Kemeja katun",
+            "L",
+            "Navy",
+            "Rp 89.000",
+        ] {
             assert!(zpl.contains(field), "missing from the job: {field}");
             assert!(svg.contains(field), "missing from the picture: {field}");
         }
@@ -1114,6 +1205,7 @@ mod tests {
             LabelSize {
                 width_mm: 40.0,
                 height_mm: 30.0,
+                left_offset_mm: 0.0,
             },
             LabelBrand("CENTRAL"),
         );
@@ -1129,7 +1221,10 @@ mod tests {
         let mut data = sample();
         data.article_name = "Jaket <b>&\"biru\"</b>";
         let svg = preview_label(&data, LabelSize::default(), LabelBrand("CENTRAL"));
-        assert!(svg.contains("Jaket &lt;b&gt;&amp;&quot;biru&quot;"), "{svg}");
+        assert!(
+            svg.contains("Jaket &lt;b&gt;&amp;&quot;biru&quot;"),
+            "{svg}"
+        );
         assert!(!svg.contains("<b>"), "{svg}");
         // One document out, and it still closes exactly once.
         assert_eq!(svg.matches("</svg>").count(), 1, "{svg}");
@@ -1164,6 +1259,7 @@ mod tests {
         let small = LabelSize {
             width_mm: 40.0,
             height_mm: 30.0,
+            left_offset_mm: 0.0,
         };
         let zpl = render_label(&sample(), small, LabelBrand("CENTRAL"));
         assert!(zpl.contains("^BY1,3,"), "{zpl}");

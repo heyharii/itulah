@@ -23,4 +23,9 @@ sku_code: string | null,
  * panel shows what this bench would actually send rather than what some
  * other bench would.
  */
-language: PrinterLanguage | null, };
+language: PrinterLanguage | null, 
+/**
+ * Where the label sits on the liner. Left out, the run's own inset, and
+ * for an unqueued job the node's default.
+ */
+label_offset_mm: number | null, };

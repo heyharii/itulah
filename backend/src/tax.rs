@@ -57,16 +57,10 @@ pub fn calculate_line_totals(
         .ok_or(TaxError::MoneyOverflow)?;
     let rate = i128::from(tax_rate_bps);
     let (net, tax, total) = if tax_inclusive {
-        let tax = base
-            .checked_mul(rate)
-            .ok_or(TaxError::MoneyOverflow)?
-            / (10_000 + rate);
+        let tax = base.checked_mul(rate).ok_or(TaxError::MoneyOverflow)? / (10_000 + rate);
         (base - tax, tax, base)
     } else {
-        let tax = base
-            .checked_mul(rate)
-            .ok_or(TaxError::MoneyOverflow)?
-            / 10_000;
+        let tax = base.checked_mul(rate).ok_or(TaxError::MoneyOverflow)? / 10_000;
         (base, tax, base + tax)
     };
     Ok(LineTotals {

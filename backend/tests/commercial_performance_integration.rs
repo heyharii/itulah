@@ -11,11 +11,13 @@
 //! so nothing here can leave a fixture behind in a database somebody is using.
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use inventory_backend::cloud::domain::CommercialChannel;
 use inventory_backend::cloud::postgres::{
-    campaign_performance, pricelist_performance, rule_performance, PerformanceWindow,
+    article_prices, campaign_performance, pricelist_performance, rule_performance,
+    ArticlePriceFilter, PerformanceWindow,
 };
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 /// Midnight UTC, so the day buckets in a series fall where a reader expects.
@@ -61,7 +63,13 @@ async fn publish_book(pool: &PgPool) {
     .unwrap_or_else(|e| panic!("book: {e}"));
 
     for (id, name, status, budget, uses) in [
-        ("CAMP-RAYA", "Lebaran Sale", "ACTIVE", Some(5_000_000i64), Some(100i32)),
+        (
+            "CAMP-RAYA",
+            "Lebaran Sale",
+            "ACTIVE",
+            Some(5_000_000i64),
+            Some(100i32),
+        ),
         // Declared and never used. It must still appear, at zero.
         ("CAMP-QUIET", "Ramadan Teaser", "EXPIRED", None, None),
     ] {
@@ -137,11 +145,13 @@ async fn publish_book(pool: &PgPool) {
 /// A style with two sizes, so the pricelist report has something to group.
 async fn catalogue(pool: &PgPool) {
     let article = Uuid::new_v4();
-    sqlx::query("INSERT INTO article (id, article_code, name) VALUES ($1, 'ART-TEE', 'Kaos Polos')")
-        .bind(article)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|e| panic!("article: {e}"));
+    sqlx::query(
+        "INSERT INTO article (id, article_code, name) VALUES ($1, 'ART-TEE', 'Kaos Polos')",
+    )
+    .bind(article)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("article: {e}"));
     for code in ["TEE-01-M", "TEE-01-L"] {
         sqlx::query("INSERT INTO sku (id, article_id, sku_code) VALUES ($1, $2, $3)")
             .bind(Uuid::new_v4())
@@ -620,4 +630,428 @@ async fn a_window_that_runs_backwards_is_refused(pool: PgPool) {
     // Thirty days back, by default.
     assert_eq!(all.to - all.from, Duration::days(30));
     assert_eq!(all.from - all.previous_from, Duration::days(30));
+}
+
+// ---------------------------------------------------------------------------
+// A campaign whose members are markdowns
+// ---------------------------------------------------------------------------
+
+/// One published book carrying one clearance, filed under `CAMP-RAYA`.
+///
+/// DRAFT, then the markdown, then PUBLISHED — the order migration 0073 forces,
+/// and the order a merchandiser works in.
+async fn publish_markdowns(pool: &PgPool, markdown_id: &str, ends: bool) {
+    let book = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO commercial_publication
+             (id, version, name, status, effective_from, created_by)
+         VALUES ($1, (SELECT coalesce(max(version), 0) + 1 FROM commercial_publication),
+                 'Flash Sale', 'DRAFT', $2, 'test')",
+    )
+    .bind(book)
+    .bind(base() - Duration::days(8))
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("clearance book: {e}"));
+
+    sqlx::query(
+        "INSERT INTO commercial_markdown
+             (id, publication_id, markdown_id, sku_code, replacement_unit_price_minor,
+              priority, effective_from, effective_to, campaign_id)
+         VALUES ($1, $2, $3, 'TEE-01-M', 120000, 10, $4, $5, 'CAMP-RAYA')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(book)
+    .bind(markdown_id)
+    .bind(base() - Duration::days(7))
+    .bind(ends.then(|| base() + Duration::days(7)))
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("markdown: {e}"));
+
+    sqlx::query(
+        "UPDATE commercial_publication
+            SET status = 'PUBLISHED', published_by = 'test', published_at = $2
+          WHERE id = $1",
+    )
+    .bind(book)
+    .bind(base() - Duration::days(8))
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("publish clearance book: {e}"));
+}
+
+/// A published clearance under a campaign, plus a sale that took it.
+///
+/// Written straight into `commercial_markdown` and `edge_sale_line` because
+/// that is exactly what the two real paths produce: a merchandiser publishing a
+/// book, and a till reporting what it charged.
+async fn cleared_under_campaign(pool: &PgPool) {
+    // Its own book, and written as a DRAFT first. Migration 0073 refuses to let
+    // a published book grow a markdown, which is the whole point of it — a
+    // clearance added after dispatch would change the centre and no till. A
+    // clearance published a week after the campaign it joins is also the ordinary
+    // case: the campaign is declared once, and the drops are cut when the buyer
+    // decides what to clear.
+    publish_markdowns(pool, "MD-TEE-CLEAR", true).await;
+
+    // Two units at 120.000 that would have been 200.000. The campaign gave up
+    // 160.000, and not one rupiah of it is a discount.
+    let sale = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO edge_sale
+             (sale_id, origin_id, generation, seq, movement_group_id, site_id, actor_id,
+              occurred_at, currency, total_minor, paid_minor, change_minor, customer_id)
+         VALUES ($1, 'store-01-edge', 1, 90, $2, 'store-01', 'kasir', $3, 'IDR',
+                 240000, 240000, 0, 'C-DEAL')",
+    )
+    .bind(sale)
+    .bind(Uuid::new_v4())
+    .bind(base() + Duration::hours(10))
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("cleared sale: {e}"));
+
+    sqlx::query(
+        "INSERT INTO edge_sale_line
+             (sale_id, subject_id, epc, sku_code, quantity, unit_price_minor,
+              line_total_minor, price_source, publication_version,
+              base_unit_price_minor, markdown_id)
+         VALUES ($1, $2, 'EPC-DEAL', 'TEE-01-M', 2, 120000, 240000, 'MARKDOWN', 1,
+                 200000, 'MD-TEE-CLEAR')",
+    )
+    .bind(sale)
+    .bind(Uuid::new_v4())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("cleared line: {e}"));
+}
+
+/// The whole reason this exists: before campaigns could hold markdowns, a
+/// campaign run as a flash sale reported **nothing**. Every rupiah of it sat in
+/// `edge_sale_line`, and this file read only `edge_sale_promotion`.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_campaign_reports_what_its_price_drops_gave_up(pool: PgPool) {
+    publish_book(&pool).await;
+    catalogue(&pool).await;
+    cleared_under_campaign(&pool).await;
+
+    let body = campaign_performance(&pool, &window())
+        .await
+        .unwrap_or_else(|e| panic!("campaigns: {e}"));
+    let raya = find(&body["campaigns"], "CAMP-RAYA");
+
+    // Two units, 80.000 off each.
+    assert_eq!(raya["clearance_minor"], 160_000);
+    // And no promotion fired on that sale, so the discount figure is untouched
+    // by it. The two never merge — a markdown booked as a discount would
+    // inflate both revenue and discount by 160.000 nobody discounted.
+    assert_eq!(raya["benefit_minor"], 0);
+    assert_eq!(raya["sale_count"], 1);
+    assert_eq!(raya["basket_revenue_minor"], 240_000);
+
+    // A rule campaign is unaffected: an effect has no clearance.
+    assert_eq!(find(&body["campaigns"], "CAMP-QUIET")["clearance_minor"], 0);
+}
+
+/// A campaign that discounts AND clears is one campaign, and a basket it
+/// touched both ways is one sale.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_campaign_run_both_ways_counts_each_basket_once(pool: PgPool) {
+    publish_book(&pool).await;
+    catalogue(&pool).await;
+    sales(&pool).await;
+    cleared_under_campaign(&pool).await;
+
+    let body = campaign_performance(&pool, &window())
+        .await
+        .unwrap_or_else(|e| panic!("campaigns: {e}"));
+    let raya = find(&body["campaigns"], "CAMP-RAYA");
+
+    // Three baskets took a promotion of this campaign in the window, and one
+    // more took only a cleared price. Four sales, not five — the union of two
+    // sources is folded per (campaign, sale) precisely so a basket that did
+    // both is not counted twice.
+    assert_eq!(raya["sale_count"], 4);
+    assert_eq!(raya["clearance_minor"], 160_000);
+    // 20.000 + 5.000 on the first basket, 15.000 on the second, 30.000 on the
+    // third. The fourth took a rule outside this campaign and the fifth is in
+    // the window before.
+    assert_eq!(raya["benefit_minor"], 70_000);
+
+    // The two figures stay apart in the daily series as well, so a chart
+    // cannot silently add them.
+    let series = raya["series"]
+        .as_array()
+        .unwrap_or_else(|| panic!("series"));
+    let cleared: i64 = series
+        .iter()
+        .map(|day| day["clearance_minor"].as_i64().unwrap_or(0))
+        .sum();
+    assert_eq!(cleared, 160_000);
+}
+
+/// A line the shop could not measure is left out, never counted as free.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_cleared_line_with_no_list_price_is_not_counted_as_a_giveaway(pool: PgPool) {
+    publish_book(&pool).await;
+    catalogue(&pool).await;
+
+    publish_markdowns(&pool, "MD-UNKNOWN", false).await;
+
+    // `base_unit_price_minor` null: a shop with no book in force, or one on a
+    // build that predates the field. Reading null as nought would report the
+    // entire selling price as a giveaway — 240.000 of clearance that never
+    // happened.
+    let sale = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO edge_sale
+             (sale_id, origin_id, generation, seq, movement_group_id, site_id, actor_id,
+              occurred_at, currency, total_minor, paid_minor, change_minor)
+         VALUES ($1, 'store-01-edge', 1, 91, $2, 'store-01', 'kasir', $3, 'IDR',
+                 240000, 240000, 0)",
+    )
+    .bind(sale)
+    .bind(Uuid::new_v4())
+    .bind(base() + Duration::hours(10))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("sale: {e}"));
+    sqlx::query(
+        "INSERT INTO edge_sale_line
+             (sale_id, subject_id, epc, sku_code, quantity, unit_price_minor,
+              line_total_minor, price_source, markdown_id)
+         VALUES ($1, $2, 'EPC-UNKNOWN', 'TEE-01-M', 2, 120000, 240000, 'MARKDOWN',
+                 'MD-UNKNOWN')",
+    )
+    .bind(sale)
+    .bind(Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("line: {e}"));
+
+    let body = campaign_performance(&pool, &window())
+        .await
+        .unwrap_or_else(|e| panic!("campaigns: {e}"));
+    assert_eq!(find(&body["campaigns"], "CAMP-RAYA")["clearance_minor"], 0);
+}
+
+/// The authoring path, end to end: a scheduled clearance written the way the
+/// console writes one, and read back off the row it landed in.
+///
+/// The console's own form is where a flash sale is decided, and a field that
+/// reaches Postgres under a different name than the one it was bound to fails
+/// silently — the book publishes, the shop applies it, and the sale runs all
+/// day because the hours arrived as nothing. Nothing else in the suite would
+/// notice, because everything else writes the columns by hand.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_clearance_authored_with_hours_keeps_them(pool: PgPool) {
+    use inventory_backend::cloud::application::{
+        CommercialMarkdownInput, CreateCommercialPublicationRequest,
+    };
+
+    inventory_backend::cloud::postgres::create_commercial_publication(
+        &pool,
+        CreateCommercialPublicationRequest {
+            version: 9_000,
+            name: "Flash 12-14".into(),
+            effective_from: base() - Duration::days(1),
+            effective_to: None,
+            // No tax rules: this book sets no prices, and the server refuses a
+            // book whose tax rules would categorise nothing. A clearance-only
+            // book is a legitimate shape — the prices it replaces were set by
+            // an earlier one.
+            tax_rules: Vec::new(),
+            offer_rules: Vec::new(),
+            markdowns: vec![CommercialMarkdownInput {
+                markdown_id: "MD-FLASH".into(),
+                sku_id: None,
+                sku_code: None,
+                article_code: Some("ART-TEE".into()),
+                site_id: None,
+                site_ids: None,
+                replacement_unit_price_minor: 99_000,
+                priority: 0,
+                campaign_id: None,
+                // Noon to two, Saturday and Sunday.
+                iso_weekdays: vec![6, 7],
+                from_minute: Some(720),
+                to_minute: Some(840),
+                effective_from: base() - Duration::days(1),
+                effective_to: None,
+            }],
+            rules: Vec::new(),
+            coupons: Vec::new(),
+            campaigns: Vec::new(),
+            actor_id: "test".into(),
+            idempotency_key: Uuid::new_v4().to_string(),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("author: {e}"));
+
+    let row = sqlx::query(
+        "SELECT iso_weekdays, from_minute, to_minute
+           FROM commercial_markdown WHERE markdown_id = 'MD-FLASH'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("read back: {e}"));
+
+    assert_eq!(row.get::<Vec<i16>, _>("iso_weekdays"), vec![6, 7]);
+    assert_eq!(row.get::<Option<i32>, _>("from_minute"), Some(720));
+    assert_eq!(row.get::<Option<i32>, _>("to_minute"), Some(840));
+}
+
+/// The console's own price grid must go dark when a campaign is paused.
+///
+/// `article_prices` is what the Pricelist menu draws, and it reads the price
+/// book only — no rules, no coupons, and until a markdown could name a
+/// campaign, no campaigns either. That was right then and wrong the moment a
+/// campaign became a switch over PRICES: with none loaded, the engine reads
+/// every clearance as belonging to a campaign this reader does not hold, and
+/// that case deliberately leaves the cleared price standing.
+///
+/// So the screen a merchandiser opens to check prices would have shown a
+/// stopped flash sale's numbers while every till had already put them back up.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_price_grid_stops_showing_a_paused_campaigns_clearance(pool: PgPool) {
+    publish_book(&pool).await;
+    catalogue(&pool).await;
+    shop(&pool).await;
+    publish_base_prices(&pool).await;
+    publish_markdowns(&pool, "MD-TEE-CLEAR", true).await;
+
+    let cleared = article_prices(
+        &pool,
+        CommercialChannel::Store,
+        base(),
+        50,
+        ArticlePriceFilter::default(),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("grid: {e}"));
+    assert!(
+        grid_mentions(&cleared, 120_000),
+        "while the campaign runs, the grid shows the cleared price"
+    );
+
+    // The lever, pulled at the centre.
+    sqlx::query("UPDATE commercial_campaign SET status = 'PAUSED' WHERE campaign_id = 'CAMP-RAYA'")
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("pause: {e}"));
+
+    let paused = article_prices(
+        &pool,
+        CommercialChannel::Store,
+        base(),
+        50,
+        ArticlePriceFilter::default(),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("grid: {e}"));
+    assert!(
+        !grid_mentions(&paused, 120_000),
+        "a paused campaign's clearance must leave the console's grid too"
+    );
+}
+
+/// Whether any price in the grid is this number. Deliberately blunt: the shape
+/// of a stack is the screen's business, and this test is about one figure being
+/// there or not.
+fn grid_mentions(body: &Value, minor: i64) -> bool {
+    body.to_string()
+        .contains(&format!("\"unit_price_minor\":{minor}"))
+}
+
+/// A company-wide base price for the catalogue, in its own published book.
+///
+/// `article_prices` joins a price rule to an assortment rule — a price with no
+/// `sellable` beside it is a style the shop does not stock, and the grid skips
+/// it. So both are written, which is also what authoring does.
+async fn publish_base_prices(pool: &PgPool) {
+    let book = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO commercial_publication
+             (id, version, name, status, effective_from, created_by)
+         VALUES ($1, (SELECT coalesce(max(version), 0) + 1 FROM commercial_publication),
+                 'Harga Dasar', 'DRAFT', $2, 'test')",
+    )
+    .bind(book)
+    .bind(base() - Duration::days(20))
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("price book: {e}"));
+
+    sqlx::query(
+        "INSERT INTO commercial_tax_rule (id, publication_id, tax_category, rate_bps, tax_inclusive)
+         VALUES ($1, $2, 'STANDARD', 1100, true)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(book)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("tax: {e}"));
+
+    let skus: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, sku_code FROM sku")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_else(|e| panic!("skus: {e}"));
+    for (sku_id, _) in skus {
+        sqlx::query(
+            "INSERT INTO commercial_assortment_rule
+                 (id, publication_id, sku_id, channel, sellable)
+             VALUES ($1, $2, $3, 'STORE', true)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(book)
+        .bind(sku_id)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|e| panic!("assortment: {e}"));
+        sqlx::query(
+            "INSERT INTO commercial_price_rule
+                 (id, publication_id, sku_id, channel, currency, unit_price_minor, tax_category)
+             VALUES ($1, $2, $3, 'STORE', 'IDR', 200000, 'STANDARD')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(book)
+        .bind(sku_id)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|e| panic!("price: {e}"));
+    }
+
+    sqlx::query(
+        "UPDATE commercial_publication
+            SET status = 'PUBLISHED', published_by = 'test', published_at = $2
+          WHERE id = $1",
+    )
+    .bind(book)
+    .bind(base() - Duration::days(20))
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("publish prices: {e}"));
+}
+
+/// One shop, so `article_prices` has a branch to price for.
+async fn shop(pool: &PgPool) {
+    sqlx::query(
+        "INSERT INTO site (id, name, kind, edge_node_id)
+         VALUES ('store-01', 'Toko Satu', 'STORE', 'store-01-edge')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("site: {e}"));
+    sqlx::query(
+        "INSERT INTO sync_origin_credential
+             (origin_id, ingest_key_sha256, node_role, site_id, label)
+         VALUES ('store-01-edge', 'x', 'STORE', 'store-01', 'Toko Satu')
+         ON CONFLICT (origin_id) DO NOTHING",
+    )
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("origin: {e}"));
 }

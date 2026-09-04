@@ -1,6 +1,4 @@
-use super::{
-    apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest,
-};
+use super::{apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest};
 use crate::cloud::{
     application::{
         AddSaleLineRequest, AddSalePaymentRequest, AppError, CommandRequest, CreateSaleRequest,
@@ -212,9 +210,7 @@ pub async fn add_sale_line(
     .next()
     // The engine drops anything unsellable before it prices it, so nothing
     // coming back means exactly that: this shop may not sell this here.
-    .ok_or_else(|| {
-        AppError::Conflict("SKU is not sellable for this store/channel".into())
-    })?;
+    .ok_or_else(|| AppError::Conflict("SKU is not sellable for this store/channel".into()))?;
     if priced.currency.0 != sale_currency {
         return Err(AppError::Conflict(
             "offer currency does not match the sale currency".into(),

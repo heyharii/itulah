@@ -599,6 +599,99 @@ pub struct CommercialUsageCount {
     pub spent_minor: i64,
 }
 
+/// Whether each campaign is running, and between which dates.
+///
+/// A third lane, and the reason there has to be one is written into migration
+/// 0073: a campaign's `status` is **the lever the business pulls** when it says
+/// "stop the Lebaran promo", and until this command existed pulling it changed
+/// Postgres and nothing else. A shop only ever learned a campaign's status from
+/// the publication that carried it, and publications are frozen and seasonal —
+/// so a pause reached a till when somebody happened to cut a new price book,
+/// which is to say never, on the day it mattered.
+///
+/// It cannot be folded into the publication for the same reason
+/// [`COMMAND_COMMERCIAL_USAGE`] cannot: a publication is a decision, frozen and
+/// versioned; a switch is pulled between them.
+///
+/// This is what makes a campaign stoppable, and stoppability is what makes it safe
+/// to gate a *markdown* on a campaign at all — see
+/// `pricing_engine::PriceIndex::campaign_allows`. Without a delivered pause,
+/// the only way to end a campaign early would be silence, and silence is exactly
+/// what that gate refuses to read as "put the prices back up".
+pub const COMMAND_COMMERCIAL_CAMPAIGN: &str = "commercial.campaign.v1";
+
+/// The `commercial.campaign.v1` payload: every campaign, not a delta.
+///
+/// Named for the switch rather than for the table it lands in, and that is not
+/// only taste: `tests/pricing_authority.rs` reads every source file for the
+/// name of a price table, and this module — which declares payloads and writes
+/// nothing — must not appear on that list. The first draft named this parser
+/// after the table instead of the message, and tripped that guard by spelling
+/// alone. An allow-list entry to excuse a false positive is how a guard stops
+/// guarding, so the name changed instead.
+///
+/// Whole for the same reason usage is whole — a shop that missed one is behind
+/// rather than permanently wrong about which promotions are running.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CampaignSwitchPayload {
+    pub switched_at: DateTime<Utc>,
+    pub campaigns: Vec<CampaignSwitchEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CampaignSwitchEntry {
+    pub campaign_id: String,
+    /// `DRAFT`, `SCHEDULED`, `ACTIVE`, `PAUSED`, `EXPIRED` or `CANCELLED`.
+    pub status: String,
+    #[serde(default)]
+    pub valid_from: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub valid_to: Option<DateTime<Utc>>,
+    /// The poster, carried on the same lane and for the same reason as the
+    /// switch: it is the other half of a campaign that is allowed to change
+    /// between price books, so a corrected banner must not have to wait for a
+    /// season's repricing to reach the shop floor.
+    ///
+    /// Absent leaves what the shop holds. A shop that receives an older
+    /// centre's switch keeps the picture its last publication gave it, which is
+    /// better than being blanked by a message that simply did not mention it.
+    #[serde(default)]
+    pub image_url: Option<String>,
+    #[serde(default)]
+    pub headline: Option<String>,
+    #[serde(default)]
+    pub terms: Option<String>,
+}
+
+pub fn parse_campaign_switch(payload: &Value) -> Result<CampaignSwitchPayload, String> {
+    let parsed: CampaignSwitchPayload = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {COMMAND_COMMERCIAL_CAMPAIGN} payload: {e}"))?;
+    for campaign in &parsed.campaigns {
+        if campaign.campaign_id.trim().is_empty() {
+            return Err("a campaign switch must name its campaign".into());
+        }
+        // The same list the shop's CHECK constraint holds. Refused at the door
+        // rather than stored and read as "not running" later: a status this
+        // build cannot read would silently pause a live campaign, putting prices
+        // back up across the fleet with nothing saying why.
+        if !matches!(
+            campaign.status.as_str(),
+            "DRAFT" | "SCHEDULED" | "ACTIVE" | "PAUSED" | "EXPIRED" | "CANCELLED"
+        ) {
+            return Err(format!("unknown campaign status {}", campaign.status));
+        }
+        if let (Some(from), Some(to)) = (campaign.valid_from, campaign.valid_to) {
+            if to <= from {
+                return Err(format!(
+                    "campaign {} ends before it starts",
+                    campaign.campaign_id
+                ));
+            }
+        }
+    }
+    Ok(parsed)
+}
+
 pub fn parse_commercial_usage(payload: &Value) -> Result<CommercialUsagePayload, String> {
     let parsed: CommercialUsagePayload = serde_json::from_value(payload.clone())
         .map_err(|e| format!("malformed {COMMAND_COMMERCIAL_USAGE} payload: {e}"))?;
@@ -674,6 +767,22 @@ pub struct PublicationCampaign {
     // other on arrival.
     #[serde(default)]
     pub max_uses: Option<i64>,
+    /// The banner, the words on it, and the small print under it.
+    ///
+    /// A campaign is the only thing in a price book a SHOPPER is meant to read,
+    /// which is why these three ride here and nowhere else. A price rule
+    /// describes a number; a markdown describes a garment; a campaign
+    /// describes an event — "Lebaran Sale, ends Sunday" — and a shop cannot put
+    /// that on a screen out of an id and a percentage.
+    ///
+    /// All three `default`, so an older centre sends none and a shop simply
+    /// draws the campaign's internal name with no picture.
+    #[serde(default)]
+    pub image_url: Option<String>,
+    #[serde(default)]
+    pub headline: Option<String>,
+    #[serde(default)]
+    pub terms: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -693,6 +802,25 @@ pub struct PublicationMarkdown {
     pub replacement_unit_price_minor: i64,
     #[serde(default)]
     pub priority: i64,
+    /// The campaign this price drop is part of, when it is part of one.
+    ///
+    /// This is what makes a "flash sale" expressible: a run of markdowns under
+    /// one campaign's name, window and switch. `None` — every markdown written
+    /// before this existed — stands on its own, and standing on its own is the
+    /// permissive case by design. See postgres migration 0087 for why the gate
+    /// on a markdown's campaign is the opposite way round from a rule's.
+    #[serde(default)]
+    pub campaign_id: Option<String>,
+    /// The days it runs on (ISO, Monday is 1) and the minutes of the day it
+    /// runs between, read in the shop's own time. Empty and `None` mean all
+    /// day, every day — what every markdown meant before a price could be
+    /// scheduled by the hour.
+    #[serde(default)]
+    pub iso_weekdays: Vec<u32>,
+    #[serde(default)]
+    pub from_minute: Option<u32>,
+    #[serde(default)]
+    pub to_minute: Option<u32>,
     pub effective_from: DateTime<Utc>,
     #[serde(default)]
     pub effective_to: Option<DateTime<Utc>>,
@@ -769,9 +897,11 @@ pub fn parse_activate_publication(payload: &Value) -> Result<ActivatePublication
         && parsed.coupons.is_empty()
         && parsed.campaigns.is_empty()
     {
-        return Err("publication carries nothing: no prices, markdowns, promotions, \
+        return Err(
+            "publication carries nothing: no prices, markdowns, promotions, \
                     coupons or campaigns"
-            .into());
+                .into(),
+        );
     }
     if parsed
         .price_rules
@@ -1245,6 +1375,18 @@ pub struct CatalogItem {
     pub division_code: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// The style's photograph, as the centre holds it.
+    ///
+    /// Delivered with the catalogue rather than looked up per node, because the
+    /// two places a node could look it up — the tagging job that printed the
+    /// labels and the purchase order line the goods were bought on — are DC
+    /// work. A shop has neither, so before this every photograph lookup at a
+    /// till resolved to nothing. See edge migration 0025.
+    ///
+    /// `default`, like the three above it: an older centre sends no picture and
+    /// the shop simply has none to draw.
+    #[serde(default)]
+    pub image_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1382,6 +1524,7 @@ mod catalog_tests {
             article_code: Some("ART-1".into()),
             division_code: Some("MENSWEAR".into()),
             tags: vec!["LEBARAN".into()],
+            image_url: Some(format!("https://cdn.example/{sku}.jpg")),
         }
     }
 

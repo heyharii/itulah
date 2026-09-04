@@ -313,10 +313,7 @@ const ROW_STATS_JOIN: &str = "
 /// exactly one of them in front of them. An EPC that does not decode is not an
 /// error: it only means the text somebody pasted was not an EPC, and it is
 /// still tried as everything else.
-pub async fn search_articles(
-    pool: &PgPool,
-    scope: ArticleScope,
-) -> Result<ArticlePage, AppError> {
+pub async fn search_articles(pool: &PgPool, scope: ArticleScope) -> Result<ArticlePage, AppError> {
     let needle = scope
         .needle
         .as_deref()
@@ -395,8 +392,8 @@ pub async fn search_articles(
         .map(article_row_from)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let (total, facets) = article_facets(pool, needle.as_deref(), epc_sku.as_deref(), scope.active)
-        .await?;
+    let (total, facets) =
+        article_facets(pool, needle.as_deref(), epc_sku.as_deref(), scope.active).await?;
     Ok(ArticlePage {
         items,
         next_cursor,
@@ -484,9 +481,8 @@ async fn read_article_detail(
     connection: &mut sqlx::PgConnection,
     article_code: &str,
 ) -> Result<ArticleDetail, AppError> {
-    let sql = format!(
-        "SELECT {ROW_COLUMNS} FROM article a {ROW_STATS_JOIN} WHERE a.article_code = $1"
-    );
+    let sql =
+        format!("SELECT {ROW_COLUMNS} FROM article a {ROW_STATS_JOIN} WHERE a.article_code = $1");
     let row = sqlx::query(&sql)
         .bind(article_code.trim())
         .fetch_optional(&mut *connection)
@@ -661,7 +657,7 @@ pub async fn update_article(
         Some("") => {
             return Err(AppError::Validation(
                 "an article needs a name a human can read on a picking list".into(),
-            ))
+            ));
         }
         other => other.map(str::to_owned),
     };
@@ -874,13 +870,13 @@ async fn replace_article_colourways(
                      {code} and cannot be repointed to {wanted}: the goods are tagged, printed \
                      and on a shelf, and their SKU codes would not change. Give the new colour \
                      a free digit instead."
-                )))
+                )));
             }
             None => {
                 return Err(AppError::Validation(format!(
                     "colour digit {digit} of article {article_code} has SKUs minted against it \
                      and cannot be removed; retire the SKUs instead."
-                )))
+                )));
             }
         }
     }

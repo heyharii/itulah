@@ -29,6 +29,7 @@ fn item(sku: &str, name: &str) -> CatalogItem {
         article_code: Some(format!("ART-{sku}")),
         division_code: Some("MENSWEAR".into()),
         tags: vec!["LEBARAN".into()],
+        image_url: None,
     }
 }
 

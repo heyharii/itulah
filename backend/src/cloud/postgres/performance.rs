@@ -8,7 +8,21 @@
 //! basket, so "what did this campaign cost us in Bandung last week, and what
 //! came back" is not a query you can put to it. That question is only
 //! answerable from `edge_sale` and `edge_sale_promotion`, which is what
-//! everything below reads.
+//! everything below reads — plus `edge_sale_line`, for the half of a campaign
+//! that is not a promotion at all.
+//!
+//! **A campaign can cost money two ways, and they are counted separately.** Its
+//! rules discount what is charged; its markdowns replace what a thing costs.
+//! Both are money the business chose not to take, and only the first is a
+//! discount. `benefit_minor` is what the promotions gave away and
+//! `clearance_minor` is what the price drops gave up; they are never added
+//! together here, because a markdown booked as a discount inflates revenue and
+//! discount by the same invented amount — which is the whole reason the two are
+//! different types rather than a flag.
+//!
+//! Before campaigns could hold markdowns this file could ignore the second
+//! figure, and it did. A campaign run as a flash sale then reported nothing at
+//! all: every rupiah of it sat in `edge_sale_line`, which nothing here read.
 //!
 //! Two properties of these numbers are worth stating once here rather than
 //! being rediscovered from a chart that looks wrong.
@@ -130,6 +144,9 @@ impl PromotionKey {
 struct Aggregate {
     key: String,
     benefit_minor: i64,
+    /// What this campaign gave up by clearing prices, as distinct from what its
+    /// promotions discounted. Always nought for a rule or a coupon.
+    clearance_minor: i64,
     sale_count: i64,
     basket_revenue_minor: i64,
     customer_count: i64,
@@ -146,12 +163,14 @@ impl Aggregate {
         Self {
             key,
             benefit_minor: 0,
+            clearance_minor: 0,
             sale_count: 0,
             basket_revenue_minor: 0,
             customer_count: 0,
             new_customer_count: 0,
             previous: json!({
                 "benefit_minor": 0,
+                "clearance_minor": 0,
                 "sale_count": 0,
                 "basket_revenue_minor": 0,
                 "customer_count": 0,
@@ -174,6 +193,7 @@ impl Aggregate {
             other => return other,
         };
         object.insert("benefit_minor".into(), json!(self.benefit_minor));
+        object.insert("clearance_minor".into(), json!(self.clearance_minor));
         object.insert("sale_count".into(), json!(self.sale_count));
         object.insert(
             "basket_revenue_minor".into(),
@@ -186,6 +206,46 @@ impl Aggregate {
         Value::Object(object)
     }
 }
+
+/// The clearance half of a campaign's cost, as a second source for `scoped`.
+///
+/// A markdown is a price, so nothing about it is recorded per promotion — it is
+/// recorded per sold LINE: `price_source` says a clearance set the price,
+/// `base_unit_price_minor` says what it replaced, and `markdown_id` says which
+/// one. What it gave up is the difference, per unit, times the units.
+///
+/// `base_unit_price_minor IS NOT NULL` is a real filter and not defensiveness.
+/// Null there means the shop had no book in force or predates the field, and a
+/// null read as zero would report the whole selling price as a giveaway. A line
+/// we cannot measure is left out of the sum rather than measured as free.
+///
+/// The join goes through `DISTINCT ON`, for the same reason
+/// `load_site_pricing` does: the centre scopes a markdown per publication and
+/// holds every version of it at once, so a clearance carried into a later book
+/// exists here several times over. Joining on `markdown_id` alone would
+/// multiply every cleared line by the number of books that mentioned it. The
+/// newest published book owns the markdown, which is also the rule the shop
+/// applies when it replaces on the id.
+const CLEARANCE_ARM: &str = "
+             UNION ALL
+             SELECT m.campaign_id AS key, l.sale_id, s.occurred_at, s.total_minor,
+                    s.customer_id,
+                    0::bigint AS benefit_minor,
+                    sum((l.base_unit_price_minor - l.unit_price_minor) * l.quantity)::bigint
+                        AS clearance_minor
+               FROM edge_sale_line l
+               JOIN edge_sale s ON s.sale_id = l.sale_id
+               JOIN (SELECT DISTINCT ON (d.markdown_id) d.markdown_id, d.campaign_id
+                       FROM commercial_markdown d
+                       JOIN commercial_publication b ON b.id = d.publication_id
+                      WHERE b.status = 'PUBLISHED' AND d.campaign_id IS NOT NULL
+                      ORDER BY d.markdown_id, b.version DESC) m
+                 ON m.markdown_id = l.markdown_id
+              WHERE l.markdown_id IS NOT NULL
+                AND l.base_unit_price_minor IS NOT NULL
+                AND s.occurred_at >= $1 AND s.occurred_at < $3
+                AND ($4::text IS NULL OR s.site_id = $4)
+              GROUP BY m.campaign_id, l.sale_id, s.occurred_at, s.total_minor, s.customer_id";
 
 /// The one aggregate all three promotion menus are built from.
 ///
@@ -205,16 +265,50 @@ async fn aggregate(
     window: &PerformanceWindow,
 ) -> Result<Vec<Aggregate>, AppError> {
     let column = key.column();
+    // What a campaign gave up by CLEARING prices, beside what its promotions
+    // discounted.
+    //
+    // Only campaigns, because only a campaign can hold markdowns: a rule id and
+    // a coupon code name effects, and an effect has no clearance. For those two
+    // this arm is absent and every number below is unchanged.
+    //
+    // It is a second source rather than a second column on the first, because
+    // the two facts live on different rows: a promotion is recorded per sale in
+    // `edge_sale_promotion`, and a clearance is recorded per LINE in
+    // `edge_sale_line`. They are folded together per (campaign, sale) below.
+    //
+    // The two figures stay apart all the way to the screen, and that is the
+    // whole point of the taxonomy: a markdown is not a discount, and adding
+    // them into one "benefit" would inflate discount-given by an amount nobody
+    // gave — the exact reporting error the split exists to prevent.
+    let clearance = match key {
+        PromotionKey::Campaign => CLEARANCE_ARM,
+        PromotionKey::Rule | PromotionKey::Coupon => "",
+    };
     let sql = format!(
         "WITH scoped AS (
              SELECT p.{column} AS key, p.sale_id, s.occurred_at, s.total_minor, s.customer_id,
-                    sum(p.benefit_minor)::bigint AS benefit_minor
+                    sum(p.benefit_minor)::bigint AS benefit_minor,
+                    0::bigint                    AS clearance_minor
                FROM edge_sale_promotion p
                JOIN edge_sale s ON s.sale_id = p.sale_id
               WHERE p.{column} IS NOT NULL
                 AND s.occurred_at >= $1 AND s.occurred_at < $3
                 AND ($4::text IS NULL OR s.site_id = $4)
               GROUP BY p.{column}, p.sale_id, s.occurred_at, s.total_minor, s.customer_id
+             {clearance}
+         ), folded AS (
+             -- One row per campaign per sale, however the campaign touched it.
+             -- A basket that took a 20% rule AND a cleared shirt from the same
+             -- Lebaran campaign is ONE sale for that campaign, not two — which
+             -- is what leaving the union unfolded would have counted, inflating
+             -- `sale_count` and `customer_count` for precisely the campaigns
+             -- run both ways.
+             SELECT key, sale_id, occurred_at, total_minor, customer_id,
+                    sum(benefit_minor)::bigint   AS benefit_minor,
+                    sum(clearance_minor)::bigint AS clearance_minor
+               FROM scoped
+              GROUP BY key, sale_id, occurred_at, total_minor, customer_id
          ), first_sale AS (
              -- A shopper's first purchase anywhere, ever. Not filtered by site
              -- or by window on purpose: somebody who has shopped with us for
@@ -223,20 +317,22 @@ async fn aggregate(
              SELECT customer_id, min(occurred_at) AS first_at
                FROM edge_sale WHERE customer_id IS NOT NULL GROUP BY customer_id
          ), marked AS (
-             SELECT scoped.*, (f.first_at >= $2 AND f.first_at < $3) AS new_now,
+             SELECT folded.*, (f.first_at >= $2 AND f.first_at < $3) AS new_now,
                     (f.first_at >= $1 AND f.first_at < $2) AS new_before
-               FROM scoped LEFT JOIN first_sale f ON f.customer_id = scoped.customer_id
+               FROM folded LEFT JOIN first_sale f ON f.customer_id = folded.customer_id
          ), points AS (
              SELECT key, (occurred_at AT TIME ZONE 'UTC')::date AS day,
-                    sum(benefit_minor)::bigint AS benefit_minor,
-                    count(*)::bigint           AS sale_count,
-                    sum(total_minor)::bigint   AS basket_revenue_minor
-               FROM scoped WHERE occurred_at >= $2
+                    sum(benefit_minor)::bigint   AS benefit_minor,
+                    sum(clearance_minor)::bigint AS clearance_minor,
+                    count(*)::bigint             AS sale_count,
+                    sum(total_minor)::bigint     AS basket_revenue_minor
+               FROM folded WHERE occurred_at >= $2
               GROUP BY key, (occurred_at AT TIME ZONE 'UTC')::date
          ), series AS (
              SELECT key, jsonb_agg(jsonb_build_object(
                         'day', day::text,
                         'benefit_minor', benefit_minor,
+                        'clearance_minor', clearance_minor,
                         'sale_count', sale_count,
                         'basket_revenue_minor', basket_revenue_minor
                     ) ORDER BY day) AS series
@@ -244,11 +340,13 @@ async fn aggregate(
          ), totals AS (
              SELECT m.key,
                     COALESCE(sum(m.benefit_minor) FILTER (WHERE m.occurred_at >= $2), 0)::bigint AS benefit_minor,
+                    COALESCE(sum(m.clearance_minor) FILTER (WHERE m.occurred_at >= $2), 0)::bigint AS clearance_minor,
                     count(*) FILTER (WHERE m.occurred_at >= $2)                        AS sale_count,
                     COALESCE(sum(m.total_minor) FILTER (WHERE m.occurred_at >= $2), 0)::bigint AS basket_revenue_minor,
                     count(DISTINCT m.customer_id) FILTER (WHERE m.occurred_at >= $2)   AS customer_count,
                     count(DISTINCT m.customer_id) FILTER (WHERE m.occurred_at >= $2 AND m.new_now) AS new_customer_count,
                     COALESCE(sum(m.benefit_minor) FILTER (WHERE m.occurred_at < $2), 0)::bigint AS prev_benefit_minor,
+                    COALESCE(sum(m.clearance_minor) FILTER (WHERE m.occurred_at < $2), 0)::bigint AS prev_clearance_minor,
                     count(*) FILTER (WHERE m.occurred_at < $2)                         AS prev_sale_count,
                     COALESCE(sum(m.total_minor) FILTER (WHERE m.occurred_at < $2), 0)::bigint AS prev_basket_revenue_minor,
                     count(DISTINCT m.customer_id) FILTER (WHERE m.occurred_at < $2)    AS prev_customer_count,
@@ -257,7 +355,7 @@ async fn aggregate(
          )
          SELECT t.*, COALESCE(x.series, '[]'::jsonb) AS series
            FROM totals t LEFT JOIN series x ON x.key = t.key
-          ORDER BY t.benefit_minor DESC, t.key"
+          ORDER BY (t.benefit_minor + t.clearance_minor) DESC, t.key"
     );
     let rows = sqlx::query(&sql)
         .bind(window.previous_from)
@@ -271,12 +369,14 @@ async fn aggregate(
         .map(|row| Aggregate {
             key: row.get("key"),
             benefit_minor: row.get("benefit_minor"),
+            clearance_minor: row.get("clearance_minor"),
             sale_count: row.get("sale_count"),
             basket_revenue_minor: row.get("basket_revenue_minor"),
             customer_count: row.get("customer_count"),
             new_customer_count: row.get("new_customer_count"),
             previous: json!({
                 "benefit_minor": row.get::<i64, _>("prev_benefit_minor"),
+                "clearance_minor": row.get::<i64, _>("prev_clearance_minor"),
                 "sale_count": row.get::<i64, _>("prev_sale_count"),
                 "basket_revenue_minor": row.get::<i64, _>("prev_basket_revenue_minor"),
                 "customer_count": row.get::<i64, _>("prev_customer_count"),
@@ -651,19 +751,16 @@ pub async fn pricelist_performance(
 
     let mut by_sku: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for row in &sold {
-        by_sku
-            .entry(row.get("sku_code"))
-            .or_default()
-            .push(json!({
-                "unit_price_minor": row.get::<i64, _>("unit_price_minor"),
-                // Null from a shop that sold without a book in force. Null
-                // rather than "COMPANY_PRICE": "no book said so" and "the
-                // company price said so" are different facts.
-                "price_source": row.get::<Option<String>, _>("price_source"),
-                "publication_version": row.get::<Option<i64>, _>("publication_version"),
-                "units": row.get::<i64, _>("units"),
-                "revenue_minor": row.get::<i64, _>("revenue_minor"),
-            }));
+        by_sku.entry(row.get("sku_code")).or_default().push(json!({
+            "unit_price_minor": row.get::<i64, _>("unit_price_minor"),
+            // Null from a shop that sold without a book in force. Null
+            // rather than "COMPANY_PRICE": "no book said so" and "the
+            // company price said so" are different facts.
+            "price_source": row.get::<Option<String>, _>("price_source"),
+            "publication_version": row.get::<Option<i64>, _>("publication_version"),
+            "units": row.get::<i64, _>("units"),
+            "revenue_minor": row.get::<i64, _>("revenue_minor"),
+        }));
     }
 
     let items: Vec<Value> = skus
@@ -717,8 +814,14 @@ pub async fn pricelist_performance(
 
     let mut body = window.envelope();
     if let Some(object) = body.as_object_mut() {
-        object.insert("article_code".into(), json!(article.get::<String, _>("article_code")));
-        object.insert("article_name".into(), json!(article.get::<String, _>("name")));
+        object.insert(
+            "article_code".into(),
+            json!(article.get::<String, _>("article_code")),
+        );
+        object.insert(
+            "article_name".into(),
+            json!(article.get::<String, _>("name")),
+        );
         object.insert(
             "division_code".into(),
             json!(article.get::<Option<String>, _>("division_code")),
@@ -729,7 +832,9 @@ pub async fn pricelist_performance(
         object.insert("cost_basis".into(), json!("ARTICLE_LATEST_PO"));
         object.insert(
             "cost_unit_minor".into(),
-            json!(cost.as_ref().map(|row| row.get::<i64, _>("unit_price_minor"))),
+            json!(cost
+                .as_ref()
+                .map(|row| row.get::<i64, _>("unit_price_minor"))),
         );
         object.insert(
             "cost_source".into(),
@@ -743,7 +848,10 @@ pub async fn pricelist_performance(
         );
         object.insert(
             "units".into(),
-            json!(items.iter().filter_map(|i| i["units"].as_i64()).sum::<i64>()),
+            json!(items
+                .iter()
+                .filter_map(|i| i["units"].as_i64())
+                .sum::<i64>()),
         );
         object.insert(
             "revenue_minor".into(),
@@ -754,7 +862,10 @@ pub async fn pricelist_performance(
         );
         object.insert(
             "on_hand".into(),
-            json!(items.iter().filter_map(|i| i["on_hand"].as_i64()).sum::<i64>()),
+            json!(items
+                .iter()
+                .filter_map(|i| i["on_hand"].as_i64())
+                .sum::<i64>()),
         );
         object.insert("skus".into(), Value::Array(items));
     }

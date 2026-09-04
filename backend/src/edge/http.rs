@@ -8,8 +8,8 @@ use crate::edge::{
     IntakeRequest, MoveRequest, NodeContext, OfficialCountEntriesRequest,
     OfficialCountSubmitRequest, OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest,
     PickRequest, PoolBalance, PurchaseCountRequest, PurchaseVerifyRequest, ReceiveBatchRequest,
-    ReceiveRequest,
-    RecordInvoiceRequest, SaleRequest, TaggingConfirmRequest, RFID_OBSERVATION_PATH,
+    ReceiveRequest, RecordInvoiceRequest, SaleRequest, TaggingConfirmRequest,
+    RFID_OBSERVATION_PATH,
 };
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
 use axum::{
@@ -279,6 +279,38 @@ pub fn store_router_with_sync(
         // not because anything is written: no sale, no movement, no usage.
         .route("/api/v1/store/quote", post(store_quote))
         .route("/api/v1/store/catalog", get(store_catalog))
+        // What is on, and what is about to be. Read-only, resident, and it
+        // stays answerable with the line to the centre down — the shopper
+        // asking whether the promo is still on is standing in the shop.
+        .route("/api/v1/store/offers", get(store_offers))
+        // ── The till's day ──────────────────────────────────────────────
+        //
+        // A drawer that opens and closes, and a sale the shop can take back.
+        // Grouped here rather than under a `/pos` prefix because everything a
+        // shop does is already `/store`, and a second word for the same node
+        // is a second thing to remember at four in the afternoon.
+        .route("/api/v1/store/shifts", post(store_open_shift))
+        // Declared BEFORE `{shift_id}` and as its own path, not as a GET on the
+        // collection. Axum prefers a literal segment, but a reader should not
+        // have to know that: `/shifts/active` and `/shifts/{id}` sitting one
+        // line apart is where a router silently starts treating the word
+        // "active" as a shift id.
+        .route("/api/v1/store/shifts/active", get(store_active_shift))
+        .route("/api/v1/store/shifts/{shift_id}", get(store_shift_report))
+        .route(
+            "/api/v1/store/shifts/{shift_id}/movements",
+            post(store_cash_movement),
+        )
+        .route(
+            "/api/v1/store/shifts/{shift_id}/close",
+            post(store_close_shift),
+        )
+        .route("/api/v1/store/sales/{sale_id}/void", post(store_void_sale))
+        .route("/api/v1/store/returns", post(store_return))
+        .route(
+            "/api/v1/store/sales/{sale_id}/receipt",
+            get(store_receipt).post(store_print_receipt),
+        )
         .route(
             "/api/v1/store/reports/sales/series",
             get(store_sales_series),
@@ -306,6 +338,7 @@ fn common_router() -> Router<EdgeState> {
         .route("/api/v1/catalog/identities", get(catalog_identities))
         // Product photographs, fetched BY the node rather than by the handheld.
         .route("/api/v1/catalog/image", get(catalog_image))
+        .route("/api/v1/catalog/campaign-image", get(campaign_image))
         // A shared reading session, readable by every handheld in it.
         .route("/api/v1/rfid/sessions", get(rfid_sessions))
         .route("/api/v1/rfid/sessions/{session_id}", get(rfid_session))
@@ -1253,6 +1286,153 @@ async fn store_catalog(
     })))
 }
 
+/// Which till is asking. Absent means "whatever shift this node has open",
+/// which is the right answer in a shop with one counter — and every shop in
+/// this fleet has one counter.
+#[derive(Debug, Deserialize)]
+struct ActiveShiftQuery {
+    #[serde(default)]
+    terminal_id: Option<String>,
+}
+
+async fn store_open_shift(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::till::OpenShiftRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let report = run_blocking(move || state.inventory.open_shift(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(report)?)))
+}
+
+/// The shift currently running, or `null`.
+///
+/// `null` rather than a 404: "no shift is open" is an ordinary state of a shop
+/// at nine in the morning, and a till that had to treat it as an error would
+/// log one every day before it opened.
+async fn store_active_shift(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<ActiveShiftQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let report =
+        run_blocking(move || state.inventory.active_shift(query.terminal_id.as_deref())).await?;
+    Ok(Json(serde_json::to_value(report)?))
+}
+
+async fn store_shift_report(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(shift_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let report = run_blocking(move || state.inventory.shift_report(&shift_id)).await?;
+    Ok(Json(serde_json::to_value(report)?))
+}
+
+async fn store_cash_movement(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(shift_id): Path<String>,
+    Json(mut request): Json<crate::edge::till::CashMovementRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let report =
+        run_blocking(move || state.inventory.record_cash_movement(&shift_id, request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(report)?)))
+}
+
+async fn store_close_shift(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(shift_id): Path<String>,
+    Json(mut request): Json<crate::edge::till::CloseShiftRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let report = run_blocking(move || state.inventory.close_shift(&shift_id, request)).await?;
+    Ok(Json(serde_json::to_value(report)?))
+}
+
+/// Undo a whole sale.
+///
+/// `StoreSale` rather than a supervisor-only permission: the cashier presses
+/// the button with the customer in front of them, and a supervisor walks over
+/// to authorise it in the body. Gating the route on a supervisor's role would
+/// mean signing the cashier out, which is a queue watching two people type
+/// passwords.
+async fn store_void_sale(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(sale_id): Path<String>,
+    Json(mut request): Json<crate::edge::till::VoidSaleRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let result = run_blocking(move || state.inventory.void_sale(&sale_id, request)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// Take back part of a basket. Each unit is scanned, so the shop knows WHICH
+/// garment came home rather than merely that one did.
+async fn store_return(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::till::ReturnRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let result = run_blocking(move || state.inventory.return_sale(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
+/// What the customer walks out with, as data.
+///
+/// Readable without the till's permission on purpose: anybody trusted to see
+/// what the shop sold can be asked "what was on receipt 000123".
+async fn store_receipt(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(sale_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let document = run_blocking(move || state.inventory.sale_receipt(&sale_id)).await?;
+    Ok(Json(serde_json::to_value(document)?))
+}
+
+async fn store_print_receipt(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(sale_id): Path<String>,
+    Json(request): Json<crate::edge::till::PrintReceiptRequest>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::StoreSale)?;
+    let result =
+        run_blocking(move || state.inventory.print_sale_receipt(&sale_id, request)).await?;
+    Ok(Json(result))
+}
+
+async fn store_offers(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<crate::edge::pricing::StoreOffers>, ApiError> {
+    // The same permission the catalogue asks for. Reading what the shop is
+    // offering is reading the shop's own book; it takes nothing and changes
+    // nothing.
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    Ok(Json(
+        run_blocking(move || state.inventory.store_offers()).await?,
+    ))
+}
+
 async fn run_blocking<T, F>(operation: F) -> Result<T, ApiError>
 where
     T: Send + 'static,
@@ -1574,16 +1754,59 @@ async fn catalog_image(
         .first()
         .and_then(|item| item.image_url.clone())
         .ok_or_else(|| ApiError(EdgeError::NotFound(format!("no image for {sku}"))))?;
+    proxy_image(&url).await
+}
 
+/// A campaign's banner, through the same proxy as a garment's photograph.
+///
+/// A campaign's picture is one image shown to everyone in the shop, so it is
+/// the single most worthwhile thing in this cache: every tablet on the floor
+/// draws the same Lebaran poster, and without the proxy every one of them would
+/// pull it over the shop's uplink separately.
+///
+/// Read from the resident row, so it keeps working with the line to the centre
+/// down for as long as the process has held it.
+async fn campaign_image(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<CampaignImageQuery>,
+) -> Result<Response, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let campaign = query.campaign.trim().to_string();
+    if campaign.is_empty() {
+        return Err(ApiError(EdgeError::Validation(
+            "campaign is required".into(),
+        )));
+    }
+    let inventory = state.inventory.clone();
+    let wanted = campaign.clone();
+    let url = run_blocking(move || inventory.campaign_image_url(&wanted))
+        .await?
+        .ok_or_else(|| ApiError(EdgeError::NotFound(format!("no banner for {campaign}"))))?;
+    proxy_image(&url).await
+}
+
+#[derive(serde::Deserialize)]
+struct CampaignImageQuery {
+    #[serde(default)]
+    campaign: String,
+}
+
+/// Fetch a picture once for the whole shop, and hold it.
+///
+/// Shared by the garment photographs and the campaign banners because it is
+/// the same job: the URL points at the centre, the shop's uplink is the scarce
+/// thing, and every screen on the floor wants the same bytes.
+async fn proxy_image(url: &str) -> Result<Response, ApiError> {
     // Fetched once per URL for the life of the process. A colourway shares one
     // photograph across every size, so a shop's whole catalogue is a handful of
     // pictures — and without this every handheld on the floor would pull each
     // one again over the same uplink.
-    let (content_type, bytes) = if let Some(hit) = image_cache_get(&url) {
+    let (content_type, bytes) = if let Some(hit) = image_cache_get(url) {
         hit
     } else {
         let response = image_client()
-            .get(&url)
+            .get(url)
             .timeout(std::time::Duration::from_secs(20))
             .send()
             .await
@@ -1604,7 +1827,7 @@ async fn catalog_image(
             .bytes()
             .await
             .map_err(|error| ApiError(EdgeError::Persistence(format!("image body: {error}"))))?;
-        image_cache_put(&url, &content_type, &bytes);
+        image_cache_put(url, &content_type, &bytes);
         (content_type, bytes)
     };
     let mut headers = HeaderMap::new();

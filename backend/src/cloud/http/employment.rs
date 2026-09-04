@@ -53,7 +53,9 @@ use crate::cloud::{
         EmploymentTransition, FullName, Grade, Nik, PlaceId, PlaceKind, Position, Posting, Profile,
         ProfileField, Reach,
     },
-    postgres::{self as infrastructure, EmployeeRecord, EmployeeSummary, ExpiringContract},
+    postgres::{
+        self as infrastructure, AccountBinding, EmployeeRecord, EmployeeSummary, ExpiringContract,
+    },
 };
 use axum::{
     extract::{Path, Query, State},
@@ -135,7 +137,11 @@ impl Access {
     /// The actor and the instant come from here, never from the request body:
     /// a handler that accepted either would let a caller sign somebody else's
     /// name to their own decision.
-    pub(super) fn authorize(&self, action_key: &str, reason: &str) -> Result<Authorization, AppError> {
+    pub(super) fn authorize(
+        &self,
+        action_key: &str,
+        reason: &str,
+    ) -> Result<Authorization, AppError> {
         Authorization::try_new(&self.principal.username, action_key, Utc::now(), reason)
             .map_err(|error| AppError::Validation(error.to_string()))
     }
@@ -167,7 +173,11 @@ fn reach_from(principal: &Principal, posting: &Option<(String, String)>) -> Reac
 }
 
 /// Turn a path segment into an employee id, resolving `me` from the session.
-pub(super) async fn resolve(state: &AppState, principal: &Principal, raw: &str) -> Result<Access, AppError> {
+pub(super) async fn resolve(
+    state: &AppState,
+    principal: &Principal,
+    raw: &str,
+) -> Result<Access, AppError> {
     let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
     let mine = caller.employee_id.clone();
     let employee_id = if raw == SELF {
@@ -206,7 +216,7 @@ async fn record(state: &AppState, employee_id: &str) -> Result<EmployeeRecord, A
         .ok_or_else(|| AppError::NotFound(format!("employee {employee_id}")))
 }
 
-fn invalid(error: impl std::fmt::Display) -> AppError {
+pub(super) fn invalid(error: impl std::fmt::Display) -> AppError {
     AppError::Validation(error.to_string())
 }
 
@@ -259,6 +269,20 @@ pub struct EmployeeView {
     pub current_place_id: Option<String>,
     pub current_place_name: Option<String>,
     pub assignments: Vec<AssignmentView>,
+    /// The login bound to this record, when there is one.
+    ///
+    /// On the record rather than left to the list it was read from. The sheet
+    /// used to take it from the row the table happened to be holding, so a
+    /// record opened by URL — a link in a message, a bookmark, anything past
+    /// the list's limit — showed "None" for somebody who had a login. A sheet
+    /// that says a person cannot sign in when they can is worse than one that
+    /// says nothing.
+    ///
+    /// Carries the username, whether it still opens anything, and who bound
+    /// it. Not the rung: `people.employee.read` is a supervisor's grant and
+    /// reading the account list is an administrator's, so a rota screen is not
+    /// where somebody learns which of their colleagues is an admin.
+    pub account: Option<AccountBinding>,
     pub history: Vec<EmploymentEventView>,
     pub code_history: Vec<EmployeeCodeCorrectionView>,
     pub created_at: DateTime<Utc>,
@@ -388,6 +412,7 @@ fn employee_view(record: &EmployeeRecord) -> EmployeeView {
             .current()
             .and_then(|span| record.place_names.get(span.place_id().as_str()).cloned()),
         assignments: assignment_views(record),
+        account: record.account.clone(),
         history: record
             .employee
             .history()
@@ -516,6 +541,16 @@ pub struct AssignBody {
 #[serde(deny_unknown_fields)]
 pub struct LinkBody {
     pub username: String,
+    /// Why this login is this person's. Required for the same reason every
+    /// other employment write requires one: a binding somebody cannot explain
+    /// afterwards is a binding nobody can audit.
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseBody {
+    pub reason: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -727,14 +762,78 @@ pub async fn transition(
             body.transition
         ))
     })?;
-    let mut record = record(&state, &access.employee_id).await?;
+    // `subject` rather than `record`: the reload at the end calls the function
+    // of that name, and a local would have shadowed it.
+    let mut subject = record(&state, &access.employee_id).await?;
     let authorization = access.authorize(actions::EMPLOYMENT_CHANGE, &body.reason)?;
-    record
+    subject
         .employee
         .apply(transition, body.effective_on, authorization)
         .map_err(|error| AppError::Conflict(error.to_string()))?;
-    infrastructure::save_employee(&state.db, &record.employee).await?;
-    Ok(Json(employee_view(&record)))
+    infrastructure::save_employee(&state.db, &subject.employee).await?;
+
+    // The half of 0060's comment that was never written. See [`close_login`].
+    if matches!(
+        subject.employee.status(),
+        EmploymentStatus::Terminated | EmploymentStatus::Suspended
+    ) {
+        close_login(&state, &access.principal.username, &access.employee_id).await?;
+    }
+
+    // Re-read rather than serving `subject`: the view now carries the login, and
+    // the copy in hand still says it is open.
+    Ok(Json(employee_view(
+        &record(&state, &access.employee_id).await?,
+    )))
+}
+
+/// Close the login of somebody who has just left or been suspended.
+///
+/// 0060 joined `app_user` to `employee` and promised this in a comment —
+/// *"the account is disabled by the code that handles leaving, in daylight"* —
+/// and then nobody wrote it. Terminating somebody recorded an employment event
+/// and left their credential working: at the centre, and through the policy
+/// snapshot (`(a.active AND u.active)`) at every till they were assigned to.
+/// The record said TERMINATED and the door still opened.
+///
+/// Suspension closes it too. A suspension is an investigation or an unpaid
+/// stand-down; somebody sent home under one who can still sign into a till has
+/// been sent home from the shop and not from the system, which is the half that
+/// holds the money.
+///
+/// **Coming back does not reopen it.** REINSTATE restores employment, not
+/// credentials: the reason a suspended person's login was closed can outlive
+/// the suspension, and handing a credential back is a decision with an actor
+/// and a record of its own — `System › Accounts`, which already has both. The
+/// employee view says the account is still shut, so nobody has to guess.
+///
+/// The caller's own account is left alone. `set_user_active` refuses
+/// self-deactivation so a node always keeps one usable administrator, and an
+/// HR officer ending their own employment must not be the exception that
+/// empties the room.
+async fn close_login(state: &AppState, actor: &str, employee_id: &str) -> Result<(), AppError> {
+    let Some(account) = infrastructure::bound_account(&state.db, employee_id).await? else {
+        return Ok(());
+    };
+    if !account.active || account.username == actor {
+        return Ok(());
+    }
+    // Failure is reported, never swallowed. The employment change is already
+    // committed, so a caller who saw a bare 500 would be left with a record
+    // saying TERMINATED and a live credential, and no way to tell.
+    let closed = async {
+        infrastructure::set_user_active(&state.db, account.user_id, false, actor).await?;
+        infrastructure::publish_auth_policies_for_user(&state.db, account.user_id, actor).await
+    }
+    .await;
+    if let Err(error) = closed {
+        return Err(AppError::Configuration(format!(
+            "the employment change is recorded, but the login {} could not be closed: {error}. \
+             Suspend it in System > Accounts.",
+            account.username
+        )));
+    }
+    Ok(())
 }
 
 pub async fn correct_code(
@@ -786,6 +885,14 @@ pub async fn assign(
     Ok(Json(employee_view(&record)))
 }
 
+/// Bind a login to an employment record.
+///
+/// The refusals are in `postgres::employment::link_account` and the reasons
+/// they exist are there too. What is here is the authority: this is the one
+/// employment write that used to take no reason, and therefore the one whose
+/// history could not be read back. `audit_log` cannot fill the gap — 0078
+/// keeps request bodies out of it deliberately, and the username being bound
+/// is in the body, so the floor can say a binding happened and never to what.
 pub async fn link_account(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -794,7 +901,35 @@ pub async fn link_account(
 ) -> Result<Json<EmployeeView>, AppError> {
     let access = resolve(&state, &principal, &raw).await?;
     access.may(actions::ACCOUNT_LINK)?;
-    infrastructure::link_account(&state.db, &access.employee_id, &body.username).await?;
+    let authorization = access.authorize(actions::ACCOUNT_LINK, &body.reason)?;
+    infrastructure::link_account(
+        &state.db,
+        &access.employee_id,
+        &body.username,
+        &authorization,
+    )
+    .await?;
+    Ok(Json(employee_view(
+        &record(&state, &access.employee_id).await?,
+    )))
+}
+
+/// Unbind a login from an employment record.
+///
+/// The same key as binding one, deliberately. Releasing is not a lesser act:
+/// deciding that a credential is not this person's after all is the same
+/// decision as deciding that it is, made in the other direction, and a grant
+/// that could do one and not the other would leave every mistake permanent.
+pub async fn release_account(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+    Json(body): Json<ReleaseBody>,
+) -> Result<Json<EmployeeView>, AppError> {
+    let access = resolve(&state, &principal, &raw).await?;
+    access.may(actions::ACCOUNT_LINK)?;
+    let authorization = access.authorize(actions::ACCOUNT_LINK, &body.reason)?;
+    infrastructure::release_account(&state.db, &access.employee_id, &authorization).await?;
     Ok(Json(employee_view(
         &record(&state, &access.employee_id).await?,
     )))
@@ -935,7 +1070,7 @@ pub async fn amend_personal_data(
             return Err(AppError::Validation(format!(
                 "{other:?} is not an amendable field: expected name, nik, birth_date, \
                  address, phone or email"
-            )))
+            )));
         }
     };
 
@@ -975,18 +1110,18 @@ pub async fn add_contract(
         ("PKWT", None) => {
             return Err(AppError::Validation(
                 "a PKWT is a fixed term and must say when it ends".to_owned(),
-            ))
+            ));
         }
         ("PKWTT", None) => ContractKind::Pkwtt,
         ("PKWTT", Some(_)) => {
             return Err(AppError::Validation(
                 "a PKWTT is permanent and cannot carry an end date".to_owned(),
-            ))
+            ));
         }
         (other, _) => {
             return Err(AppError::Validation(format!(
                 "{other:?} is not a contract kind: expected PKWT or PKWTT"
-            )))
+            )));
         }
     };
 
@@ -1043,5 +1178,46 @@ pub async fn expiring(
             reach.sole_place().map(|place| place.as_str()),
         )
         .await?,
+    ))
+}
+
+/// Which nodes this person's place is served by, and whether they already have
+/// a grant at each.
+///
+/// Read by the form that issues a login, so head office picks a till from a
+/// list rather than remembering an origin id. `people.account.provision`,
+/// because it exists only to be the first half of that act.
+pub async fn account_targets(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+) -> Result<Json<Vec<infrastructure::EdgeTarget>>, AppError> {
+    let access = resolve(&state, &principal, &raw).await?;
+    access.may(actions::ACCOUNT_PROVISION)?;
+    Ok(Json(
+        infrastructure::edge_targets(&state.db, &access.employee_id).await?,
+    ))
+}
+
+/// Issue a login: create the account, set its rung, bind it to the employment
+/// record, and grant a till.
+///
+/// See `postgres::users::provision_account` for why the four steps this
+/// replaces are one call, and for which of them share a transaction.
+pub async fn provision_account(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+    Json(body): Json<crate::cloud::application::ProvisionAccountRequest>,
+) -> Result<Json<crate::cloud::application::ProvisionedAccount>, AppError> {
+    let access = resolve(&state, &principal, &raw).await?;
+    access.may(actions::ACCOUNT_PROVISION)?;
+    // Binding is its own recorded decision and keeps its own key, so the
+    // history reads the same whether the login was issued here or bound after
+    // being created somewhere else.
+    let authorization = access.authorize(actions::ACCOUNT_LINK, &body.reason)?;
+    Ok(Json(
+        infrastructure::provision_account(&state.db, &access.employee_id, body, &authorization)
+            .await?,
     ))
 }

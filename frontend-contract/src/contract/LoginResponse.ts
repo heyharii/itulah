@@ -4,8 +4,16 @@ import type { SessionUser } from "./SessionUser";
 /**
  * The login response.
  *
- * `token` is for native and CLI callers. A browser ignores it and uses the
+ * `token` is for native and CLI callers, and for a browser talking to a
+ * *second* node. A surface served by its node ignores it and uses the
  * HttpOnly cookie set alongside: a token in browser storage outlives the tab
  * it was meant for and is readable by anything else running on the page.
+ *
+ * The exception is the hub's Operations module, which reads a DC edge node
+ * while being served by the cloud. Cloud and Edge name their cookies
+ * identically (`security.rs`), so on one origin they are one cookie and
+ * signing in to the warehouse signs you out of the centre. That surface holds
+ * this token in `sessionStorage` — a tab, not a machine — and sends no
+ * cookies to the edge at all.
  */
 export type LoginResponse = { token: string, token_type: string, expires_at_epoch: number, user: SessionUser, };

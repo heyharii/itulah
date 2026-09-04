@@ -72,7 +72,26 @@ pub struct DocumentLink {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct FileDocumentRequest {
-    pub upload_id: Uuid,
+    /// The reservation the bytes were PUT to, when they went straight to the
+    /// bucket past this process. Exactly one of this and [`Self::file_id`].
+    #[serde(default)]
+    pub upload_id: Option<Uuid>,
+    /// A file this node has already taken in — what `POST /files` answers with.
+    ///
+    /// Two reasons this exists beside `upload_id`. The first is that
+    /// `reserve_upload` needs a bucket, so on a node with no object storage
+    /// configured — every development one, and the seed — filing a document was
+    /// not merely awkward but impossible: the first step of three answered 404.
+    /// `POST /files` has always worked there, because `stored_file` keeps the
+    /// bytes in the row when there is nowhere else to put them.
+    ///
+    /// The second is the one the drawer actually wanted. A file already
+    /// attached in a thread can now be filed as a document without a second
+    /// copy of the bytes: the same `stored_file` row carries both, so the
+    /// contract somebody posted in a conversation becomes a filed contract
+    /// rather than a duplicate of one.
+    #[serde(default)]
+    pub file_id: Option<Uuid>,
     pub file_name: String,
     #[serde(default)]
     pub content_type: Option<String>,
@@ -197,42 +216,85 @@ pub async fn file_document(
     if name.is_empty() {
         return Err(AppError::Validation("a document needs a file name".into()));
     }
-    let key = object_key(request.upload_id);
-    // Go and look. The browser uploaded past this process, so "the client said
-    // it worked" is the only other evidence available, and it is not evidence.
-    let byte_size = store(state)?.head(&key).await?.ok_or_else(|| {
-        AppError::Validation(
-            "no object was uploaded for this reservation, or the upload did not finish".into(),
-        )
-    })?;
-    let byte_size = i64::try_from(byte_size)
-        .map_err(|_| AppError::Validation("uploaded object is implausibly large".into()))?;
-
-    let content_type = request
-        .content_type
-        .unwrap_or_else(|| "application/octet-stream".into());
-    // A hash the server did not compute is still worth keeping, but it must
-    // not masquerade as one it did. Absent means absent.
-    let sha256 = request.sha256.unwrap_or_else(|| "0".repeat(64));
     let language = request.language.unwrap_or_else(|| "indonesian".into());
 
     let mut tx = state.db.begin().await?;
-    let file_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO stored_file
-             (file_id, file_name, content_type, byte_size, sha256, storage, object_key,
-              uploaded_by, available)
-         VALUES ($1,$2,$3,$4,$5,'OBJECT',$6,$7,true)",
-    )
-    .bind(file_id)
-    .bind(&name)
-    .bind(&content_type)
-    .bind(byte_size)
-    .bind(&sha256)
-    .bind(&key)
-    .bind(actor)
-    .execute(&mut *tx)
-    .await?;
+
+    // Where the bytes are is the one thing that differs between the two ways in,
+    // and it is settled before anything is written. Everything past this point
+    // is the filing, which is the same either way.
+    let file_id = match (request.file_id, request.upload_id) {
+        (Some(file_id), _) => {
+            // Filing a file this node already holds. It must exist, and it must
+            // not already be filed — a second document over one file would put
+            // the same bytes in the drawer twice under two names.
+            let held: Option<(bool,)> =
+                sqlx::query_as("SELECT true FROM stored_file WHERE file_id = $1")
+                    .bind(file_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if held.is_none() {
+                return Err(AppError::Validation(
+                    "there is no such uploaded file to file".into(),
+                ));
+            }
+            let filed: Option<(Uuid,)> =
+                sqlx::query_as("SELECT document_id FROM document WHERE file_id = $1")
+                    .bind(file_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if filed.is_some() {
+                return Err(AppError::Validation(
+                    "that file is already filed as a document".into(),
+                ));
+            }
+            file_id
+        }
+        (None, Some(upload_id)) => {
+            let key = object_key(upload_id);
+            // Go and look. The browser uploaded past this process, so "the
+            // client said it worked" is the only other evidence available, and
+            // it is not evidence.
+            let byte_size = store(state)?.head(&key).await?.ok_or_else(|| {
+                AppError::Validation(
+                    "no object was uploaded for this reservation, or the upload did not finish"
+                        .into(),
+                )
+            })?;
+            let byte_size = i64::try_from(byte_size)
+                .map_err(|_| AppError::Validation("uploaded object is implausibly large".into()))?;
+
+            let content_type = request
+                .content_type
+                .unwrap_or_else(|| "application/octet-stream".into());
+            // A hash the server did not compute is still worth keeping, but it
+            // must not masquerade as one it did. Absent means absent.
+            let sha256 = request.sha256.unwrap_or_else(|| "0".repeat(64));
+
+            let file_id = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO stored_file
+                     (file_id, file_name, content_type, byte_size, sha256, storage, object_key,
+                      uploaded_by, available)
+                 VALUES ($1,$2,$3,$4,$5,'OBJECT',$6,$7,true)",
+            )
+            .bind(file_id)
+            .bind(&name)
+            .bind(&content_type)
+            .bind(byte_size)
+            .bind(&sha256)
+            .bind(&key)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+            file_id
+        }
+        (None, None) => {
+            return Err(AppError::Validation(
+                "a document needs either an upload reservation or an uploaded file".into(),
+            ))
+        }
+    };
 
     let document_id = Uuid::new_v4();
     sqlx::query(
@@ -243,7 +305,13 @@ pub async fn file_document(
     .bind(document_id)
     .bind(file_id)
     .bind(&name)
-    .bind(request.title.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(
+        request
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
     .bind(&request.path_tokens)
     .bind(&language)
     .bind(request.doc_date)

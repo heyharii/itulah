@@ -15,11 +15,11 @@
 
 use chrono::{DateTime, Utc};
 use pricing_engine::{
-    price_cart, price_catalog, Campaign, CampaignStatus, Caps, CartLine, CatalogEntry, Coupon,
-    Currency, Markdown, Money, PriceEntry, PriceLevel, PricingError,
-    PricingSnapshot, Rule,
+    price_cart, price_catalog, Applicability, Campaign, CampaignStatus, Caps, CartLine,
+    CatalogEntry, Coupon, Currency, CustomerScope, Effect, Markdown, Money, PriceEntry, PriceLevel,
+    PricingError, PricingSnapshot, RejectionReason, Rule, TimeWindow,
 };
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::edge::EdgeError;
@@ -275,15 +275,8 @@ fn load_campaigns(
 
     let mut campaigns = Vec::new();
     for row in rows {
-        let (
-            campaign_id,
-            name,
-            status,
-            valid_from,
-            valid_to,
-            budget,
-            max_uses,
-        ) = row.map_err(db)?;
+        let (campaign_id, name, status, valid_from, valid_to, budget, max_uses) =
+            row.map_err(db)?;
         let campaign_id_for_usage = campaign_id.clone();
         campaigns.push(Campaign {
             campaign_id,
@@ -346,7 +339,8 @@ fn load_markdowns(
     let sql = format!(
         "SELECT m.markdown_id, m.sku_code, m.article_code, m.site_id,
                 m.replacement_unit_price_minor, m.priority, m.effective_from, m.effective_to,
-                m.site_ids_json, COALESCE(p.version, 0)
+                m.site_ids_json, COALESCE(p.version, 0), m.campaign_id,
+                m.iso_weekdays_json, m.from_minute, m.to_minute
            FROM commercial_markdown m
            LEFT JOIN commercial_publication p ON p.id = m.publication_id
           WHERE (m.site_id IS NULL OR m.site_id = ?1){narrowing}"
@@ -371,6 +365,10 @@ fn load_markdowns(
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, i64>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<u32>>(12)?,
+                row.get::<_, Option<u32>>(13)?,
             ))
         })
         .map_err(db)?;
@@ -388,6 +386,10 @@ fn load_markdowns(
             effective_to,
             site_ids_json,
             publication_version,
+            campaign_id,
+            iso_weekdays_json,
+            from_minute,
+            to_minute,
         ) = row.map_err(db)?;
         markdowns.push(Markdown {
             markdown_id,
@@ -397,6 +399,24 @@ fn load_markdowns(
             replacement_unit_price: Money::new(replacement),
             priority,
             publication_version,
+            campaign_id,
+            // A schedule this build cannot read costs the schedule and nothing
+            // else, the same way a malformed tag list costs the tags: a
+            // clearance that ran all day instead of noon to two is a
+            // merchandising fault, and refusing to price the shop over it would
+            // be a shop that cannot sell.
+            days: pricing_engine::DaySet {
+                iso_weekdays: iso_weekdays_json
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str(raw).ok())
+                    .unwrap_or_default(),
+            },
+            time_window: from_minute
+                .zip(to_minute)
+                .map(|(from, to)| pricing_engine::TimeWindow {
+                    from_minute: from,
+                    to_minute: to,
+                }),
             effective_from: parse_time(&effective_from)?,
             effective_to: effective_to.as_deref().map(parse_time).transpose()?,
         });
@@ -518,6 +538,29 @@ pub struct CatalogRow {
     /// markdown. A cashier asked "why is this price different" has an answer.
     pub price_source: String,
     pub publication_version: i64,
+    /// The style this colourway belongs to.
+    pub article_code: Option<String>,
+    /// Which part of the range it is filed under.
+    pub division_code: Option<String>,
+    /// What the centre tagged it with.
+    pub tags: Vec<String>,
+    /// Whether this node holds a photograph for it, servable from
+    /// `/api/v1/catalog/image?sku=`.
+    ///
+    /// A flag and not the URL. The URL points at the centre, and a shop's whole
+    /// reason for holding a resident catalogue is that the line to the centre
+    /// may be down — a grid of `<img>` tags aimed there would draw a page of
+    /// broken glyphs on exactly the day the catalogue matters most. The node
+    /// proxies the picture and caches it per URL for the life of the process,
+    /// so one colourway costs one fetch for the whole shop floor. Saying
+    /// *whether* there is one is what stops the browser asking for the ones
+    /// there are not, each of which is a 404 the till would have to render as
+    /// something.
+    ///
+    /// These four are the difference between a price list and a catalogue. The
+    /// screen that browses this is a grid of photographs with the range down
+    /// one side, and none of it can be drawn from a code, a name and a number.
+    pub has_image: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -629,7 +672,7 @@ pub fn store_catalog(
 
     let mut statement = connection
         .prepare(
-            "SELECT sku_code, name, uom, barcode
+            "SELECT sku_code, name, uom, barcode, image_url IS NOT NULL
                FROM catalog_item
               WHERE active = 1
               ORDER BY sku_code",
@@ -642,6 +685,7 @@ pub fn store_catalog(
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, Option<String>>(3)?,
+                row.get::<_, bool>(4)?,
             ))
         })
         .map_err(db)?
@@ -660,12 +704,17 @@ pub fn store_catalog(
     // building a map: an unpriced product simply has no entry to line up with.
     let mut rows = Vec::with_capacity(priced.len());
     let mut priced = priced.into_iter().peekable();
-    for (sku_code, name, uom, barcode) in items {
+    for (sku_code, name, uom, barcode, has_image) in items {
         let Some(entry) = priced.peek() else { break };
         if entry.sku_code != sku_code {
             continue;
         }
         let Some(entry) = priced.next() else { break };
+        // The same facts the engine was handed, said out loud on the row. They
+        // are already in hand — reading them a second time for the screen is
+        // how a catalogue comes to be filed under one division and priced
+        // against another.
+        let (article_code, division_code, tags) = facts.get(&sku_code).cloned().unwrap_or_default();
         rows.push(CatalogRow {
             sku_code,
             name,
@@ -677,6 +726,10 @@ pub fn store_catalog(
             tax_category: entry.tax_category,
             price_source: entry.source.as_str().to_string(),
             publication_version: entry.publication_version,
+            article_code,
+            division_code,
+            tags,
+            has_image,
         });
     }
     Ok(rows)
@@ -701,7 +754,7 @@ pub fn store_catalog_page(
     let needle = query.q.as_deref().map(str::trim).filter(|v| !v.is_empty());
     let mut statement = connection
         .prepare(
-            "SELECT sku_code, name, uom, barcode
+            "SELECT sku_code, name, uom, barcode, image_url IS NOT NULL
                FROM catalog_item
               WHERE active = 1
                 AND (?1 IS NULL OR sku_code > ?1)
@@ -720,6 +773,7 @@ pub fn store_catalog_page(
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, Option<String>>(3)?,
+                    row.get::<_, bool>(4)?,
                 ))
             },
         )
@@ -744,8 +798,10 @@ pub fn store_catalog_page(
             .collect();
     let items = scanned
         .into_iter()
-        .filter_map(|(sku_code, name, uom, barcode)| {
+        .filter_map(|(sku_code, name, uom, barcode, has_image)| {
             let entry = priced.get(&sku_code)?;
+            let (article_code, division_code, tags) =
+                facts.get(&sku_code).cloned().unwrap_or_default();
             Some(CatalogRow {
                 sku_code,
                 name,
@@ -757,6 +813,10 @@ pub fn store_catalog_page(
                 tax_category: entry.tax_category.clone(),
                 price_source: entry.source.as_str().to_string(),
                 publication_version: entry.publication_version,
+                article_code,
+                division_code,
+                tags,
+                has_image,
             })
         })
         .collect();
@@ -765,6 +825,503 @@ pub fn store_catalog_page(
         next_cursor,
         limit,
     })
+}
+
+/// One offer, as a shop floor needs to read it.
+///
+/// Not the engine's `Rule`. A rule is a document written for an evaluator —
+/// scopes, stacking, exclusions, compounding — and handing that to a screen
+/// would make every till reimplement "is this on?" in TypeScript. This is the
+/// answer instead: whether it runs, when it starts, when it stops, and what it
+/// takes off.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreOffer {
+    pub rule_id: String,
+    pub name: String,
+    /// `RUNNING` or `UPCOMING`. Decided by the engine's own gate, not by the
+    /// rule's `status` column — a rule can be `ACTIVE` and still be dead.
+    pub state: String,
+    /// The promotion this is part of, when the business runs it as one thing.
+    pub campaign_id: Option<String>,
+    pub campaign_name: Option<String>,
+    /// The banner and the small print of the campaign this belongs to, so
+    /// a promotion and the price drops beside it wear one face, not two.
+    pub campaign_has_image: bool,
+    pub campaign_terms: Option<String>,
+    /// When it starts, and when it stops. The later of the rule's own window
+    /// and its campaign's, and the earlier of the two ends: both bind, so the
+    /// window a shop actually gets is the intersection. `None` at either end
+    /// means open-ended there.
+    pub starts_at: Option<DateTime<Utc>>,
+    pub ends_at: Option<DateTime<Utc>>,
+    /// What it does. The engine's own effect, so a screen can say "20%" or
+    /// "buy 2 get 1" without a second vocabulary drifting from this one.
+    pub effect: Effect,
+    /// What it lands on. `None` is the whole cart.
+    pub applies_to: Option<Applicability>,
+    /// The code that unlocks it. Present means a cashier has to type something.
+    pub coupon_code: Option<String>,
+    /// Only for an identified member.
+    pub members_only: bool,
+    /// ISO weekdays it runs on — Monday is 1. Empty is every day.
+    pub weekdays: Vec<u32>,
+    /// The hours it runs between, when it does not run all day.
+    pub time_window: Option<TimeWindow>,
+    /// Whether it is live *this minute*.
+    ///
+    /// A `RUNNING` offer that only runs on Saturdays is running this week and
+    /// not running this instant, and those are different sentences at a
+    /// counter. Splitting them into two states would put "Promo Sabtu" under
+    /// "upcoming" every Tuesday and file it as a thing that has not started —
+    /// which is not what a shop means by it.
+    pub live_now: bool,
+    /// What is left of the budget it may give away, when it has one. Only as
+    /// fresh as the last sync — a brake, not a gate; see `Caps`.
+    pub budget_remaining_minor: Option<i64>,
+    /// How many more carts it may apply to, when it is counted.
+    pub uses_remaining: Option<i64>,
+}
+
+/// A run of price drops the shop is in, or is about to enter.
+///
+/// A markdown is a price, not a discount, so each one is already showing in the
+/// catalogue — this is the other half a shop floor needs: **when it stops**,
+/// how much of the range is in it, and what the business calls it.
+///
+/// Grouped rather than listed per product, because a clearance is one event to
+/// a shop and two thousand rows to the database. **What it groups by is the
+/// point.** A drop that names a campaign is grouped with the others in that
+/// campaign and wears its name, its banner and its window, so it is one thing
+/// a cashier can be asked about. A drop that names none is
+/// grouped with whatever else shares its dates, which is the most a shop can
+/// honestly say about a set of unrelated clearances that happen to end
+/// together.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PriceDropWindow {
+    pub state: String,
+    /// The campaign these belong to, when they belong to one.
+    pub campaign_id: Option<String>,
+    /// What the poster says, then what the campaign is called, then nothing.
+    /// A group with no campaign has no name and is not given an invented one.
+    pub name: Option<String>,
+    /// The banner, servable from `/api/v1/catalog/campaign-image?campaign=`.
+    pub has_image: bool,
+    /// The small print, as the centre wrote it.
+    pub terms: Option<String>,
+    pub starts_at: DateTime<Utc>,
+    pub ends_at: Option<DateTime<Utc>>,
+    /// The days and hours it runs on, when every drop in the run agrees.
+    ///
+    /// A run whose members are scheduled differently reports nothing here
+    /// rather than one of them: "12:00–14:00" against a group where half the
+    /// products run all day is a sentence a cashier would act on and be wrong
+    /// about. Empty and `None` mean all day, every day.
+    pub weekdays: Vec<u32>,
+    pub time_window: Option<TimeWindow>,
+    /// Markdowns naming one product each.
+    pub product_count: i64,
+    /// Markdowns naming a whole style — every colour and size of it.
+    pub range_count: i64,
+}
+
+/// Everything this shop is offering, as of now.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreOffers {
+    pub site_id: String,
+    pub channel: String,
+    pub as_of: DateTime<Utc>,
+    /// The price book these came in on, so a shop can tell "no promotions" from
+    /// "no price book".
+    pub publication_version: Option<i64>,
+    /// Running now, soonest to end first — the one a cashier is asked about is
+    /// the one about to stop.
+    pub running: Vec<StoreOffer>,
+    /// Not started, soonest first. This is what a countdown counts down to.
+    pub upcoming: Vec<StoreOffer>,
+    pub price_drops: Vec<PriceDropWindow>,
+}
+
+/// The half of a campaign a shopper reads: the poster, not the budget.
+///
+/// Loaded separately from `load_campaigns` on purpose. That one builds the
+/// engine's `Campaign`, and the engine has no business holding a photograph —
+/// it decides money. These three are for a screen, so they stay out of the
+/// snapshot and are joined on only where a screen asks.
+struct CampaignFace {
+    headline: Option<String>,
+    name: String,
+    has_image: bool,
+    terms: Option<String>,
+}
+
+fn load_campaign_faces(
+    connection: &Connection,
+) -> Result<std::collections::BTreeMap<String, CampaignFace>, EdgeError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT campaign_id, name, headline, image_url IS NOT NULL, terms
+               FROM commercial_campaign",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                CampaignFace {
+                    name: row.get::<_, String>(1)?,
+                    headline: row.get::<_, Option<String>>(2)?,
+                    has_image: row.get::<_, bool>(3)?,
+                    terms: row.get::<_, Option<String>>(4)?,
+                },
+            ))
+        })
+        .map_err(db)?;
+    let mut faces = std::collections::BTreeMap::new();
+    for row in rows {
+        let (id, face) = row.map_err(db)?;
+        faces.insert(id, face);
+    }
+    Ok(faces)
+}
+
+/// What this shop is running, and what it is about to run.
+///
+/// Answered out of the resident snapshot, like everything else here, so a
+/// promotions board keeps working with the line to the centre down. It has to:
+/// the shopper asking "is the Lebaran promo still on" is standing in the shop.
+pub fn store_offers(
+    connection: &Connection,
+    site_id: &str,
+    channel: &str,
+    at: DateTime<Utc>,
+) -> Result<StoreOffers, EdgeError> {
+    // Prices and markdowns are deliberately left out of this snapshot. The gate
+    // reads the rule, its campaign and its coupon and nothing else, and loading
+    // forty thousand price rows to answer "what promotions are on" is the cost
+    // this screen would otherwise pay every time somebody opened it.
+    let usage = load_usage(connection)?;
+    let campaigns = load_campaigns(connection, &usage)?;
+    let snapshot = PricingSnapshot {
+        publication_version: 0,
+        entries: Vec::new(),
+        markdowns: Vec::new(),
+        rules: load_rules(connection, &usage)?,
+        coupons: load_coupons(connection, &usage)?,
+        campaigns,
+    };
+    let context = crate::reporting::pricing_context(site_id, channel, at);
+    let faces = load_campaign_faces(connection)?;
+
+    let mut running = Vec::new();
+    let mut upcoming = Vec::new();
+    for rule in &snapshot.rules {
+        let campaign = rule.campaign_id.as_ref().and_then(|id| {
+            snapshot
+                .campaigns
+                .iter()
+                .find(|campaign| campaign.campaign_id == *id)
+        });
+        // Both windows bind, so the one the shop gets is the intersection.
+        let starts_at = later(
+            rule.conditions.effective_from,
+            campaign.and_then(|c| c.valid_from),
+        );
+        let ends_at = earlier(
+            rule.conditions.effective_to,
+            campaign.and_then(|c| c.valid_to),
+        );
+
+        let standing = pricing_engine::rule_standing(rule, &snapshot, &context);
+        let state = match standing {
+            Ok(()) => "RUNNING",
+            // A coupon promotion and a members-only one are both things the
+            // shop IS running; they simply need something the counter does not
+            // have yet — a code typed in, a shopper identified. Hiding them
+            // would leave the poster in the window with nothing on the till
+            // agreeing with it, and "sign up and get 15% off shoes" is a
+            // sentence a cashier can only say if the screen tells them.
+            Err(RejectionReason::NoCoupon) | Err(RejectionReason::NotThisCustomer) => "RUNNING",
+            // Inside its dates, outside today's day or hour. Still this week's
+            // promotion — `live_now` below is what says it is not this minute.
+            Err(RejectionReason::DayNotAllowed) | Err(RejectionReason::TimeNotAllowed) => "RUNNING",
+            Err(RejectionReason::NotStarted) => "UPCOMING",
+            // Expired, paused, spent, wrong shop, wrong channel, campaign this
+            // node never received. None of those are things to advertise.
+            Err(_) => continue,
+        };
+        // On this minute, for whoever it is for. The two gates above are about
+        // the basket, not about the clock — unlike a day or an hour window,
+        // which genuinely means "not now".
+        let live_now = matches!(
+            standing,
+            Ok(()) | Err(RejectionReason::NoCoupon) | Err(RejectionReason::NotThisCustomer)
+        );
+
+        let offer = StoreOffer {
+            rule_id: rule.rule_id.clone(),
+            name: rule.name.clone(),
+            state: state.to_string(),
+            campaign_id: rule.campaign_id.clone(),
+            // The poster's words when there are any, the campaign's filing name
+            // otherwise. "CMP-LEB-26" is what a merchandiser searches for and
+            // not what a cashier should be reading out.
+            campaign_name: campaign.map(|c| {
+                faces
+                    .get(&c.campaign_id)
+                    .and_then(|face| face.headline.clone())
+                    .unwrap_or_else(|| c.name.clone())
+            }),
+            campaign_has_image: campaign
+                .and_then(|c| faces.get(&c.campaign_id))
+                .is_some_and(|face| face.has_image),
+            campaign_terms: campaign
+                .and_then(|c| faces.get(&c.campaign_id))
+                .and_then(|face| face.terms.clone()),
+            starts_at,
+            ends_at,
+            effect: rule.effect.clone(),
+            applies_to: rule.scope.applicability.clone(),
+            coupon_code: rule.coupon_code.clone(),
+            members_only: matches!(rule.scope.customers, CustomerScope::Members),
+            weekdays: rule.conditions.days.iso_weekdays.iter().copied().collect(),
+            time_window: rule.conditions.time_window,
+            live_now,
+            // The rule's own remainder, tightened by its campaign's — five
+            // offers sharing one budget have as much left as the envelope does,
+            // not as much as each of them thinks.
+            budget_remaining_minor: least(
+                rule.caps.remaining().map(|money| money.minor),
+                campaign.and_then(|c| c.caps.remaining()).map(|m| m.minor),
+            ),
+            uses_remaining: least(
+                rule.caps.max_uses.map(|max| (max - rule.caps.used).max(0)),
+                campaign.and_then(|c| c.caps.max_uses.map(|max| (max - c.caps.used).max(0))),
+            ),
+        };
+        if state == "RUNNING" {
+            running.push(offer);
+        } else {
+            upcoming.push(offer);
+        }
+    }
+
+    // Soonest to end first among the running: the offer a cashier is asked
+    // about is the one about to stop. Soonest to start first among the
+    // upcoming, which is the order a countdown reads in.
+    running.sort_by_key(|offer| open_ended_last(offer.ends_at));
+    upcoming.sort_by_key(|offer| open_ended_last(offer.starts_at));
+
+    let publication_version: Option<i64> = connection
+        .query_row(
+            "SELECT MAX(version) FROM commercial_publication",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db)?
+        .flatten();
+
+    Ok(StoreOffers {
+        site_id: site_id.to_string(),
+        channel: channel.to_string(),
+        as_of: at,
+        publication_version,
+        running,
+        upcoming,
+        price_drops: price_drop_windows(connection, site_id, at, &snapshot, &faces)?,
+    })
+}
+
+/// Price drops grouped by the run they belong to.
+///
+/// The key is the campaign when there is one and the window when there is not,
+/// which is exactly the difference between one event and a coincidence.
+/// Counted as
+/// products and whole styles, because "128 products and 4 whole styles" is a
+/// sentence and "132 markdowns" is not.
+type DropGroups = std::collections::BTreeMap<DropKey, DropGroup>;
+
+/// What a run of price drops is filed under.
+///
+/// Ordered so campaigns sort together and ahead of the unnamed windows — the
+/// named thing is the one somebody asks about.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum DropKey {
+    Campaign(String),
+    Window(DateTime<Utc>, Option<DateTime<Utc>>),
+}
+
+struct DropGroup {
+    starts_at: DateTime<Utc>,
+    ends_at: Option<DateTime<Utc>>,
+    product_count: i64,
+    range_count: i64,
+    /// Every distinct schedule seen in this run. One means the run has a
+    /// schedule worth printing; more than one means it has none to print.
+    schedules: std::collections::BTreeSet<(Vec<u32>, Option<(u32, u32)>)>,
+}
+
+/// The clearance runs this shop is in, and the ones it is about to enter.
+fn price_drop_windows(
+    connection: &Connection,
+    site_id: &str,
+    at: DateTime<Utc>,
+    snapshot: &PricingSnapshot,
+    faces: &std::collections::BTreeMap<String, CampaignFace>,
+) -> Result<Vec<PriceDropWindow>, EdgeError> {
+    let mut groups = DropGroups::new();
+
+    for markdown in load_markdowns(connection, site_id, None)? {
+        // SQL narrowed this to rows naming this shop or no shop at all; a group
+        // row naming a set of shops still has to be read to know whether ours
+        // is in it. The engine does the same check before it prices anything,
+        // and a screen that skipped it would count another region's clearance.
+        let ours = match &markdown.applies_to {
+            PriceLevel::Company => true,
+            PriceLevel::Site { site_id: named } => named == site_id,
+            PriceLevel::SiteGroup { site_ids } => site_ids.contains(site_id),
+        };
+        if !ours {
+            continue;
+        }
+
+        // The campaign this drop sits in, if the shop holds it. A drop naming a
+        // campaign that never arrived is NOT filed under that name — the shop
+        // cannot say what it does not hold — but it still counts, because the
+        // engine is still charging the cleared price for it. Those two have to
+        // agree or the board contradicts the till.
+        let campaign = markdown.campaign_id.as_deref().and_then(|id| {
+            snapshot
+                .campaigns
+                .iter()
+                .find(|campaign| campaign.campaign_id == id)
+        });
+        if let Some(campaign) = campaign {
+            // A paused or finished campaign is not showing on any shelf, because
+            // the engine has already put those prices back up.
+            if campaign.status != CampaignStatus::Active {
+                continue;
+            }
+            if campaign.valid_to.is_some_and(|to| at >= to) {
+                continue;
+            }
+        }
+
+        // The window a shopper actually gets. Both bind, so it is the
+        // intersection — a drop running to month end inside a campaign that ends
+        // Sunday ends Sunday.
+        let starts_at = later(
+            Some(markdown.effective_from),
+            campaign.and_then(|c| c.valid_from),
+        )
+        .unwrap_or(markdown.effective_from);
+        let ends_at = earlier(markdown.effective_to, campaign.and_then(|c| c.valid_to));
+
+        // Over is over. A run that closed last month is not news at a till.
+        if ends_at.is_some_and(|to| at >= to) {
+            continue;
+        }
+
+        let key = match campaign {
+            Some(campaign) => DropKey::Campaign(campaign.campaign_id.clone()),
+            None => DropKey::Window(starts_at, ends_at),
+        };
+        let group = groups.entry(key).or_insert(DropGroup {
+            starts_at,
+            ends_at,
+            product_count: 0,
+            range_count: 0,
+            schedules: std::collections::BTreeSet::new(),
+        });
+        group.schedules.insert((
+            markdown.days.iso_weekdays.iter().copied().collect(),
+            markdown
+                .time_window
+                .map(|window| (window.from_minute, window.to_minute)),
+        ));
+        // Inside one campaign the rows may not share dates. The run starts when its
+        // first drop does and ends when its last one does, which is what a
+        // shopper experiences and what a countdown has to count to.
+        group.starts_at = group.starts_at.min(starts_at);
+        group.ends_at = later(group.ends_at, ends_at);
+        if markdown.sku_code.is_some() {
+            group.product_count += 1;
+        } else {
+            group.range_count += 1;
+        }
+    }
+
+    Ok(groups
+        .into_iter()
+        .map(|(key, group)| {
+            let face = match &key {
+                DropKey::Campaign(id) => faces.get(id),
+                DropKey::Window(..) => None,
+            };
+            // One schedule across the whole run, or none to report.
+            let agreed = match group.schedules.len() {
+                1 => group.schedules.iter().next(),
+                _ => None,
+            };
+            PriceDropWindow {
+                state: if at < group.starts_at {
+                    "UPCOMING"
+                } else {
+                    "RUNNING"
+                }
+                .to_string(),
+                campaign_id: match &key {
+                    DropKey::Campaign(id) => Some(id.clone()),
+                    DropKey::Window(..) => None,
+                },
+                name: face.map(|face| face.headline.clone().unwrap_or_else(|| face.name.clone())),
+                has_image: face.is_some_and(|face| face.has_image),
+                terms: face.and_then(|face| face.terms.clone()),
+                starts_at: group.starts_at,
+                ends_at: group.ends_at,
+                weekdays: agreed.map(|(days, _)| days.clone()).unwrap_or_default(),
+                time_window: agreed
+                    .and_then(|(_, hours)| *hours)
+                    .map(|(from, to)| TimeWindow {
+                        from_minute: from,
+                        to_minute: to,
+                    }),
+                product_count: group.product_count,
+                range_count: group.range_count,
+            }
+        })
+        .collect())
+}
+
+/// The later of two instants, where absent means "no bound at this end".
+fn later(left: Option<DateTime<Utc>>, right: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+    match (left, right) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (some, None) | (None, some) => some,
+    }
+}
+
+fn earlier(left: Option<DateTime<Utc>>, right: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+    match (left, right) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (some, None) | (None, some) => some,
+    }
+}
+
+/// The tighter of two remainders. Absent is unlimited, so it never tightens.
+fn least(left: Option<i64>, right: Option<i64>) -> Option<i64> {
+    match (left, right) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (some, None) | (None, some) => some,
+    }
+}
+
+/// Sort key that puts "no end date" after every date rather than before it.
+fn open_ended_last(when: Option<DateTime<Utc>>) -> DateTime<Utc> {
+    when.unwrap_or(DateTime::<Utc>::MAX_UTC)
 }
 
 /// What one unit costs at the counter, and on what authority.
@@ -1098,6 +1655,181 @@ mod tests {
         ) {
             panic!("fixture catalogue: {error}");
         }
+    }
+
+    fn campaign(
+        connection: &Connection,
+        publication_id: &str,
+        campaign_id: &str,
+        status: &str,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
+    ) {
+        if let Err(error) = connection.execute(
+            "INSERT INTO commercial_campaign
+                 (campaign_id, publication_id, name, status, valid_from, valid_to,
+                  budget_minor, max_uses)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL)",
+            params![
+                campaign_id,
+                publication_id,
+                format!("Kampanye {campaign_id}"),
+                status,
+                from.map(|when| when.to_rfc3339()),
+                to.map(|when| when.to_rfc3339()),
+            ],
+        ) {
+            panic!("fixture campaign: {error}");
+        }
+    }
+
+    fn promotion(
+        connection: &Connection,
+        publication_id: &str,
+        rule_id: &str,
+        campaign_id: Option<&str>,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
+    ) {
+        let document = serde_json::json!({
+            "rule_id": rule_id,
+            "campaign_id": campaign_id,
+            "name": format!("Promo {rule_id}"),
+            "status": "ACTIVE",
+            "scope": { "applicability": { "on": "DIVISION", "divisions": ["MENSWEAR"] } },
+            "conditions": {
+                "effective_from": from.map(|when| when.to_rfc3339()),
+                "effective_to": to.map(|when| when.to_rfc3339()),
+            },
+            "effect": { "kind": "PERCENT", "bps": 2000 },
+        });
+        if let Err(error) = connection.execute(
+            "INSERT INTO commercial_rule
+                 (rule_id, publication_id, name, definition_json, status, priority)
+             VALUES (?1, ?2, ?3, ?4, 'ACTIVE', 0)",
+            params![
+                rule_id,
+                publication_id,
+                format!("Promo {rule_id}"),
+                document.to_string()
+            ],
+        ) {
+            panic!("fixture promotion: {error}");
+        }
+    }
+
+    /// The board a cashier reads is the gate the counter runs, not the `status`
+    /// column. Four promotions, all `ACTIVE`, and only two of them are news.
+    #[test]
+    fn the_promotions_board_shows_what_the_counter_would_actually_allow() {
+        let edge = shop();
+        with_shop(&edge, |connection| {
+            let publication = publish(connection, 1, at(1));
+            // On, and open-ended.
+            promotion(connection, &publication, "NOW", None, Some(at(1)), None);
+            // Not yet — this is the one a countdown counts down to.
+            promotion(
+                connection,
+                &publication,
+                "SOON",
+                None,
+                Some(at(20)),
+                Some(at(30)),
+            );
+            // Over. A promotion that ended on Friday is not a thing to advertise
+            // on Saturday.
+            promotion(
+                connection,
+                &publication,
+                "GONE",
+                None,
+                Some(at(1)),
+                Some(at(3)),
+            );
+            // Live by its own dates, inside a campaign somebody paused. The
+            // engine refuses it, so the board must not carry it — otherwise
+            // "stop the Lebaran promo" stops the discount and leaves the poster.
+            campaign(
+                connection,
+                &publication,
+                "PAUSED-CAMPAIGN",
+                "PAUSED",
+                Some(at(1)),
+                None,
+            );
+            promotion(
+                connection,
+                &publication,
+                "UNDER-PAUSED",
+                Some("PAUSED-CAMPAIGN"),
+                Some(at(1)),
+                None,
+            );
+
+            let offers = match store_offers(connection, "store-01", STORE_CHANNEL, at(5)) {
+                Ok(offers) => offers,
+                Err(error) => panic!("{error}"),
+            };
+
+            let running: Vec<&str> = offers
+                .running
+                .iter()
+                .map(|offer| offer.rule_id.as_str())
+                .collect();
+            let upcoming: Vec<&str> = offers
+                .upcoming
+                .iter()
+                .map(|offer| offer.rule_id.as_str())
+                .collect();
+            assert_eq!(running, vec!["NOW"]);
+            assert_eq!(upcoming, vec!["SOON"]);
+            assert_eq!(offers.publication_version, Some(1));
+
+            // The window a countdown reads from, and it is the rule's own here.
+            let soon = &offers.upcoming[0];
+            assert_eq!(soon.starts_at, Some(at(20)));
+            assert_eq!(soon.ends_at, Some(at(30)));
+            assert!(!soon.live_now);
+        });
+    }
+
+    /// Both windows bind, so the one the shop gets is the intersection — not
+    /// the rule's, and not the campaign's.
+    #[test]
+    fn a_campaign_can_only_shorten_the_promotion_inside_it() {
+        let edge = shop();
+        with_shop(&edge, |connection| {
+            let publication = publish(connection, 1, at(1));
+            campaign(
+                connection,
+                &publication,
+                "LEBARAN",
+                "ACTIVE",
+                Some(at(3)),
+                Some(at(8)),
+            );
+            promotion(
+                connection,
+                &publication,
+                "TWENTY-OFF",
+                Some("LEBARAN"),
+                Some(at(1)),
+                Some(at(20)),
+            );
+
+            let offers = match store_offers(connection, "store-01", STORE_CHANNEL, at(5)) {
+                Ok(offers) => offers,
+                Err(error) => panic!("{error}"),
+            };
+            assert_eq!(offers.running.len(), 1);
+            let offer = &offers.running[0];
+            assert_eq!(offer.campaign_name.as_deref(), Some("Kampanye LEBARAN"));
+            // Starts when the campaign does, ends when the campaign does — the
+            // rule's own 1st and 20th are both looser and both lose.
+            assert_eq!(offer.starts_at, Some(at(3)));
+            assert_eq!(offer.ends_at, Some(at(8)));
+            assert!(offer.live_now);
+        });
     }
 
     #[test]

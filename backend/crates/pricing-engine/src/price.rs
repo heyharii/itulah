@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::money::{Currency, Money};
+use crate::rule::{local, Campaign, CampaignStatus, DaySet, TimeWindow};
 use crate::{CartLine, PricingContext};
 
 /// Which shops and which shoppers a price applies to.
@@ -103,6 +104,37 @@ pub struct Markdown {
     /// real version — publications start at 1.
     #[serde(default)]
     pub publication_version: i64,
+    /// The campaign this price drop belongs to, if it belongs to one.
+    ///
+    /// A campaign is the envelope a set of offers shares — one window, one
+    /// budget, one switch — and until now it enveloped only [`crate::Rule`]s.
+    /// A "flash sale" is not a rule: it is a run of markdowns the business
+    /// runs as one thing, and without this there was nowhere to say so, so a
+    /// shop holding two thousand cleared SKUs could not be told that four
+    /// hundred of them are one event with one clock.
+    ///
+    /// `default` because it arrived after markdowns were already travelling.
+    /// `None` means the markdown stands on its own, which is every markdown
+    /// written before this field existed — and standing on its own is the
+    /// permissive case, deliberately. See `PriceIndex::campaign_allows`.
+    #[serde(default)]
+    pub campaign_id: Option<String>,
+    /// The days it runs on, and the hours it runs between.
+    ///
+    /// The same two fields a rule's [`crate::Conditions`] carries, and read the
+    /// same way — in the SHOP's local time, because "12 sampai 2" means noon
+    /// where the shop is. Empty and `None` mean all day, every day, which is
+    /// every markdown written before a price could be scheduled by the hour.
+    ///
+    /// This is what makes a flash sale expressible as a price rather than as
+    /// one markdown row per slot. It also makes a price that changes at two in
+    /// the afternoon, which is a real thing to be careful with in a shop where
+    /// the ticket is printed on the garment — see the note on
+    /// `PriceIndex::within_the_hours`.
+    #[serde(default)]
+    pub days: DaySet,
+    #[serde(default)]
+    pub time_window: Option<TimeWindow>,
     pub effective_from: DateTime<Utc>,
     #[serde(default)]
     pub effective_to: Option<DateTime<Utc>>,
@@ -188,6 +220,9 @@ pub(crate) struct PriceIndex<'a> {
     by_sku: BTreeMap<&'a str, Vec<&'a PriceEntry>>,
     markdown_by_sku: BTreeMap<&'a str, Vec<&'a Markdown>>,
     markdown_by_article: BTreeMap<&'a str, Vec<&'a Markdown>>,
+    /// The campaigns this node holds, so a markdown can be asked whether the
+    /// campaign it belongs to is still on.
+    campaigns: BTreeMap<&'a str, &'a Campaign>,
 }
 
 impl<'a> PriceIndex<'a> {
@@ -223,7 +258,81 @@ impl<'a> PriceIndex<'a> {
             by_sku,
             markdown_by_sku,
             markdown_by_article,
+            campaigns: snapshot
+                .campaigns
+                .iter()
+                .map(|campaign| (campaign.campaign_id.as_str(), campaign))
+                .collect(),
         }
+    }
+
+    /// Whether the campaign a markdown belongs to is on.
+    ///
+    /// **This gate is the opposite way round from the one on rules, and the
+    /// asymmetry is deliberate.** `engine::gate` refuses a rule whose campaign
+    /// this node has never received — fail closed, because the cost of getting
+    /// it wrong is a discount not given, and the shopper pays the list price
+    /// they would have paid anyway.
+    ///
+    /// A markdown is not a discount. It IS the price: it is on the ticket
+    /// stapled to the garment, on the shelf edge, on the poster in the window
+    /// and in the catalogue screen the assistant is holding. Refusing it puts
+    /// the price back UP — so failing closed here means charging a customer
+    /// more than every printed thing in the shop says, at the counter, and it
+    /// would happen first at the branch furthest behind on sync, which is
+    /// exactly the branch least able to explain it.
+    ///
+    /// So: a campaign this node does not hold leaves the cleared price
+    /// standing. Only a campaign it DOES hold, saying in as many words that it
+    /// is not running, puts the price back. That makes stopping a campaign an
+    /// instruction that has to arrive rather than a message that has to not go
+    /// missing.
+    /// Whether a scheduled clearance is on at this hour, in the shop's own time.
+    ///
+    /// A markdown with no schedule runs all day, so this is the whole of the
+    /// cost for every clearance ever written before slots existed.
+    ///
+    /// **A price that switches off at two in the afternoon deserves care that a
+    /// promotion does not.** A rule is a discount and lives only in the till; a
+    /// markdown is THE price, and in a shop it is also printed on a ticket
+    /// stapled to the garment. Scheduling one by the hour means the label is
+    /// wrong for the rest of the day. That is the merchandiser's call to make —
+    /// the engine's job is to charge the same number the shop's own screens are
+    /// showing, which it does, to the minute.
+    fn within_the_hours(&self, context: &PricingContext, markdown: &Markdown) -> bool {
+        let here = local(context.at, context.utc_offset_minutes);
+        markdown.days.allows(here)
+            && markdown
+                .time_window
+                .is_none_or(|window| window.allows(here))
+    }
+
+    fn campaign_allows(&self, context: &PricingContext, markdown: &Markdown) -> bool {
+        let Some(campaign_id) = markdown.campaign_id.as_deref() else {
+            // Belongs to no campaign. Every markdown written before campaigns
+            // enveloped them is this case.
+            return true;
+        };
+        let Some(campaign) = self.campaigns.get(campaign_id) else {
+            // Named a campaign this node has never heard of. See above.
+            return true;
+        };
+        if campaign.status != CampaignStatus::Active {
+            return false;
+        }
+        // The campaign's window binds as well as the markdown's, so the one a
+        // shop gets is the intersection. A campaign that ended at midnight takes
+        // its prices with it even if the markdown rows run to the end of the
+        // month. Written the same way `engine::gate` writes it, rather than
+        // through `covers`, because a campaign's ends are both optional — an
+        // open-ended campaign has no start to compare against.
+        if campaign.valid_from.is_some_and(|from| context.at < from) {
+            return false;
+        }
+        if campaign.valid_to.is_some_and(|to| context.at >= to) {
+            return false;
+        }
+        true
     }
 
     pub(crate) fn price(&self, context: &PricingContext, sku_code: &str) -> Option<&'a PriceEntry> {
@@ -301,6 +410,8 @@ impl<'a> PriceIndex<'a> {
             .filter(|markdown| {
                 markdown.applies_to.applies(context)
                     && covers(context.at, markdown.effective_from, markdown.effective_to)
+                    && self.within_the_hours(context, markdown)
+                    && self.campaign_allows(context, markdown)
             })
             .copied()
             .collect();
@@ -338,6 +449,12 @@ impl<'a> PriceIndex<'a> {
                 continue;
             }
             if !covers(context.at, markdown.effective_from, markdown.effective_to) {
+                continue;
+            }
+            if !self.within_the_hours(context, markdown) {
+                continue;
+            }
+            if !self.campaign_allows(context, markdown) {
                 continue;
             }
             let wins = best.is_none_or(|current| {

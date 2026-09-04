@@ -13,4 +13,21 @@ export type CatalogueVocabulary = {
  * In `display_order`, which is the order the business thinks in — not
  * alphabetical, which would put Accessories before Menswear.
  */
-divisions: Array<VocabularyTerm>, tags: Array<VocabularyTerm>, };
+divisions: Array<VocabularyTerm>, tags: Array<VocabularyTerm>, 
+/**
+ * The sizes anything may be offered in, in size order — which is what
+ * makes "S–XXL" the first and last of a list rather than a sort every
+ * reader has to redo.
+ *
+ * Here rather than behind an endpoint of its own because there was no
+ * endpoint at all: `frontend-hub` transcribed the `size_code` seed into a
+ * hardcoded map, with a comment saying it would be replaced by exactly
+ * this. A size added to the table after that was written filtered
+ * correctly and read as `21`.
+ *
+ * Colours are NOT here. They have their own master and their own
+ * endpoint (`/api/v1/colours`), a screen that draws swatches already
+ * reads it, and a second half-copy of a table this app can edit is the
+ * split the colour master exists to prevent.
+ */
+sizes: Array<VocabularyTerm>, };

@@ -189,7 +189,7 @@ pub struct DaySet {
 }
 
 impl DaySet {
-    fn allows(&self, at: DateTime<Utc>) -> bool {
+    pub(crate) fn allows(&self, at: DateTime<Utc>) -> bool {
         self.iso_weekdays.is_empty()
             || self
                 .iso_weekdays
@@ -208,7 +208,7 @@ impl DaySet {
 /// is told everything the answer depends on, and a shop's timezone is a fact
 /// about the shop. An absolute window (`effective_from`/`effective_to`) is NOT
 /// shifted — those are instants, and an instant is the same moment everywhere.
-fn local(at: DateTime<Utc>, offset_minutes: i32) -> DateTime<Utc> {
+pub(crate) fn local(at: DateTime<Utc>, offset_minutes: i32) -> DateTime<Utc> {
     at + chrono::Duration::minutes(i64::from(offset_minutes))
 }
 
@@ -224,7 +224,7 @@ pub struct TimeWindow {
 }
 
 impl TimeWindow {
-    fn allows(&self, at: DateTime<Utc>) -> bool {
+    pub(crate) fn allows(&self, at: DateTime<Utc>) -> bool {
         let minute = at.hour() * 60 + at.minute();
         if self.from_minute <= self.to_minute {
             minute >= self.from_minute && minute < self.to_minute
@@ -323,7 +323,12 @@ impl Caps {
     }
 
     /// What is left in the budget, if there is one.
-    pub(crate) fn remaining(&self) -> Option<Money> {
+    ///
+    /// Public because a promotions board says it out loud — "Rp 4.2jt left of
+    /// this campaign" is the number a manager reads before deciding whether to
+    /// push an offer. Same caveat as the rest of `Caps`: it is as fresh as the
+    /// last sync.
+    pub fn remaining(&self) -> Option<Money> {
         self.budget
             .map(|budget| Money::new(budget.minor - self.spent.minor).floor_at_zero())
     }

@@ -153,6 +153,28 @@ const MATRIX: &[Authority] = &[
                  fact in the same guard. A second writer would be a breakdown \
                  that no longer adds up to the total it explains",
     },
+    Authority {
+        table: "member",
+        writers: &["src/cloud/postgres/member.rs"],
+        reason: "one file owns identity. `membership.rs` next door reads this \
+                 table constantly and writes none of it, which is the split \
+                 worth freezing: who somebody is, against what they have done",
+    },
+    Authority {
+        table: "member_pairing_code",
+        writers: &["src/cloud/postgres/member.rs"],
+        reason: "the six digits are minted and burned in one file, and the \
+                 attempt counter is the whole defence — a second writer that \
+                 reset or skipped it would make five guesses worth an unbounded \
+                 number without changing a line that looks like a check",
+    },
+    Authority {
+        table: "member_session",
+        writers: &["src/cloud/postgres/member.rs"],
+        reason: "a shopper's proof of holding a card. Anything else minting a \
+                 row here would be issuing that proof without the code that is \
+                 supposed to buy it",
+    },
 ];
 
 fn backend_root() -> PathBuf {

@@ -1,6 +1,21 @@
 //! Supplier bills: recording one, and posting it to the ledger.
 //!
-//! # What posting a bill actually does
+//! # Two kinds of bill, one document
+//!
+//! A MERCHANDISE bill is goods for resale. Debit inventory and input VAT,
+//! credit the supplier payable — the rule knows which accounts, because there
+//! is only one answer.
+//!
+//! An EXPENSE bill is everything else the client buys: electricity, rent,
+//! security, freight, agency staff, repairs, the accountant's fee. The rule
+//! CANNOT know which account, because only the person holding the paper does,
+//! so the bill carries lines that name it and the rule debits what they say.
+//!
+//! They are one document and not two because everything around a bill is the
+//! same either way — supplier, number, terms, tax, status, ageing, and the
+//! payment that settles it. 0094 makes the argument at length.
+//!
+//! # What posting a merchandise bill actually does
 //!
 //! Debit inventory and input VAT, credit the supplier payable. That is the
 //! whole entry, and it is worth saying what is NOT in it: nothing was posted
@@ -20,12 +35,18 @@
 //! frozen by a trigger: the journal that quotes them cannot move, so neither can
 //! they.
 
-use super::poster::{post, PostingIntent, PostingLine};
+use super::ledger::{assert_postable, Intent};
+use super::poster::{post, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+
+/// Goods for resale. Debits `inventory` by rule and carries no lines.
+const MERCHANDISE: &str = "MERCHANDISE";
+/// Everything else. Debits the accounts its lines name.
+const EXPENSE: &str = "EXPENSE";
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -68,6 +89,50 @@ pub struct SupplierBill {
     /// take another allocation looks broken until somebody can see that a draft
     /// already has it.
     pub allocated_minor: i64,
+    /// `MERCHANDISE` or `EXPENSE`. What decides which accounts the posting
+    /// debits, and therefore whether `lines` means anything.
+    pub kind: String,
+    /// What an expense bill was for, account by account.
+    ///
+    /// `None` on a list read, where it is not fetched — one query per row to
+    /// draw a table is how a list gets slow without anybody being able to point
+    /// at the reason. `Some` on the detail read, and `Some([])` on a
+    /// merchandise bill, which genuinely has none: the two absences are
+    /// different and a bare empty array could not tell them apart.
+    pub lines: Option<Vec<SupplierBillLine>>,
+}
+
+/// One thing an expense bill was for.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierBillLine {
+    pub line_id: Uuid,
+    pub line_number: i32,
+    pub account_code: String,
+    /// The client's own name for it, never translated, so the bill can be read
+    /// without looking every code up.
+    pub account_name: String,
+    /// Where this cost belongs. Equal to the bill's location: 0098 forces it,
+    /// because a cost at another location has no honest credit until a rule
+    /// writes the client's inter-unit accounts. The column stays so that rule
+    /// can be enabled by dropping a constraint rather than by a migration.
+    pub site_id: String,
+    pub amount_minor: i64,
+    pub memo: Option<String>,
+}
+
+/// One line of "what this bill was for", as somebody keys it.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct RecordBillLine {
+    /// A postable, active account in class 6, 7, or — for a prepayment, an
+    /// advance or a capital purchase — class 1. The database refuses the rest,
+    /// and says why.
+    pub account_code: String,
+    /// Must be the bill's own location; see `SupplierBillLine::site_id`.
+    pub site_id: String,
+    pub amount_minor: i64,
+    pub memo: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -85,6 +150,20 @@ pub struct RecordBillRequest {
     #[serde(default)]
     pub discount_minor: i64,
     pub note: Option<String>,
+    /// `MERCHANDISE` (the default) or `EXPENSE`.
+    ///
+    /// Defaulted rather than required, because every bill recorded before 0094
+    /// was a merchandise bill and every caller written before it says so by
+    /// saying nothing.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub kind: Option<String>,
+    /// Required on an EXPENSE bill and refused on a MERCHANDISE one. The
+    /// amounts must total `subtotal_minor` — tax and the bill's own total are
+    /// stated separately, as they are on the paper.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub lines: Option<Vec<RecordBillLine>>,
 }
 
 /// A delivery nobody has billed for.
@@ -114,7 +193,7 @@ pub struct UnbilledReceipt {
 const BILL_COLUMNS: &str = "i.invoice_id, i.invoice_number, i.supplier_id, i.supplier_name,
      i.site_id, i.invoice_date, i.due_date, i.currency, i.subtotal_minor, i.tax_minor,
      i.discount_minor, i.total_minor, i.status, i.journal_entry_id, i.recorded_by,
-     i.recorded_at, i.posted_by, i.note,
+     i.recorded_at, i.posted_by, i.note, i.kind,
      (SELECT e.entry_number FROM journal_entry e WHERE e.entry_id = i.journal_entry_id) AS entry_number,
      COALESCE((CURRENT_DATE - i.due_date), 0)::int AS days_overdue,
      COALESCE((SELECT SUM(al.amount_minor) FROM supplier_payment_allocation al
@@ -153,7 +232,37 @@ fn to_bill(row: &sqlx::postgres::PgRow) -> Result<SupplierBill, AppError> {
         posted_by: row.try_get("posted_by")?,
         note: row.try_get("note")?,
         days_overdue: row.try_get("days_overdue")?,
+        kind: row.try_get("kind")?,
+        lines: None,
     })
+}
+
+/// What an expense bill was for, in the order it was keyed.
+async fn bill_lines(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<SupplierBillLine>, AppError> {
+    let rows = sqlx::query(
+        "SELECT l.line_id, l.line_number, l.account_code, a.name AS account_name,
+                l.site_id, l.amount_minor, l.memo
+           FROM supplier_invoice_expense_line l
+           JOIN ledger_account a ON a.account_code = l.account_code
+          WHERE l.invoice_id = $1
+          ORDER BY l.line_number",
+    )
+    .bind(invoice_id)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(SupplierBillLine {
+                line_id: row.try_get("line_id")?,
+                line_number: row.try_get("line_number")?,
+                account_code: row.try_get("account_code")?,
+                account_name: row.try_get("account_name")?,
+                site_id: row.try_get("site_id")?,
+                amount_minor: row.try_get("amount_minor")?,
+                memo: row.try_get("memo")?,
+            })
+        })
+        .collect()
 }
 
 pub async fn list_bills(
@@ -178,6 +287,11 @@ pub async fn list_bills(
     rows.iter().map(to_bill).collect()
 }
 
+/// One bill, with what it was for.
+///
+/// The lines are fetched here and not in `list_bills`: a list draws a hundred
+/// rows and a hundred and one queries to draw one screen is how a list gets
+/// slow without anybody being able to point at the reason.
 pub async fn bill(pool: &PgPool, invoice_id: Uuid) -> Result<SupplierBill, AppError> {
     let sql = format!("SELECT {BILL_COLUMNS} FROM supplier_invoice i WHERE i.invoice_id = $1");
     let row = sqlx::query(&sql)
@@ -185,10 +299,18 @@ pub async fn bill(pool: &PgPool, invoice_id: Uuid) -> Result<SupplierBill, AppEr
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| AppError::NotFound("supplier bill".into()))?;
-    to_bill(&row)
+    let mut bill = to_bill(&row)?;
+    bill.lines = Some(bill_lines(pool, invoice_id).await?);
+    Ok(bill)
 }
 
 /// Record a bill. It is not in the books yet — posting is a separate act.
+///
+/// Every refusal below is also enforced by the database — 0094's foreign keys,
+/// CHECKs and deferred trigger are the guarantee. These are the explanations,
+/// checked first so the sentence names the line somebody just typed rather than
+/// arriving at COMMIT naming a transaction. The same arrangement
+/// `poster::check_balanced` has with the journal's balance trigger.
 pub async fn record_bill(
     pool: &PgPool,
     request: &RecordBillRequest,
@@ -209,13 +331,116 @@ pub async fn record_bill(
         ));
     }
 
+    let kind = request
+        .kind
+        .as_deref()
+        .map(|raw| raw.trim().to_ascii_uppercase())
+        .unwrap_or_else(|| MERCHANDISE.to_string());
+    if kind != MERCHANDISE && kind != EXPENSE {
+        return Err(AppError::Validation(format!(
+            "'{kind}' is not a kind of bill; a bill is either {} — goods for resale — or {}",
+            MERCHANDISE, EXPENSE
+        )));
+    }
+
+    let lines = request.lines.as_deref().unwrap_or(&[]);
+    if kind == MERCHANDISE && !lines.is_empty() {
+        return Err(AppError::Validation(
+            "a merchandise bill carries no lines: what it debits is decided by the posting rule, \
+             not by the person keying it. Record it as an EXPENSE bill if these are costs."
+                .into(),
+        ));
+    }
+    if kind == EXPENSE {
+        if lines.is_empty() {
+            return Err(AppError::Validation(
+                "an expense bill must say what it was for; add a line naming the account each \
+                 cost belongs to"
+                    .into(),
+            ));
+        }
+        if request.discount_minor > 0 {
+            return Err(AppError::Validation(
+                "an expense bill cannot carry a discount: the client's only discount account is \
+                 Potongan Pembelian, which is for purchases. Take the reduction off the line it \
+                 belongs to instead."
+                    .into(),
+            ));
+        }
+        let mut sum: i64 = 0;
+        for (index, line) in lines.iter().enumerate() {
+            if line.amount_minor <= 0 {
+                return Err(AppError::Validation(format!(
+                    "line {} must be positive; a credit note is a separate document",
+                    index + 1
+                )));
+            }
+            if line.site_id.trim().is_empty() {
+                return Err(AppError::Validation(format!(
+                    "line {} must say which location the cost belongs to",
+                    index + 1
+                )));
+            }
+            // Every 6* and 7* leaf in this client's chart is already a
+            // per-location account, and their trial balance is read per
+            // location. A DC bill carrying a store-01 line would debit store
+            // 01 with no credit anywhere in store 01's books: two locations
+            // out by the same amount in opposite directions, and a
+            // consolidated trial balance that still balances.
+            //
+            // The honest credit is inter-unit — the client keeps
+            // `affiliate_receivable` and `affiliate_payable` and both are
+            // mapped for all fourteen locations — but no rule writes either
+            // yet, and which side carries the balance is Finance's decision.
+            // 0084 refuses a cross-site PAYMENT on the same argument. The
+            // composite foreign key added in 0098 is the guarantee; this is
+            // the sentence.
+            if line.site_id.trim() != request.site_id.trim() {
+                return Err(AppError::Validation(format!(
+                    "line {} puts the cost at {} and the bill is at {}; a cost at another \
+                     location needs an inter-unit credit, and no rule writes affiliate_receivable \
+                     or affiliate_payable yet. Record one bill per location instead.",
+                    index + 1,
+                    line.site_id.trim(),
+                    request.site_id.trim()
+                )));
+            }
+            // Checked here as well as by the composite foreign key on the
+            // table, for the reason `assert_postable` documents: a foreign-key
+            // violation is SQLSTATE 23503 and reaches a person as "database
+            // operation failed", naming neither the line nor the fault.
+            assert_postable(pool, line.account_code.trim(), Intent::Post)
+                .await
+                .map_err(|error| match error {
+                    AppError::Validation(message) => {
+                        AppError::Validation(format!("line {}: {message}", index + 1))
+                    }
+                    other => other,
+                })?;
+            sum = sum
+                .checked_add(line.amount_minor)
+                .ok_or_else(|| AppError::Validation("the bill total overflows".into()))?;
+        }
+        if sum != request.subtotal_minor {
+            return Err(AppError::Validation(format!(
+                "the bill says {} before tax but its lines total {sum}; the difference is {}",
+                request.subtotal_minor,
+                (request.subtotal_minor - sum).abs()
+            )));
+        }
+    }
+
+    // The header and its lines in one transaction, because 0094's deferred
+    // trigger checks them together at COMMIT: an expense bill without its lines
+    // is not a state that ever exists.
+    let mut tx = pool.begin().await?;
     let invoice_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO supplier_invoice
            (invoice_id, invoice_number, supplier_id, supplier_name, site_id, invoice_date,
             due_date, currency, subtotal_minor, tax_minor, discount_minor, total_minor,
-            recorded_by, note)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13)",
+            recorded_by, note, kind)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13,$14)",
     )
     .bind(invoice_id)
     .bind(request.invoice_number.trim())
@@ -230,8 +455,27 @@ pub async fn record_bill(
     .bind(total)
     .bind(actor)
     .bind(request.note.as_deref())
-    .execute(pool)
+    .bind(&kind)
+    .execute(&mut *tx)
     .await?;
+
+    for (index, line) in lines.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO supplier_invoice_expense_line
+               (line_id, invoice_id, line_number, account_code, site_id, amount_minor, memo)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(invoice_id)
+        .bind(index as i32 + 1)
+        .bind(line.account_code.trim())
+        .bind(line.site_id.trim())
+        .bind(line.amount_minor)
+        .bind(line.memo.as_deref())
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
 
     bill(pool, invoice_id).await
 }
@@ -257,8 +501,10 @@ pub async fn post_bill(
         )));
     }
 
-    // Dr inventory (gross) + Dr input VAT / Cr payable (net of discount) +
-    // Cr purchase discount.
+    let expense = existing.kind == EXPENSE;
+
+    // MERCHANDISE — Dr inventory (gross) + Dr input VAT / Cr trade payable (net
+    // of discount) + Cr purchase discount.
     //
     // The discount is a CREDIT to `8010110003 Potongan Pembelian`, not a
     // smaller inventory figure. That is where the client keeps it: the account
@@ -270,11 +516,45 @@ pub async fn post_bill(
     //
     // Debits are subtotal + tax; credits are (subtotal + tax - discount) +
     // discount. The same total, arrived at from both sides.
-    let mut lines = vec![PostingLine::debit(
-        "inventory",
-        &existing.site_id,
-        existing.subtotal_minor,
-    )];
+    //
+    // EXPENSE — Dr each line's own account, at that line's location + Dr input
+    // VAT / Cr non-merchandise payable.
+    //
+    // The line's account is named directly rather than through `account_map`,
+    // and that is not the rule breaking 0050's "nothing in Rust names a client
+    // account code". Nothing here names one: the code comes off the document,
+    // chosen by the person who read the paper, exactly as it does on a manual
+    // journal entry. `LineAccount::Account` is the same door that entry uses.
+    //
+    // Every leg lands at the bill's own location: 0098 forces a line's site to
+    // equal its bill's, because a cross-location cost has no honest credit
+    // until an inter-unit rule exists. So the entry balances per location as
+    // well as in total, which is the only way it can be read against the
+    // client's own per-location trial balance.
+    let mut lines: Vec<PostingLine> = if expense {
+        existing
+            .lines
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .map(|line| PostingLine {
+                account: LineAccount::Account {
+                    account_code: line.account_code.clone(),
+                },
+                site_id: line.site_id.clone(),
+                debit_minor: line.amount_minor,
+                credit_minor: 0,
+                supplier_id: None,
+                memo: line.memo.clone(),
+            })
+            .collect()
+    } else {
+        vec![PostingLine::debit(
+            "inventory",
+            &existing.site_id,
+            existing.subtotal_minor,
+        )]
+    };
     if existing.tax_minor > 0 {
         lines.push(PostingLine::debit(
             "vat_in",
@@ -283,8 +563,16 @@ pub async fn post_bill(
         ));
     }
     lines.push(
-        PostingLine::credit("trade_payable", &existing.site_id, existing.total_minor)
-            .for_supplier(&existing.supplier_id),
+        PostingLine::credit(
+            if expense {
+                "non_merchandise_payable"
+            } else {
+                "trade_payable"
+            },
+            &existing.site_id,
+            existing.total_minor,
+        )
+        .for_supplier(&existing.supplier_id),
     );
     if existing.discount_minor > 0 {
         lines.push(PostingLine::credit(
@@ -298,7 +586,14 @@ pub async fn post_bill(
         posting_date: posting_date.unwrap_or(existing.invoice_date),
         source_kind: "SUPPLIER_INVOICE".into(),
         source_id: Some(existing.invoice_id.to_string()),
-        rule_version: "supplier_invoice/1".into(),
+        // A distinct version, because it is a distinct rule. When one of the
+        // two is corrected, this is what says which entries the old one wrote —
+        // the thing 0083 needed and had to reconstruct from a memo string.
+        rule_version: if expense {
+            "expense_invoice/1".into()
+        } else {
+            "supplier_invoice/1".into()
+        },
         currency: existing.currency.clone(),
         memo: Some(format!(
             "{} {}",
@@ -490,11 +785,15 @@ pub async fn payables_aging(
         // report. Zero, not a gap — the same argument `BalanceRow::cells`
         // makes about a location with nothing posted.
         let buckets = AgingBuckets {
-            not_due_minor: row.try_get::<Option<i64>, _>("not_due")?.unwrap_or_default(),
+            not_due_minor: row
+                .try_get::<Option<i64>, _>("not_due")?
+                .unwrap_or_default(),
             days_1_30_minor: row.try_get::<Option<i64>, _>("d1_30")?.unwrap_or_default(),
             days_31_60_minor: row.try_get::<Option<i64>, _>("d31_60")?.unwrap_or_default(),
             days_61_90_minor: row.try_get::<Option<i64>, _>("d61_90")?.unwrap_or_default(),
-            days_over_90_minor: row.try_get::<Option<i64>, _>("d90_plus")?.unwrap_or_default(),
+            days_over_90_minor: row
+                .try_get::<Option<i64>, _>("d90_plus")?
+                .unwrap_or_default(),
             total_minor: row.try_get::<Option<i64>, _>("total")?.unwrap_or_default(),
         };
         total.not_due_minor += buckets.not_due_minor;

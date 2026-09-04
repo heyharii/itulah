@@ -45,6 +45,9 @@ fn markdown(sku: &str, price: i64) -> Markdown {
         replacement_unit_price: Money::new(price),
         priority: 0,
         publication_version: 1,
+        campaign_id: None,
+        days: DaySet::default(),
+        time_window: None,
         effective_from: at(1),
         effective_to: None,
     }
@@ -1835,9 +1838,12 @@ fn a_promotion_says_what_it_took_off_each_line() {
         vec![],
     );
     // Fifty thousand off, but only against the two garments.
-    let mut offer = rule("R1", Effect::Amount {
-        amount: Money::new(50_000),
-    });
+    let mut offer = rule(
+        "R1",
+        Effect::Amount {
+            amount: Money::new(50_000),
+        },
+    );
     offer.scope.applicability = Some(Applicability::Sku {
         sku_codes: ["KEMEJA".to_string(), "CELANA".to_string()]
             .into_iter()
@@ -1872,11 +1878,206 @@ fn a_promotion_says_what_it_took_off_each_line() {
     assert_eq!(applied.line_benefits[1].benefit, Money::new(30_000));
     // And the parts are exactly the whole — the invariant that makes a
     // per-line report add up to the per-rule one it is meant to explain.
-    let apportioned = applied
-        .line_benefits
-        .iter()
-        .fold(Money::ZERO, |sum, line| {
-            sum.try_add(line.benefit).unwrap_or(Money::ZERO)
-        });
+    let apportioned = applied.line_benefits.iter().fold(Money::ZERO, |sum, line| {
+        sum.try_add(line.benefit).unwrap_or(Money::ZERO)
+    });
     assert_eq!(apportioned, applied.benefit);
+}
+
+// ---------------------------------------------------------------------------
+// A campaign of markdowns — a run of price drops under one envelope
+// ---------------------------------------------------------------------------
+//
+// The gate on a markdown's campaign runs the OPPOSITE way to the gate on a
+// rule's, and these are the tests that hold it that way. A rule fails closed
+// because the cost of being wrong is a discount not given; a markdown fails
+// open because the cost of being wrong is charging a customer more than the
+// ticket on the garment, at the counter.
+
+fn cleared_under(campaign_id: &str) -> Markdown {
+    let mut drop = markdown("SKU1", 60_000);
+    drop.campaign_id = Some(campaign_id.into());
+    drop
+}
+
+fn priced_at_full() -> Vec<PriceEntry> {
+    vec![entry("SKU1", Level::Company, None, 100_000)]
+}
+
+#[test]
+fn a_campaign_that_is_running_clears_the_price() {
+    let mut snap = snapshot(priced_at_full(), vec![cleared_under("CMP-FLASH")]);
+    snap.campaigns.push(campaign("CMP-FLASH"));
+
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(60_000));
+    assert_eq!(result.lines[0].source, PriceSource::Markdown);
+}
+
+#[test]
+fn pausing_a_campaign_puts_its_prices_back_up() {
+    let mut snap = snapshot(priced_at_full(), vec![cleared_under("CMP-FLASH")]);
+    let mut stopped = campaign("CMP-FLASH");
+    stopped.status = CampaignStatus::Paused;
+    snap.campaigns.push(stopped);
+
+    // The whole point of the switch: one field, and four hundred cleared
+    // products go back to the list price without a new price book.
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(100_000));
+    assert_eq!(result.lines[0].source, PriceSource::CompanyPrice);
+}
+
+#[test]
+fn a_campaign_that_has_not_started_does_not_clear_the_price_yet() {
+    let mut snap = snapshot(priced_at_full(), vec![cleared_under("CMP-FLASH")]);
+    let mut later = campaign("CMP-FLASH");
+    later.valid_from = Some(at(9));
+    snap.campaigns.push(later);
+
+    // The markdown's own window opened on day 1; the campaign opens on day 9. Both
+    // bind, so the shop gets the intersection.
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(100_000));
+}
+
+#[test]
+fn a_campaign_the_shop_never_received_leaves_the_cleared_price_standing() {
+    // No campaign in the snapshot at all — the shop missed it, or was offline
+    // when it was cut.
+    let snap = snapshot(priced_at_full(), vec![cleared_under("CMP-NEVER-ARRIVED")]);
+
+    // **This is the asymmetry.** A RULE naming an unknown campaign fails closed
+    // and gives no discount, which costs the shopper nothing they were promised
+    // in the shop. A MARKDOWN failing closed would ring up 100.000 for a shirt
+    // with 60.000 on its ticket and 60.000 on the poster in the window — at the
+    // branch furthest behind on sync, which is the branch least able to explain
+    // it. So silence leaves the cleared price standing, and only a delivered
+    // pause puts it back.
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(60_000));
+    assert_eq!(result.lines[0].source, PriceSource::Markdown);
+}
+
+#[test]
+fn a_promotion_naming_that_same_unknown_campaign_still_fails_closed() {
+    // The other half of the pair, asserted beside it so the two cannot drift
+    // into agreeing with each other.
+    let mut snap = snapshot(priced_at_full(), vec![]);
+    snap.rules
+        .push(under_campaign("R1", "CMP-NEVER-ARRIVED", 2_000));
+
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(100_000));
+    assert_eq!(why(&result, "R1"), RejectionReason::CampaignUnknown);
+}
+
+#[test]
+fn a_markdown_belonging_to_no_campaign_is_unaffected_by_any_campaign() {
+    // Every markdown written before campaigns existed is this case, and a paused
+    // campaign elsewhere in the book must not touch it.
+    let mut snap = snapshot(priced_at_full(), vec![markdown("SKU1", 60_000)]);
+    let mut stopped = campaign("CMP-FLASH");
+    stopped.status = CampaignStatus::Paused;
+    snap.campaigns.push(stopped);
+
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(60_000));
+}
+
+// ---------------------------------------------------------------------------
+// A clearance that runs by the hour
+// ---------------------------------------------------------------------------
+
+/// Noon to two, in the shop's own time.
+fn flash(from_minute: u32, to_minute: u32) -> Markdown {
+    let mut drop = markdown("SKU1", 60_000);
+    drop.time_window = Some(TimeWindow {
+        from_minute,
+        to_minute,
+    });
+    drop
+}
+
+/// `at(5)` is midday UTC. A shop at UTC+7 is at 19:00 when this fires.
+fn shop_at(offset_minutes: i32) -> PricingContext {
+    let mut context = context();
+    context.utc_offset_minutes = offset_minutes;
+    context
+}
+
+#[test]
+fn a_clearance_inside_its_hours_sets_the_price() {
+    let snap = snapshot(priced_at_full(), vec![flash(11 * 60, 14 * 60)]);
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(60_000));
+}
+
+#[test]
+fn a_clearance_outside_its_hours_charges_the_list_price() {
+    // The same markdown, the same day, one hour later than its window.
+    let snap = snapshot(priced_at_full(), vec![flash(8 * 60, 11 * 60)]);
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(100_000));
+    assert_eq!(result.lines[0].source, PriceSource::CompanyPrice);
+}
+
+#[test]
+fn the_hours_are_the_shops_own_not_the_servers() {
+    // Noon to two **where the shop is**. The instant under test is 12:00 UTC,
+    // so a shop at UTC+7 is at 19:00 and the sale is over; a shop at UTC is in
+    // the middle of it. Reading these in UTC would run every flash sale in the
+    // business seven hours late — right for nobody, every day, with nothing on
+    // any screen saying so.
+    let snap = snapshot(priced_at_full(), vec![flash(12 * 60, 14 * 60)]);
+    let jakarta = resolved(&snap, &shop_at(7 * 60), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(jakarta.total, Money::new(100_000));
+    let london = resolved(&snap, &shop_at(0), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(london.total, Money::new(60_000));
+}
+
+#[test]
+fn a_clearance_may_run_past_midnight() {
+    // 22:00 to 02:00 wraps, and a late-night sale genuinely wants that. At
+    // 12:00 UTC a shop at UTC+13 is at 01:00 the next day — inside it.
+    let snap = snapshot(priced_at_full(), vec![flash(22 * 60, 2 * 60)]);
+    let result = resolved(&snap, &shop_at(13 * 60), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(60_000));
+}
+
+#[test]
+fn a_clearance_may_run_on_chosen_days_only() {
+    let mut weekend = markdown("SKU1", 60_000);
+    // `at(5)` is 2026-09-05, a Saturday.
+    weekend.days = DaySet {
+        iso_weekdays: [6].into_iter().collect(),
+    };
+    let snap = snapshot(priced_at_full(), vec![weekend.clone()]);
+    assert_eq!(
+        resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]).total,
+        Money::new(60_000)
+    );
+
+    let mut weekday = weekend;
+    weekday.days = DaySet {
+        iso_weekdays: [1, 2, 3].into_iter().collect(),
+    };
+    let snap = snapshot(priced_at_full(), vec![weekday]);
+    assert_eq!(
+        resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]).total,
+        Money::new(100_000)
+    );
+}
+
+#[test]
+fn an_unscheduled_clearance_runs_all_day_every_day() {
+    // Every markdown written before slots existed is this one, and it must be
+    // unaffected by the gate that was added around it.
+    let snap = snapshot(priced_at_full(), vec![markdown("SKU1", 60_000)]);
+    for offset in [0, 7 * 60, -5 * 60] {
+        assert_eq!(
+            resolved(&snap, &shop_at(offset), &[CartLine::new("SKU1", 1)]).total,
+            Money::new(60_000)
+        );
+    }
 }

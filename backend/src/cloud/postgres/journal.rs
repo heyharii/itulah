@@ -114,11 +114,21 @@ fn to_entry(row: &sqlx::postgres::PgRow) -> Result<JournalEntryRow, AppError> {
     })
 }
 
+/// The register, over a window.
+///
+/// `site_id` asks whether ANY line of the entry touched that location, and
+/// deliberately not whether the entry "belongs" to it — an entry has no
+/// location of its own. A supplier payment settling a shop's bills and an asset
+/// transfer between two shops both have lines at more than one place, and an
+/// entry that showed up under only one of them would be missing from the other
+/// shop's journal for no reason anybody could explain. EXISTS rather than a
+/// join, so an entry with three lines at one location is still one row.
 pub async fn journal_register(
     pool: &PgPool,
     from: Option<NaiveDate>,
     to: Option<NaiveDate>,
     source_kind: Option<&str>,
+    site_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<JournalEntryRow>, AppError> {
     let sql = format!(
@@ -126,13 +136,17 @@ pub async fn journal_register(
           WHERE ($1::date IS NULL OR e.posting_date >= $1)
             AND ($2::date IS NULL OR e.posting_date <= $2)
             AND ($3::text IS NULL OR e.source_kind = $3)
+            AND ($4::text IS NULL OR EXISTS (
+                    SELECT 1 FROM journal_line l
+                     WHERE l.entry_id = e.entry_id AND l.site_id = $4))
           ORDER BY e.posting_date DESC, e.entry_number DESC
-          LIMIT $4"
+          LIMIT $5"
     );
     let rows = sqlx::query(&sql)
         .bind(from)
         .bind(to)
         .bind(source_kind)
+        .bind(site_id)
         .bind(limit.clamp(1, 1000))
         .fetch_all(pool)
         .await?;

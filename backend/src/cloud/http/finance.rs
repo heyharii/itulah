@@ -14,12 +14,14 @@ use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{
-        self as infrastructure, AccountBalance, AssessAssetRequest, AssetRow, BalanceMatrix,
-        BankStatementLineRow, BankStatementRow, ConfirmMatchRequest, DepreciationRun, FiscalPeriod,
-        GeneralLedger, ImportOutcome, ImportStatementRequest, JournalEntryDetail, JournalEntryRow,
-        LedgerAccount, LineSuggestions, PayablesAging, PostingIntent, PostingLine,
+        self as infrastructure, AccountBalance, AcquisitionGap, AssessAssetRequest, AssetRow,
+        AssetSchedule, BalanceMatrix, BankStatementLineRow, BankStatementRow, BookBankLineRequest,
+        ConfirmMatchRequest, DepreciationRun, DisposeAssetRequest, FiscalPeriod, GeneralLedger,
+        ImportOutcome, ImportStatementRequest, JournalEntryDetail, JournalEntryRow, LedgerAccount,
+        LineSuggestions, MoneyOverview, PayablesAging, PostingIntent, PostingLine,
         RecordBillRequest, RecordPaymentRequest, RegisterAssetRequest, SetAccountMappingRequest,
-        Statement, SupplierBill, SupplierPayment, TrialBalance, UnbilledReceipt,
+        Statement, SupplierBill, SupplierPayment, TransferAssetRequest, TrialBalance,
+        UnbilledReceipt,
     },
 };
 use axum::{
@@ -227,7 +229,12 @@ pub async fn close_period(
 pub struct JournalQuery {
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
+    /// A `source_kind`. `MANUAL` is the one worth asking for on its own: it is
+    /// the only kind that means a person typed the entry from nothing.
     pub kind: Option<String>,
+    /// Entries with any line at this location. An entry has no location of its
+    /// own — its lines do, and a payment can settle two shops' bills at once.
+    pub site: Option<String>,
     pub limit: Option<i64>,
 }
 
@@ -241,6 +248,7 @@ pub async fn journal(
             query.from,
             query.to,
             query.kind.as_deref(),
+            query.site.as_deref(),
             query.limit.unwrap_or(200),
         )
         .await?,
@@ -406,6 +414,25 @@ pub async fn bills(
         )
         .await?,
     ))
+}
+
+/// One bill, with what it was for.
+///
+/// The detail read, and the only one that fills `lines`: an EXPENSE bill comes
+/// back with the accounts it named, a MERCHANDISE bill with an empty array —
+/// it genuinely has none, and that is different from the `null` the list
+/// returns, which means "not fetched". `list_bills` leaves it null so drawing a
+/// hundred rows stays one query.
+///
+/// Settlement is already on the row as `paid_minor`, `outstanding_minor` and
+/// `allocated_minor`, summed from the payment allocations on every read. There
+/// is no payments array here on purpose: a bill is a document, and which bank
+/// lines settled it is `GET /payments?supplier=`.
+pub async fn bill(
+    State(state): State<AppState>,
+    Path(invoice_id): Path<Uuid>,
+) -> Result<Json<SupplierBill>, AppError> {
+    Ok(Json(infrastructure::bill(&state.db, invoice_id).await?))
 }
 
 pub async fn record_bill(
@@ -603,6 +630,63 @@ pub async fn assess_asset(
     ))
 }
 
+/// Take an asset off the books: cost out, accumulated depreciation out,
+/// proceeds in, and the difference to the gain-or-loss account.
+///
+/// Refuses an asset that is not capitalised, one already disposed of, and one
+/// the depreciation run still owes a charge for the month it left in — the last
+/// because otherwise the loss is overstated by exactly one month's charge and
+/// the expense understated by it.
+pub async fn dispose_asset(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(asset_id): Path<Uuid>,
+    Json(request): Json<DisposeAssetRequest>,
+) -> Result<Json<AssetRow>, AppError> {
+    Ok(Json(
+        infrastructure::dispose_asset(&state.db, asset_id, &request, &principal.username).await?,
+    ))
+}
+
+/// Move an asset, and move its cost and accumulated depreciation with it.
+///
+/// Both halves, because the client keeps a profit and loss per location: moving
+/// the cost alone leaves two locations wrong by the same amount in opposite
+/// directions, which a trial balance cannot see.
+pub async fn transfer_asset(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(asset_id): Path<Uuid>,
+    Json(request): Json<TransferAssetRequest>,
+) -> Result<Json<AssetRow>, AppError> {
+    Ok(Json(
+        infrastructure::transfer_asset(&state.db, asset_id, &request, &principal.username).await?,
+    ))
+}
+
+/// Assets the books never bought, and capital purchases nobody registered.
+///
+/// Two lists rather than one number, because they are different faults with
+/// different fixes: an unbacked asset needs the bill line that paid for it
+/// found (or the bill raised); an unclaimed line needs the thing put on the
+/// register. Overview shows the two totals as one exception; the Assets screen
+/// warns per row from `AssetRow.acquired_via` being null.
+pub async fn unbacked_assets(
+    State(state): State<AppState>,
+) -> Result<Json<AcquisitionGap>, AppError> {
+    Ok(Json(infrastructure::acquisition_gap(&state.db).await?))
+}
+
+/// What was charged against one asset, month by month, and what is left.
+pub async fn asset_schedule(
+    State(state): State<AppState>,
+    Path(asset_id): Path<Uuid>,
+) -> Result<Json<AssetSchedule>, AppError> {
+    Ok(Json(
+        infrastructure::asset_schedule(&state.db, asset_id).await?,
+    ))
+}
+
 /// Charge one month across every capitalised asset.
 ///
 /// Safe to run twice: the unique index on (asset, period) refuses a second
@@ -631,6 +715,30 @@ pub async fn run_depreciation(
             &principal.username,
         )
         .await?,
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Cash and bank
+// ---------------------------------------------------------------------------
+
+/// Where the money is, and whether the bank agrees.
+///
+/// One row per mapped money account per location, so the screen is a list of
+/// accounts rather than a list of statements. `GET /bank-statements` stays as
+/// the drill-in: this answers "what do we hold and does it reconcile", and that
+/// one answers "which upload said so".
+///
+/// Driven off `account_map`, so a meaning nobody has mapped produces no row.
+/// That is the honest answer and it is visible: the Account Map screen is where
+/// it gets fixed.
+pub async fn money(
+    State(state): State<AppState>,
+    Query(query): Query<BalanceQuery>,
+) -> Result<Json<MoneyOverview>, AppError> {
+    let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
+    Ok(Json(
+        infrastructure::money_overview(&state.db, as_of, query.site.as_deref()).await?,
     ))
 }
 
@@ -690,4 +798,29 @@ pub async fn unmatch_bank_line(
 ) -> Result<Json<Value>, AppError> {
     infrastructure::unmatch(&state.db, line_id).await?;
     Ok(Json(json!({ "matched": false })))
+}
+
+/// Book a line nobody booked, and agree it in the same breath.
+///
+/// The other half of reconciliation. Matching says the bank has confirmed
+/// something we already recorded; this says the bank did something we never
+/// recorded, and puts it in the ledger — a monthly charge, interest credited, a
+/// transfer that arrived without a document. One entry, one match, one
+/// transaction, so the line never exists in the state where it has been booked
+/// and nothing points at what booked it.
+pub async fn book_bank_line(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(line_id): Path<Uuid>,
+    Json(request): Json<BookBankLineRequest>,
+) -> Result<Json<Value>, AppError> {
+    let booked =
+        infrastructure::book_bank_line(&state.db, line_id, &request, &principal.username).await?;
+    Ok(Json(json!({
+        "entry_id": booked.entry_id,
+        "entry_number": booked.entry_number,
+        "journal_line_id": booked.journal_line_id,
+        "total_minor": booked.total_minor,
+        "matched": true,
+    })))
 }

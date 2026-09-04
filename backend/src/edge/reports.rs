@@ -11,8 +11,16 @@
 //!
 //!   - **No tax split.** The edge `sale` row has `total_minor`, `paid_minor`
 //!     and `change_minor`; there is no `net_minor` or `tax_minor` to divide.
-//!   - **No returns and no voids.** `sale.status` is `CHECK (status =
-//!     'COMPLETED')` — the edge cannot hold a sale in any other state.
+//!   - **Voided sales are excluded, refunds are not deducted.** Migration
+//!     0024 opened `sale.status`, so a shop can now hold a `VOIDED` sale and
+//!     a `sale_return` against a completed one. Every query below asks for
+//!     `status='COMPLETED'`, the same question `till::report` asks of the
+//!     drawer — without it a void stayed in the day's takings while the shift
+//!     report had already dropped it, and the two numbers on one screen
+//!     disagreed. Refunds are a separate fact and are NOT netted off here:
+//!     these are takings, not revenue, and deducting a return without also
+//!     saying which day it belonged to would be a third number nobody asked
+//!     for.
 //!
 //! The calendar is `crate::reporting`, shared with the centre so a week does
 //! not start on a different day in the two places.
@@ -178,7 +186,7 @@ pub fn sales_series(
     {
         let sql = format!(
             "WITH s AS (SELECT id,total_minor,datetime(completed_at, ?3) AS local FROM sale \
-             WHERE completed_at >= ?1 AND completed_at < ?2) \
+             WHERE status='COMPLETED' AND completed_at >= ?1 AND completed_at < ?2) \
              SELECT {expression} AS bucket_start, COUNT(*) AS sales_count, \
              COALESCE(SUM(total_minor),0) AS gross_minor FROM s GROUP BY 1"
         );
@@ -208,7 +216,7 @@ pub fn sales_series(
     {
         let sql = format!(
             "WITH s AS (SELECT id,datetime(completed_at, ?3) AS local FROM sale \
-             WHERE completed_at >= ?1 AND completed_at < ?2) \
+             WHERE status='COMPLETED' AND completed_at >= ?1 AND completed_at < ?2) \
              SELECT {expression} AS bucket_start, COALESCE(SUM(l.quantity),0) AS units \
              FROM s JOIN sale_line l ON l.sale_id = s.id GROUP BY 1"
         );
@@ -261,7 +269,7 @@ pub fn sales_window(
         .query_row(
             "SELECT COUNT(*),COALESCE(SUM(total_minor),0),COALESCE(SUM(paid_minor),0),\
              COALESCE(SUM(change_minor),0) FROM sale \
-             WHERE completed_at >= ?1 AND completed_at < ?2",
+             WHERE status='COMPLETED' AND completed_at >= ?1 AND completed_at < ?2",
             rusqlite::params![stamp(start), stamp(end)],
             |row| {
                 Ok((
@@ -277,7 +285,7 @@ pub fn sales_window(
     let units: i64 = connection
         .query_row(
             "SELECT COALESCE(SUM(l.quantity),0) FROM sale_line l JOIN sale s ON s.id=l.sale_id \
-             WHERE s.completed_at >= ?1 AND s.completed_at < ?2",
+             WHERE s.status='COMPLETED' AND s.completed_at >= ?1 AND s.completed_at < ?2",
             rusqlite::params![stamp(start), stamp(end)],
             |row| row.get(0),
         )
@@ -290,7 +298,7 @@ pub fn sales_window(
             .prepare(
                 "SELECT t.method,SUM(t.amount_minor),COUNT(*) FROM sale_tender t \
                  JOIN sale s ON s.id=t.sale_id \
-                 WHERE s.completed_at >= ?1 AND s.completed_at < ?2 \
+                 WHERE s.status='COMPLETED' AND s.completed_at >= ?1 AND s.completed_at < ?2 \
                  GROUP BY t.method ORDER BY SUM(t.amount_minor) DESC",
             )
             .map_err(db)?;
@@ -317,7 +325,8 @@ pub fn sales_window(
                 "SELECT s.id,s.total_minor,s.paid_minor,s.change_minor,s.actor_id,s.completed_at,\
                  (SELECT COUNT(*) FROM sale_line l WHERE l.sale_id=s.id),\
                  (SELECT COALESCE(SUM(l.quantity),0) FROM sale_line l WHERE l.sale_id=s.id) \
-                 FROM sale s WHERE s.completed_at >= ?1 AND s.completed_at < ?2 \
+                 FROM sale s WHERE s.status='COMPLETED' \
+                 AND s.completed_at >= ?1 AND s.completed_at < ?2 \
                  ORDER BY s.completed_at DESC LIMIT ?3",
             )
             .map_err(db)?;

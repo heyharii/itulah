@@ -222,6 +222,24 @@ fn settle_lines(
 // Step 3a: gating — the checks that do not look in the basket
 // ---------------------------------------------------------------------------
 
+/// The same gate, for a caller with no basket.
+///
+/// A shelf, a poster and a promotions screen all have to say what a shop is
+/// running before anybody has picked anything up, and the only honest source
+/// for that is the check the till itself will apply. Reimplementing it beside
+/// the screen is how a window shows an offer the counter then refuses.
+///
+/// The discount ceiling it works out is dropped: without a basket there is
+/// nothing to apply it to, and a number that cannot be checked has no business
+/// on a screen.
+pub(crate) fn standing(
+    rule: &Rule,
+    snapshot: &PricingSnapshot,
+    context: &PricingContext,
+) -> Result<(), RejectionReason> {
+    gate(rule, snapshot, context).map(|_| ())
+}
+
 /// Whether a rule may run at all, and the most it may give away if it does.
 ///
 /// The two are decided together because both need the campaign, and looking it
@@ -234,7 +252,10 @@ fn gate(
     if rule.status != RuleStatus::Active {
         return Err(RejectionReason::NotActive);
     }
-    if let Some(reason) = rule.conditions.window_allows(context.at, context.utc_offset_minutes) {
+    if let Some(reason) = rule
+        .conditions
+        .window_allows(context.at, context.utc_offset_minutes)
+    {
         return Err(reason);
     }
     // A rule is live only when its campaign is. Both must say yes, so pausing
@@ -512,9 +533,7 @@ fn apply_price_effect(
         }
         // Handled elsewhere: a free item adds a line rather than cutting one,
         // and points carry no price benefit at all.
-        Effect::FreeItem { .. } | Effect::EarnPoints(_) => {
-            return Ok((Money::ZERO, Vec::new()))
-        }
+        Effect::FreeItem { .. } | Effect::EarnPoints(_) => return Ok((Money::ZERO, Vec::new())),
     }
 
     // Trim to the rule's ceiling before anything is applied, so a capped rule

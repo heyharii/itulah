@@ -19,6 +19,7 @@
 //! do. What was wrong was it being the *only* way, so that the shopper's own
 //! app had to borrow an operator's authority to read the shopper's own points.
 
+use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{
@@ -117,6 +118,168 @@ pub struct EnrolMemberRequest {
     pub member_id: String,
     #[serde(default)]
     pub display_name: Option<String>,
+}
+
+/// Everybody holding a card, with what they have spent joined on.
+///
+/// Its own read rather than a page of `/api/v1/customer/{id}/…`, because those
+/// answer questions about ONE shopper whose id you already have — and until
+/// this landed, the only way to find a member was to know their card number
+/// already. A loyalty scheme nobody can list is a foreign key, not a scheme.
+pub async fn directory(
+    State(state): State<AppState>,
+    Query(query): Query<infrastructure::MemberQuery>,
+) -> Result<Json<infrastructure::MemberDirectory>, AppError> {
+    // A saved segment narrows the list in the database, not in the browser.
+    // The clauses are read from the definition here rather than accepted from
+    // the query string: a caller holding clauses is holding a copy, and the
+    // list would stop agreeing with the count on the card that linked to it.
+    //
+    // Three placeholders are bound by `list_members` before the narrowing, and
+    // telling the compiler so is the whole contract — see `compile::narrow`.
+    let narrowing = match query.segment_id {
+        Some(id) => Some(infrastructure::segment_narrowing(&state.db, id, 3).await?),
+        None => None,
+    };
+    Ok(Json(
+        infrastructure::list_members(&state.db, query, narrowing.as_ref()).await?,
+    ))
+}
+
+/// The six segments, counted and valued.
+///
+/// Derived on every read, never stored — see `postgres/membership.rs`. A
+/// segment is a statement about behaviour, and behaviour changes without
+/// anybody touching the member's row, so a stored one is wrong from the day
+/// after it is written and wrong silently.
+pub async fn segments(
+    State(state): State<AppState>,
+) -> Result<Json<infrastructure::SegmentBook>, AppError> {
+    Ok(Json(infrastructure::member_segments(&state.db).await?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UnenrolledQuery {
+    pub limit: Option<i64>,
+}
+
+/// The numbers the till wrote onto sales that belong to nobody.
+///
+/// A read rather than a segment, and under `/members` rather than beside the
+/// six, because these people are not members: they hold no card and the scheme
+/// has never heard of them. The segment book has carried a *count* of them
+/// since it existed, and a count is not something anybody can act on — this is
+/// the same population with names on it, which is what makes enrolling one
+/// possible.
+///
+/// Enrolling a number from this list is not a repair anybody has to write: the
+/// directory joins on `member_id = edge_sale.customer_id`, so the moment the
+/// card exists its whole history is already attached to it.
+pub async fn unenrolled(
+    State(state): State<AppState>,
+    Query(query): Query<UnenrolledQuery>,
+) -> Result<Json<infrastructure::UnenrolledList>, AppError> {
+    Ok(Json(
+        infrastructure::list_unenrolled(&state.db, query.limit).await?,
+    ))
+}
+
+/// Segments somebody wrote down, as opposed to the six that are worked out.
+///
+/// Under `/members/segments/saved` rather than beside it, so the URL says which
+/// species is being asked for. The six above are derived and cannot be written;
+/// these are written and cannot be exhaustive, and a reader who has to
+/// remember which is which will eventually get it wrong.
+pub async fn saved_segments(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<Vec<infrastructure::SavedSegment>>, AppError> {
+    Ok(Json(
+        infrastructure::list_segments(&state.db, &principal.username).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SegmentRequest {
+    pub name: String,
+    /// Why it exists, in the author's own words. A clause list says what a
+    /// segment matches and never why, and "why" is what the next person needs.
+    #[serde(default)]
+    pub purpose: Option<String>,
+    pub definition: infrastructure::SegmentDefinition,
+}
+
+pub async fn create_segment(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<SegmentRequest>,
+) -> Result<(axum::http::StatusCode, Json<infrastructure::SavedSegment>), AppError> {
+    let saved = infrastructure::create_segment(
+        &state.db,
+        infrastructure::NewSegment {
+            name: &request.name,
+            purpose: request.purpose.as_deref(),
+            definition: &request.definition,
+            owner: &principal.username,
+        },
+    )
+    .await?;
+    Ok((axum::http::StatusCode::CREATED, Json(saved)))
+}
+
+pub async fn read_segment(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<infrastructure::SavedSegment>, AppError> {
+    Ok(Json(
+        infrastructure::read_segment(&state.db, id, &principal.username, true).await?,
+    ))
+}
+
+/// Edit by appending a version. What a campaign was sent against still
+/// resolves, which is the only way "who was in this list in March" can be
+/// answered at all.
+pub async fn revise_segment(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(request): Json<SegmentRequest>,
+) -> Result<Json<infrastructure::SavedSegment>, AppError> {
+    Ok(Json(
+        infrastructure::revise_segment(
+            &state.db,
+            id,
+            &principal.username,
+            &request.name,
+            request.purpose.as_deref(),
+            &request.definition,
+        )
+        .await?,
+    ))
+}
+
+pub async fn archive_segment(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+) -> Result<axum::http::StatusCode, AppError> {
+    infrastructure::archive_segment(&state.db, id, &principal.username).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// What a definition would match, before anybody saves it.
+///
+/// The same compiler and the same `FROM` the saved list uses, so the number on
+/// the form is the number on the card afterwards. A preview that ran its own
+/// query would be previewing a different segment.
+pub async fn preview_segment(
+    State(state): State<AppState>,
+    Json(definition): Json<infrastructure::SegmentDefinition>,
+) -> Result<Json<infrastructure::SegmentTally>, AppError> {
+    Ok(Json(
+        infrastructure::preview_segment(&state.db, &definition).await?,
+    ))
 }
 
 /// Enrol a card at the counter.

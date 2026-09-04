@@ -13,7 +13,7 @@
 
 use inventory_backend::cloud::domain::{
     catalog_content_hash, sign_command, CatalogItem, PushedCommand, COMMAND_ACTIVATE_PUBLICATION,
-    COMMAND_CATALOG_CHUNK,
+    COMMAND_CATALOG_CHUNK, COMMAND_COMMERCIAL_CAMPAIGN,
 };
 use inventory_backend::cloud::postgres::command_signing_key;
 use inventory_backend::edge::{
@@ -120,6 +120,7 @@ impl Shop {
                 article_code: Some(article.clone()),
                 division_code: Some("MENSWEAR".into()),
                 tags: Vec::new(),
+                image_url: None,
             })
             .collect();
         let payload = json!({
@@ -499,7 +500,32 @@ impl Shop {
         .collect()
     }
 
-    fn sell(&self, epc: &str, handed_over: i64, coupons: &[&str]) -> inventory_backend::edge::SaleResult {
+    /// Pull the switch on a campaign, the way `switch_campaign` does at the centre.
+    ///
+    /// A lane of its own, and that is the point being tested: before this
+    /// command existed, a campaign's status only ever reached a shop inside a
+    /// price book. Books are frozen and seasonal, so "stop the promo" changed
+    /// Postgres and nothing at any counter until somebody happened to cut a new
+    /// one — which is to say, not on the day it mattered.
+    async fn switch_campaign(&mut self, campaign_id: &str, status: &str) {
+        let payload = json!({
+            "switched_at": "2026-09-03T00:00:00Z",
+            "campaigns": [{
+                "campaign_id": campaign_id,
+                "status": status,
+                "valid_from": null,
+                "valid_to": null,
+            }],
+        });
+        self.deliver(COMMAND_COMMERCIAL_CAMPAIGN, payload).await;
+    }
+
+    fn sell(
+        &self,
+        epc: &str,
+        handed_over: i64,
+        coupons: &[&str],
+    ) -> inventory_backend::edge::SaleResult {
         self.edge
             .complete_sale(SaleRequest {
                 coupon_codes: coupons.iter().map(|c| (*c).to_string()).collect(),
@@ -536,6 +562,21 @@ fn article_markdown(article: &str, minor: i64) -> serde_json::Value {
         "effective_from": "2020-01-01T00:00:00Z",
         "effective_to": null,
     })
+}
+
+/// A clearance that runs only between two hours of the day, in the shop's time.
+fn flash_markdown(sku: &str, minor: i64, from_minute: u32, to_minute: u32) -> serde_json::Value {
+    let mut drop = markdown(sku, minor);
+    drop["from_minute"] = json!(from_minute);
+    drop["to_minute"] = json!(to_minute);
+    drop
+}
+
+/// A clearance that belongs to a campaign, rather than standing on its own.
+fn markdown_under(sku: &str, minor: i64, campaign_id: &str) -> serde_json::Value {
+    let mut drop = markdown(sku, minor);
+    drop["campaign_id"] = json!(campaign_id);
+    drop
 }
 
 fn percent_off(id: &str, bps: i64) -> serde_json::Value {
@@ -1407,7 +1448,10 @@ async fn a_clearance_on_a_whole_style_reaches_every_size_in_it() {
 async fn every_kind_of_promotion_reaches_the_shop_intact() {
     let effects = [
         ("E-PCT", json!({"kind": "PERCENT", "bps": 1_000})),
-        ("E-AMT", json!({"kind": "AMOUNT", "amount": {"minor": 5_000}})),
+        (
+            "E-AMT",
+            json!({"kind": "AMOUNT", "amount": {"minor": 5_000}}),
+        ),
         (
             "E-FIX",
             json!({"kind": "FIXED_UNIT_PRICE", "unit_price": {"minor": 80_000}}),
@@ -1436,8 +1480,14 @@ async fn every_kind_of_promotion_reaches_the_shop_intact() {
             rule
         })
         .collect();
-    shop.deliver_commercial(1, vec![rule("KEM001", None, 200_000)], vec![], rules, vec![])
-        .await;
+    shop.deliver_commercial(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![],
+        rules,
+        vec![],
+    )
+    .await;
 
     let held: Vec<String> = shop
         .edge
@@ -1655,4 +1705,287 @@ async fn a_markdown_repeated_in_a_later_book_does_not_take_the_book_down_with_it
     shop.stock_one("EPC10000041", "KEM001");
     let sale = shop.sell("EPC10000041", 120_000, &[]);
     assert_eq!(sale.total_minor, 120_000, "the newer clearance price wins");
+}
+
+// ---------------------------------------------------------------------------
+// A campaign of markdowns — price drops the business runs as one thing
+// ---------------------------------------------------------------------------
+//
+// The shape retail calls a flash sale was not expressible here at all. A
+// campaign enveloped promotion RULES only, so a set of markdowns could not
+// carry one name, one banner or one clock — and, worse, could not be stopped
+// with one switch. These tests are the whole chain for that: published at the
+// centre, charged at the counter, and turned off between price books.
+
+/// A banner-carrying campaign, as `dispatch_publication` sends one.
+fn campaign_with_banner(id: &str, headline: &str) -> serde_json::Value {
+    let mut envelope = campaign(id, "ACTIVE");
+    envelope["headline"] = json!(headline);
+    envelope["image_url"] = json!(format!("https://cdn.example/campaign/{id}.jpg"));
+    envelope["terms"] = json!("Selama persediaan masih ada.");
+    envelope
+}
+
+#[tokio::test]
+async fn a_campaign_of_markdowns_is_charged_and_named_at_the_shop() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    shop.deliver_full(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![markdown_under("KEM001", 120_000, "CMP-FLASH")],
+        vec![],
+        vec![],
+        vec![campaign_with_banner("CMP-FLASH", "Flash Sale Lebaran")],
+    )
+    .await;
+
+    // The counter charges the cleared price.
+    shop.stock_one("EPC40000001", "KEM001");
+    let sold = shop.sell("EPC40000001", 120_000, &[]);
+    assert_eq!(sold.total_minor, 120_000);
+    assert_eq!(
+        shop.receipt_lines()[0].2.as_deref(),
+        Some("MARKDOWN"),
+        "the receipt must say the price came from a clearance, not a discount"
+    );
+
+    // And the shop floor can say what it is called and when it stops — which is
+    // the half that did not exist. A drop with no campaign can only be reported
+    // as an anonymous window.
+    let offers = shop
+        .edge
+        .store_offers()
+        .unwrap_or_else(|e| panic!("offers: {e}"));
+    assert_eq!(offers.price_drops.len(), 1);
+    let run = &offers.price_drops[0];
+    assert_eq!(run.campaign_id.as_deref(), Some("CMP-FLASH"));
+    assert_eq!(
+        run.name.as_deref(),
+        Some("Flash Sale Lebaran"),
+        "a cashier reads the poster's words, not the filing id"
+    );
+    assert!(run.has_image, "the banner travelled with the book");
+    assert_eq!(run.product_count, 1);
+    assert_eq!(run.state, "RUNNING");
+}
+
+#[tokio::test]
+async fn pausing_a_campaign_puts_its_cleared_prices_back_up() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    shop.deliver_full(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![markdown_under("KEM001", 120_000, "CMP-FLASH")],
+        vec![],
+        vec![],
+        vec![campaign_with_banner("CMP-FLASH", "Flash Sale Lebaran")],
+    )
+    .await;
+    shop.stock_one("EPC40000002", "KEM001");
+    assert_eq!(shop.sell("EPC40000002", 120_000, &[]).total_minor, 120_000);
+
+    // One command on the switch lane — no new price book, no publication.
+    shop.switch_campaign("CMP-FLASH", "PAUSED").await;
+
+    shop.stock_one("EPC40000003", "KEM001");
+    let after = shop.sell("EPC40000003", 200_000, &[]);
+    assert_eq!(
+        after.total_minor, 200_000,
+        "stopping the campaign at the centre must put the price back at the counter"
+    );
+    assert_eq!(
+        shop.receipt_lines()
+            .iter()
+            .find(|line| line.1 == 200_000)
+            .and_then(|line| line.2.clone())
+            .as_deref(),
+        Some("COMPANY_PRICE"),
+        "and the receipt must say it is charging the list price again"
+    );
+
+    // The board agrees with the counter. A poster still advertising a stopped
+    // sale is the failure this pair of assertions exists to catch.
+    let offers = shop
+        .edge
+        .store_offers()
+        .unwrap_or_else(|e| panic!("offers: {e}"));
+    assert!(offers.price_drops.is_empty());
+}
+
+#[tokio::test]
+async fn restarting_a_paused_campaign_brings_the_prices_back_down() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    shop.deliver_full(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![markdown_under("KEM001", 120_000, "CMP-FLASH")],
+        vec![],
+        vec![],
+        vec![campaign_with_banner("CMP-FLASH", "Flash Sale Lebaran")],
+    )
+    .await;
+    shop.switch_campaign("CMP-FLASH", "PAUSED").await;
+    shop.switch_campaign("CMP-FLASH", "ACTIVE").await;
+
+    // The switch is a switch, not a one-way door: the markdown rows were never
+    // touched, so restarting the campaign is all it takes.
+    shop.stock_one("EPC40000004", "KEM001");
+    assert_eq!(shop.sell("EPC40000004", 120_000, &[]).total_minor, 120_000);
+}
+
+#[tokio::test]
+async fn a_campaign_the_shop_never_received_still_honours_its_cleared_prices() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    // The markdown names a campaign; the campaign is not in the book. A shop
+    // whose sync stalled between the two lands exactly here.
+    shop.deliver_full(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![markdown_under("KEM001", 120_000, "CMP-MISSING")],
+        vec![],
+        vec![],
+        vec![],
+    )
+    .await;
+
+    // **The asymmetry, end to end.** An offer whose campaign never arrived does
+    // not run — that is the test above this one, and it is right, because the
+    // shopper simply pays the price they would have paid anyway. A CLEARANCE
+    // whose campaign never arrived must still be honoured, because the garment
+    // has 120.000 on its ticket and the poster in the window says 120.000. The
+    // safe direction is not the same direction, and reading them as one rule is
+    // how a till comes to overcharge at the branch furthest behind on sync.
+    shop.stock_one("EPC40000005", "KEM001");
+    let sold = shop.sell("EPC40000005", 120_000, &[]);
+    assert_eq!(sold.total_minor, 120_000);
+
+    // It is charged, so it is also reported — but as an anonymous window, since
+    // the shop cannot name a campaign it does not hold.
+    let offers = shop
+        .edge
+        .store_offers()
+        .unwrap_or_else(|e| panic!("offers: {e}"));
+    assert_eq!(offers.price_drops.len(), 1);
+    assert_eq!(offers.price_drops[0].campaign_id, None);
+    assert_eq!(offers.price_drops[0].name, None);
+}
+
+#[tokio::test]
+async fn a_switch_for_a_campaign_the_shop_does_not_hold_changes_nothing() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    shop.deliver_full(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![markdown_under("KEM001", 120_000, "CMP-MISSING")],
+        vec![],
+        vec![],
+        vec![],
+    )
+    .await;
+
+    // The switch lane UPDATEs and never INSERTs. If it inserted, this would
+    // conjure a campaign with no budget, no limits and no name — and the offers
+    // that name it would start being gated by a row nobody authored.
+    shop.switch_campaign("CMP-MISSING", "PAUSED").await;
+
+    shop.stock_one("EPC40000006", "KEM001");
+    assert_eq!(shop.sell("EPC40000006", 120_000, &[]).total_minor, 120_000);
+}
+
+#[tokio::test]
+async fn the_promotions_board_shows_what_the_counter_would_charge() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    let mut offer = percent_off("R1", 2_000);
+    offer["campaign_id"] = json!("CMP-LEBARAN");
+    shop.deliver_full(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![],
+        vec![offer],
+        vec![],
+        vec![campaign_with_banner("CMP-LEBARAN", "Lebaran Sale")],
+    )
+    .await;
+
+    // On the board.
+    let offers = shop
+        .edge
+        .store_offers()
+        .unwrap_or_else(|e| panic!("offers: {e}"));
+    assert_eq!(offers.running.len(), 1);
+    assert_eq!(offers.running[0].rule_id, "R1");
+    assert_eq!(
+        offers.running[0].campaign_name.as_deref(),
+        Some("Lebaran Sale")
+    );
+    assert!(offers.running[0].live_now);
+
+    // And at the counter, for the same money.
+    shop.stock_one("EPC40000007", "KEM001");
+    assert_eq!(shop.sell("EPC40000007", 160_000, &[]).total_minor, 160_000);
+
+    // Stop it, and both agree again. This is the assertion that would have
+    // caught a board reading `status` instead of asking the engine.
+    shop.switch_campaign("CMP-LEBARAN", "PAUSED").await;
+    let stopped = shop
+        .edge
+        .store_offers()
+        .unwrap_or_else(|e| panic!("offers: {e}"));
+    assert!(stopped.running.is_empty());
+    shop.stock_one("EPC40000008", "KEM001");
+    assert_eq!(shop.sell("EPC40000008", 200_000, &[]).total_minor, 200_000);
+}
+
+#[tokio::test]
+async fn a_clearance_published_with_hours_only_charges_within_them() {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    // Midnight to one in the morning: a window this test is certainly outside
+    // of, whatever hour it happens to run at, without the test having to know
+    // the clock. The pair of assertions below is what matters — the shop holds
+    // the schedule, and the schedule keeps the price up outside it.
+    shop.deliver_full(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![flash_markdown("KEM001", 120_000, 0, 1)],
+        vec![],
+        vec![],
+        vec![],
+    )
+    .await;
+
+    let held: (Option<i64>, Option<i64>) = {
+        let connection = shop.edge.connection();
+        let guard = connection.lock().unwrap_or_else(|e| panic!("lock: {e}"));
+        guard
+            .query_row(
+                "SELECT from_minute, to_minute FROM commercial_markdown",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap_or_else(|e| panic!("read schedule: {e}"))
+    };
+    assert_eq!(held, (Some(0), Some(1)), "the hours reached the shop");
+
+    // One minute of the day is in the window and 1.439 are not, so the price on
+    // the shelf is the list price essentially always — which is exactly what a
+    // flash sale outside its hour must charge.
+    let catalogue = shop
+        .edge
+        .store_catalog()
+        .unwrap_or_else(|e| panic!("catalogue: {e}"));
+    assert_eq!(catalogue.len(), 1);
+    if catalogue[0].unit_price_minor != 120_000 {
+        assert_eq!(
+            catalogue[0].unit_price_minor, 200_000,
+            "outside its hours a clearance must not set the price"
+        );
+        assert_eq!(catalogue[0].price_source, "COMPANY_PRICE");
+    }
 }

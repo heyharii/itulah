@@ -246,6 +246,18 @@ pub async fn run_apply_agent(state: AppState) {
                 Ok(report) => info!(?report, "commercial usage broadcast"),
                 Err(error) => warn!(%error, "commercial usage broadcast failed"),
             }
+            // Which campaigns are on, on the same beat. `switch_campaign` already
+            // dispatches when somebody pulls the lever, so this is the net
+            // under it: a shop that was unreachable at that moment learns here
+            // rather than at the next price book, which could be a season away.
+            //
+            // Sharing the beat rather than taking its own is deliberate — both
+            // are whole pictures of a handful of rows, and a second timer would
+            // be a second thing to reason about when a shop is out of date.
+            match infrastructure::publish_campaign_switches_to_fleet(&state.db, "system").await {
+                Ok(report) => info!(?report, "campaign switches broadcast"),
+                Err(error) => warn!(%error, "campaign switches broadcast failed"),
+            }
         }
         if last_purge.elapsed() >= PURGE_EVERY {
             last_purge = Instant::now();

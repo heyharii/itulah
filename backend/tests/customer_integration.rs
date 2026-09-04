@@ -372,3 +372,90 @@ async fn history_pages_from_a_cursor_and_ends(pool: PgPool) {
         "half a cursor was accepted: {refused:?}"
     );
 }
+
+/// The shop's backlog: numbers a till wrote onto sales that no card was ever
+/// enrolled for.
+///
+/// The segment book has counted these since it existed. What it could not do
+/// was name them, so nobody could act on the count — and the act that matters
+/// is in the second half of this test.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn enrolling_a_stray_number_hands_over_the_history_it_already_has(pool: PgPool) {
+    // A real customer whose card was never enrolled: two sales, two shops.
+    // Which is the shape that tells them apart from a slip of the finger.
+    for (seq, minutes, total, points, site) in [
+        (1_i64, 400_i64, 250_000_i64, 250_i64, ORIGIN),
+        (2, 200, 150_000, 150, "store-09"),
+    ] {
+        let mut payload = sale_payload(
+            Uuid::new_v4(),
+            Some(MEMBER),
+            total,
+            0,
+            points,
+            minutes,
+            one_line("KMJ-01", total, total),
+        );
+        payload["site_id"] = json!(site);
+        ingest(&pool, seq, payload).await;
+    }
+    // And one sale carrying what a mistyped number looks like: once, one shop.
+    ingest(
+        &pool,
+        3,
+        sale_payload(
+            Uuid::new_v4(),
+            Some("M-00012"),
+            99_000,
+            0,
+            99,
+            10,
+            one_line("KMJ-02", 99_000, 99_000),
+        ),
+    )
+    .await;
+
+    let strays = cloud::list_unenrolled(&pool, None)
+        .await
+        .unwrap_or_else(|e| panic!("unenrolled: {e}"));
+    assert_eq!(strays.unenrolled_count, 2, "{:?}", strays.strangers);
+    assert_eq!(strays.unenrolled_spent_minor, 499_000);
+    // Largest first, because what is at stake is the size of what enrolling
+    // one would hand back.
+    assert_eq!(strays.strangers[0].customer_id, MEMBER);
+    assert_eq!(strays.strangers[0].transaction_count, 2);
+    assert_eq!(strays.strangers[0].points_earned_total, 400);
+    assert_eq!(
+        strays.strangers[0].site_count, 2,
+        "the column that says this is a customer rather than a typing mistake"
+    );
+    assert_eq!(
+        strays.strangers[1].transaction_count, 1,
+        "the mistyped number should be listed too — it cannot be repaired, but \
+         it can at least be seen"
+    );
+    assert_eq!(strays.strangers[1].site_count, 1);
+
+    // The act. Nothing is rewritten and no sale is touched.
+    cloud::enrol_member(&pool, MEMBER, None)
+        .await
+        .unwrap_or_else(|e| panic!("enrol: {e}"));
+
+    let summary = cloud::customer_summary(&pool, MEMBER)
+        .await
+        .unwrap_or_else(|e| panic!("summary: {e}"));
+    assert_eq!(
+        summary.points_earned_total, 400,
+        "enrolling a number that already had sales did not hand over its history"
+    );
+    assert_eq!(summary.spent_minor, 400_000);
+
+    let after = cloud::list_unenrolled(&pool, None)
+        .await
+        .unwrap_or_else(|e| panic!("unenrolled after: {e}"));
+    assert_eq!(
+        after.unenrolled_count, 1,
+        "the adopted number is still counted as a stranger"
+    );
+    assert_eq!(after.strangers[0].customer_id, "M-00012");
+}

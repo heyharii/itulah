@@ -11,4 +11,9 @@ division_code: string | null,
  * Tag codes from `tag`. Unknown codes are refused rather than dropped: a
  * tag that silently disappears is a filter that silently misses rows.
  */
-tags: Array<string>, };
+tags: Array<string>, 
+/**
+ * What it comes in, from the `colour` and `size_code` masters. Both
+ * optional and both refuse unknown codes, for the reason tags do.
+ */
+colour_codes: Array<string>, size_codes: Array<string>, };

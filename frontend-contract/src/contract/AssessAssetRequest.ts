@@ -9,4 +9,11 @@ decision: string, capitalized_cost_minor: number | null, salvage_value_minor: nu
  * Why. Required on both decisions — an expensed asset with no reason is
  * the one somebody queries a year later.
  */
-reason: string, };
+reason: string, 
+/**
+ * The expense-bill line that bought it. Accepted here as well as at
+ * registration because the bill usually arrives after the thing does, and
+ * because this is the moment a cost is named — which is the moment the
+ * two figures can be checked against each other.
+ */
+acquired_via_line_id?: string, };

@@ -243,8 +243,7 @@ fn setup_for(receipt_line_id: Uuid, article_code: Option<&str>) -> NewSetupSessi
         currency: "IDR".into(),
         colours: vec![NewSetupColour {
             colour_digit: "1".into(),
-            label: "Merah".into(),
-            hex_code: Some("#C0392B".into()),
+            colour_code: "RED".into(),
         }],
         variants: vec![
             NewSetupVariant {
@@ -620,11 +619,16 @@ async fn an_article_cannot_carry_an_eleventh_colourway(pool: PgPool) {
     let receipt_id = deliver(&pool, &dc, "1", SUPPLIER_CODE).await;
 
     let mut crowded = setup_for(receipt_id, None);
+    // Eleven distinct master colours, so the refusal below is the ceiling
+    // talking and not a duplicate colour.
+    const ELEVEN: [&str; 11] = [
+        "BLACK", "CHARCOAL", "GREY", "WHITE", "NATURAL", "BEIGE", "KHAKI", "BROWN", "NAVY", "BLUE",
+        "DENIM",
+    ];
     crowded.colours = (0..11)
         .map(|digit| NewSetupColour {
             colour_digit: digit.to_string(),
-            label: format!("Warna {digit}"),
-            hex_code: None,
+            colour_code: ELEVEN[digit].into(),
         })
         .collect();
     let Err(error) = cloud::create_setup_session(&pool, &crowded).await else {

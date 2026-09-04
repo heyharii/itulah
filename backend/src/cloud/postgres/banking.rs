@@ -20,6 +20,8 @@
 //! actually gave us, unique per account, so the second import inserts nothing
 //! rather than doubling every figure on the screen.
 
+use super::ledger::{assert_postable, Intent};
+use super::poster::{post, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{resolve, suggest, BankLine, Candidate, Ruleset, Suggestion};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
@@ -486,4 +488,247 @@ pub async fn unmatch(pool: &PgPool, line_id: Uuid) -> Result<(), AppError> {
         .execute(pool)
         .await?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Booking a line nobody booked
+// ---------------------------------------------------------------------------
+//
+// The act 0071 named and left unbuilt. Matching says "we booked this and the
+// bank has confirmed it"; this says "the bank did something we never recorded,
+// and here is where it goes" — a monthly account charge, interest credited, a
+// customer's transfer that arrived without a document.
+//
+// It is one act and not two. Posting the entry and then agreeing it with the
+// line are the same decision, and splitting them leaves a window in which an
+// entry exists and nothing points at the line that caused it — which is exactly
+// the state a reconciliation is supposed to eliminate. Both writes are in one
+// transaction, so the line reads as agreed the moment the entry exists.
+
+/// The meanings a statement can be imported against.
+///
+/// A statement is normally a bank's, but `bank_statement` is bounded only by
+/// the chart, and a treasurer reconciling a cash box against a count sheet is
+/// the same exercise. All five are admitted; a mapping to anything else is
+/// refused below by simply not being found.
+const STATEMENT_MEANINGS: [&str; 5] = [
+    "bank_giro",
+    "bank_savings",
+    "cash",
+    "petty_cash",
+    "cashier_float",
+];
+
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BookBankLineRequest {
+    /// Where the other side of this goes: a bank charge to the bank-charges
+    /// account, interest to interest income. A postable, active account, chosen
+    /// by the person reading the statement.
+    pub account_code: String,
+    /// Why this line is that account. Required, and for the same reason a
+    /// reversal's reason is: it is the only record of the judgement somebody
+    /// made, and a bank line booked with no explanation is the entry an auditor
+    /// asks about first.
+    pub memo: String,
+}
+
+/// Which meaning carries this account here, so the entry posts through the map.
+///
+/// The statement stores a client account code, not a meaning. Resolving it back
+/// to a key is not ceremony: it posts the bank leg through the same door every
+/// other rule uses, and it refuses a statement imported against an account
+/// nobody mapped — which is a real gap, because such an account has no payment,
+/// no sale and no rule that could ever have put a candidate on it to match.
+///
+/// Two mappings pointing at one account at one location is ambiguous and is
+/// refused rather than guessed. It is a genuine mistake on the Account Map —
+/// the same account cannot be both the BCA giro and the Mandiri one — and
+/// picking either would post correctly today and wrongly the day one of them
+/// moves.
+async fn statement_meaning(
+    executor: impl sqlx::PgExecutor<'_>,
+    account_code: &str,
+    site_id: &str,
+) -> Result<(String, String), AppError> {
+    let rows = sqlx::query(
+        "SELECT semantic_key, qualifier FROM account_map
+          WHERE account_code = $1 AND site_id = $2 AND semantic_key = ANY($3)
+          ORDER BY semantic_key, qualifier",
+    )
+    .bind(account_code)
+    .bind(site_id)
+    .bind(&STATEMENT_MEANINGS[..])
+    .fetch_all(executor)
+    .await?;
+
+    match rows.len() {
+        0 => Err(AppError::Validation(format!(
+            "no money account is mapped to {account_code} at {site_id}; point one of {} at it on \
+             the Account Map screen before booking anything against this statement",
+            STATEMENT_MEANINGS.join(", ")
+        ))),
+        1 => Ok((
+            rows[0].try_get("semantic_key")?,
+            rows[0].try_get("qualifier")?,
+        )),
+        _ => Err(AppError::Validation(format!(
+            "{account_code} at {site_id} is mapped by more than one meaning; one account carries \
+             one meaning, so fix the Account Map before booking against it"
+        ))),
+    }
+}
+
+/// What booking one line produced.
+pub struct BookedBankLine {
+    pub entry_id: Uuid,
+    pub entry_number: String,
+    pub journal_line_id: Uuid,
+    pub total_minor: i64,
+}
+
+/// Turn an unmatched statement line into a journal entry, and agree it.
+///
+/// # The two legs
+///
+/// One on the statement's own account, resolved through `account_map` from the
+/// code the statement carries; one on the account the person chose. The
+/// direction follows the bank's line and nothing else: a DEBIT on the bank's
+/// statement is money leaving the account, so our books CREDIT the bank and
+/// debit the other side. That is the same translation `candidates_for` makes
+/// when it scores a journal line against a bank line, and it has to be, or a
+/// line booked here would never match a line imported there.
+///
+/// # Why `BANK_STATEMENT` and not `MANUAL`
+///
+/// 0095 makes the argument. MANUAL means "a person typed this from nothing";
+/// this has the bank's own document behind it, and `source_id` names the line.
+pub async fn book_bank_line(
+    pool: &PgPool,
+    line_id: Uuid,
+    request: &BookBankLineRequest,
+    actor: &str,
+) -> Result<BookedBankLine, AppError> {
+    let memo = request.memo.trim();
+    if memo.is_empty() {
+        return Err(AppError::Validation(
+            "booking a bank line needs a note saying what it was; it is the only record of why \
+             this account was chosen"
+                .into(),
+        ));
+    }
+    let chosen = request.account_code.trim();
+
+    let line = sqlx::query(
+        "SELECT l.value_date, l.description, l.debit_minor, l.credit_minor,
+                l.account_code, s.site_id,
+                EXISTS (SELECT 1 FROM bank_line_match m WHERE m.line_id = l.line_id) AS matched
+           FROM bank_statement_line l
+           JOIN bank_statement s USING (statement_id)
+          WHERE l.line_id = $1",
+    )
+    .bind(line_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("bank statement line".into()))?;
+
+    // Refused here so the message says what happened. The unique index on
+    // `bank_line_match (line_id)` is the guarantee, and it arrives as an opaque
+    // 23505 that names neither the line nor the reason.
+    if line.try_get::<bool, _>("matched")? {
+        return Err(AppError::Conflict(
+            "this line is already agreed with a journal line; unmatch it first if the entry \
+             behind it is wrong"
+                .into(),
+        ));
+    }
+
+    let bank_account: String = line.try_get("account_code")?;
+    let site_id: String = line.try_get("site_id")?;
+    let value_date: NaiveDate = line.try_get("value_date")?;
+    let description: String = line.try_get("description")?;
+    let debit: i64 = line.try_get("debit_minor")?;
+    let credit: i64 = line.try_get("credit_minor")?;
+
+    if chosen == bank_account {
+        return Err(AppError::Validation(format!(
+            "{chosen} is the account this statement is for; the other side of a bank line has to \
+             be somewhere else"
+        )));
+    }
+    // Checked before anything is written, so the refusal names the fault rather
+    // than arriving from the poster with a line number attached. The composite
+    // foreign key on `journal_line` remains the guarantee.
+    assert_postable(pool, chosen, Intent::Post).await?;
+
+    let (key, qualifier) = statement_meaning(pool, &bank_account, &site_id).await?;
+
+    // A debit on the bank's statement is money leaving the account.
+    let outgoing = debit > 0;
+    let amount = debit.max(credit);
+    // The bank leg first, deliberately: it is the line the match points at, and
+    // line number 1 is how it is found again below without a second guess about
+    // which of the two is which.
+    let bank_leg = (if outgoing {
+        PostingLine::credit(&key, &site_id, amount)
+    } else {
+        PostingLine::debit(&key, &site_id, amount)
+    })
+    .with_qualifier(&qualifier);
+    let other_leg = PostingLine {
+        account: LineAccount::Account {
+            account_code: chosen.to_string(),
+        },
+        site_id: site_id.clone(),
+        debit_minor: if outgoing { amount } else { 0 },
+        credit_minor: if outgoing { 0 } else { amount },
+        supplier_id: None,
+        memo: Some(memo.to_string()),
+    };
+
+    let intent = PostingIntent {
+        posting_date: value_date,
+        source_kind: "BANK_STATEMENT".into(),
+        source_id: Some(line_id.to_string()),
+        rule_version: "bank_line/1".into(),
+        currency: "IDR".into(),
+        // The bank's own narration first, then the person's. Both, because the
+        // narration is what a reconciler recognises and the note is what
+        // explains the account they picked.
+        memo: Some(format!("{description} — {memo}")),
+        lines: vec![bank_leg, other_leg],
+    };
+
+    let mut tx = pool.begin().await?;
+    let posted = post(&mut tx, &intent, actor).await?;
+    let journal_line_id: Uuid =
+        sqlx::query("SELECT line_id FROM journal_line WHERE entry_id = $1 AND line_number = 1")
+            .bind(posted.entry_id)
+            .fetch_one(&mut *tx)
+            .await?
+            .try_get("line_id")?;
+
+    sqlx::query(
+        "INSERT INTO bank_line_match
+           (match_id, line_id, journal_line_id, decided_by_kind, score, reasons, matched_by)
+         VALUES ($1,$2,$3,'MANUAL',NULL,$4,$5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(line_id)
+    .bind(journal_line_id)
+    // MANUAL, because a person decided it. The reason says which of the two
+    // manual routes it was: agreed with an entry that already existed, or
+    // booked into one that did not.
+    .bind(vec![format!("booked as {chosen}: {memo}")])
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(BookedBankLine {
+        entry_id: posted.entry_id,
+        entry_number: posted.entry_number,
+        journal_line_id,
+        total_minor: posted.total_minor,
+    })
 }

@@ -4,7 +4,7 @@ use crate::cloud::{
     domain::{
         normalize_supplier_code, normalize_tag_codes, optional_supplier_text, parse_purchase_order,
         required_supplier_text, validate_supplier_item_price, PurchaseOrderLinePayload, Supplier,
-        SupplierItem, SupplierStatus, COMMAND_PURCHASE_ORDER_ACTIVATE,
+        SupplierItem, SupplierItemColour, SupplierStatus, COMMAND_PURCHASE_ORDER_ACTIVATE,
     },
 };
 use chrono::{DateTime, NaiveDate, Utc};
@@ -119,6 +119,12 @@ pub struct CreateSupplierItemRequest {
     /// tag that silently disappears is a filter that silently misses rows.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// What it comes in, from the `colour` and `size_code` masters. Both
+    /// optional and both refuse unknown codes, for the reason tags do.
+    #[serde(default)]
+    pub colour_codes: Vec<String>,
+    #[serde(default)]
+    pub size_codes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -151,6 +157,12 @@ pub struct UpdateSupplierItemRequest {
     /// is why this is not merged into the existing set.
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    /// Same again: absent leaves them alone, present replaces them, and an
+    /// empty list is "this does not come in variants after all".
+    #[serde(default)]
+    pub colour_codes: Option<Vec<String>>,
+    #[serde(default)]
+    pub size_codes: Option<Vec<String>>,
 }
 
 fn default_currency() -> String {
@@ -197,6 +209,45 @@ fn supplier_from_row(row: PgRow) -> Result<Supplier, AppError> {
     })
 }
 
+/// The three join tables that say what a supplier item IS and what it comes
+/// in, folded into columns a single row read can carry.
+///
+/// Written once and spliced into every query that returns a `SupplierItem`,
+/// because `supplier_item_from_row` reads "column absent" as "this caller did
+/// not ask" — which is the right default, and is also exactly how the detail
+/// endpoint spent a release returning an item with no tags on it. One fragment
+/// means a screen cannot be handed a half-described item by accident.
+///
+/// `i` is the alias every caller gives `supplier_item`; the sourcing query
+/// joins `supplier` beside it and the rest select from it alone.
+///
+/// The sizes come back in `display_order`, which is size order — so the first
+/// and last of the list are the ends of the range, and nothing downstream has
+/// to know that XXL sorts after S.
+const CLASSIFICATION_COLUMNS: &str = "
+    COALESCE(
+        (SELECT array_agg(t.tag_code ORDER BY t.tag_code)
+           FROM supplier_item_tag t
+          WHERE t.supplier_item_id = i.supplier_item_id),
+        ARRAY[]::text[]
+    ) AS tags,
+    COALESCE(
+        (SELECT jsonb_agg(jsonb_build_object(
+                    'colour_code', c.code, 'label', c.label, 'hex_code', c.hex_code)
+                ORDER BY c.display_order, c.label)
+           FROM supplier_item_colour sc
+           JOIN colour c ON c.code = sc.colour_code
+          WHERE sc.supplier_item_id = i.supplier_item_id),
+        '[]'::jsonb
+    ) AS colours,
+    COALESCE(
+        (SELECT array_agg(z.code ORDER BY z.display_order, z.code)
+           FROM supplier_item_size ss
+           JOIN size_code z ON z.code = ss.size_code
+          WHERE ss.supplier_item_id = i.supplier_item_id),
+        ARRAY[]::text[]
+    ) AS size_codes";
+
 fn supplier_item_from_row(row: PgRow) -> Result<SupplierItem, AppError> {
     let status: String = row.try_get("status")?;
     Ok(SupplierItem {
@@ -213,9 +264,24 @@ fn supplier_item_from_row(row: PgRow) -> Result<SupplierItem, AppError> {
         division_code: row.try_get("division_code")?,
         // Tags come from a join table, so a plain row read cannot carry them.
         // Empty here means "this reader did not fetch them", and every caller
-        // that shows tags fetches them — see `search_supplier_items`.
+        // that shows tags fetches them — see `CLASSIFICATION_COLUMNS`.
         tags: row
             .try_get::<Option<Vec<String>>, _>("tags")
+            .unwrap_or_default()
+            .unwrap_or_default(),
+        // Same again for what the item comes in. The colours arrive as JSON
+        // rather than as an array of codes because a swatch needs the label
+        // and the hex too, and three parallel arrays kept in step by ORDER BY
+        // is a thing that goes wrong silently.
+        colours: row
+            .try_get::<Option<serde_json::Value>, _>("colours")
+            .ok()
+            .flatten()
+            .map(serde_json::from_value)
+            .transpose()?
+            .unwrap_or_default(),
+        size_codes: row
+            .try_get::<Option<Vec<String>>, _>("size_codes")
             .unwrap_or_default()
             .unwrap_or_default(),
         status: SupplierStatus::from_str(&status).map_err(validation)?,
@@ -577,6 +643,13 @@ pub struct SourcingFacets {
     pub divisions: Vec<FacetCount>,
     pub tags: Vec<FacetCount>,
     pub suppliers: Vec<FacetCount>,
+    /// Counted by ITEM, not by variant: an item offered in five colours adds
+    /// one to each of five rows, so the numbers answer "how many things could
+    /// I buy in navy" rather than "how many navy rows exist". Summing them
+    /// therefore exceeds the total, which is correct and is the same thing the
+    /// tag counts already do.
+    pub colours: Vec<FacetCount>,
+    pub sizes: Vec<FacetCount>,
 }
 
 /// One page of the catalogue, and enough about the rest to describe it.
@@ -745,6 +818,32 @@ pub struct SourcingScope {
     pub supplier_ids: Vec<Uuid>,
     pub division_codes: Vec<String>,
     pub tag_codes: Vec<String>,
+    /// The same three, negated. ANDed with their positive twins rather than
+    /// replacing them, so "menswear or kidswear, but not the socks" is one
+    /// question and not two requests stitched together in a browser.
+    pub excluded_supplier_ids: Vec<Uuid>,
+    pub excluded_division_codes: Vec<String>,
+    pub excluded_tag_codes: Vec<String>,
+    /// What it comes in. `ANY` semantics, like tags: asking for Navy and Black
+    /// means "offered in navy or black", not "offered in both". A buyer
+    /// narrowing a catalogue is naming what would do, not writing a spec.
+    pub colour_codes: Vec<String>,
+    pub excluded_colour_codes: Vec<String>,
+    pub size_codes: Vec<String>,
+    pub excluded_size_codes: Vec<String>,
+    /// `Some(true)` asks for the rows with nothing in the column, `Some(false)`
+    /// for the rows with something, `None` for both.
+    ///
+    /// "Unclassified" is a real answer, not a gap to be tidied away: an item
+    /// nobody has filed is exactly what somebody cleaning the catalogue is
+    /// looking for, and until this existed the facet that counted them could
+    /// not be clicked.
+    pub division_null: Option<bool>,
+    pub tags_null: Option<bool>,
+    /// `Some(true)` is "no variants recorded", which is most of a scraped feed
+    /// and is exactly the pile somebody filling the gaps in wants to see.
+    pub colours_null: Option<bool>,
+    pub sizes_null: Option<bool>,
     pub cursor: Option<String>,
     /// Inclusive bounds on the catalogue price, in minor units. Server-side
     /// for the same reason the facets are: a slider that only narrows the page
@@ -781,9 +880,22 @@ pub async fn search_supplier_items(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     let status = scope.status.map(|value| value.as_str().to_string());
+    // An empty selection is NULL rather than an empty array: every clause is
+    // written `$n IS NULL OR …`, so a filter nobody set costs one null check
+    // instead of a scan against `= ANY('{}')`, which matches nothing.
     let suppliers = (!scope.supplier_ids.is_empty()).then_some(scope.supplier_ids);
     let divisions = (!scope.division_codes.is_empty()).then_some(scope.division_codes);
     let tags = (!scope.tag_codes.is_empty()).then_some(scope.tag_codes);
+    let not_suppliers =
+        (!scope.excluded_supplier_ids.is_empty()).then_some(scope.excluded_supplier_ids);
+    let not_divisions =
+        (!scope.excluded_division_codes.is_empty()).then_some(scope.excluded_division_codes);
+    let not_tags = (!scope.excluded_tag_codes.is_empty()).then_some(scope.excluded_tag_codes);
+    let colours = (!scope.colour_codes.is_empty()).then_some(scope.colour_codes);
+    let not_colours =
+        (!scope.excluded_colour_codes.is_empty()).then_some(scope.excluded_colour_codes);
+    let sizes = (!scope.size_codes.is_empty()).then_some(scope.size_codes);
+    let not_sizes = (!scope.excluded_size_codes.is_empty()).then_some(scope.excluded_size_codes);
     let cursor = scope
         .cursor
         .as_deref()
@@ -800,18 +912,9 @@ pub async fn search_supplier_items(
     // shown without handing a laptop 2806 photographs at once.
     let limit = scope.limit.clamp(1, 200);
 
-    let rows = sqlx::query(
-        &format!(
-            "SELECT i.*,
-                COALESCE(
-                    (SELECT array_agg(t.tag_code ORDER BY t.tag_code)
-                       FROM supplier_item_tag t
-                      WHERE t.supplier_item_id = i.supplier_item_id),
-                    -- Doubled because this string is a `format!` template now
-                    -- (the sort splices its own ORDER BY in); `{{}}` is how an
-                    -- empty Postgres array literal survives that.
-                    '{{}}'
-                ) AS tags,
+    let rows = sqlx::query(&format!(
+        "SELECT i.*,
+                {CLASSIFICATION_COLUMNS},
                 CASE i.status WHEN 'ACTIVE' THEN 0 ELSE 1 END AS rank,
                 s.supplier_id AS s_supplier_id, s.supplier_code AS s_supplier_code,
                 s.supplier_code_normalized AS s_supplier_code_normalized, s.name AS s_name,
@@ -854,6 +957,53 @@ pub async fn search_supplier_items(
                        AND t.tag_code = ANY($5)))
             AND ($11::bigint IS NULL OR i.unit_price_minor >= $11)
             AND ($12::bigint IS NULL OR i.unit_price_minor <= $12)
+            AND ($13::uuid[] IS NULL OR i.supplier_id <> ALL($13))
+            -- The null arm is not tidiness, it is the answer. An item nobody
+            -- has filed IS, truthfully, not kidswear, and dropping it would
+            -- silently hide exactly the unfinished rows somebody asking for
+            -- anything-but-kidswear is usually hunting for. SQL's own
+            -- three-valued logic would answer differently; SQL is answering a
+            -- different question than a person reading a catalogue.
+            AND ($14::text[] IS NULL
+                 OR i.division_code IS NULL
+                 OR i.division_code <> ALL($14))
+            AND ($15::text[] IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM supplier_item_tag t
+                     WHERE t.supplier_item_id = i.supplier_item_id
+                       AND t.tag_code = ANY($15)))
+            -- `= $n` rather than two parameters, so is-empty and is-not-empty
+            -- are one question asked twice rather than two separate features.
+            AND ($16::boolean IS NULL OR (i.division_code IS NULL) = $16)
+            AND ($17::boolean IS NULL OR (NOT EXISTS (
+                    SELECT 1 FROM supplier_item_tag t
+                     WHERE t.supplier_item_id = i.supplier_item_id)) = $17)
+            -- Colour and size, in the same six shapes tags already has: is one
+            -- of, is none of, is empty, is not empty. Written out rather than
+            -- generated, because the alternative is a query builder and this
+            -- file's whole argument is that the SQL should be readable next to
+            -- the sentence it answers.
+            AND ($18::text[] IS NULL OR EXISTS (
+                    SELECT 1 FROM supplier_item_colour c
+                     WHERE c.supplier_item_id = i.supplier_item_id
+                       AND c.colour_code = ANY($18)))
+            AND ($19::text[] IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM supplier_item_colour c
+                     WHERE c.supplier_item_id = i.supplier_item_id
+                       AND c.colour_code = ANY($19)))
+            AND ($20::boolean IS NULL OR (NOT EXISTS (
+                    SELECT 1 FROM supplier_item_colour c
+                     WHERE c.supplier_item_id = i.supplier_item_id)) = $20)
+            AND ($21::text[] IS NULL OR EXISTS (
+                    SELECT 1 FROM supplier_item_size z
+                     WHERE z.supplier_item_id = i.supplier_item_id
+                       AND z.size_code = ANY($21)))
+            AND ($22::text[] IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM supplier_item_size z
+                     WHERE z.supplier_item_id = i.supplier_item_id
+                       AND z.size_code = ANY($22)))
+            AND ($23::boolean IS NULL OR (NOT EXISTS (
+                    SELECT 1 FROM supplier_item_size z
+                     WHERE z.supplier_item_id = i.supplier_item_id)) = $23)
             -- Keyset: strictly after the last row of the previous page, in the
             -- sort's own order. Row-value comparison rather than an unrolled
             -- chain of ORs, so the planner can use the ordering directly.
@@ -863,8 +1013,7 @@ pub async fn search_supplier_items(
             AND {keyset}
           ORDER BY {ordering}
           LIMIT $10"
-        ),
-    )
+    ))
     .bind(&status)
     .bind(&suppliers)
     .bind(&needle)
@@ -877,6 +1026,17 @@ pub async fn search_supplier_items(
     .bind(limit)
     .bind(scope.price_min)
     .bind(scope.price_max)
+    .bind(&not_suppliers)
+    .bind(&not_divisions)
+    .bind(&not_tags)
+    .bind(scope.division_null)
+    .bind(scope.tags_null)
+    .bind(&colours)
+    .bind(&not_colours)
+    .bind(scope.colours_null)
+    .bind(&sizes)
+    .bind(&not_sizes)
+    .bind(scope.sizes_null)
     .fetch_all(pool)
     .await?;
 
@@ -917,7 +1077,8 @@ pub async fn search_supplier_items(
     })
 }
 
-/// What the whole search contains, by division, tag and supplier.
+/// What the whole search contains, by division, tag, supplier, colour and
+/// size.
 ///
 /// One round trip: a screen cannot draw its facet list before it has all three,
 /// so splitting them would only buy two more waits.
@@ -954,7 +1115,28 @@ async fn sourcing_facets(
              COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
                                         ORDER BY count DESC, value)
                          FROM (SELECT b.supplier_id::text AS value, count(*) AS count
-                                 FROM base b GROUP BY 1) p), '[]'::jsonb) AS suppliers",
+                                 FROM base b GROUP BY 1) p), '[]'::jsonb) AS suppliers,
+             -- Colours by their own display order rather than by count. The
+             -- colour master IS ordered — neutrals, then the wheel — and a
+             -- swatch list shuffled by popularity reads as a jumble of dots
+             -- that moves every time somebody types. Sizes for the same
+             -- reason, more sharply: S must come before M.
+             COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
+                                        ORDER BY ord, value)
+                         FROM (SELECT c.code AS value, count(*) AS count,
+                                      min(c.display_order) AS ord
+                                 FROM base b
+                                 JOIN supplier_item_colour sc USING (supplier_item_id)
+                                 JOIN colour c ON c.code = sc.colour_code
+                                GROUP BY 1) k), '[]'::jsonb) AS colours,
+             COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
+                                        ORDER BY ord, value)
+                         FROM (SELECT z.code AS value, count(*) AS count,
+                                      min(z.display_order) AS ord
+                                 FROM base b
+                                 JOIN supplier_item_size ss USING (supplier_item_id)
+                                 JOIN size_code z ON z.code = ss.size_code
+                                GROUP BY 1) w), '[]'::jsonb) AS sizes",
     )
     .bind(status)
     .bind(needle)
@@ -967,6 +1149,8 @@ async fn sourcing_facets(
             divisions: serde_json::from_value(row.try_get("divisions")?)?,
             tags: serde_json::from_value(row.try_get("tags")?)?,
             suppliers: serde_json::from_value(row.try_get("suppliers")?)?,
+            colours: serde_json::from_value(row.try_get("colours")?)?,
+            sizes: serde_json::from_value(row.try_get("sizes")?)?,
         },
     ))
 }
@@ -1034,11 +1218,12 @@ pub async fn list_supplier_items(
     {
         return Err(AppError::NotFound("Supplier".to_owned()));
     }
-    let rows = sqlx::query(
-        "SELECT * FROM supplier_item
-         WHERE supplier_id = $1 AND ($2::text IS NULL OR status = $2)
-         ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END, name, supplier_item_id",
-    )
+    let rows = sqlx::query(&format!(
+        "SELECT i.*, {CLASSIFICATION_COLUMNS}
+           FROM supplier_item i
+          WHERE i.supplier_id = $1 AND ($2::text IS NULL OR i.status = $2)
+          ORDER BY CASE i.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, i.name, i.supplier_item_id"
+    ))
     .bind(supplier_id)
     .bind(status.map(|value| value.as_str()))
     .fetch_all(pool)
@@ -1063,13 +1248,14 @@ pub async fn list_supplier_items_page(
         return Err(AppError::NotFound("Supplier".to_owned()));
     }
     let limit = requested_limit.unwrap_or(100).clamp(1, 500);
-    let rows = sqlx::query(
-        "SELECT * FROM supplier_item
-         WHERE supplier_id = $1 AND ($2::text IS NULL OR status = $2)
-           AND ($3::uuid IS NULL OR supplier_item_id > $3)
-         ORDER BY supplier_item_id
-         LIMIT $4",
-    )
+    let rows = sqlx::query(&format!(
+        "SELECT i.*, {CLASSIFICATION_COLUMNS}
+           FROM supplier_item i
+          WHERE i.supplier_id = $1 AND ($2::text IS NULL OR i.status = $2)
+            AND ($3::uuid IS NULL OR i.supplier_item_id > $3)
+          ORDER BY i.supplier_item_id
+          LIMIT $4"
+    ))
     .bind(supplier_id)
     .bind(status.map(|value| value.as_str()))
     .bind(cursor)
@@ -1092,11 +1278,14 @@ pub async fn get_supplier_item(
     pool: &PgPool,
     supplier_item_id: Uuid,
 ) -> Result<SupplierItem, AppError> {
-    let row = sqlx::query("SELECT * FROM supplier_item WHERE supplier_item_id = $1")
-        .bind(supplier_item_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Supplier Item".to_owned()))?;
+    let row = sqlx::query(&format!(
+        "SELECT i.*, {CLASSIFICATION_COLUMNS}
+           FROM supplier_item i WHERE i.supplier_item_id = $1"
+    ))
+    .bind(supplier_item_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Supplier Item".to_owned()))?;
     supplier_item_from_row(row)
 }
 
@@ -1122,6 +1311,11 @@ pub async fn create_supplier_item(
     let internal_article_code = optional_supplier_text(request.internal_article_code);
     let division_code = optional_supplier_text(request.division_code);
     let tags = normalize_tag_codes(request.tags).map_err(validation)?;
+    // Colours and sizes are normalised by the same rule as tags — uppercased,
+    // trimmed, de-duplicated — because all three are codes from a master and
+    // all three land on a table keyed `(supplier_item_id, code)`.
+    let colour_codes = normalize_tag_codes(request.colour_codes).map_err(validation)?;
+    let size_codes = normalize_tag_codes(request.size_codes).map_err(validation)?;
 
     let mut transaction = pool.begin().await?;
     if let Some(response) = replay_or_begin(
@@ -1169,6 +1363,11 @@ pub async fn create_supplier_item(
     .map_err(map_catalog_write_error)?;
     let mut item = supplier_item_from_row(row)?;
     item.tags = replace_supplier_item_tags(&mut transaction, item.supplier_item_id, &tags).await?;
+    item.colours =
+        replace_supplier_item_colours(&mut transaction, item.supplier_item_id, &colour_codes)
+            .await?;
+    item.size_codes =
+        replace_supplier_item_sizes(&mut transaction, item.supplier_item_id, &size_codes).await?;
     complete_item_mutation(&mut transaction, idempotency_key, &item).await?;
     transaction.commit().await?;
     Ok(item)
@@ -1197,6 +1396,8 @@ pub async fn update_supplier_item(
     let changes_article = request.internal_article_code.is_present();
     let changes_division = request.division_code.is_present();
     let changes_tags = request.tags.is_some();
+    let changes_colours = request.colour_codes.is_some();
+    let changes_sizes = request.size_codes.is_some();
     if !(changes_code
         || changes_name
         || changes_description
@@ -1205,7 +1406,9 @@ pub async fn update_supplier_item(
         || changes_currency
         || changes_article
         || changes_division
-        || changes_tags)
+        || changes_tags
+        || changes_colours
+        || changes_sizes)
     {
         return Err(AppError::Validation(
             "Supplier Item update must contain at least one field".into(),
@@ -1243,6 +1446,16 @@ pub async fn update_supplier_item(
     let division_code = optional_supplier_text(request.division_code.into_option());
     let tags = request
         .tags
+        .map(normalize_tag_codes)
+        .transpose()
+        .map_err(validation)?;
+    let colour_codes = request
+        .colour_codes
+        .map(normalize_tag_codes)
+        .transpose()
+        .map_err(validation)?;
+    let size_codes = request
+        .size_codes
         .map(normalize_tag_codes)
         .transpose()
         .map_err(validation)?;
@@ -1302,6 +1515,15 @@ pub async fn update_supplier_item(
     let mut item = supplier_item_from_row(row)?;
     if let Some(tags) = tags {
         item.tags = replace_supplier_item_tags(&mut transaction, supplier_item_id, &tags).await?;
+    }
+    if let Some(colour_codes) = colour_codes {
+        item.colours =
+            replace_supplier_item_colours(&mut transaction, supplier_item_id, &colour_codes)
+                .await?;
+    }
+    if let Some(size_codes) = size_codes {
+        item.size_codes =
+            replace_supplier_item_sizes(&mut transaction, supplier_item_id, &size_codes).await?;
     }
     complete_item_mutation(&mut transaction, idempotency_key, &item).await?;
     transaction.commit().await?;
@@ -1612,7 +1834,7 @@ pub async fn create_catalog_purchase_order(
                 Some(price) if price < 0 => {
                     return Err(AppError::Validation(
                         "agreed unit price cannot be negative".into(),
-                    ))
+                    ));
                 }
                 Some(price) => price,
                 None => catalogue_price,
@@ -1920,6 +2142,124 @@ async fn replace_supplier_item_tags(
     Ok(applied)
 }
 
+/// The colours an item comes in, replaced wholesale.
+///
+/// The same shape as the tag writer, and unknown codes are refused the same
+/// way: letting the foreign key fire produces a 500 and a constraint name,
+/// which tells whoever mistyped a colour nothing at all.
+///
+/// Returns what a read would now return — labelled and in the master's own
+/// order — rather than the codes that went in, so a caller does not have to
+/// re-read the row to answer the request it just served.
+async fn replace_supplier_item_colours(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    supplier_item_id: Uuid,
+    colours: &[String],
+) -> Result<Vec<SupplierItemColour>, AppError> {
+    sqlx::query("DELETE FROM supplier_item_colour WHERE supplier_item_id = $1")
+        .bind(supplier_item_id)
+        .execute(&mut **transaction)
+        .await?;
+    if colours.is_empty() {
+        return Ok(Vec::new());
+    }
+    let known: Vec<String> = sqlx::query_scalar("SELECT code FROM colour WHERE code = ANY($1)")
+        .bind(colours)
+        .fetch_all(&mut **transaction)
+        .await?;
+    let unknown: Vec<&str> = colours
+        .iter()
+        .filter(|code| !known.contains(code))
+        .map(String::as_str)
+        .collect();
+    if !unknown.is_empty() {
+        return Err(AppError::Validation(format!(
+            "unknown colour codes: {}",
+            unknown.join(", ")
+        )));
+    }
+    sqlx::query(
+        "INSERT INTO supplier_item_colour (supplier_item_id, colour_code)
+         SELECT $1, code FROM unnest($2::text[]) AS code
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(supplier_item_id)
+    .bind(colours)
+    .execute(&mut **transaction)
+    .await?;
+    let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT c.code, c.label, c.hex_code
+           FROM supplier_item_colour sc
+           JOIN colour c ON c.code = sc.colour_code
+          WHERE sc.supplier_item_id = $1
+          ORDER BY c.display_order, c.label",
+    )
+    .bind(supplier_item_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(colour_code, label, hex_code)| SupplierItemColour {
+            colour_code,
+            label,
+            hex_code,
+        })
+        .collect())
+}
+
+/// The sizes an item comes in, replaced wholesale. Returned in size order,
+/// which is what lets a screen print the ends of the range without sorting.
+async fn replace_supplier_item_sizes(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    supplier_item_id: Uuid,
+    sizes: &[String],
+) -> Result<Vec<String>, AppError> {
+    sqlx::query("DELETE FROM supplier_item_size WHERE supplier_item_id = $1")
+        .bind(supplier_item_id)
+        .execute(&mut **transaction)
+        .await?;
+    if sizes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let known: Vec<String> = sqlx::query_scalar("SELECT code FROM size_code WHERE code = ANY($1)")
+        .bind(sizes)
+        .fetch_all(&mut **transaction)
+        .await?;
+    let unknown: Vec<&str> = sizes
+        .iter()
+        .filter(|code| !known.iter().any(|one| one.trim() == code.as_str()))
+        .map(String::as_str)
+        .collect();
+    if !unknown.is_empty() {
+        return Err(AppError::Validation(format!(
+            "unknown size codes: {}",
+            unknown.join(", ")
+        )));
+    }
+    sqlx::query(
+        "INSERT INTO supplier_item_size (supplier_item_id, size_code)
+         SELECT $1, code FROM unnest($2::text[]) AS code
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(supplier_item_id)
+    .bind(sizes)
+    .execute(&mut **transaction)
+    .await?;
+    let rows = sqlx::query_scalar::<_, String>(
+        "SELECT z.code FROM supplier_item_size ss
+           JOIN size_code z ON z.code = ss.size_code
+          WHERE ss.supplier_item_id = $1
+          ORDER BY z.display_order, z.code",
+    )
+    .bind(supplier_item_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|code| code.trim().to_owned())
+        .collect())
+}
+
 /// One word the catalogue is allowed to use, and what it reads as.
 ///
 /// `code` is what the database stores and what filters address; `label` is
@@ -1946,6 +2286,21 @@ pub struct CatalogueVocabulary {
     /// alphabetical, which would put Accessories before Menswear.
     pub divisions: Vec<VocabularyTerm>,
     pub tags: Vec<VocabularyTerm>,
+    /// The sizes anything may be offered in, in size order — which is what
+    /// makes "S–XXL" the first and last of a list rather than a sort every
+    /// reader has to redo.
+    ///
+    /// Here rather than behind an endpoint of its own because there was no
+    /// endpoint at all: `frontend-hub` transcribed the `size_code` seed into a
+    /// hardcoded map, with a comment saying it would be replaced by exactly
+    /// this. A size added to the table after that was written filtered
+    /// correctly and read as `21`.
+    ///
+    /// Colours are NOT here. They have their own master and their own
+    /// endpoint (`/api/v1/colours`), a screen that draws swatches already
+    /// reads it, and a second half-copy of a table this app can edit is the
+    /// split the colour master exists to prevent.
+    pub sizes: Vec<VocabularyTerm>,
 }
 
 /// Read the vocabulary. Inactive terms are left out: a filter offering a word
@@ -1970,5 +2325,28 @@ pub async fn catalogue_vocabulary(pool: &PgPool) -> Result<CatalogueVocabulary, 
     .map(|(code, label)| VocabularyTerm { code, label })
     .collect();
 
-    Ok(CatalogueVocabulary { divisions, tags })
+    // Inactive sizes left out for the same reason inactive tags are: a filter
+    // offering a word nothing can be classified as is a dead end a buyer has
+    // to discover by clicking it.
+    //
+    // `code` is `char(2)`, which sqlx decodes as a fixed-width string. Trimmed
+    // for the same reason `currency` is — the padding is invisible on screen
+    // and lethal in a `=` against a code that came back from a filter.
+    let sizes = sqlx::query_as::<_, (String, String)>(
+        "SELECT code, label FROM size_code WHERE active ORDER BY display_order, code",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(code, label)| VocabularyTerm {
+        code: code.trim().to_owned(),
+        label,
+    })
+    .collect();
+
+    Ok(CatalogueVocabulary {
+        divisions,
+        tags,
+        sizes,
+    })
 }

@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod contracts;
 pub mod domain;
+pub mod escpos;
 pub mod http;
 pub mod outbound;
 pub mod pricing;
@@ -11,6 +12,7 @@ pub mod reports;
 pub mod rfid;
 pub mod sqlite;
 pub mod sync;
+pub mod till;
 pub mod zpl;
 
 pub use auth::{EdgeAuth, EdgeAuthConfig, EdgePermission, EdgePrincipal, IssuedEdgeSession};

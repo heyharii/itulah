@@ -5,7 +5,8 @@
 //! target; nothing here assumes the credentials were minted locally.
 
 use crate::cloud::application::{
-    AppError, ChangePasswordRequest, CreateUserRequest, ResetPasswordRequest, SetUserRoleRequest,
+    AppError, ChangePasswordRequest, CreateUserRequest, ProvisionAccountRequest,
+    ProvisionedAccount, ResetPasswordRequest, SetUserRoleRequest,
 };
 use crate::cloud::domain::Role;
 use crate::security;
@@ -323,10 +324,31 @@ pub async fn create_user(
     }))
 }
 
+/// Every account at the centre, and who each one belongs to.
+///
+/// The join is the point. An account list that shows only usernames cannot
+/// answer the two questions an administrator actually opens it with: which of
+/// these are people and which are machines, and which of them belong to
+/// somebody who no longer works here. Both are one `LEFT JOIN` away, and
+/// without it the console was a list of credentials with nobody behind them.
+///
+/// `employee_status` is the employment record's, not the account's: an account
+/// that is `active` while its employee reads TERMINATED is a live credential
+/// for somebody who has left, and it is the row worth putting at the top.
 pub async fn list_users(pool: &PgPool) -> Result<Value, AppError> {
     let rows = sqlx::query(
-        "SELECT id,username,display_name,role,active,created_by,created_at,last_login_at \
-         FROM app_user ORDER BY username",
+        "SELECT u.id,u.username,u.display_name,u.role,u.active,u.created_by,
+                u.created_at,u.last_login_at,
+                u.employee_id,e.code AS employee_code,e.status AS employee_status,
+                p.full_name AS employee_name,
+                a.place_id,place.name AS place_name
+         FROM app_user u
+         LEFT JOIN employee e ON e.id = u.employee_id
+         LEFT JOIN employee_profile p ON p.employee_id = e.id
+         LEFT JOIN employee_assignment a
+                ON a.employee_id = e.id AND a.valid_to IS NULL
+         LEFT JOIN org_place place ON place.id = a.place_id
+         ORDER BY u.username",
     )
     .fetch_all(pool)
     .await?;
@@ -342,6 +364,15 @@ pub async fn list_users(pool: &PgPool) -> Result<Value, AppError> {
                 "created_by": row.get::<String,_>("created_by"),
                 "created_at": row.get::<DateTime<Utc>,_>("created_at"),
                 "last_login_at": row.get::<Option<DateTime<Utc>>,_>("last_login_at"),
+                // Null in all five together: a machine account, or a login HR
+                // has not finished the paperwork for. The console says which
+                // rather than leaving a blank column to be read as a bug.
+                "employee_id": row.get::<Option<String>,_>("employee_id"),
+                "employee_code": row.get::<Option<String>,_>("employee_code"),
+                "employee_status": row.get::<Option<String>,_>("employee_status"),
+                "employee_name": row.get::<Option<String>,_>("employee_name"),
+                "place_id": row.get::<Option<String>,_>("place_id"),
+                "place_name": row.get::<Option<String>,_>("place_name"),
             })
         })
         .collect();
@@ -530,4 +561,128 @@ pub async fn admin_reset_password(
         // that a second decision is outstanding.
         "active": row.get::<bool, _>("active"),
     }))
+}
+
+/// Issue a login to somebody who has none: create the account, set its rung,
+/// bind it to their employment record, and — when they work at a node — grant
+/// them a till.
+///
+/// # Why this is one call and not four
+///
+/// It used to be four, spread over two modules of the console: create the
+/// account under System › Accounts, find the person again under People, bind
+/// the two, then go back to System › Access to grant the till and publish the
+/// policy. Every join between those steps is a place the sequence stops, and
+/// each way of stopping leaves a different mess: an account belonging to
+/// nobody, a person with a credential that opens no door, a grant at a node
+/// whose policy was never published — which looks exactly like a working setup
+/// until the person tries to sign in, days later, in front of a queue.
+///
+/// The account and the binding are one transaction, because those two are the
+/// pair that must never come apart: a credential that exists and belongs to
+/// nobody is the one failure that cannot be seen from any screen.
+///
+/// The till grant is deliberately *not* in that transaction. It reaches a
+/// different node and ends by publishing a policy, and a failure there is both
+/// visible (the person has an account and no till) and repairable from System ›
+/// Access. What it must not do is fail quietly, so it does not: the error names
+/// what was created and what was not.
+///
+/// # The two roles are two decisions
+///
+/// `role` is the rung at the centre, on `app_user`; `edge_role` is the rung at
+/// the till, on `edge_identity_assignment`. They are separate columns because
+/// they are separate facts — a supervisor at head office may be a cashier at a
+/// shop she is covering — and this call keeps them separate rather than
+/// helpfully copying one into the other.
+pub async fn provision_account(
+    pool: &PgPool,
+    employee_id: &str,
+    request: ProvisionAccountRequest,
+    authorization: &crate::cloud::domain::Authorization,
+) -> Result<ProvisionedAccount, AppError> {
+    let username = normalize_username(&request.username)?;
+    let display_name = request.display_name.trim().to_owned();
+    if display_name.is_empty() || display_name.len() > 128 {
+        return Err(AppError::Validation(
+            "display_name must be 1-128 characters".into(),
+        ));
+    }
+    // Hashed before the transaction opens: argon2id is deliberately slow, and
+    // holding a row lock across it would make issuing one account contend with
+    // every other write to that employee.
+    let hash = hash_password(&request.password).await?;
+    let actor = authorization.actor().to_string();
+
+    let mut tx = pool.begin().await?;
+    let user_id = Uuid::new_v4();
+    let created = sqlx::query(
+        "INSERT INTO app_user(id,username,display_name,password_hash,role,created_by) \
+         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (username) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(&username)
+    .bind(&display_name)
+    .bind(hash)
+    .bind(request.role.as_str())
+    .bind(&actor)
+    .execute(&mut *tx)
+    .await?;
+    if created.rows_affected() == 0 {
+        return Err(AppError::Conflict(format!(
+            "username '{username}' already exists"
+        )));
+    }
+    super::bind_new_account(&mut tx, employee_id, user_id, authorization).await?;
+    tx.commit().await?;
+
+    let Some(edge) = request.edge else {
+        return Ok(ProvisionedAccount {
+            user_id,
+            username,
+            display_name,
+            role: request.role.as_str().to_owned(),
+            employee_id: employee_id.to_owned(),
+            edge_origin_id: None,
+            edge_role: None,
+            policy_version: None,
+        });
+    };
+
+    let granted = super::upsert_edge_assignment(
+        pool,
+        crate::cloud::application::UpsertEdgeAssignmentRequest {
+            origin_id: edge.origin_id.clone(),
+            user_id,
+            role: edge.role,
+            edge_password: edge.edge_password,
+            offline_ttl_seconds: edge.offline_ttl_seconds,
+        },
+        &actor,
+    )
+    .await
+    .map_err(|error| {
+        // Never swallowed. The account is committed; a bare 500 here would
+        // leave an administrator believing nothing happened and creating the
+        // same username again.
+        AppError::Configuration(format!(
+            "the account {username} was created and bound to {employee_id}, but access to \
+             {} could not be granted: {error}. Grant it in System > Access.",
+            edge.origin_id
+        ))
+    })?;
+
+    Ok(ProvisionedAccount {
+        user_id,
+        username,
+        display_name,
+        role: request.role.as_str().to_owned(),
+        employee_id: employee_id.to_owned(),
+        edge_origin_id: Some(edge.origin_id),
+        edge_role: Some(edge.role.as_str().to_owned()),
+        policy_version: granted
+            .get("policy")
+            .and_then(|policy| policy.get("version"))
+            .and_then(Value::as_i64),
+    })
 }

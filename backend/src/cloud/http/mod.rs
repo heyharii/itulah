@@ -12,28 +12,32 @@ use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use uuid::Uuid;
 
 pub mod articles;
+pub mod assistant;
 pub mod attendance;
+pub mod audit;
 pub mod auth;
 pub mod basket;
 pub mod catalogue;
 pub mod chat;
 pub mod colours;
 pub mod customer;
-pub mod member;
 pub mod discussion;
-pub mod employment;
 pub mod documents;
+pub mod employment;
 pub mod files;
 pub mod finance;
 pub mod holiday;
 pub mod leave;
-pub mod audit;
+pub mod member;
 pub mod notifications;
 pub mod overtime;
 pub mod pay;
 pub mod performance;
+pub mod reports;
 pub mod roster;
 pub mod suppliers;
+pub mod vocabulary;
+pub mod vouchers;
 
 /// Exact browser origins from config. Unset means same-origin only.
 fn cors_layer(config: &AppConfig) -> CorsLayer {
@@ -186,10 +190,41 @@ pub fn router(state: AppState) -> Router {
         // this in the browser by opening each published book in turn, which was
         // eleven requests in dev and one more with every publish.
         .route("/api/v1/commercial/rules", get(catalogue::commercial_rules))
-        .route("/api/v1/commercial/coupons", get(catalogue::commercial_coupons))
+        .route(
+            "/api/v1/commercial/coupons",
+            get(catalogue::commercial_coupons),
+        )
         .route(
             "/api/v1/commercial/campaigns",
             get(catalogue::commercial_campaigns),
+        )
+        .route(
+            // The one lever on a published campaign. Everything else in a book
+            // is frozen; this is what "stop the Lebaran promo" reaches for, and
+            // it dispatches to the fleet in the same call.
+            "/api/v1/commercial/campaigns/{campaign_id}",
+            axum::routing::patch(switch_campaign),
+        )
+        // Vouchers. Under `/commercial` because that is the module a
+        // merchandiser reaches them from, and NOT because a voucher is
+        // pricing — it is tender, and the screen above them says so. The
+        // redemption route is the one a till calls; `required_role` puts it on
+        // the Cashier rung, where the other three stay Supervisor.
+        .route(
+            "/api/v1/commercial/vouchers",
+            get(vouchers::list_vouchers).post(vouchers::issue_voucher),
+        )
+        .route(
+            "/api/v1/commercial/vouchers/{code}",
+            get(vouchers::voucher_detail),
+        )
+        .route(
+            "/api/v1/commercial/vouchers/{code}/redeem",
+            post(vouchers::redeem_voucher),
+        )
+        .route(
+            "/api/v1/commercial/vouchers/{code}/void",
+            post(vouchers::void_voucher),
         )
         .route(
             "/api/v1/suppliers",
@@ -234,21 +269,36 @@ pub fn router(state: AppState) -> Router {
             get(colours::list_colours).post(colours::create_colour),
         )
         .route("/api/v1/colours/{code}", patch(colours::update_colour))
+        // Divisions, sizes and tags. One route pair for the three, because
+        // they are one shape — code, label, order, active — and nine handlers
+        // differing in one word is where the ninth forgets the auth check.
+        // They had tables from 0022 and 0027 and no way in until 0091: every
+        // term was a row somebody INSERTed in a migration.
+        .route(
+            "/api/v1/vocabulary/{kind}",
+            get(vocabulary::list_terms).post(vocabulary::create_term),
+        )
+        .route(
+            "/api/v1/vocabulary/{kind}/{code}",
+            patch(vocabulary::update_term),
+        )
         // The drawer. Upload goes past this process to the bucket; everything
         // else is small enough to come through it.
         .route(
             "/api/v1/documents",
             get(documents::search).post(documents::file),
         )
-        .route(
-            "/api/v1/documents/upload-url",
-            post(documents::upload_url),
-        )
+        .route("/api/v1/documents/upload-url", post(documents::upload_url))
         .route("/api/v1/documents/{id}", get(documents::detail))
         .route(
             "/api/v1/documents/{id}/download-url",
             get(documents::download_url),
         )
+        // The bytes through the node, for the documents `download-url` cannot
+        // answer for — the ones stored in the database rather than a bucket —
+        // and for the tile previews, which need a stable path an `<img>` can be
+        // pointed at rather than a URL that expires in five minutes.
+        .route("/api/v1/documents/{id}/content", get(documents::content))
         .route(
             "/api/v1/supplier-items/{id}",
             get(suppliers::supplier_item_detail).patch(suppliers::update_supplier_item),
@@ -316,7 +366,40 @@ pub fn router(state: AppState) -> Router {
         // own sales. See `http/member.rs` for why the routes above this — the
         // `/customer/{id}/...` lookups — stay operator-only rather than being
         // replaced.
-        .route("/api/v1/members", post(member::enrol))
+        .route(
+            "/api/v1/members",
+            get(member::directory).post(member::enrol),
+        )
+        // Above `{member_id}` shapes for readability only — axum ranks a
+        // literal segment over a capture regardless of declaration order.
+        .route("/api/v1/members/segments", get(member::segments))
+        // The other half of the segment book's arithmetic: the numbers a till
+        // wrote onto sales that no card was ever enrolled for. Under
+        // `/members` and not a segment — they hold no card — but this is where
+        // somebody goes looking for them.
+        .route("/api/v1/members/unenrolled", get(member::unenrolled))
+        // The other species of segment: written down rather than worked out.
+        // Under `saved` so the URL says which is which — the six above cannot
+        // be written, and these cannot be exhaustive.
+        .route(
+            "/api/v1/members/segments/saved",
+            get(member::saved_segments).post(member::create_segment),
+        )
+        .route(
+            "/api/v1/members/segments/preview",
+            post(member::preview_segment),
+        )
+        .route(
+            "/api/v1/members/segments/saved/{id}",
+            get(member::read_segment).post(member::revise_segment),
+        )
+        // Retired, not deleted, and so a POST rather than a DELETE: the
+        // versions stay, because they are the record of what a message was
+        // actually sent to.
+        .route(
+            "/api/v1/members/segments/saved/{id}/retire",
+            post(member::archive_segment),
+        )
         .route(
             "/api/v1/members/{member_id}/pairing-code",
             post(member::issue_code),
@@ -428,6 +511,44 @@ pub fn router(state: AppState) -> Router {
             post(issue_setup_session),
         )
         .route("/api/v1/article-codes", post(mint_article_code))
+        // Reports. The catalogue says what a report may be about, `run`
+        // answers a spec without keeping it, and everything under `saved` is
+        // append-only — editing writes a version rather than overwriting one.
+        .route("/api/v1/reports/catalogue", get(reports::catalogue))
+        .route("/api/v1/reports/run", post(reports::run))
+        .route(
+            "/api/v1/reports/saved",
+            get(reports::list).post(reports::create),
+        )
+        .route(
+            "/api/v1/reports/saved/{id}",
+            get(reports::read).patch(reports::amend),
+        )
+        .route("/api/v1/reports/saved/{id}/versions", post(reports::revise))
+        .route("/api/v1/reports/saved/{id}/run", post(reports::run_saved))
+        // The assistant. One question in, one streamed answer out, and the
+        // reads it made along the way — every one of them a query that already
+        // backs a screen, so nothing here can reach further than the person
+        // asking already could.
+        .route("/api/v1/assistant/ask", post(assistant::ask))
+        // The chats themselves. Kept on the node rather than in the tab that
+        // asked, so the sidebar of past questions survives a reload and a
+        // different machine — see migration `0102`.
+        .route("/api/v1/assistant/conversations", get(assistant::conversations))
+        .route(
+            "/api/v1/assistant/conversations/{id}",
+            get(assistant::conversation)
+                .patch(assistant::rename_conversation)
+                .delete(assistant::discard_conversation),
+        )
+        .route(
+            "/api/v1/assistant/capabilities",
+            get(assistant::capabilities),
+        )
+        // The figures the home screen opens with. Not a model call: it is the
+        // same handful of numbers every morning and they are all already
+        // computed.
+        .route("/api/v1/assistant/brief", get(assistant::brief))
         // Talking. Conversations are private to their participants;
         // discussions are readable by everybody signed in, because an argument
         // about a purchase order is a record and not correspondence.
@@ -481,6 +602,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/finance/bills",
             get(finance::bills).post(finance::record_bill),
         )
+        // The detail read. Separate from the list because it is the only one
+        // that fetches the expense lines — the list leaves them null rather
+        // than running a query per row to draw a table.
+        .route("/api/v1/finance/bills/{id}", get(finance::bill))
         .route("/api/v1/finance/bills/{id}/post", post(finance::post_bill))
         .route("/api/v1/finance/unbilled", get(finance::unbilled))
         // What is owed and how late. Beside the bills, not in Reports: it is
@@ -510,10 +635,46 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/finance/assets/{id}/assess",
             post(finance::assess_asset),
         )
+        // Where the register and the books disagree about what was bought.
+        // Registered above `{id}` routes only by convention — the segment
+        // counts differ, so there is no ambiguity to resolve.
+        //
+        // There is no acquisition posting rule and there will not be one: an
+        // asset is bought by a supplier bill, and 0094's expense bill already
+        // posts a line coded to a 10215* account. This is the exception report
+        // for where that link is missing in either direction.
+        .route(
+            "/api/v1/finance/assets/unbacked",
+            get(finance::unbacked_assets),
+        )
+        // The other end of an asset's life. Disposal takes its cost and its
+        // accumulated depreciation out of the books and lands the difference in
+        // a gain or a loss; a transfer moves both between two locations,
+        // because the client keeps a profit and loss per location and moving
+        // the cost alone would leave two of them wrong.
+        .route(
+            "/api/v1/finance/assets/{id}/dispose",
+            post(finance::dispose_asset),
+        )
+        .route(
+            "/api/v1/finance/assets/{id}/transfer",
+            post(finance::transfer_asset),
+        )
+        // What was actually charged, month by month, and what is left to
+        // charge. The record and the projection side by side, which is the only
+        // way to see that a run has been quietly skipping an asset.
+        .route(
+            "/api/v1/finance/assets/{id}/schedule",
+            get(finance::asset_schedule),
+        )
         .route(
             "/api/v1/finance/depreciation/run",
             post(finance::run_depreciation),
         )
+        // Where the money is. One row per mapped money account per location,
+        // beside the last statement imported for it — the list a treasurer
+        // opens. `bank-statements` below is the drill-in from a row of it.
+        .route("/api/v1/finance/money", get(finance::money))
         .route(
             "/api/v1/finance/bank-statements",
             get(finance::bank_statements).post(finance::import_bank_statement),
@@ -529,6 +690,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/finance/bank-lines/{id}/match",
             post(finance::confirm_bank_match).delete(finance::unmatch_bank_line),
+        )
+        // The other half of reconciling: a line the bank has and the books do
+        // not. Writes the entry AND agrees the line with it, in one
+        // transaction — the two are one decision, and splitting them leaves a
+        // window in which an entry exists and nothing points at its cause.
+        .route(
+            "/api/v1/finance/bank-lines/{id}/book",
+            post(finance::book_bank_line),
         )
         .route(
             "/api/v1/finance/account-map",
@@ -595,6 +764,18 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/employees/{id}/account",
             post(employment::link_account),
+        )
+        .route(
+            "/api/v1/employees/{id}/account/targets",
+            get(employment::account_targets),
+        )
+        .route(
+            "/api/v1/employees/{id}/account/provision",
+            post(employment::provision_account),
+        )
+        .route(
+            "/api/v1/employees/{id}/account/release",
+            post(employment::release_account),
         )
         // Who somebody is at work: number, job, place, joining date. What the
         // employee app means when it says profile.
@@ -1235,6 +1416,13 @@ async fn article_prices(
             q.channel,
             q.at.unwrap_or_else(chrono::Utc::now),
             q.limit.unwrap_or(200),
+            infrastructure::ArticlePriceFilter {
+                q: q.q.clone().filter(|value| !value.trim().is_empty()),
+                divisions: ArticlePriceQuery::list(&q.divisions),
+                tags: ArticlePriceQuery::list(&q.tags),
+                min_price: q.min_price,
+                max_price: q.max_price,
+            },
         )
         .await?,
     ))
@@ -1272,6 +1460,22 @@ async fn publish_commercial_usage(
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(
         infrastructure::publish_commercial_usage_to_fleet(&s.db, r.actor_id.trim()).await?,
+    ))
+}
+
+/// Stop a campaign, restart it, or move its dates — and tell the shops.
+///
+/// `PATCH` rather than `POST`, because it changes one field of something that
+/// already exists rather than creating anything. The dispatch happens inside:
+/// a pause that reached Postgres and waited for the next broadcast would still
+/// be a pause that had not reached the shop floor.
+async fn switch_campaign(
+    State(s): State<AppState>,
+    Path(campaign_id): Path<String>,
+    Json(r): Json<CampaignSwitchRequest>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::switch_campaign(&s.db, &campaign_id, r).await?,
     ))
 }
 

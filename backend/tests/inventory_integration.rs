@@ -122,6 +122,9 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
             media: None,
             attachments: None,
             default_destination_site_id: "dc".into(),
+            assistant_api_key: None,
+            assistant_base_url: "https://openrouter.ai/api/v1".into(),
+            assistant_model: "anthropic/claude-opus-5".into(),
         },
     ));
     let health = app
@@ -590,7 +593,6 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
             site_id: "store-07".into(),
             channel: CommercialChannel::Store,
             at: None,
-            publication_id: None,
         },
     )
     .await
@@ -604,7 +606,6 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
             site_id: "store-08".into(),
             channel: CommercialChannel::Store,
             at: None,
-            publication_id: None,
         },
     )
     .await
@@ -732,6 +733,9 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
             media: None,
             attachments: None,
             default_destination_site_id: "dc".into(),
+            assistant_api_key: None,
+            assistant_base_url: "https://openrouter.ai/api/v1".into(),
+            assistant_model: "anthropic/claude-opus-5".into(),
         },
     ));
     let offers_response = app
@@ -1506,6 +1510,9 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
             media: None,
             attachments: None,
             default_destination_site_id: "dc".into(),
+            assistant_api_key: None,
+            assistant_base_url: "https://openrouter.ai/api/v1".into(),
+            assistant_model: "anthropic/claude-opus-5".into(),
         },
     ));
     for uri in [
@@ -1608,6 +1615,10 @@ async fn a_clearance_on_a_whole_style_clears_every_size_of_it(pool: PgPool) {
                 site_ids: None,
                 replacement_unit_price_minor: CLEARANCE,
                 priority: 10,
+                campaign_id: None,
+                iso_weekdays: Vec::new(),
+                from_minute: None,
+                to_minute: None,
                 effective_from: Utc::now() - Duration::days(1),
                 effective_to: None,
             }],
@@ -1810,12 +1821,11 @@ async fn a_budget_spent_in_the_fleet_is_spent_at_the_centre_too(pool: PgPool) {
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|e| panic!("a seeded SKU: {e}"));
-    let sku_code: String =
-        sqlx::query_scalar("SELECT sku_code FROM sku WHERE id = $1")
-            .bind(sku)
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|e| panic!("its code: {e}"));
+    let sku_code: String = sqlx::query_scalar("SELECT sku_code FROM sku WHERE id = $1")
+        .bind(sku)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("its code: {e}"));
 
     // A campaign with a small budget, and one promotion inside it.
     let rule = serde_json::json!({
@@ -1853,15 +1863,20 @@ async fn a_budget_spent_in_the_fleet_is_spent_at_the_centre_too(pool: PgPool) {
             rules: vec![serde_json::from_value(rule)
                 .unwrap_or_else(|e| panic!("the rule is not a rule: {e}"))],
             coupons: Vec::new(),
-            campaigns: vec![inventory_backend::cloud::application::CommercialCampaignInput {
-                campaign_id: "C-BUDGET".into(),
-                name: "Kampanye berbudget".into(),
-                status: "ACTIVE".into(),
-                valid_from: None,
-                valid_to: None,
-                budget_minor: Some(50_000),
-                max_uses: None,
-            }],
+            campaigns: vec![
+                inventory_backend::cloud::application::CommercialCampaignInput {
+                    campaign_id: "C-BUDGET".into(),
+                    name: "Kampanye berbudget".into(),
+                    status: "ACTIVE".into(),
+                    valid_from: None,
+                    valid_to: None,
+                    budget_minor: Some(50_000),
+                    max_uses: None,
+                    image_url: None,
+                    headline: None,
+                    terms: None,
+                },
+            ],
             actor_id: "merchandiser".into(),
             idempotency_key: "budget-draft".into(),
         },
@@ -1990,6 +2005,9 @@ async fn the_usage_list_reports_the_limit_the_newest_book_declares(pool: PgPool)
                             valid_to: None,
                             budget_minor: Some(budget),
                             max_uses: None,
+                            image_url: None,
+                            headline: None,
+                            terms: None,
                         },
                     ],
                     actor_id: "merchandiser".into(),
@@ -2240,15 +2258,20 @@ async fn an_ended_promotion_does_not_read_as_one_that_never_arrived(pool: PgPool
                 .unwrap_or_else(|e| panic!("the rule is not a rule: {e}"))],
             coupons: Vec::new(),
             // Ran for a fortnight, a fortnight ago.
-            campaigns: vec![inventory_backend::cloud::application::CommercialCampaignInput {
-                campaign_id: "C-ENDED".into(),
-                name: "Kampanye lewat".into(),
-                status: "ACTIVE".into(),
-                valid_from: Some(Utc::now() - Duration::days(28)),
-                valid_to: Some(Utc::now() - Duration::days(14)),
-                budget_minor: None,
-                max_uses: None,
-            }],
+            campaigns: vec![
+                inventory_backend::cloud::application::CommercialCampaignInput {
+                    campaign_id: "C-ENDED".into(),
+                    name: "Kampanye lewat".into(),
+                    status: "ACTIVE".into(),
+                    valid_from: Some(Utc::now() - Duration::days(28)),
+                    valid_to: Some(Utc::now() - Duration::days(14)),
+                    budget_minor: None,
+                    max_uses: None,
+                    image_url: None,
+                    headline: None,
+                    terms: None,
+                },
+            ],
             actor_id: "merchandiser".into(),
             idempotency_key: "ended-draft".into(),
         },
@@ -2349,7 +2372,8 @@ async fn a_book_numbered_below_the_newest_is_refused(pool: PgPool) {
         .await
         .unwrap_or_else(|e| panic!("a book above the seed is fine: {e}"));
 
-    let backwards = infrastructure::create_commercial_publication(&pool, book(899, "climb-2")).await;
+    let backwards =
+        infrastructure::create_commercial_publication(&pool, book(899, "climb-2")).await;
     let message = match backwards {
         Err(error) => error.to_string(),
         Ok(created) => panic!("a book numbered below v900 was accepted: {created}"),

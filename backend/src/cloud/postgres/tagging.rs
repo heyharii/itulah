@@ -351,12 +351,11 @@ pub async fn create_setup_session(
         // the word somebody got wrong. A retired colour is refused too: a
         // delivery being set up today is new goods, and new goods should not
         // be filed under a shade merchandising has stopped offering.
-        let offered: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM colour WHERE code = $1 AND active)",
-        )
-        .bind(&code)
-        .fetch_one(&mut *tx)
-        .await?;
+        let offered: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM colour WHERE code = $1 AND active)")
+                .bind(&code)
+                .fetch_one(&mut *tx)
+                .await?;
         if !offered {
             return Err(AppError::Validation(format!(
                 "colour {code:?} is not in the colour master, or has been retired; \

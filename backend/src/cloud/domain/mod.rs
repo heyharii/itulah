@@ -19,6 +19,7 @@ mod place;
 mod sales;
 mod supplier;
 mod sync;
+mod voucher;
 
 pub use allotment::*;
 pub use attendance::*;
@@ -41,3 +42,4 @@ pub use place::*;
 pub use sales::*;
 pub use supplier::*;
 pub use sync::*;
+pub use voucher::*;

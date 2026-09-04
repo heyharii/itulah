@@ -1,0 +1,21 @@
+-- 0025: The photograph, delivered to the shop that sells the garment.
+--
+-- `catalog_identities` has answered with an `image_url` since the handheld
+-- needed one, and it finds it by looking through the DC's own work — the
+-- tagging job that printed the labels, or the purchase order line the goods
+-- were bought on. A DC holds both of those. **A shop holds neither.** So every
+-- photograph lookup at a till has resolved to NULL since the day it was
+-- written, and nothing said so: the endpoint answers 404 "no image for SKU",
+-- which reads as a gap in the data rather than as a table that is not there.
+--
+-- The centre has had the picture all along. `article.image_url` is filled in
+-- when a style is set up (migration 0022), and the catalogue snapshot is
+-- already the one delivery that reaches every node in the fleet — it carries
+-- the name, the style, the division and the tags. The photograph belongs with
+-- them for the same reason those do: it describes the garment, not the price,
+-- and it does not change when the price does.
+--
+-- Nullable, and it stays nullable. A style photographed at head office is the
+-- normal case, not a guarantee; a shop whose article was set up before anybody
+-- uploaded a picture must still be able to sell it.
+ALTER TABLE catalog_item ADD COLUMN image_url TEXT;

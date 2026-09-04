@@ -55,6 +55,9 @@ fn test_config(jwt_secret: Option<&str>) -> AppConfig {
         media: None,
         attachments: None,
         default_destination_site_id: "dc".into(),
+        assistant_api_key: None,
+        assistant_base_url: "https://openrouter.ai/api/v1".into(),
+        assistant_model: "anthropic/claude-opus-5".into(),
     }
 }
 

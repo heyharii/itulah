@@ -2,10 +2,18 @@
 //!
 //! # What posting a payment actually does
 //!
-//! Debit `trade_payable` once per bill settled, credit the account the money
-//! left. That is the whole entry. It is the mirror of `payables::post_bill`,
-//! which credited the same payable when the bill arrived, and between the two
-//! a supplier's balance finally rises and falls instead of only rising.
+//! Debit the payable once per bill settled, credit the account the money left.
+//! That is the whole entry. It is the mirror of `payables::post_bill`, which
+//! credited the same payable when the bill arrived, and between the two a
+//! supplier's balance finally rises and falls instead of only rising.
+//!
+//! WHICH payable follows the bill, not the payment. A merchandise bill credited
+//! `trade_payable` and an expense bill credited `non_merchandise_payable`, and
+//! a settlement that debited the wrong one of those would leave both accounts
+//! wrong by the same amount while the trial balance still balanced — the
+//! failure that survives a year. A payment that clears a truckload of stock and
+//! the electricity bill in one transfer therefore posts two debit lines, one
+//! against each payable, and that falls out of debiting per allocation.
 //!
 //! The payable is debited per allocation rather than once for the total, and
 //! each line carries `supplier_id` and names the invoice in its memo. Supplier
@@ -65,6 +73,11 @@ pub struct PaymentAllocation {
     /// without fetching every bill again.
     pub invoice_total_minor: i64,
     pub amount_minor: i64,
+    /// The bill's kind — `MERCHANDISE` or `EXPENSE`. Carried because it decides
+    /// which payable this allocation debits when the payment posts, and because
+    /// a screen listing what a transfer settled should be able to say that one
+    /// of the four was the electricity.
+    pub kind: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -189,7 +202,7 @@ async fn attach_allocations(
     let rows = sqlx::query(
         "SELECT al.payment_id, al.invoice_id, al.amount_minor,
                 i.invoice_number, i.supplier_id, i.supplier_name, i.invoice_date,
-                i.due_date, i.total_minor AS invoice_total_minor
+                i.due_date, i.total_minor AS invoice_total_minor, i.kind
            FROM supplier_payment_allocation al
            JOIN supplier_invoice i USING (invoice_id)
           WHERE al.payment_id = ANY($1)
@@ -210,6 +223,7 @@ async fn attach_allocations(
             due_date: row.try_get("due_date")?,
             invoice_total_minor: row.try_get("invoice_total_minor")?,
             amount_minor: row.try_get("amount_minor")?,
+            kind: row.try_get("kind")?,
         };
         if let Some(payment) = payments.iter_mut().find(|p| p.payment_id == payment_id) {
             payment.allocations.push(allocation);
@@ -399,15 +413,26 @@ pub async fn post_payment(
         )));
     }
 
-    // Dr trade_payable, once per bill, carrying the supplier and naming the
+    // Dr the payable, once per bill, carrying the supplier and naming the
     // invoice / Cr the account the money left, once for the total.
     //
-    // No account code is named here. `trade_payable` and the money key resolve
-    // through `account_map` for this site, so moving the BCA current account is
-    // a row somebody edits on a screen rather than a release.
+    // WHICH payable follows the bill's own kind, because that is the account
+    // the bill credited when it posted. A payment settling both kinds at once
+    // therefore produces one debit line against `trade_payable` and another
+    // against `non_merchandise_payable`, which is what per-allocation lines
+    // give for free.
+    //
+    // No account code is named here. Both payable meanings and the money key
+    // resolve through `account_map` for this site, so moving the BCA current
+    // account is a row somebody edits on a screen rather than a release.
     let mut lines = Vec::with_capacity(existing.allocations.len() + 1);
     for allocation in &existing.allocations {
-        let mut line = PostingLine::debit("trade_payable", &existing.site_id, allocation.amount_minor)
+        let payable = if allocation.kind == "EXPENSE" {
+            "non_merchandise_payable"
+        } else {
+            "trade_payable"
+        };
+        let mut line = PostingLine::debit(payable, &existing.site_id, allocation.amount_minor)
             .for_supplier(&allocation.supplier_id);
         line.memo = Some(format!(
             "{} {}",

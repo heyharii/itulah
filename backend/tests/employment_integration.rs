@@ -140,6 +140,9 @@ fn config() -> AppConfig {
         media: None,
         attachments: None,
         default_destination_site_id: "dc".into(),
+        assistant_api_key: None,
+        assistant_base_url: "https://openrouter.ai/api/v1".into(),
+        assistant_model: "anthropic/claude-opus-5".into(),
     }
 }
 
@@ -334,7 +337,7 @@ async fn hr_hires_somebody_and_that_person_can_read_their_own_record(pool: PgPoo
         "POST",
         &format!("/api/v1/employees/{employee_id}/account"),
         write_headers(&cookies, &csrf),
-        Some(json!({ "username": "siti" })),
+        Some(json!({ "username": "siti", "reason": "akun kasir untuk Siti" })),
     )
     .await;
     assert_eq!(linked.status, StatusCode::OK, "link: {:?}", linked.body);
@@ -470,7 +473,7 @@ async fn one_persons_own_record_does_not_open_anybody_elses(pool: PgPool) {
         "POST",
         &format!("/api/v1/employees/{hers}/account"),
         write_headers(&cookies, &csrf),
-        Some(json!({ "username": "siti" })),
+        Some(json!({ "username": "siti", "reason": "akun kasir untuk Siti" })),
     )
     .await;
 
@@ -713,7 +716,7 @@ async fn supervisor_at(
         "POST",
         &format!("/api/v1/employees/{employee_id}/account"),
         write_headers(cookies, csrf),
-        Some(json!({ "username": username })),
+        Some(json!({ "username": username, "reason": "akun untuk manajer toko" })),
     )
     .await;
     assert_eq!(linked.status, StatusCode::OK, "link: {:?}", linked.body);
@@ -1034,6 +1037,414 @@ async fn head_office_reaches_every_place_without_being_admin(pool: PgPool) {
         refused.status,
         StatusCode::OK,
         "a supervisor may not terminate: {:?}",
+        refused.body
+    );
+}
+
+// ── the login and the employment record are one person ──────────────────────
+//
+// 0060 joined `app_user` to `employee` and left the join inert: HR could bind a
+// login to a record and nothing else in the system cared. The four tests below
+// are the four ways that mattered.
+
+/// Create a login and bind it to an employment record, returning the username.
+async fn login_for(
+    app: &axum::Router,
+    cookies: &str,
+    csrf: &str,
+    employee_id: &str,
+    username: &str,
+    password: &str,
+) -> String {
+    let created = send(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/users",
+        write_headers(cookies, csrf),
+        Some(json!({
+            "username": username,
+            "display_name": username,
+            "password": password,
+            "role": "CASHIER",
+        })),
+    )
+    .await;
+    assert_eq!(
+        created.status,
+        StatusCode::OK,
+        "create {username}: {:?}",
+        created.body
+    );
+
+    let linked = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{employee_id}/account"),
+        write_headers(cookies, csrf),
+        Some(json!({ "username": username, "reason": "akun untuk pegawai baru" })),
+    )
+    .await;
+    assert_eq!(linked.status, StatusCode::OK, "link: {:?}", linked.body);
+    assert_eq!(linked.body["account"]["username"], username);
+    assert_eq!(linked.body["account"]["active"], true);
+    // The binding says who decided it. Nothing else records this: the activity
+    // log keeps request bodies out, and the username being bound is in one.
+    assert_eq!(linked.body["account"]["linked_by"], "admin");
+    assert_eq!(
+        linked.body["account"]["link_reason"],
+        "akun untuk pegawai baru"
+    );
+    username.to_owned()
+}
+
+/// The test 0060 wrote a comment about and nobody wrote the code for.
+///
+/// *"The account is disabled by the code that handles leaving, in daylight."*
+/// There was no such code: terminating somebody recorded an employment event
+/// and left their credential working. This walks the whole distance — she signs
+/// in, she is terminated, the session she already held stops working and a new
+/// one cannot be had.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn leaving_closes_the_login_it_was_bound_to(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let employee_id = hire(&app, &cookies, &csrf, "K0001").await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &employee_id,
+        "siti",
+        CASHIER_PASSWORD,
+    )
+    .await;
+
+    // She has a working session before any of this.
+    let (her_cookies, _) = sign_in(&app, "siti", CASHIER_PASSWORD).await;
+    let before = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees/me/profile",
+        read_headers(&her_cookies),
+        None,
+    )
+    .await;
+    assert_eq!(before.status, StatusCode::OK, "before: {:?}", before.body);
+
+    let left = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{employee_id}/employment"),
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "transition": "TERMINATE",
+            "effective_on": "2026-03-31",
+            "reason": "mengundurkan diri",
+        })),
+    )
+    .await;
+    assert_eq!(left.status, StatusCode::OK, "terminate: {:?}", left.body);
+    assert_eq!(left.body["status"], "TERMINATED");
+    // The answer says the door is shut, in the same breath as saying she left.
+    assert_eq!(left.body["account"]["username"], "siti");
+    assert_eq!(left.body["account"]["active"], false);
+
+    // The session she was already holding is gone, not merely un-renewable.
+    let after = send(
+        app.clone(),
+        "GET",
+        "/api/v1/employees/me/profile",
+        read_headers(&her_cookies),
+        None,
+    )
+    .await;
+    assert_eq!(
+        after.status,
+        StatusCode::UNAUTHORIZED,
+        "her old session after leaving: {:?}",
+        after.body
+    );
+
+    // And she cannot get a new one.
+    let again = send(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/login",
+        vec![],
+        Some(json!({ "username": "siti", "password": CASHIER_PASSWORD })),
+    )
+    .await;
+    assert_eq!(
+        again.status,
+        StatusCode::UNAUTHORIZED,
+        "signing in after leaving: {:?}",
+        again.body
+    );
+
+    // The accounts console knows whose credential this was. Before the join it
+    // listed a username and nothing else, so "which of these belong to somebody
+    // who has left" was a question the screen could not answer at all.
+    let accounts = send(
+        app.clone(),
+        "GET",
+        "/api/v1/auth/users",
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    assert_eq!(
+        accounts.status,
+        StatusCode::OK,
+        "list users: {:?}",
+        accounts.body
+    );
+    let hers = accounts.body["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("items: {:?}", accounts.body))
+        .iter()
+        .find(|row| row["username"] == "siti")
+        .unwrap_or_else(|| panic!("siti is listed: {:?}", accounts.body))
+        .clone();
+    assert_eq!(hers["employee_id"], employee_id);
+    assert_eq!(hers["employee_code"], "K0001");
+    assert_eq!(hers["employee_status"], "TERMINATED");
+    assert_eq!(hers["active"], false);
+
+    // And the admin account beside hers belongs to nobody, which is a fact
+    // about it rather than a gap in the answer.
+    let machine = accounts.body["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("items: {:?}", accounts.body))
+        .iter()
+        .find(|row| row["username"] == "admin")
+        .unwrap_or_else(|| panic!("admin is listed: {:?}", accounts.body))
+        .clone();
+    assert!(machine["employee_id"].is_null(), "admin: {machine:?}");
+}
+
+/// Suspension closes the door too, and coming back does not reopen it.
+///
+/// Somebody stood down pending an investigation who can still sign into a till
+/// has been sent home from the shop and not from the system. Reinstating them
+/// restores their employment and deliberately not their credential: handing a
+/// credential back is its own decision, with its own actor, in System >
+/// Accounts. The view says so rather than leaving anyone to guess.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn suspension_closes_the_login_and_reinstatement_does_not_reopen_it(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let employee_id = hire(&app, &cookies, &csrf, "K0001").await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &employee_id,
+        "siti",
+        CASHIER_PASSWORD,
+    )
+    .await;
+
+    let stood_down = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{employee_id}/employment"),
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "transition": "SUSPEND",
+            "effective_on": "2026-02-01",
+            "reason": "pemeriksaan selisih kas",
+        })),
+    )
+    .await;
+    assert_eq!(
+        stood_down.status,
+        StatusCode::OK,
+        "suspend: {:?}",
+        stood_down.body
+    );
+    assert_eq!(stood_down.body["account"]["active"], false);
+
+    let back = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{employee_id}/employment"),
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "transition": "REINSTATE",
+            "effective_on": "2026-02-14",
+            "reason": "pemeriksaan selesai, tidak terbukti",
+        })),
+    )
+    .await;
+    assert_eq!(back.status, StatusCode::OK, "reinstate: {:?}", back.body);
+    assert_eq!(back.body["status"], "ACTIVE");
+    assert_eq!(
+        back.body["account"]["active"], false,
+        "employment came back; the credential is somebody's decision to return"
+    );
+}
+
+/// The silent identity swap the old implementation allowed.
+///
+/// `UPDATE app_user SET employee_id = $2 WHERE username = $1` moved an account
+/// from one person to another with nothing anywhere recording that the first
+/// person had lost it — and the unique index could not catch it, because it
+/// guards one login per employee and this is one employee per login.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_login_is_not_taken_from_the_person_it_already_belongs_to(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let hers = hire(&app, &cookies, &csrf, "K0001").await;
+    let his = hire(&app, &cookies, &csrf, "K0002").await;
+    login_for(&app, &cookies, &csrf, &hers, "siti", CASHIER_PASSWORD).await;
+
+    let stolen = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{his}/account"),
+        write_headers(&cookies, &csrf),
+        Some(json!({ "username": "siti", "reason": "salah orang" })),
+    )
+    .await;
+    assert_eq!(
+        stolen.status,
+        StatusCode::CONFLICT,
+        "binding somebody else's login: {:?}",
+        stolen.body
+    );
+
+    // Hers, still.
+    let still = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/employees/{hers}"),
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    assert_eq!(still.body["account"]["username"], "siti");
+    let nothing = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/employees/{his}"),
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    assert!(
+        nothing.body["account"].is_null(),
+        "he has no login: {:?}",
+        nothing.body
+    );
+}
+
+/// A binding is releasable, and a released login can be given to the right
+/// person. Without this the refusal above would turn every typo permanent.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_login_bound_to_the_wrong_person_can_be_released_and_rebound(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let wrong = hire(&app, &cookies, &csrf, "K0001").await;
+    let right = hire(&app, &cookies, &csrf, "K0002").await;
+    login_for(&app, &cookies, &csrf, &wrong, "siti", CASHIER_PASSWORD).await;
+
+    let released = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{wrong}/account/release"),
+        write_headers(&cookies, &csrf),
+        Some(json!({ "reason": "akun ini milik pegawai lain" })),
+    )
+    .await;
+    assert_eq!(
+        released.status,
+        StatusCode::OK,
+        "release: {:?}",
+        released.body
+    );
+    assert!(released.body["account"].is_null());
+
+    let rebound = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{right}/account"),
+        write_headers(&cookies, &csrf),
+        Some(json!({ "username": "siti", "reason": "pemilik akun yang sebenarnya" })),
+    )
+    .await;
+    assert_eq!(rebound.status, StatusCode::OK, "rebind: {:?}", rebound.body);
+    assert_eq!(rebound.body["account"]["username"], "siti");
+
+    // Releasing does not close the account: it says the credential is not this
+    // person's, which is usually because it never was.
+    let (_, _) = sign_in(&app, "siti", CASHIER_PASSWORD).await;
+}
+
+/// A credential is not issued to somebody whose employment is over — the state
+/// the rest of this file is busy taking one away from.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_login_is_not_bound_to_somebody_who_has_left(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let employee_id = hire(&app, &cookies, &csrf, "K0001").await;
+    send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{employee_id}/employment"),
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "transition": "TERMINATE",
+            "effective_on": "2026-03-31",
+            "reason": "mengundurkan diri",
+        })),
+    )
+    .await;
+    send(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/users",
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "username": "siti",
+            "display_name": "Siti Rahayu",
+            "password": CASHIER_PASSWORD,
+            "role": "CASHIER",
+        })),
+    )
+    .await;
+
+    let refused = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{employee_id}/account"),
+        write_headers(&cookies, &csrf),
+        Some(json!({ "username": "siti", "reason": "akun untuk mantan pegawai" })),
+    )
+    .await;
+    assert_eq!(
+        refused.status,
+        StatusCode::CONFLICT,
+        "binding a login to somebody who has left: {:?}",
         refused.body
     );
 }

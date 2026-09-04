@@ -58,6 +58,9 @@ pub struct OpenPrintSessionRequest {
     pub label_width_mm: i64,
     #[serde(default = "default_label_height")]
     pub label_height_mm: i64,
+    /// How far in from the left edge the label starts on this reel.
+    #[serde(default = "default_label_offset")]
+    pub label_offset_mm: i64,
     pub chunk_size: Option<i64>,
     /// Which language the machine at this bench speaks. Absent means the
     /// node's own default, which is ZPL unless the node says otherwise: a
@@ -83,6 +86,11 @@ const fn default_label_width() -> i64 {
 }
 const fn default_label_height() -> i64 {
     30
+}
+/// The house reel insets its labels 6 mm from the left edge of the sweep.
+/// Nought is still a valid answer, and is what stock with no inset needs.
+const fn default_label_offset() -> i64 {
+    6
 }
 
 /// Move an open run to the printer in front of whoever is now holding it.
@@ -156,6 +164,10 @@ pub struct LabelPreviewRequest {
     /// other bench would.
     #[serde(default)]
     pub language: Option<PrinterLanguage>,
+    /// Where the label sits on the liner. Left out, the run's own inset, and
+    /// for an unqueued job the node's default.
+    #[serde(default)]
+    pub label_offset_mm: Option<i64>,
 }
 
 /// One label, drawn both ways.
@@ -404,9 +416,9 @@ pub fn open_session(
         .execute(
             "INSERT INTO print_session
                  (session_id,job_id,printer_host,printer_port,lang,
-                  label_width_mm,label_height_mm,chunk_size,total_items,
-                  status,created_by,created_at,updated_at)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'OPEN',?10,?11,?11)",
+                  label_width_mm,label_height_mm,label_offset_mm,chunk_size,
+                  total_items,status,created_by,created_at,updated_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'OPEN',?11,?12,?12)",
             params![
                 session_id,
                 &request.job_id,
@@ -418,6 +430,7 @@ pub fn open_session(
                     .as_str(),
                 request.label_width_mm,
                 request.label_height_mm,
+                request.label_offset_mm,
                 chunk_size,
                 total,
                 request.actor_id,
@@ -478,12 +491,20 @@ pub fn preview_job_label(
     job_id: &str,
     request: &LabelPreviewRequest,
 ) -> Result<LabelPreview, EdgeError> {
-    let run: Option<(String, i64, i64, String)> = connection
+    let run: Option<(String, i64, i64, String, i64)> = connection
         .query_row(
-            "SELECT session_id,label_width_mm,label_height_mm,lang
+            "SELECT session_id,label_width_mm,label_height_mm,lang,label_offset_mm
                FROM print_session WHERE job_id = ?1",
             params![job_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .optional()
         .map_err(db)?;
@@ -493,17 +514,25 @@ pub fn preview_job_label(
     // different reel before committing a bench to it.
     let (fallback_width, fallback_height) = run
         .as_ref()
-        .map(|(_, width, height, _)| (*width, *height))
+        .map(|(_, width, height, _, _)| (*width, *height))
         .unwrap_or_else(|| (default_label_width(), default_label_height()));
+    // The run's own inset, exactly as `claim_chunk` reads it. Drawing the
+    // node default here instead made the preview disagree with the printer
+    // for every run opened on any other reel — and a preview that is not the
+    // label is worse than no preview, because it is believed.
+    let fallback_offset = run
+        .as_ref()
+        .map_or_else(default_label_offset, |(_, _, _, _, offset)| *offset);
     // What the bench asked for; failing that what the run is already sending;
     // failing that the node's default.
     let language = request.language.unwrap_or_else(|| {
         run.as_ref()
-            .map(|(_, _, _, lang)| PrinterLanguage::parse(lang))
+            .map(|(_, _, _, lang, _)| PrinterLanguage::parse(lang))
             .unwrap_or_else(PrinterLanguage::from_env)
     });
     let width_mm = request.label_width_mm.unwrap_or(fallback_width);
     let height_mm = request.label_height_mm.unwrap_or(fallback_height);
+    let offset_mm = request.label_offset_mm.unwrap_or(fallback_offset);
     validate_label_size(width_mm, height_mm)?;
 
     let sku_code = request
@@ -513,13 +542,16 @@ pub fn preview_job_label(
         .filter(|value| !value.is_empty());
 
     let (item, source) = match run.as_ref() {
-        Some((session_id, _, _, _)) => (queued_label(connection, session_id, sku_code)?, "SESSION"),
+        Some((session_id, _, _, _, _)) => {
+            (queued_label(connection, session_id, sku_code)?, "SESSION")
+        }
         None => (job_label(connection, job_id, sku_code)?, "JOB"),
     };
 
     let size = LabelSize {
         width_mm: width_mm as f64,
         height_mm: height_mm as f64,
+        left_offset_mm: offset_mm as f64,
     };
     let data = LabelData {
         sku_code: &item.sku_code,
@@ -652,16 +684,18 @@ pub fn claim_chunk(
 ) -> Result<ClaimedChunk, EdgeError> {
     let transaction = connection.transaction().map_err(db)?;
 
-    let (chunk_size, width_mm, height_mm, printer_host, printer_port, session_lang): (
+    let (chunk_size, width_mm, height_mm, printer_host, printer_port, session_lang, offset_mm): (
         i64,
         i64,
         i64,
         String,
         i64,
         String,
+        i64,
     ) = transaction
         .query_row(
-            "SELECT chunk_size,label_width_mm,label_height_mm,printer_host,printer_port,lang
+            "SELECT chunk_size,label_width_mm,label_height_mm,printer_host,
+                    printer_port,lang,label_offset_mm
                FROM print_session WHERE session_id = ?1",
             params![session_id],
             |row| {
@@ -672,6 +706,7 @@ pub fn claim_chunk(
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
@@ -716,6 +751,7 @@ pub fn claim_chunk(
     let size = LabelSize {
         width_mm: width_mm as f64,
         height_mm: height_mm as f64,
+        left_offset_mm: offset_mm as f64,
     };
     // From the run, not from the environment. A run is opened against one
     // machine and must finish on it — including in the language that machine
@@ -1170,8 +1206,18 @@ pub fn dispatch_chunk(host: &str, port: u16, labels: &[ClaimedLabel]) -> Vec<Pri
 /// one-off documents that have no queue behind them: there is nothing to
 /// chunk, retry or resume, so wrapping them in a session would be ceremony.
 pub fn send_document(host: &str, port: u16, payload: &str) -> Result<(), EdgeError> {
+    send_bytes(host, port, payload.as_bytes())
+}
+
+/// The same socket, for a document that is not text.
+///
+/// A label is a string of ZPL; a receipt is ESC/POS, which carries control
+/// codes between its lines. Both go to a printer on this LAN through the same
+/// guarded resolution, so the byte path is the real one and the string path
+/// delegates to it.
+pub fn send_bytes(host: &str, port: u16, payload: &[u8]) -> Result<(), EdgeError> {
     let addresses = resolve_printer(host, port)?;
-    match send_one(&addresses, payload.as_bytes()) {
+    match send_one(&addresses, payload) {
         None => Ok(()),
         Some(message) => Err(EdgeError::Persistence(message)),
     }
@@ -1257,6 +1303,13 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/sqlite/0020_print_item_colour_and_size.sql"
     ));
+    /// Where the label sits on the liner. Added with the column, because a
+    /// test schema that stops one migration short fails as "no such column"
+    /// on every test in the module rather than on the one that cares.
+    const LABEL_OFFSET_SCHEMA: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/sqlite/0023_where_the_label_sits_on_the_liner.sql"
+    ));
 
     /// A tagging job for one SKU with `count` EPCs, exactly as the cloud sends
     /// it down: ranges expanded to one row per label.
@@ -1265,7 +1318,12 @@ mod tests {
             Ok(connection) => connection,
             Err(error) => panic!("open: {error}"),
         };
-        for schema in [TAGGING_SCHEMA, PRINTING_SCHEMA, LABEL_COLOUR_SIZE_SCHEMA] {
+        for schema in [
+            TAGGING_SCHEMA,
+            PRINTING_SCHEMA,
+            LABEL_COLOUR_SIZE_SCHEMA,
+            LABEL_OFFSET_SCHEMA,
+        ] {
             if let Err(error) = connection.execute_batch(schema) {
                 panic!("schema: {error}");
             }
@@ -1365,6 +1423,8 @@ mod tests {
             printer_port: 9100,
             label_width_mm: 58,
             label_height_mm: 40,
+            label_offset_mm: 0,
+            language: None,
             chunk_size: Some(4),
             actor_id: "operator-1".into(),
         }
@@ -1579,6 +1639,7 @@ mod tests {
             RepointPrinterRequest {
                 printer_host: "  10.0.0.22  ".into(),
                 printer_port: 9101,
+                language: None,
                 chunk_size: Some(2),
                 label_width_mm: None,
                 label_height_mm: None,
@@ -1616,6 +1677,7 @@ mod tests {
                 chunk_size: None,
                 label_width_mm: Some(40),
                 label_height_mm: Some(30),
+                language: None,
             },
         ) {
             Ok(moved) => moved,
@@ -1645,6 +1707,7 @@ mod tests {
                 chunk_size: None,
                 label_width_mm: None,
                 label_height_mm: None,
+                language: None,
             },
         ) {
             Ok(moved) => moved,
@@ -1759,6 +1822,8 @@ mod tests {
                 label_width_mm: Some(58),
                 label_height_mm: Some(40),
                 sku_code: None,
+                language: None,
+                label_offset_mm: None,
             },
         ) {
             Ok(tried) => tried,
@@ -1788,6 +1853,8 @@ mod tests {
                 label_width_mm: None,
                 label_height_mm: None,
                 sku_code: Some("  12345678207  ".into()),
+                language: None,
+                label_offset_mm: None,
             },
         ) {
             Ok(red) => red,
@@ -1845,6 +1912,7 @@ mod tests {
                 chunk_size: None,
                 label_width_mm: None,
                 label_height_mm: None,
+                language: None,
             },
         ) {
             Err(EdgeError::Validation(_)) => {}
@@ -1998,6 +2066,7 @@ mod tests {
                 chunk_size: None,
                 label_width_mm: None,
                 label_height_mm: None,
+                language: None,
             },
         ) {
             Err(EdgeError::Validation(message)) => {

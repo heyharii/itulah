@@ -20,6 +20,7 @@ use crate::cloud::application::AppError;
 use chrono::NaiveDate;
 use serde::Serialize;
 use sqlx::{PgPool, Row};
+use uuid::Uuid;
 
 /// One sub-account across every location.
 #[derive(Clone, Debug, Serialize)]
@@ -251,7 +252,7 @@ pub async fn statement(
         other => {
             return Err(AppError::Validation(format!(
                 "unknown statement {other}; expected BALANCE_SHEET or PROFIT_LOSS"
-            )))
+            )));
         }
     };
 
@@ -364,5 +365,179 @@ pub async fn statement(
         sections,
         result_minor: result,
         out_of_balance_minor: out_of_balance,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Cash and bank, per account and per location
+// ---------------------------------------------------------------------------
+
+/// The meanings that hold money, in the order somebody reads them.
+///
+/// Not alphabetical, and not derived from `required_semantic_keys` either. This
+/// is the order the client's own chart puts them in — the notes and coins
+/// first, then the banks, then what a card scheme still owes — and it is what
+/// makes the screen legible without a second sort. `giro_outstanding` sits with
+/// the banks because it is the other half of a giro: money promised and not yet
+/// taken, which is exactly the figure that explains a bank balance the books
+/// and the statement disagree about.
+///
+/// Eight keys and not the whole map: these are the ones a treasurer counts.
+/// Every other mapped meaning is a cost, a stock figure or a payable, and has a
+/// screen of its own.
+const MONEY_KEYS: [&str; 8] = [
+    "cash",
+    "petty_cash",
+    "cashier_float",
+    "bank_giro",
+    "bank_savings",
+    "giro_outstanding",
+    "card_receivable_credit",
+    "card_receivable_debit",
+];
+
+/// The most recent statement imported against one money account.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MoneyStatementRef {
+    pub statement_id: Uuid,
+    pub period_end: NaiveDate,
+    /// What the bank said the account held at the end of that window.
+    pub closing_minor: i64,
+    /// Lines on that statement nobody has agreed with a journal line. The
+    /// number that says whether the difference beside it is explained or not:
+    /// a difference with no unmatched lines behind it is a real disagreement,
+    /// and one with six is simply unfinished work.
+    pub unmatched_count: i64,
+}
+
+/// One mapped money account, at one location.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MoneyAccountRow {
+    pub semantic_key: String,
+    /// Which bank, which scheme. Empty when the meaning needs no narrowing.
+    pub qualifier: String,
+    pub site_id: String,
+    pub account_code: String,
+    /// The client's own name, never translated.
+    pub account_name: String,
+    /// The ledger balance as at the reporting date: debits minus credits, in
+    /// the account's own sign and deliberately not flipped. `giro_outstanding`
+    /// is a liability and comes back negative, which is what it is; a report
+    /// decides how to present a balance, a balance does not decide for it.
+    pub per_books_minor: i64,
+    /// The latest statement imported for this account at this location on or
+    /// before the reporting date, when there is one. Absent on cash, on a
+    /// cashier float, and on any bank nobody has uploaded a statement for.
+    pub last_statement: Option<MoneyStatementRef>,
+    /// `per_books_minor - last_statement.closing_minor`. Absent, rather than
+    /// zero, when there is no statement — "we agree" and "there is nothing to
+    /// agree with" are different answers and must not render the same.
+    pub difference_minor: Option<i64>,
+}
+
+/// Where the money is, and whether the bank agrees.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MoneyOverview {
+    pub as_of: NaiveDate,
+    pub site_id: Option<String>,
+    pub rows: Vec<MoneyAccountRow>,
+}
+
+/// Every mapped money account, per location, beside the last bank statement.
+///
+/// # Why this is driven off `account_map` and not off the chart
+///
+/// Because the question is "where is our money", and the answer is whatever
+/// Finance has said carries it. Walking the chart under `10110` instead would
+/// list every leaf the client keeps, including the ones no posting rule can
+/// ever reach, and it would silently omit an account somebody mapped somewhere
+/// unexpected. A key mapped nowhere produces no row, which is correct and
+/// visible: the Account Map screen is where that is fixed.
+///
+/// # Why the balance is an exact match and not a prefix
+///
+/// Every other balance in this module matches by prefix, because the caller
+/// picks an altitude in the client's tree. Here the account is one the map
+/// points at, and `account_map` pins `is_group = false`, so it is a leaf and a
+/// posting can only ever land on that exact code. A prefix would be the same
+/// answer today and would quietly start summing a longer code the day the
+/// client added one.
+pub async fn money_overview(
+    pool: &PgPool,
+    as_of: NaiveDate,
+    site_id: Option<&str>,
+) -> Result<MoneyOverview, AppError> {
+    let rows = sqlx::query(
+        "SELECT m.semantic_key, m.qualifier, m.site_id, m.account_code,
+                a.name AS account_name,
+                COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
+                            FROM journal_line l JOIN journal_entry e USING (entry_id)
+                           WHERE l.account_code = m.account_code
+                             AND l.site_id = m.site_id
+                             AND e.posting_date <= $1), 0)::bigint AS per_books,
+                s.statement_id, s.period_end, s.closing_minor, s.unmatched
+           FROM account_map m
+           JOIN ledger_account a ON a.account_code = m.account_code
+           JOIN site st ON st.id = m.site_id
+           -- The latest statement for this account at this location, and how
+           -- much of it is still unexplained. A lateral join rather than a
+           -- window, so the planner stops at the first row per account; the
+           -- import date breaks a tie, because the same period can legitimately
+           -- be uploaded twice and the later upload is the one in force.
+           LEFT JOIN LATERAL (
+               SELECT b.statement_id, b.period_end, b.closing_minor,
+                      (SELECT COUNT(*)::bigint FROM bank_statement_line bl
+                        WHERE bl.statement_id = b.statement_id
+                          AND NOT EXISTS (SELECT 1 FROM bank_line_match bm
+                                           WHERE bm.line_id = bl.line_id)) AS unmatched
+                 FROM bank_statement b
+                WHERE b.account_code = m.account_code
+                  AND b.site_id = m.site_id
+                  AND b.period_end <= $1
+                ORDER BY b.period_end DESC, b.imported_at DESC
+                LIMIT 1
+           ) s ON true
+          WHERE m.semantic_key = ANY($2)
+            AND ($3::text IS NULL OR m.site_id = $3)
+          ORDER BY array_position($2::text[], m.semantic_key), m.qualifier,
+                   (st.kind <> 'DC'), m.site_id",
+    )
+    .bind(as_of)
+    .bind(&MONEY_KEYS[..])
+    .bind(site_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let per_books: i64 = row.try_get("per_books")?;
+        let statement = match row.try_get::<Option<Uuid>, _>("statement_id")? {
+            Some(statement_id) => Some(MoneyStatementRef {
+                statement_id,
+                period_end: row.try_get("period_end")?,
+                closing_minor: row.try_get("closing_minor")?,
+                unmatched_count: row.try_get("unmatched")?,
+            }),
+            None => None,
+        };
+        out.push(MoneyAccountRow {
+            semantic_key: row.try_get("semantic_key")?,
+            qualifier: row.try_get("qualifier")?,
+            site_id: row.try_get("site_id")?,
+            account_code: row.try_get("account_code")?,
+            account_name: row.try_get("account_name")?,
+            per_books_minor: per_books,
+            difference_minor: statement.as_ref().map(|s| per_books - s.closing_minor),
+            last_statement: statement,
+        });
+    }
+
+    Ok(MoneyOverview {
+        as_of,
+        site_id: site_id.map(str::to_string),
+        rows: out,
     })
 }

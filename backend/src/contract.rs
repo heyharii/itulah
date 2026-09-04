@@ -96,9 +96,17 @@ pub struct SessionUser {
 
 /// The login response.
 ///
-/// `token` is for native and CLI callers. A browser ignores it and uses the
+/// `token` is for native and CLI callers, and for a browser talking to a
+/// *second* node. A surface served by its node ignores it and uses the
 /// HttpOnly cookie set alongside: a token in browser storage outlives the tab
 /// it was meant for and is readable by anything else running on the page.
+///
+/// The exception is the hub's Operations module, which reads a DC edge node
+/// while being served by the cloud. Cloud and Edge name their cookies
+/// identically (`security.rs`), so on one origin they are one cookie and
+/// signing in to the warehouse signs you out of the centre. That surface holds
+/// this token in `sessionStorage` — a tab, not a machine — and sends no
+/// cookies to the edge at all.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct LoginResponse {
@@ -245,6 +253,66 @@ pub struct UpsertEdgeAssignmentRequest {
     /// Hashed immediately; never stored in the clear and never sent to the Edge.
     pub edge_password: String,
     pub offline_ttl_seconds: Option<i32>,
+}
+
+/// Issuing a login to somebody who has an employment record and no credential.
+///
+/// One request rather than three, because the three it replaces had to be sent
+/// in order from two different modules of the console and any pause between
+/// them left something half-done — see `postgres::users::provision_account`.
+///
+/// `role` is the rung at the centre; `edge.role` is the rung at the till. They
+/// are separate fields because they are separate decisions: the same person can
+/// be a supervisor at head office and an ordinary cashier at a shop she is
+/// covering.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ProvisionAccountRequest {
+    pub username: String,
+    pub display_name: String,
+    /// The first password, which the holder is expected to change. Never
+    /// stored: hashed on arrival, like every other password on this surface.
+    pub password: String,
+    /// The rung at the centre.
+    pub role: Role,
+    /// Access to one node, when the person works at one. Absent for head
+    /// office, who sign in at the centre and at no till.
+    pub edge: Option<ProvisionEdgeAccess>,
+    /// Why this credential is this person's. The only durable statement of it:
+    /// the activity log keeps request bodies out deliberately, so without this
+    /// nothing anywhere records the decision.
+    pub reason: String,
+}
+
+/// The till half of issuing a login.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ProvisionEdgeAccess {
+    pub origin_id: String,
+    pub role: Role,
+    /// The PIN used at the till. Separate from the Cloud password on purpose:
+    /// the Edge never receives the Cloud one.
+    pub edge_password: String,
+    pub offline_ttl_seconds: Option<i32>,
+}
+
+/// What issuing a login produced. The password is deliberately not echoed —
+/// whoever typed it has it, and a response carrying it would put a live
+/// credential in a browser cache and a server log.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ProvisionedAccount {
+    pub user_id: Uuid,
+    pub username: String,
+    pub display_name: String,
+    pub role: String,
+    pub employee_id: String,
+    /// The node this person may now sign in at, when one was granted, and the
+    /// policy version that carries the grant. A screen that shows the version
+    /// is showing that the node has actually been told.
+    pub edge_origin_id: Option<String>,
+    pub edge_role: Option<String>,
+    pub policy_version: Option<i64>,
 }
 
 /// Suspending or restoring somebody at ONE Edge, leaving every other node

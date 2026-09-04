@@ -2,7 +2,7 @@
 
 use crate::edge::pricing;
 use crate::edge::{
-    derive_allotment_status, validate_command, AdvanceKoliRequest, CommandResult,
+    derive_allotment_status, validate_command, AdvanceKoliRequest, CatalogIdentity, CommandResult,
     CreateKoliShipmentRequest, EdgeError, EdgeInventory, EdgeOfficialCountDetail,
     EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole, FulfillmentProgressResult,
     GoodsReceiptView, IntakeRequest, InventoryState, MoveRequest, MovementCause, MovementCommand,
@@ -11,9 +11,9 @@ use crate::edge::{
     OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest, PickRequest, PickResult, Place,
     PoolBalance, PurchaseCountAwaitingVerification, PurchaseCountRequest, PurchaseCountResult,
     PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine,
-    CatalogIdentity, ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, SaleRequest, SaleResult, SegregationPolicy, SiteId,
-    SiteKind, SubjectId, SystemPlace, TaggingConfirmRequest, TaggingConfirmResult, TaggingWorkJob,
-    TaggingWorkLine,
+    ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, SaleRequest, SaleResult,
+    SegregationPolicy, SiteId, SiteKind, SubjectId, SystemPlace, TaggingConfirmRequest,
+    TaggingConfirmResult, TaggingWorkJob, TaggingWorkLine,
 };
 use crate::sync::workflow::{
     FulfillmentProgressPayload, FulfillmentStage, OfficialCountResultLine,
@@ -179,6 +179,56 @@ pub(crate) const ONE_SOURCE_FOR_A_COUNT_SCHEMA: &str = include_str!(concat!(
 ));
 
 /// The colourway and size a hang tag has to carry to be shoppable.
+/// The till's day: a shift, a sale the shop can take back, and the list price
+/// a receipt needs to explain a markdown.
+/// Printed at the foot of every receipt.
+///
+/// A return has to be refused after the window, and the window is only
+/// enforceable if the customer was told at the counter. It is a constant
+/// rather than a setting because no shop in this fleet has a different one
+/// yet, and a settings table nobody has a screen for is a value nobody can
+/// change anyway.
+const RECEIPT_FOOTER: &str = "Terima kasih. Penukaran maksimal 7 hari dengan struk ini.";
+
+/// The photograph, delivered with the catalogue. See the migration: a shop
+/// holds neither of the two tables the image lookup used to read.
+pub(crate) const CATALOGUE_PHOTOGRAPH_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0025_the_photograph_the_shop_sells_from.sql"
+));
+
+/// Where the die-cut tag sits on the liner. See the migration: ink at x=0
+/// lands on the backing paper, and the tag prints with its left column gone.
+///
+/// Registered here because `migration_hygiene` found it on disk with nothing
+/// applying it, which means the column was absent from every database built
+/// from scratch — the printing tests passed because their inline schema had
+/// been patched to include it, and only theirs.
+pub(crate) const LABEL_OFFSET_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0023_where_the_label_sits_on_the_liner.sql"
+));
+
+/// A clearance that runs on chosen days, between chosen hours. See the
+/// migration: this is what makes a flash sale one markdown rather than one per
+/// slot — and what makes a shelf price change at two in the afternoon.
+pub(crate) const CLEARANCE_HOURS_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0027_a_clearance_may_run_by_the_hour.sql"
+));
+
+/// A run of price drops under one banner, and the banner. See the migration
+/// for why a markdown's campaign gate is the opposite way round from a rule's.
+pub(crate) const MARKDOWN_CAMPAIGN_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0026_a_campaign_may_hold_markdowns.sql"
+));
+
+pub(crate) const TILL_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0024_a_sale_the_shop_can_take_back.sql"
+));
+
 pub(crate) const PRINT_ITEM_COLOUR_SIZE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0020_print_item_colour_and_size.sql"
@@ -582,6 +632,66 @@ impl SqliteEdge {
                 )
                 .map_err(db)?;
         }
+        // Asks whether a sale can be anything but COMPLETED. That CHECK is
+        // what this migration opens, and its absence is the only way to tell a
+        // database that predates the till's day from one that has had it.
+        let a_sale_can_be_taken_back: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type='table' AND name='cash_shift'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_sale_can_be_taken_back == 0 {
+            connection.execute_batch(TILL_SCHEMA).map_err(db)?;
+        }
+        let catalogue_carries_its_photograph: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('catalog_item') WHERE name='image_url'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if catalogue_carries_its_photograph == 0 {
+            connection
+                .execute_batch(CATALOGUE_PHOTOGRAPH_SCHEMA)
+                .map_err(db)?;
+        }
+        let a_markdown_may_name_a_campaign: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('commercial_markdown') WHERE name='campaign_id'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_markdown_may_name_a_campaign == 0 {
+            connection
+                .execute_batch(MARKDOWN_CAMPAIGN_SCHEMA)
+                .map_err(db)?;
+        }
+        let a_reel_states_its_offset: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('print_session') WHERE name='label_offset_mm'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_reel_states_its_offset == 0 {
+            connection.execute_batch(LABEL_OFFSET_SCHEMA).map_err(db)?;
+        }
+        let a_clearance_may_be_scheduled: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('commercial_markdown') WHERE name='from_minute'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_clearance_may_be_scheduled == 0 {
+            connection
+                .execute_batch(CLEARANCE_HOURS_SCHEMA)
+                .map_err(db)?;
+        }
         let request_json_columns: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('idempotency_response') WHERE name='request_json'",
@@ -868,6 +978,20 @@ impl SqliteEdge {
         )
         .map_err(db)?;
         Ok(())
+    }
+
+    /// Refuse a till operation on a node that is not a shop.
+    ///
+    /// A DC has no drawer, no customer and no receipt printer. Naming the
+    /// operation in the message matters: "not available on DC Edge" sends
+    /// somebody to the wrong config file.
+    fn require_store(&self, operation: &str) -> Result<(), EdgeError> {
+        if self.node.role == EdgeRole::Store {
+            return Ok(());
+        }
+        Err(EdgeError::Forbidden(format!(
+            "{operation} is only available on Store Edge"
+        )))
     }
 
     fn validate_command_identity(idempotency_key: &str, actor_id: &str) -> Result<(), EdgeError> {
@@ -3220,7 +3344,9 @@ impl EdgeInventory for SqliteEdge {
             ));
         }
         if request.lines.is_empty() {
-            return Err(EdgeError::Validation("a delivery of nothing is not a delivery".into()));
+            return Err(EdgeError::Validation(
+                "a delivery of nothing is not a delivery".into(),
+            ));
         }
         const MAX_LINES: usize = 1000;
         if request.lines.len() > MAX_LINES {
@@ -3538,13 +3664,11 @@ impl EdgeInventory for SqliteEdge {
             // Two additions of the same numbers is one addition too many: they
             // can drift, and then the receipt and the drawer disagree.
             Some(quote) => quote.total_minor,
-            None => priced
-                .iter()
-                .try_fold(0_i64, |total, line| {
-                    total
-                        .checked_add(line.charged_minor)
-                        .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))
-                })?,
+            None => priced.iter().try_fold(0_i64, |total, line| {
+                total
+                    .checked_add(line.charged_minor)
+                    .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))
+            })?,
         };
         // Every tender, checked together: only cash may exceed the total,
         // because only cash can produce change. A card charged for more than
@@ -3579,6 +3703,7 @@ impl EdgeInventory for SqliteEdge {
             occurred_at,
         };
         let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
+        let shift_id = crate::edge::till::any_open_shift(&tx)?;
         tx.execute(
             // `pricing_trace_id` is written here, and it was not before: the
             // column existed, the engine produced the value, the fact carried
@@ -3586,7 +3711,7 @@ impl EdgeInventory for SqliteEdge {
             // node that can be asked "why was I charged this" with the customer
             // still at the counter — and offline, which is when it matters —
             // was the node that had thrown the answer away.
-            "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at,pricing_trace_id) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8,?9)",
+            "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at,pricing_trace_id,shift_id) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8,?9,?10)",
             params![
                 sale_id.to_string(),
                 request.idempotency_key,
@@ -3596,7 +3721,13 @@ impl EdgeInventory for SqliteEdge {
                 movement.movement_group_id.to_string(),
                 request.actor_id,
                 time_text(occurred_at),
-                quoted.as_ref().map(|quote| quote.trace_id.clone())
+                quoted.as_ref().map(|quote| quote.trace_id.clone()),
+                // Which drawer took this money. NULL when no shift is open,
+                // and the sale still completes: a till that refused to sell
+                // because nobody pressed "open shift" is a queue, and the
+                // shop's problem is then the paperwork rather than the
+                // customer. The Z report counts what it can attribute.
+                shift_id
             ],
         )
         .map_err(db)?;
@@ -3619,15 +3750,20 @@ impl EdgeInventory for SqliteEdge {
         for (subject, line) in subjects.iter().zip(priced.iter()) {
             let PricedLine {
                 charged_minor,
+                base_minor,
                 price_source,
                 publication_version,
                 ..
             } = line;
             tx.execute(
+                // `base_unit_price_minor` is written here, and it was not
+                // before: the engine produced it and the shop's own copy threw
+                // it away, so a receipt could say what was charged and never
+                // what the markdown was worth.
                 "INSERT INTO sale_line
                      (sale_id,subject_id,epc,sku_code,unit_price_minor,quantity,
-                      price_source,publication_version)
-                 VALUES(?1,?2,?3,?4,?5,1,?6,?7)",
+                      price_source,publication_version,base_unit_price_minor)
+                 VALUES(?1,?2,?3,?4,?5,1,?6,?7,?8)",
                 params![
                     sale_id.to_string(),
                     subject.id.to_string(),
@@ -3635,7 +3771,8 @@ impl EdgeInventory for SqliteEdge {
                     subject.sku_code,
                     charged_minor,
                     price_source,
-                    publication_version
+                    publication_version,
+                    base_minor
                 ],
             )
             .map_err(db)?;
@@ -3881,10 +4018,7 @@ impl EdgeInventory for SqliteEdge {
     /// EPC already carries its own SKU, so nothing here is on the path between
     /// reading a tag and showing what it is; this only adds the human-readable
     /// name.
-    fn catalog_identities(
-        &self,
-        sku_codes: &[String],
-    ) -> Result<Vec<CatalogIdentity>, EdgeError> {
+    fn catalog_identities(&self, sku_codes: &[String]) -> Result<Vec<CatalogIdentity>, EdgeError> {
         if sku_codes.is_empty() {
             return Ok(Vec::new());
         }
@@ -3903,9 +4037,20 @@ impl EdgeInventory for SqliteEdge {
             .collect::<Vec<_>>()
             .join(",");
         let sql = format!(
+            // The catalogue's own picture first, then the DC's working copies.
+            //
+            // `catalog_item.image_url` is the centre's master, delivered with
+            // the rest of what a product IS (migration 0025). The two
+            // subqueries under it are a DC's copies of the same photograph,
+            // frozen when the labels were printed or the order was placed —
+            // and they are the only ones a shop was ever offered, which is why
+            // a till answered 404 for every garment in the range. Keeping them
+            // below rather than deleting them means a DC that has not yet been
+            // sent a catalogue carrying pictures still shows the ones it has.
             "SELECT c.sku_code,c.name,c.article_code,c.division_code,c.barcode,
                     c.base_price_minor,c.tags_json,c.active,
                     COALESCE(
+                        c.image_url,
                         (SELECT j.image_url FROM tagging_job j
                           WHERE j.article_code = c.article_code
                             AND j.image_url IS NOT NULL
@@ -3957,6 +4102,34 @@ impl EdgeInventory for SqliteEdge {
             Utc::now(),
             query,
         )
+    }
+
+    fn store_offers(&self) -> Result<pricing::StoreOffers, EdgeError> {
+        if self.node.role != EdgeRole::Store {
+            return Err(EdgeError::Forbidden(
+                "promotions are offered to shoppers, and a DC has none".into(),
+            ));
+        }
+        let connection = self.lock()?;
+        pricing::store_offers(
+            &connection,
+            self.node.site_id.as_str(),
+            pricing::STORE_CHANNEL,
+            Utc::now(),
+        )
+    }
+
+    fn campaign_image_url(&self, campaign_id: &str) -> Result<Option<String>, EdgeError> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT image_url FROM commercial_campaign WHERE campaign_id=?1",
+                [campaign_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map(Option::flatten)
+            .map_err(db)
     }
 
     fn sales_series(
@@ -4155,6 +4328,412 @@ impl EdgeInventory for SqliteEdge {
         })
         .collect()
     }
+
+    // ── The till's day ──────────────────────────────────────────────────
+
+    fn open_shift(
+        &self,
+        request: crate::edge::till::OpenShiftRequest,
+    ) -> Result<crate::edge::till::ShiftReport, EdgeError> {
+        self.require_store("a cash shift")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) =
+            Self::load_idempotent(&tx, &request.idempotency_key, "SHIFT_OPEN", &request_json)?
+        {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        let report = crate::edge::till::open_shift(&tx, &request)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "SHIFT_OPEN",
+            &request_json,
+            &report,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(report)
+    }
+
+    fn active_shift(
+        &self,
+        terminal_id: Option<&str>,
+    ) -> Result<Option<crate::edge::till::ShiftReport>, EdgeError> {
+        let connection = self.lock()?;
+        let shift_id = match terminal_id {
+            Some(terminal) => crate::edge::till::open_shift_id(&connection, terminal)?,
+            None => crate::edge::till::any_open_shift(&connection)?,
+        };
+        shift_id
+            .map(|shift_id| crate::edge::till::report(&connection, &shift_id))
+            .transpose()
+    }
+
+    fn record_cash_movement(
+        &self,
+        shift_id: &str,
+        request: crate::edge::till::CashMovementRequest,
+    ) -> Result<crate::edge::till::ShiftReport, EdgeError> {
+        self.require_store("a cash movement")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) = Self::load_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "CASH_MOVEMENT",
+            &request_json,
+        )? {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        let report = crate::edge::till::record_cash_movement(&tx, shift_id, &request)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "CASH_MOVEMENT",
+            &request_json,
+            &report,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(report)
+    }
+
+    fn close_shift(
+        &self,
+        shift_id: &str,
+        request: crate::edge::till::CloseShiftRequest,
+    ) -> Result<crate::edge::till::ShiftReport, EdgeError> {
+        self.require_store("a cash shift")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) =
+            Self::load_idempotent(&tx, &request.idempotency_key, "SHIFT_CLOSE", &request_json)?
+        {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        let report = crate::edge::till::close_shift(&tx, shift_id, &request)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "SHIFT_CLOSE",
+            &request_json,
+            &report,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(report)
+    }
+
+    fn shift_report(&self, shift_id: &str) -> Result<crate::edge::till::ShiftReport, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::till::report(&connection, shift_id)
+    }
+
+    fn void_sale(
+        &self,
+        sale_id: &str,
+        request: crate::edge::till::VoidSaleRequest,
+    ) -> Result<crate::edge::till::VoidResult, EdgeError> {
+        self.require_store("a void")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        if request.reason.trim().is_empty() {
+            return Err(EdgeError::Validation("a void needs a reason".into()));
+        }
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) =
+            Self::load_idempotent(&tx, &request.idempotency_key, "SALE_VOID", &request_json)?
+        {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+
+        // Who authorised it, before anything moves. A void nobody signed is a
+        // void nobody can be asked about.
+        let approved_by = crate::edge::till::verify_supervisor(&tx, Some(&request.supervisor))?;
+
+        match crate::edge::till::sale_status(&tx, sale_id)?.as_str() {
+            "COMPLETED" => {}
+            other => {
+                return Err(EdgeError::Conflict(format!(
+                    "sale {sale_id} is already {other}"
+                )))
+            }
+        }
+
+        // Only what is still out with the customer. A unit already returned
+        // came home on its own movement, and carrying it a second time would
+        // put one garment on the floor twice.
+        let outstanding: Vec<crate::edge::till::SoldLine> =
+            crate::edge::till::sold_lines(&tx, sale_id)?
+                .into_iter()
+                .filter(|line| !line.already_returned)
+                .collect();
+        if outstanding.is_empty() {
+            return Err(EdgeError::Conflict(format!(
+                "every unit of sale {sale_id} has already come back"
+            )));
+        }
+
+        let occurred_at = Utc::now();
+        let floor = Place::Operational {
+            pool: OperationalPool::StoreFloor {
+                store_id: self.node.site_id.clone(),
+            },
+            state: InventoryState::Normal,
+        };
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines: outstanding
+                .iter()
+                .map(|line| {
+                    Ok(MovementLine {
+                        subject_id: SubjectId(parse_uuid(&line.subject_id)?),
+                        quantity: 1,
+                        from: Place::External {
+                            place: crate::edge::ExternalPlace::Customer,
+                        },
+                        to: floor.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>, EdgeError>>()?,
+            cause: MovementCause::CustomerReturn,
+            reference_type: Some("SALE_VOID".into()),
+            reference_id: Some(sale_id.to_string()),
+            reason: format!("Sale voided: {}", request.reason.trim()),
+            actor_id: request.actor_id.clone(),
+            occurred_at,
+        };
+        let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
+        crate::edge::till::mark_voided(&tx, sale_id, &request, &approved_by, occurred_at)?;
+
+        let refund_minor = outstanding
+            .iter()
+            .try_fold(0_i64, |total, line| total.checked_add(line.charged_minor))
+            .ok_or_else(|| EdgeError::Validation("void total overflow".into()))?;
+        let result = crate::edge::till::VoidResult {
+            sale_id: sale_id.to_string(),
+            refund_minor,
+            movement_group_id: movement.movement_group_id.to_string(),
+            approved_by,
+            voided_at: time_text(occurred_at),
+            lines: outstanding
+                .iter()
+                .map(|line| crate::edge::till::ReturnedLine {
+                    epc: line.epc.clone(),
+                    sku_code: line.sku_code.clone(),
+                    refund_minor: line.charged_minor,
+                    disposition: "RESALEABLE".to_string(),
+                })
+                .collect(),
+        };
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "SALE_VOID",
+            &request_json,
+            &result,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(result)
+    }
+
+    fn return_sale(
+        &self,
+        request: crate::edge::till::ReturnRequest,
+    ) -> Result<crate::edge::till::ReturnResult, EdgeError> {
+        self.require_store("a return")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        if request.lines.is_empty() {
+            return Err(EdgeError::Validation(
+                "a return needs at least one scanned unit".into(),
+            ));
+        }
+        if request.reason.trim().is_empty() {
+            return Err(EdgeError::Validation("a return needs a reason".into()));
+        }
+        crate::tender::PaymentMethod::from_str(&request.refund_method)
+            .map_err(|error| EdgeError::Validation(error.to_string()))?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) =
+            Self::load_idempotent(&tx, &request.idempotency_key, "SALE_RETURN", &request_json)?
+        {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+
+        let approved_by = crate::edge::till::verify_supervisor(&tx, Some(&request.supervisor))?;
+        match crate::edge::till::sale_status(&tx, &request.sale_id)?.as_str() {
+            "COMPLETED" => {}
+            other => {
+                return Err(EdgeError::Conflict(format!(
+                    "sale {} is {other} and cannot be returned against",
+                    request.sale_id
+                )))
+            }
+        }
+
+        let sold = crate::edge::till::sold_lines(&tx, &request.sale_id)?;
+        let mut chosen: Vec<(crate::edge::till::SoldLine, String)> =
+            Vec::with_capacity(request.lines.len());
+        let mut seen: HashSet<String> = HashSet::new();
+        for line in &request.lines {
+            let epc = Self::normalized_epc(&line.epc)?;
+            if !seen.insert(epc.clone()) {
+                return Err(EdgeError::Validation(format!(
+                    "EPC {epc} was scanned twice on one return"
+                )));
+            }
+            let disposition = line.disposition.trim().to_ascii_uppercase();
+            if !matches!(disposition.as_str(), "RESALEABLE" | "DAMAGED") {
+                return Err(EdgeError::Validation(format!(
+                    "unknown disposition {disposition}"
+                )));
+            }
+            // The unit has to be one this sale sold. A garment returned
+            // against the wrong receipt is a refund the shop cannot trace back
+            // to money it ever took.
+            let sold_line = sold
+                .iter()
+                .find(|candidate| candidate.epc == epc)
+                .ok_or_else(|| {
+                    EdgeError::Validation(format!(
+                        "EPC {epc} was not sold on sale {}",
+                        request.sale_id
+                    ))
+                })?;
+            if sold_line.already_returned {
+                return Err(EdgeError::Conflict(format!(
+                    "EPC {epc} has already been returned"
+                )));
+            }
+            chosen.push((sold_line.clone(), disposition));
+        }
+
+        let occurred_at = Utc::now();
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines: chosen
+                .iter()
+                .map(|(line, disposition)| {
+                    // Anything not fit to sell must not reach the rail by
+                    // default: the reject pool is where it waits for a
+                    // decision.
+                    let pool = if disposition == "DAMAGED" {
+                        OperationalPool::StoreReject {
+                            store_id: self.node.site_id.clone(),
+                        }
+                    } else {
+                        OperationalPool::StoreFloor {
+                            store_id: self.node.site_id.clone(),
+                        }
+                    };
+                    Ok(MovementLine {
+                        subject_id: SubjectId(parse_uuid(&line.subject_id)?),
+                        quantity: 1,
+                        from: Place::External {
+                            place: crate::edge::ExternalPlace::Customer,
+                        },
+                        to: Place::Operational {
+                            pool,
+                            state: InventoryState::Normal,
+                        },
+                    })
+                })
+                .collect::<Result<Vec<_>, EdgeError>>()?,
+            cause: MovementCause::CustomerReturn,
+            reference_type: Some("SALE_RETURN".into()),
+            reference_id: Some(request.sale_id.clone()),
+            reason: format!("Customer return: {}", request.reason.trim()),
+            actor_id: request.actor_id.clone(),
+            occurred_at,
+        };
+        let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
+
+        let shift_id = crate::edge::till::any_open_shift(&tx)?;
+        let return_id = Uuid::new_v4().to_string();
+        let result = crate::edge::till::record_return(
+            &tx,
+            &return_id,
+            &request,
+            &approved_by,
+            shift_id.as_deref(),
+            &movement.movement_group_id.to_string(),
+            &chosen,
+            occurred_at,
+        )?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "SALE_RETURN",
+            &request_json,
+            &result,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(result)
+    }
+
+    fn sale_receipt(
+        &self,
+        sale_id: &str,
+    ) -> Result<crate::edge::escpos::ReceiptDocument, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::till::receipt_document(
+            &connection,
+            sale_id,
+            &self.node.site_id.as_str().to_ascii_uppercase(),
+            self.node.site_id.as_str(),
+            Some(RECEIPT_FOOTER),
+        )
+    }
+
+    fn print_sale_receipt(
+        &self,
+        sale_id: &str,
+        request: crate::edge::till::PrintReceiptRequest,
+    ) -> Result<serde_json::Value, EdgeError> {
+        let document = {
+            let connection = self.lock()?;
+            crate::edge::till::receipt_document(
+                &connection,
+                sale_id,
+                &self.node.site_id.as_str().to_ascii_uppercase(),
+                self.node.site_id.as_str(),
+                Some(RECEIPT_FOOTER),
+            )?
+        };
+        // The socket is opened with the database lock RELEASED. A printer that
+        // is switched off blocks for the connect timeout, and holding the one
+        // connection for that long stops every other till operation on this
+        // node — including the next sale.
+        let bytes = crate::edge::till::print_receipt(&document, &request)?;
+        Ok(serde_json::json!({
+            "sale_id": sale_id,
+            "receipt_no": document.receipt_no,
+            "printer": format!("{}:{}", request.printer_host, request.printer_port),
+            "bytes": bytes,
+        }))
+    }
 }
 
 fn now_text() -> String {
@@ -4307,6 +4886,655 @@ mod tests {
         assert_eq!(store_floor.stock, 0);
         assert!(dc.list_movements(20).is_ok_and(|rows| rows.len() == 3));
         assert!(store.list_movements(20).is_ok_and(|rows| rows.len() == 3));
+    }
+
+    // ── The till's day ──────────────────────────────────────────────────
+
+    /// A shop with one garment on the floor, sold, and a supervisor who can
+    /// authorise taking it back.
+    fn shop_with_one_sale(key: &str) -> (SqliteEdge, String) {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        store
+            .receive_store(ReceiveRequest {
+                epc: "EPC-TILL-001".into(),
+                sku_code: "SKU-001".into(),
+                unit_price_minor: 150_000,
+                source_dc_id: Some(
+                    SiteId::new("dc-01").unwrap_or_else(|error| panic!("source DC: {error}")),
+                ),
+                shipment_reference: None,
+                actor_id: "store-receiver".into(),
+                idempotency_key: format!("{key}-receive"),
+            })
+            .unwrap_or_else(|error| panic!("receive: {error}"));
+        move_epc(
+            &store,
+            "EPC-TILL-001",
+            "store-07.warehouse:on_hand",
+            "store-07.floor:on_hand",
+            &format!("{key}-floor"),
+        );
+        let sale = store
+            .complete_sale(SaleRequest {
+                coupon_codes: Vec::new(),
+                customer_id: None,
+                epcs: vec!["EPC-TILL-001".into()],
+                tenders: vec![crate::tender::SaleTender {
+                    method: crate::tender::PaymentMethod::Cash,
+                    amount_minor: 200_000,
+                    reference: None,
+                }],
+                actor_id: "siti".into(),
+                idempotency_key: format!("{key}-sale"),
+            })
+            .unwrap_or_else(|error| panic!("sale: {error}"));
+        (store, sale.sale_id.to_string())
+    }
+
+    /// A supervisor who really exists, because `verify_supervisor` checks
+    /// against `edge_user` rather than trusting the caller.
+    fn seed_supervisor(edge: &SqliteEdge, username: &str, password: &str) {
+        let connection = edge
+            .connection
+            .lock()
+            .unwrap_or_else(|error| panic!("connection: {error}"));
+        let hash = crate::security::hash_password(password, 8)
+            .unwrap_or_else(|error| panic!("hash: {error}"));
+        connection
+            .execute(
+                "INSERT INTO edge_user(id,username,display_name,password_hash,role,active,
+                                       auth_version,source,created_at,updated_at)
+                 VALUES(?1,?2,?2,?3,'SUPERVISOR',1,1,'LOCAL',?4,?4)",
+                params![Uuid::new_v4().to_string(), username, hash, now_text()],
+            )
+            .unwrap_or_else(|error| panic!("seed supervisor: {error}"));
+    }
+
+    fn supervisor(username: &str, password: &str) -> crate::edge::till::Supervisor {
+        crate::edge::till::Supervisor {
+            username: username.into(),
+            password: password.into(),
+        }
+    }
+
+    /// One terminal, one drawer. A second open shift on the same till would
+    /// mean two cashiers each believing the other's cash was theirs.
+    #[test]
+    fn a_terminal_has_at_most_one_open_shift() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        let open = |key: &str| crate::edge::till::OpenShiftRequest {
+            terminal_id: "TILL-1".into(),
+            opening_float_minor: 500_000,
+            actor_id: "siti".into(),
+            idempotency_key: key.into(),
+        };
+        store
+            .open_shift(open("shift-1"))
+            .unwrap_or_else(|error| panic!("first shift: {error}"));
+        assert!(store.open_shift(open("shift-2")).is_err());
+    }
+
+    /// The float is a cash movement, not a second source of truth. A drawer
+    /// whose arithmetic had two inputs would have one nobody looks at.
+    #[test]
+    fn the_opening_float_is_the_first_cash_movement() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        let report = store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 500_000,
+                actor_id: "siti".into(),
+                idempotency_key: "shift-float".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+        assert_eq!(report.movements.len(), 1);
+        assert_eq!(report.movements[0].kind, "OPENING_FLOAT");
+        assert_eq!(report.expected_cash_minor, 500_000);
+    }
+
+    /// The drawer holds the float plus what was taken in cash, LESS the change
+    /// handed back. A till that forgot the change is long by exactly it, every
+    /// evening.
+    #[test]
+    fn expected_cash_subtracts_the_change_given() {
+        let (store, _) = shop_with_one_sale("expected");
+        // The shift opens before the sale in a real shop; here the sale in the
+        // fixture predates it, so open one and sell again to attribute money.
+        store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 100_000,
+                actor_id: "siti".into(),
+                idempotency_key: "expected-shift".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+        store
+            .receive_store(ReceiveRequest {
+                epc: "EPC-TILL-002".into(),
+                sku_code: "SKU-001".into(),
+                unit_price_minor: 150_000,
+                source_dc_id: None,
+                shipment_reference: None,
+                actor_id: "store-receiver".into(),
+                idempotency_key: "expected-receive-2".into(),
+            })
+            .unwrap_or_else(|error| panic!("receive: {error}"));
+        move_epc(
+            &store,
+            "EPC-TILL-002",
+            "store-07.warehouse:on_hand",
+            "store-07.floor:on_hand",
+            "expected-floor-2",
+        );
+        store
+            .complete_sale(SaleRequest {
+                coupon_codes: Vec::new(),
+                customer_id: None,
+                epcs: vec!["EPC-TILL-002".into()],
+                tenders: vec![crate::tender::SaleTender {
+                    method: crate::tender::PaymentMethod::Cash,
+                    amount_minor: 200_000,
+                    reference: None,
+                }],
+                actor_id: "siti".into(),
+                idempotency_key: "expected-sale-2".into(),
+            })
+            .unwrap_or_else(|error| panic!("sale: {error}"));
+
+        let report = store
+            .active_shift(Some("TILL-1"))
+            .unwrap_or_else(|error| panic!("active: {error}"))
+            .unwrap_or_else(|| panic!("a shift is open"));
+        assert_eq!(report.sale_count, 1);
+        assert_eq!(report.cash_sales_minor, 200_000);
+        assert_eq!(report.change_given_minor, 50_000);
+        // 100_000 float + 200_000 taken - 50_000 change.
+        assert_eq!(report.expected_cash_minor, 250_000);
+    }
+
+    /// A card sale is not in the drawer. A till that added it would report a
+    /// shortage every evening for exactly the card takings.
+    #[test]
+    fn non_cash_stays_out_of_the_drawer() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 100_000,
+                actor_id: "siti".into(),
+                idempotency_key: "card-shift".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+        store
+            .receive_store(ReceiveRequest {
+                epc: "EPC-CARD-001".into(),
+                sku_code: "SKU-001".into(),
+                unit_price_minor: 150_000,
+                source_dc_id: None,
+                shipment_reference: None,
+                actor_id: "store-receiver".into(),
+                idempotency_key: "card-receive".into(),
+            })
+            .unwrap_or_else(|error| panic!("receive: {error}"));
+        move_epc(
+            &store,
+            "EPC-CARD-001",
+            "store-07.warehouse:on_hand",
+            "store-07.floor:on_hand",
+            "card-floor",
+        );
+        store
+            .complete_sale(SaleRequest {
+                coupon_codes: Vec::new(),
+                customer_id: None,
+                epcs: vec!["EPC-CARD-001".into()],
+                tenders: vec![crate::tender::SaleTender {
+                    method: crate::tender::PaymentMethod::Card,
+                    amount_minor: 150_000,
+                    reference: Some("BCA-approval".into()),
+                }],
+                actor_id: "siti".into(),
+                idempotency_key: "card-sale".into(),
+            })
+            .unwrap_or_else(|error| panic!("sale: {error}"));
+        let report = store
+            .active_shift(None)
+            .unwrap_or_else(|error| panic!("active: {error}"))
+            .unwrap_or_else(|| panic!("a shift is open"));
+        assert_eq!(report.non_cash_minor, 150_000);
+        assert_eq!(report.cash_sales_minor, 0);
+        assert_eq!(report.expected_cash_minor, 100_000);
+    }
+
+    /// Blind: the declaration arrives with the request and the expectation is
+    /// computed here, so the two cannot be reconciled afterwards into agreeing.
+    #[test]
+    fn closing_stores_both_numbers_and_their_difference() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        let shift = store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 500_000,
+                actor_id: "siti".into(),
+                idempotency_key: "close-shift".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+        let closed = store
+            .close_shift(
+                &shift.shift_id,
+                crate::edge::till::CloseShiftRequest {
+                    declared_cash_minor: 495_000,
+                    note: Some("kurang 5rb".into()),
+                    actor_id: "siti".into(),
+                    idempotency_key: "close-1".into(),
+                },
+            )
+            .unwrap_or_else(|error| panic!("close: {error}"));
+        assert_eq!(closed.status, "CLOSED");
+        assert_eq!(closed.declared_cash_minor, Some(495_000));
+        assert_eq!(closed.expected_cash_minor, 500_000);
+        assert_eq!(closed.variance_minor, Some(-5_000));
+        // Closed once, and a second close is a conflict rather than a second
+        // set of figures.
+        assert!(store
+            .close_shift(
+                &shift.shift_id,
+                crate::edge::till::CloseShiftRequest {
+                    declared_cash_minor: 500_000,
+                    note: None,
+                    actor_id: "siti".into(),
+                    idempotency_key: "close-2".into(),
+                },
+            )
+            .is_err());
+    }
+
+    /// Money leaving the drawer is the direction somebody steals in.
+    #[test]
+    fn a_payout_needs_a_supervisor_and_a_drop_does_not() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+        let shift = store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 500_000,
+                actor_id: "siti".into(),
+                idempotency_key: "payout-shift".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+
+        store
+            .record_cash_movement(
+                &shift.shift_id,
+                crate::edge::till::CashMovementRequest {
+                    kind: "DROP".into(),
+                    amount_minor: -200_000,
+                    reason: "Setor ke brankas".into(),
+                    actor_id: "siti".into(),
+                    supervisor: None,
+                    idempotency_key: "drop-1".into(),
+                },
+            )
+            .unwrap_or_else(|error| panic!("drop: {error}"));
+
+        assert!(store
+            .record_cash_movement(
+                &shift.shift_id,
+                crate::edge::till::CashMovementRequest {
+                    kind: "PAYOUT".into(),
+                    amount_minor: -50_000,
+                    reason: "Beli galon".into(),
+                    actor_id: "siti".into(),
+                    supervisor: None,
+                    idempotency_key: "payout-unsigned".into(),
+                },
+            )
+            .is_err());
+
+        // The wrong password is refused the same way a missing supervisor is.
+        assert!(store
+            .record_cash_movement(
+                &shift.shift_id,
+                crate::edge::till::CashMovementRequest {
+                    kind: "PAYOUT".into(),
+                    amount_minor: -50_000,
+                    reason: "Beli galon".into(),
+                    actor_id: "siti".into(),
+                    supervisor: Some(supervisor("budi", "salah")),
+                    idempotency_key: "payout-wrong".into(),
+                },
+            )
+            .is_err());
+
+        let report = store
+            .record_cash_movement(
+                &shift.shift_id,
+                crate::edge::till::CashMovementRequest {
+                    kind: "PAYOUT".into(),
+                    amount_minor: -50_000,
+                    reason: "Beli galon".into(),
+                    actor_id: "siti".into(),
+                    supervisor: Some(supervisor("budi", "rahasia-panjang")),
+                    idempotency_key: "payout-signed".into(),
+                },
+            )
+            .unwrap_or_else(|error| panic!("payout: {error}"));
+        assert_eq!(report.expected_cash_minor, 250_000);
+        assert_eq!(
+            report
+                .movements
+                .iter()
+                .find(|movement| movement.kind == "PAYOUT")
+                .and_then(|movement| movement.approved_by.clone()),
+            Some("budi".to_string())
+        );
+    }
+
+    /// A void is a reversal, not a delete: the sale keeps its total and the
+    /// garment comes home on a movement of its own.
+    #[test]
+    fn a_void_returns_the_goods_and_keeps_the_sale() {
+        let (store, sale_id) = shop_with_one_sale("void");
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+
+        let result = store
+            .void_sale(
+                &sale_id,
+                crate::edge::till::VoidSaleRequest {
+                    reason: "Salah scan".into(),
+                    supervisor: supervisor("budi", "rahasia-panjang"),
+                    actor_id: "siti".into(),
+                    idempotency_key: "void-1".into(),
+                },
+            )
+            .unwrap_or_else(|error| panic!("void: {error}"));
+        assert_eq!(result.refund_minor, 150_000);
+        assert_eq!(result.lines.len(), 1);
+        assert_eq!(result.approved_by, "budi");
+
+        // The garment is back on the floor, and the sale still exists.
+        let floor = store
+            .list_pools()
+            .unwrap_or_else(|error| panic!("pools: {error}"))
+            .into_iter()
+            .find(|pool| pool.pool_id == "store-07.floor")
+            .unwrap_or_else(|| panic!("floor pool"));
+        assert_eq!(floor.on_hand, 1);
+
+        // Voiding it twice is a conflict, not a second refund.
+        assert!(store
+            .void_sale(
+                &sale_id,
+                crate::edge::till::VoidSaleRequest {
+                    reason: "Salah scan".into(),
+                    supervisor: supervisor("budi", "rahasia-panjang"),
+                    actor_id: "siti".into(),
+                    idempotency_key: "void-2".into(),
+                },
+            )
+            .is_err());
+    }
+
+    /// The takings and the drawer are read off the same shop on the same
+    /// screen, so they must not disagree about what a void is.
+    ///
+    /// `till::report` has always asked for `status='COMPLETED'`; the sales
+    /// reports asked for nothing and counted the voided sale as money the shop
+    /// took. A manager closing up saw a till that balanced and a day that did
+    /// not, with no way to tell which one was lying.
+    #[test]
+    fn a_voided_sale_leaves_the_day_takings() {
+        let (store, sale_id) = shop_with_one_sale("takings");
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+
+        let today = Utc::now().date_naive();
+        let window = |store: &SqliteEdge| {
+            store
+                .sales_window(crate::edge::reports::SalesWindowQuery {
+                    from: today,
+                    to: today,
+                    utc_offset_minutes: Some(0),
+                    limit: None,
+                })
+                .unwrap_or_else(|error| panic!("window: {error}"))
+        };
+
+        let before = window(&store);
+        assert_eq!(before.sales.count, 1);
+        assert_eq!(before.sales.gross_minor, 150_000);
+        assert_eq!(before.sales.units_sold, 1);
+        assert_eq!(before.receipts.len(), 1);
+
+        store
+            .void_sale(
+                &sale_id,
+                crate::edge::till::VoidSaleRequest {
+                    reason: "Salah scan".into(),
+                    supervisor: supervisor("budi", "rahasia-panjang"),
+                    actor_id: "siti".into(),
+                    idempotency_key: "void-takings".into(),
+                },
+            )
+            .unwrap_or_else(|error| panic!("void: {error}"));
+
+        let after = window(&store);
+        assert_eq!(after.sales.count, 0, "a voided sale is not a sale");
+        assert_eq!(after.sales.gross_minor, 0, "a voided sale is not money");
+        assert_eq!(after.sales.units_sold, 0, "the garment came home");
+        assert!(
+            after.receipts.is_empty(),
+            "a voided sale has no receipt to list"
+        );
+        // The tender split is read from the same rows and must go with them,
+        // or cash and card add up to more than the day took.
+        assert!(after.tenders.is_empty(), "{:?}", after.tenders);
+    }
+
+    /// A void nobody signed is a void nobody can be asked about.
+    #[test]
+    fn a_void_without_a_real_supervisor_is_refused() {
+        let (store, sale_id) = shop_with_one_sale("unsigned");
+        assert!(store
+            .void_sale(
+                &sale_id,
+                crate::edge::till::VoidSaleRequest {
+                    reason: "Salah scan".into(),
+                    supervisor: supervisor("hantu", "apa-saja"),
+                    actor_id: "siti".into(),
+                    idempotency_key: "void-ghost".into(),
+                },
+            )
+            .is_err());
+        // And the sale is untouched.
+        assert_eq!(
+            store
+                .sale_receipt(&sale_id)
+                .unwrap_or_else(|error| panic!("receipt: {error}"))
+                .stamp,
+            None
+        );
+    }
+
+    /// The unit is refunded at what it was charged on the day. Refunding at
+    /// today's price is how a clearance turns into free money.
+    #[test]
+    fn a_return_refunds_the_price_that_was_charged() {
+        let (store, sale_id) = shop_with_one_sale("return");
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+        let result = store
+            .return_sale(crate::edge::till::ReturnRequest {
+                sale_id: sale_id.clone(),
+                lines: vec![crate::edge::till::ReturnLineRequest {
+                    epc: "EPC-TILL-001".into(),
+                    disposition: "RESALEABLE".into(),
+                }],
+                refund_method: "CASH".into(),
+                refund_reference: None,
+                reason: "Ukuran tidak pas".into(),
+                supervisor: supervisor("budi", "rahasia-panjang"),
+                actor_id: "siti".into(),
+                idempotency_key: "return-1".into(),
+            })
+            .unwrap_or_else(|error| panic!("return: {error}"));
+        assert_eq!(result.refund_minor, 150_000);
+        assert_eq!(result.remaining_lines, 0);
+
+        // One garment cannot be returned twice — that is one shirt bought back
+        // at retail twice.
+        assert!(store
+            .return_sale(crate::edge::till::ReturnRequest {
+                sale_id,
+                lines: vec![crate::edge::till::ReturnLineRequest {
+                    epc: "EPC-TILL-001".into(),
+                    disposition: "RESALEABLE".into(),
+                }],
+                refund_method: "CASH".into(),
+                refund_reference: None,
+                reason: "Lagi".into(),
+                supervisor: supervisor("budi", "rahasia-panjang"),
+                actor_id: "siti".into(),
+                idempotency_key: "return-2".into(),
+            })
+            .is_err());
+    }
+
+    /// Anything not fit to sell must not reach the rail by default.
+    #[test]
+    fn a_damaged_return_goes_to_reject_not_the_floor() {
+        let (store, sale_id) = shop_with_one_sale("damaged");
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+        store
+            .return_sale(crate::edge::till::ReturnRequest {
+                sale_id,
+                lines: vec![crate::edge::till::ReturnLineRequest {
+                    epc: "EPC-TILL-001".into(),
+                    disposition: "DAMAGED".into(),
+                }],
+                refund_method: "CASH".into(),
+                refund_reference: None,
+                reason: "Jahitan lepas".into(),
+                supervisor: supervisor("budi", "rahasia-panjang"),
+                actor_id: "siti".into(),
+                idempotency_key: "return-damaged".into(),
+            })
+            .unwrap_or_else(|error| panic!("return: {error}"));
+        let pools = store
+            .list_pools()
+            .unwrap_or_else(|error| panic!("pools: {error}"));
+        let reject = pools
+            .iter()
+            .find(|pool| pool.pool_id == "store-07.reject")
+            .unwrap_or_else(|| panic!("reject pool"));
+        let floor = pools
+            .iter()
+            .find(|pool| pool.pool_id == "store-07.floor")
+            .unwrap_or_else(|| panic!("floor pool"));
+        assert_eq!(reject.on_hand, 1);
+        assert_eq!(floor.on_hand, 0);
+    }
+
+    /// A garment handed back against the wrong receipt is a refund the shop
+    /// cannot trace to money it ever took.
+    #[test]
+    fn a_unit_that_was_not_on_the_sale_is_refused() {
+        let (store, sale_id) = shop_with_one_sale("stranger");
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+        assert!(store
+            .return_sale(crate::edge::till::ReturnRequest {
+                sale_id,
+                lines: vec![crate::edge::till::ReturnLineRequest {
+                    epc: "EPC-NOT-SOLD".into(),
+                    disposition: "RESALEABLE".into(),
+                }],
+                refund_method: "CASH".into(),
+                refund_reference: None,
+                reason: "Coba".into(),
+                supervisor: supervisor("budi", "rahasia-panjang"),
+                actor_id: "siti".into(),
+                idempotency_key: "return-stranger".into(),
+            })
+            .is_err());
+    }
+
+    /// A voided sale still prints — that is what the customer is handed with
+    /// their money back — but it prints stamped, so two copies in a drawer at
+    /// the end of the day are not counted as two sales.
+    #[test]
+    fn a_receipt_says_when_a_sale_was_undone() {
+        let (store, sale_id) = shop_with_one_sale("stamp");
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+        let before = store
+            .sale_receipt(&sale_id)
+            .unwrap_or_else(|error| panic!("receipt: {error}"));
+        assert_eq!(before.stamp, None);
+        assert_eq!(before.total_minor, 150_000);
+        assert_eq!(before.change_minor, 50_000);
+        assert!(before.receipt_no.starts_with("STORE-07-"));
+
+        store
+            .void_sale(
+                &sale_id,
+                crate::edge::till::VoidSaleRequest {
+                    reason: "Salah scan".into(),
+                    supervisor: supervisor("budi", "rahasia-panjang"),
+                    actor_id: "siti".into(),
+                    idempotency_key: "stamp-void".into(),
+                },
+            )
+            .unwrap_or_else(|error| panic!("void: {error}"));
+        let after = store
+            .sale_receipt(&sale_id)
+            .unwrap_or_else(|error| panic!("receipt: {error}"));
+        assert_eq!(after.stamp.as_deref(), Some("** BATAL **"));
+    }
+
+    /// A DC has no drawer, no customer and no receipt printer.
+    #[test]
+    fn a_dc_has_no_till() {
+        let dc = SqliteEdge::open_in_memory(node(EdgeRole::Dc, "dc-01"))
+            .unwrap_or_else(|error| panic!("dc: {error}"));
+        assert!(dc
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 0,
+                actor_id: "operator".into(),
+                idempotency_key: "dc-shift".into(),
+            })
+            .is_err());
+    }
+
+    /// A retried void is the same void, not a second one. The till is offline
+    /// half the time and a flaky link must not refund twice.
+    #[test]
+    fn a_retried_void_returns_the_first_answer() {
+        let (store, sale_id) = shop_with_one_sale("retry");
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+        let request = || crate::edge::till::VoidSaleRequest {
+            reason: "Salah scan".into(),
+            supervisor: supervisor("budi", "rahasia-panjang"),
+            actor_id: "siti".into(),
+            idempotency_key: "void-retry".into(),
+        };
+        let first = store
+            .void_sale(&sale_id, request())
+            .unwrap_or_else(|error| panic!("void: {error}"));
+        let again = store
+            .void_sale(&sale_id, request())
+            .unwrap_or_else(|error| panic!("void retry: {error}"));
+        assert_eq!(first.movement_group_id, again.movement_group_id);
+        let floor = store
+            .list_pools()
+            .unwrap_or_else(|error| panic!("pools: {error}"))
+            .into_iter()
+            .find(|pool| pool.pool_id == "store-07.floor")
+            .unwrap_or_else(|| panic!("floor pool"));
+        assert_eq!(floor.on_hand, 1);
     }
 
     #[test]

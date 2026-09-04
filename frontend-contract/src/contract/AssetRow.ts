@@ -24,4 +24,34 @@ accumulated_minor: number,
 /**
  * Cost less accumulated. Derived on read for the same reason.
  */
-book_value_minor: number | null, };
+book_value_minor: number | null, 
+/**
+ * The latest month the run actually charged, named by its first day.
+ *
+ * Absent means nothing has ever been charged, which is a real state and
+ * not a zero: a land asset never charges, an asset capitalised last week
+ * has not been reached yet, and an asset the run has been silently
+ * skipping for four months looks exactly like both until this says so.
+ * It is what lets a screen say "charged through August" instead of making
+ * somebody open the schedule to find out.
+ */
+last_depreciated_month: string | null, 
+/**
+ * The bill line that bought this, as `PLN-0901 line 2`, when the books
+ * bought it at all.
+ *
+ * Absent is the ordinary state for an asset the company already owned when
+ * this system arrived, and it is an EXCEPTION for one that was
+ * capitalised here: `fixed_asset` has no acquisition posting rule and
+ * never will — the acquisition is a supplier bill — so an asset with no
+ * line is an asset the books never bought. `acquisition_gap` lists them.
+ */
+acquired_via: string | null, 
+/**
+ * Set once the asset has left the books.
+ */
+disposed_on: string | null, 
+/**
+ * `SOLD` or `WRITTEN_OFF`.
+ */
+disposal_method: string | null, disposal_proceeds_minor: number | null, disposal_journal_entry_id: string | null, };

@@ -4,4 +4,10 @@ export type RegisterAssetRequest = { asset_number: string, name: string,
 /**
  * A family under `10215`.
  */
-category_code: string, site_id: string, acquired_on: string, serial_number: string | null, notes: string | null, };
+category_code: string, site_id: string, acquired_on: string, serial_number: string | null, notes: string | null, 
+/**
+ * The expense-bill line that bought it, when there is one. Optional
+ * because most assets on day one predate this system, and because the
+ * bill often arrives after the warehouse has registered the thing.
+ */
+acquired_via_line_id?: string, };

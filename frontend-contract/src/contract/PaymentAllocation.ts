@@ -8,4 +8,11 @@ export type PaymentAllocation = { invoice_id: string, invoice_number: string, su
  * What the whole bill is, so a screen can show "3,000,000 of 8,500,000"
  * without fetching every bill again.
  */
-invoice_total_minor: number, amount_minor: number, };
+invoice_total_minor: number, amount_minor: number, 
+/**
+ * The bill's kind — `MERCHANDISE` or `EXPENSE`. Carried because it decides
+ * which payable this allocation debits when the payment posts, and because
+ * a screen listing what a transfer settled should be able to say that one
+ * of the four was the electricity.
+ */
+kind: string, };

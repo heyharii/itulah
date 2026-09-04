@@ -82,12 +82,46 @@ pub struct SupplierItem {
     /// purpose.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// What it comes in. Empty means nobody has broken this item down into
+    /// variants — most of a scraped supplier feed is exactly that — and never
+    /// "comes in no colour".
+    ///
+    /// Carried with the label and the hex rather than as bare codes, because
+    /// every reader of this draws a swatch beside a word and would otherwise
+    /// have to fetch the colour master to do it. Tags stay bare codes for the
+    /// opposite reason: a tag is read out loud from a vocabulary the screen
+    /// already holds, and there is nothing to draw.
+    #[serde(default)]
+    pub colours: Vec<SupplierItemColour>,
+    /// Size codes from the `size_code` master, in size order — so the ends of
+    /// the list are the ends of the range, and "S–XXL" is the first and the
+    /// last rather than a sort every reader has to redo.
+    #[serde(default)]
+    pub size_codes: Vec<String>,
     pub status: SupplierStatus,
     pub version: i64,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_by: String,
     pub updated_at: DateTime<Utc>,
+}
+
+/// One colour a supplier offers an item in, named from the colour master.
+///
+/// The same three fields an article's colourway carries, and deliberately so:
+/// a buyer comparing what a supplier sells against what we already stock is
+/// looking at two rows of dots, and two shapes for one idea would be two
+/// components drawing them slightly differently.
+///
+/// `hex_code` stays optional. A colour can be named and used long before
+/// anybody decides which pixel value stands for it, and a screen draws an
+/// empty ring for that rather than inventing a grey.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierItemColour {
+    pub colour_code: String,
+    pub label: String,
+    pub hex_code: Option<String>,
 }
 
 pub fn required_supplier_text(

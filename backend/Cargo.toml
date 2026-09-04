@@ -58,7 +58,9 @@ chrono = { version = "=0.4.41", features = ["serde"] }
 dotenvy = "=0.15.7"
 hex = "=0.4.3"
 http = "=1.3.1"
-reqwest = { version = "=0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+# `stream` is what lets the assistant read Claude's answer as it is written
+# rather than after it is finished; see `cloud/http/assistant.rs`.
+reqwest = { version = "=0.12.24", default-features = false, features = ["json", "rustls-tls", "stream"] }
 qrcode = { version = "=0.14.1", default-features = false, features = ["svg"] }
 rusqlite = { version = "=0.32.1", features = ["bundled", "chrono"] }
 rust_decimal = { version = "=1.37.1", features = ["serde-with-str"] }

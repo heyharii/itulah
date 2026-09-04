@@ -181,9 +181,9 @@ const COLOUR_WITH_USAGE: &str = "
 async fn read_colour(pool: &PgPool, code: &str) -> Result<ColourTerm, AppError> {
     let row = sqlx::query(COLOUR_WITH_USAGE)
         .bind(code)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Colour".to_owned()))?;
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Colour".to_owned()))?;
     colour_from_row(row)
 }
 

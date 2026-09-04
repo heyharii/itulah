@@ -4,7 +4,11 @@ import type { PrinterLanguage } from "./PrinterLanguage";
 /**
  * What a print run needs to know before it starts.
  */
-export type OpenPrintSessionRequest = { job_id: string, printer_host: string, printer_port: number, label_width_mm: number, label_height_mm: number, chunk_size: number | null, 
+export type OpenPrintSessionRequest = { job_id: string, printer_host: string, printer_port: number, label_width_mm: number, label_height_mm: number, 
+/**
+ * How far in from the left edge the label starts on this reel.
+ */
+label_offset_mm: number, chunk_size: number | null, 
 /**
  * Which language the machine at this bench speaks. Absent means the
  * node's own default, which is ZPL unless the node says otherwise: a

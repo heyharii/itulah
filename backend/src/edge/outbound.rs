@@ -505,9 +505,10 @@ impl PrintKoliLabelRequest {
     pub fn label_size(&self) -> LabelSize {
         let default = LabelSize::default();
         LabelSize {
-            width_mm: self
-                .label_width_mm
-                .map_or(default.width_mm, |mm| mm as f64),
+            // Carton stickers come off the same machine on the same reel, so
+            // they inherit the stock's inset rather than declaring one.
+            left_offset_mm: default.left_offset_mm,
+            width_mm: self.label_width_mm.map_or(default.width_mm, |mm| mm as f64),
             height_mm: self
                 .label_height_mm
                 .map_or(default.height_mm, |mm| mm as f64),

@@ -60,6 +60,23 @@ pub struct AppConfig {
     /// The bucket private attachments go to. Separate from `media` on purpose;
     /// see `cloud::attachments`.
     pub attachments: Option<crate::cloud::attachments::AttachmentConfig>,
+    /// The key that lets this node reach a model, for the assistant in the hub.
+    ///
+    /// Optional, and absent is a valid deployment rather than a fault: a node
+    /// without it serves every screen it served before and answers the
+    /// assistant's endpoint with "not configured". The key is read here and
+    /// never leaves the process — the browser talks to us, we talk to the
+    /// gateway. See `cloud/http/assistant.rs`.
+    pub assistant_api_key: Option<String>,
+    /// Where that gateway is. OpenRouter by default; overridable so a
+    /// deployment can point at its own proxy without a rebuild.
+    pub assistant_base_url: String,
+    /// Which model answers, in the gateway's own naming. Configurable because
+    /// a deployment may want a cheaper one, defaulted in code because a model
+    /// id is not something an operator should have to know to start the
+    /// server.
+    pub assistant_model: String,
+
     /// Where a purchase order goes when nobody says otherwise.
     ///
     /// One DC today, so the buying screens do not ask: a required choice
@@ -161,6 +178,13 @@ impl AppConfig {
             attachments: crate::cloud::attachments::AttachmentConfig::from_env(),
             default_destination_site_id: env_opt("INVENTORY_DEFAULT_DESTINATION_SITE_ID")
                 .unwrap_or_else(|| "dc".into()),
+            assistant_api_key: env_opt("OPENROUTER_API_KEY"),
+            assistant_base_url: env_opt("OPENROUTER_BASE_URL")
+                .unwrap_or_else(|| "https://openrouter.ai/api/v1".into())
+                .trim_end_matches('/')
+                .to_owned(),
+            assistant_model: env_opt("ASSISTANT_MODEL")
+                .unwrap_or_else(|| "anthropic/claude-opus-5".into()),
         })
     }
 }
@@ -495,6 +519,21 @@ pub struct CommercialMarkdownInput {
     pub replacement_unit_price_minor: i64,
     #[serde(default)]
     pub priority: i64,
+    /// The campaign this drop belongs to, by the campaign's business id.
+    ///
+    /// Naming one is what turns four hundred separate clearances into one
+    /// "Flash Sale" with a name, a banner and a single clock — and into one
+    /// thing that can be stopped with a single switch.
+    #[serde(default)]
+    pub campaign_id: Option<String>,
+    /// When in the week and in the day it runs. This is what makes a flash
+    /// sale one row rather than one row per slot.
+    #[serde(default)]
+    pub iso_weekdays: Vec<u32>,
+    #[serde(default)]
+    pub from_minute: Option<u32>,
+    #[serde(default)]
+    pub to_minute: Option<u32>,
     pub effective_from: DateTime<Utc>,
     #[serde(default)]
     pub effective_to: Option<DateTime<Utc>>,
@@ -520,6 +559,38 @@ const fn yes() -> bool {
     true
 }
 
+/// Everything about a published campaign that is still allowed to change.
+///
+/// Which is exactly two things, and migration 0073 draws the line: the SWITCH —
+/// status and window, the lever somebody pulls when they say "stop the Lebaran
+/// promo" — and the POSTER — the banner, the headline and the small print,
+/// which describe the offer to a shopper rather than deciding money. A typo in
+/// a banner must be fixable without cutting a new price book; a budget must
+/// not be.
+///
+/// Every field but `status` is optional and absence means "leave it alone". A
+/// screen sending only a pause must not silently clear the dates that say when
+/// the campaign was going to end, or blank the picture.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CampaignSwitchRequest {
+    pub actor_id: String,
+    /// `DRAFT`, `SCHEDULED`, `ACTIVE`, `PAUSED`, `EXPIRED` or `CANCELLED`.
+    pub status: String,
+    #[serde(default)]
+    pub valid_from: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub valid_to: Option<DateTime<Utc>>,
+    /// The poster. Clearing one is done by sending an empty string rather than
+    /// by omitting the field, so "I did not mention it" and "remove it" stay
+    /// distinguishable.
+    #[serde(default)]
+    pub image_url: Option<String>,
+    #[serde(default)]
+    pub headline: Option<String>,
+    #[serde(default)]
+    pub terms: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CommercialCampaignInput {
     pub campaign_id: String,
@@ -535,6 +606,19 @@ pub struct CommercialCampaignInput {
     pub budget_minor: Option<i64>,
     #[serde(default)]
     pub max_uses: Option<i64>,
+    /// The banner a shop puts in front of a shopper, the words on it, and the
+    /// small print under it.
+    ///
+    /// `image_url` is a catalogue-media key, the same shape `article.image_url`
+    /// carries, so one uploader and one proxy serve both. `terms` is one block
+    /// of text on purpose: terms differ per promotion, per season and per
+    /// regulator, and a schema that modelled them would be wrong on arrival.
+    #[serde(default)]
+    pub image_url: Option<String>,
+    #[serde(default)]
+    pub headline: Option<String>,
+    #[serde(default)]
+    pub terms: Option<String>,
 }
 
 fn active() -> String {
@@ -623,6 +707,18 @@ pub struct CommercialProductQuery {
     pub limit: Option<i64>,
 }
 
+/// What to price, and how much of it.
+///
+/// Every field but `channel` narrows. They are here rather than in the browser
+/// because the work this endpoint does is styles TIMES shops — pricing five
+/// hundred styles across thirteen shops takes seconds and megabytes, and a
+/// filter applied after that has already paid for all of it. Narrowing first
+/// is the difference between a screen that answers and one that waits.
+///
+/// The one exception is the price bounds, which cannot be applied first: what
+/// a style costs is the answer, not the question. They filter the priced rows
+/// on the way out, and `total_article_count` still counts the catalogue, so a
+/// reader is never told the range is smaller than it is.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ArticlePriceQuery {
     pub channel: CommercialChannel,
@@ -633,6 +729,40 @@ pub struct ArticlePriceQuery {
     /// nobody meant to make.
     #[serde(default)]
     pub limit: Option<i64>,
+    /// Article code, article name, or SKU code — the three things somebody has
+    /// in front of them when they go looking for a style.
+    #[serde(default)]
+    pub q: Option<String>,
+    /// Division codes, comma separated. Empty means every division.
+    #[serde(default)]
+    pub divisions: Option<String>,
+    /// Tag codes, comma separated. A style matches if it carries ANY of them,
+    /// which is what a facet list means when you tick two boxes.
+    #[serde(default)]
+    pub tags: Option<String>,
+    /// Keep only styles the till charges at least this much for, at any shop.
+    /// Whole rupiah, like every other price on the wire.
+    #[serde(default)]
+    pub min_price: Option<i64>,
+    #[serde(default)]
+    pub max_price: Option<i64>,
+}
+
+impl ArticlePriceQuery {
+    /// A comma-separated parameter as the list it means.
+    ///
+    /// Blank entries are dropped rather than passed on: `?divisions=` is what
+    /// a form sends when nothing is ticked, and an array holding one empty
+    /// string would match no division at all — a filter nobody set, silently
+    /// emptying the screen.
+    pub fn list(raw: &Option<String>) -> Vec<String> {
+        raw.iter()
+            .flat_map(|value| value.split(','))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -713,9 +843,9 @@ pub struct DeadLetterQuery {
 // so the browser's TypeScript is generated from them. Re-exported here because
 // this is where the rest of the application layer expects to find them.
 pub use crate::contract::{
-    ChangePasswordRequest, CreateUserRequest, LoginRequest, ResetPasswordRequest,
-    SetEdgeAssignmentActiveRequest, SetUserActiveRequest, SetUserRoleRequest,
-    UpsertEdgeAssignmentRequest,
+    ChangePasswordRequest, CreateUserRequest, LoginRequest, ProvisionAccountRequest,
+    ProvisionEdgeAccess, ProvisionedAccount, ResetPasswordRequest, SetEdgeAssignmentActiveRequest,
+    SetUserActiveRequest, SetUserRoleRequest, UpsertEdgeAssignmentRequest,
 };
 
 #[derive(Clone, Debug, Deserialize)]
