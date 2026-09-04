@@ -534,6 +534,14 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("LeavePolicyView: {e}"));
     inventory_backend::cloud::postgres::LeaveBalanceRow::export_all(&config)
         .unwrap_or_else(|e| panic!("LeaveBalanceRow: {e}"));
+    // Overtime. `authorized_minutes` is null in every state but AGREED, and it
+    // is generated rather than transcribed for exactly that reason: a browser
+    // that read `planned_minutes` as the authorized figure would be showing
+    // hours nobody agreed to.
+    inventory_backend::cloud::http::overtime::OvertimeOrderView::export_all(&config)
+        .unwrap_or_else(|e| panic!("OvertimeOrderView: {e}"));
+    inventory_backend::cloud::http::overtime::OvertimePolicyView::export_all(&config)
+        .unwrap_or_else(|e| panic!("OvertimePolicyView: {e}"));
     // The attendance policy. One root: `export_all` pulls the version view and
     // `Minutes` in behind it.
     inventory_backend::cloud::http::attendance::PolicyScheduleView::export_all(&config)

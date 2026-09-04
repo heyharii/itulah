@@ -151,7 +151,6 @@ Adaptations:
 | Area | Donor source | Blocked on |
 |---|---|---|
 | Salary structure and payroll identity | `employee-pay-domain`, `cloud-employee-pay`, migration 042 | nothing — buildable now |
-| Overtime | `cloud-overtime`, migration 045 | nothing — buildable now |
 | Attendance corrections | `attendance-domain`, `cloud-attendance`, migration 044 | needs punches, and the punch source is undecided |
 | Payroll runs | second source only (`payroll-domain`, `cloud-payroll`) | needs attendance and salary structure first |
 
@@ -274,6 +273,79 @@ Adaptations:
 Not ported from `cloud-leave`: its in-memory store, and its own authority
 directory.
 
+## Overtime
+
+Source: `fresh/crates/overtime-domain` and `cloud-overtime`, migration
+`045_overtime_v1.sql`.
+
+Destination: `backend/src/cloud/domain/overtime/`, `postgres/overtime.rs`,
+`http/overtime.rs`, migration
+`backend/migrations/postgres/0103_overtime_is_ordered_and_agreed.sql`.
+
+The rule worth the port, and the reason the crate exists: **overtime needs two
+consents, not one.** PP 35/2021 art. 26(2) requires both a written instruction
+from the employer and the worker's written agreement. Almost every system models
+this as a single manager approval, and that shape produces exactly the outcome
+the rule exists to prevent — hours worked because a supervisor said so, with no
+record that anyone asked.
+
+So the two acts are recorded under **disjoint** action keys
+(`people.overtime.order`, `people.overtime.consent_own`), on two routes that
+never accept each other's key, and `authorized_minutes()` is `Some` only in
+`AGREED`. Kept exactly: the terminal `DECLINED` with no path out of it, the
+refusal to withdraw an order the worker has already agreed to, the caps as
+ratified configuration with no default, `>` rather than `>=` on both caps, and
+the weekly check counting only agreed orders so an unanswered one cannot consume
+somebody else's headroom.
+
+Adaptations:
+
+- **The caps are a table, and the donor argues against one.** Its reasoning is
+  that a table makes the caps "a row somebody can leave empty, and an empty row
+  reads as *no limit* to the first query that forgets to check". The objection
+  is right and the conclusion does not transfer: that codebase installs them
+  from configuration at boot and this one has no such mechanism — the equivalent
+  here would be an environment variable, which is a row somebody can leave empty
+  with less to see it by. So `overtime_policy` exists, both columns are NOT NULL
+  and positive, nothing seeds a row, and **no row means no policy**, which
+  refuses every order by name. The failure being guarded against is a cap that
+  silently reads as unlimited; the absence of a row is not a number.
+- **`people.overtime_policy.set` is a new key.** Ratifying the caps is head
+  office's, and its own grant rather than a mode of the ordering key: the
+  manager who orders overtime must not be the one who decides how much of it is
+  lawful.
+- **Every gate is bounded by place.** The donor authorizes at
+  `ResourceScope::Global` throughout, even though `place_id` is on every row and
+  its partial index is keyed on it — the survey of the crate flags this as a
+  gap. Here ordering, withdrawing and the awaiting-answer queue all pass through
+  `Reach`, so a manager reaches their own shop and no other.
+- **The consent route is bounded by the record, not the rung.**
+  `people.overtime.consent_own` sits at CASHIER, where the ladder bounds nothing;
+  the handler checks `Access::own`, so a cashier answering somebody else's order
+  is refused. Reading it as a rung would let every cashier answer every order in
+  the company.
+- **`day_kind` is cross-checked against the holiday calendar.** The donor takes
+  it as trusted context because it depends on neither calendar nor roster; we
+  have the calendar, so an order that calls a published holiday an ordinary day
+  is refused with the date named. It is a refusal rather than a silent
+  correction — the statutory table on the row is the operator's statement, and
+  quietly changing it would hide the disagreement. The roster half stays
+  caller-supplied, because a rest day is a roster fact and there is no roster.
+- **No in-memory store**, no full re-sync on every write, and the update
+  statement moves only the answer columns: what was ordered, by whom, for whom,
+  on which day and for how many minutes are write-once.
+- **The duplicate-order check is the primary key**, not a per-employee map. The
+  donor detects duplicates per employee in memory while its primary key is
+  global, so two employees could be given one order id in-process and the second
+  would overwrite the first on flush.
+- Table names singular; `Minutes` is the attendance kernel's, not a second one.
+
+Not ported: the audit-event emission (this backend records authority on the row
+rather than in an event stream), and `agreed_on`'s use by an attendance day —
+there is no punch source, so nothing consumes it yet. `agreed_overtime_on` is
+written and unused for that reason, and it is the seam the punch decision would
+plug into.
+
 ## A gate that was one rung too high
 
 `domain::auth::required_role(method, path)` derives a minimum rung from the
@@ -298,5 +370,12 @@ keeps its number.
 `0100` was taken by a proposed-hires feature that the owner then decided against
 (*"kita ga perlu hiring menu"*, 2026-09-04). It was removed before it reached
 git, so the number is free but is deliberately not reused: leave and holiday are
-`0101`.
+`0101`, and overtime — after another lane took `0102` — is `0103`.
+
+That leaves a gap at `0100`, which `tests/migration_hygiene.rs` flags. The test
+was already failing on six older reserved ranges (`0047–0049`, `0053–0059`,
+`0062–0069`), so the gap is not new; but it is worth saying that this one is
+deliberate rather than a missing file. Renumbering is not available: `0101` is
+applied to the dev database, and changing an applied migration's number changes
+its checksum and stops the node for every lane.
 

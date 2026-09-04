@@ -133,6 +133,8 @@ export type { OpenPrintSessionRequest } from "./contract/OpenPrintSessionRequest
 export type { OpenSessionRequest } from "./contract/OpenSessionRequest";
 export type { OpenThreadRequest } from "./contract/OpenThreadRequest";
 export type { OutstandingLine } from "./contract/OutstandingLine";
+export type { OvertimeOrderView } from "./contract/OvertimeOrderView";
+export type { OvertimePolicyView } from "./contract/OvertimePolicyView";
 export type { PackageUnitAllocation } from "./contract/PackageUnitAllocation";
 export type { PackingBox } from "./contract/PackingBox";
 export type { PackingSessionSummary } from "./contract/PackingSessionSummary";

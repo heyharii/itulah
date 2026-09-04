@@ -29,6 +29,7 @@ pub mod holiday;
 pub mod leave;
 pub mod audit;
 pub mod notifications;
+pub mod overtime;
 pub mod performance;
 pub mod suppliers;
 
@@ -681,6 +682,34 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/employees/{id}/leave-requests/{request_id}/withdraw",
             post(leave::withdraw),
+        )
+        // Overtime: the employer orders, the worker answers, and the two are
+        // recorded under keys that are deliberately disjoint. PP 35/2021
+        // art. 26(2) wants two written acts from two people, and that holds
+        // only if the transport keeps them apart — so the ordering route and
+        // the consent route never accept each other's key.
+        .route(
+            "/api/v1/overtime-policy",
+            get(overtime::read_policy).post(overtime::ratify_policy),
+        )
+        // What is waiting on an answer, bounded by the caller's posting. An
+        // order nobody answers authorizes nothing, so an unanswered one is
+        // overtime that will be worked unpaid or not worked at all.
+        .route("/api/v1/overtime-orders/awaiting", get(overtime::awaiting))
+        .route(
+            "/api/v1/employees/{id}/overtime-orders",
+            get(overtime::list_orders).post(overtime::issue),
+        )
+        // The worker's own key, and their own record. Not a rung: at the
+        // cashier rung the ladder bounds nothing, and the bound that matters
+        // is that this is their order.
+        .route(
+            "/api/v1/employees/{id}/overtime-orders/{order_id}/consent",
+            post(overtime::consent),
+        )
+        .route(
+            "/api/v1/employees/{id}/overtime-orders/{order_id}/withdrawal",
+            post(overtime::withdraw),
         )
         .route("/api/v1/notifications", get(notifications::list))
         .route(

@@ -92,9 +92,19 @@ pub mod actions {
     /// grants and one key covering both is how a self-service app becomes a way
     /// to file leave against a colleague.
     pub const LEAVE_REQUEST_OWN: &str = "people.leave.request_own";
-    /// Order overtime. Consenting to it is the employee's, and is not a grant:
-    /// a consent somebody else may give on your behalf is not a consent.
+    /// Order overtime. The employer's written instruction — half of what
+    /// PP 35/2021 art. 26(2) requires.
     pub const OVERTIME_ORDER: &str = "people.overtime.order";
+    /// Answer an order: agree to it, or refuse it.
+    ///
+    /// **Held by the worker, never by their supervisor.** A key a manager holds
+    /// that records the worker's agreement is not the worker's agreement — it
+    /// is the manager agreeing twice, which is the single-consent model this
+    /// pair of keys exists to refuse, wearing two hats.
+    ///
+    /// The cashier rung, like [`LEAVE_REQUEST_OWN`], and bounded to the
+    /// caller's own record by the handler rather than by the rung.
+    pub const OVERTIME_CONSENT_OWN: &str = "people.overtime.consent_own";
     /// Decide an attendance correction.
     pub const CORRECTION_DECIDE: &str = "people.correction.decide";
     /// Sign off a month's attendance for one place. Reopening a closed period
@@ -133,6 +143,12 @@ pub mod actions {
     pub const HOLIDAY_SET: &str = "people.holiday.set";
     /// Define the shift patterns a roster may be built from.
     pub const SHIFT_PATTERN_SET: &str = "people.shift_pattern.set";
+    /// Ratify the overtime caps.
+    ///
+    /// Head office's, and its own key rather than a mode of
+    /// [`OVERTIME_ORDER`]: the manager who orders overtime must not be the one
+    /// who decides how much of it is lawful.
+    pub const OVERTIME_POLICY_SET: &str = "people.overtime_policy.set";
 
     // ── money ────────────────────────────────────────────
 
@@ -172,6 +188,11 @@ pub mod actions {
     /// The keys that may decide one. Deliberately excludes both requesting
     /// keys: asking for leave is not granting it.
     pub const LEAVE_DECIDING: &[&str] = &[LEAVE_DECIDE];
+    /// The keys that may order overtime, or take an order back.
+    pub const OVERTIME_ORDERING: &[&str] = &[OVERTIME_ORDER];
+    /// The keys that may answer one. **Deliberately disjoint from
+    /// [`OVERTIME_ORDERING`]** — that disjointness is the whole rule.
+    pub const OVERTIME_CONSENTING: &[&str] = &[OVERTIME_CONSENT_OWN];
 }
 
 /// Which rung of the ladder an action key needs.
@@ -206,7 +227,11 @@ pub fn required_role(action_key: &str) -> Role {
         // record rather than the rung — the handler serves this key only for
         // the caller's own employment record — because a cashier who could not
         // ask for their own holiday would have to ask their manager to ask.
-        actions::LEAVE_REQUEST_OWN => Role::Cashier,
+        // Answering an order about your own evening is yours, at any rung, and
+        // the bound is the record rather than the ladder. A cashier who could
+        // not answer would have to have their supervisor answer for them, which
+        // is precisely the single-consent shape the two keys refuse.
+        actions::LEAVE_REQUEST_OWN | actions::OVERTIME_CONSENT_OWN => Role::Cashier,
         _ => Role::Admin,
     }
 }
@@ -314,6 +339,20 @@ impl Authorization {
         actions::LEAVE_DECIDING.contains(&self.action_key.as_str())
     }
 
+    /// May this authority order overtime, or withdraw an order?
+    pub fn authorizes_overtime_order(&self) -> bool {
+        actions::OVERTIME_ORDERING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority answer an overtime order?
+    ///
+    /// The gate the overtime module exists for, re-checked on decode as well as
+    /// on the live path: a consent recorded under a supervisor's key is the
+    /// supervisor agreeing twice, and a stored row in that shape must fail to
+    /// load rather than become authorized hours.
+    pub fn authorizes_overtime_consent(&self) -> bool {
+        actions::OVERTIME_CONSENTING.contains(&self.action_key.as_str())
+    }
 }
 
 #[cfg(test)]
