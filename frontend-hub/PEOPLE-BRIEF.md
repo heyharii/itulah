@@ -383,25 +383,26 @@ knows what was planned and never what was worked, and there is no Today screen
 because there is nothing to put on it. The three options and their costs are
 above.
 
-### One thing this lane broke, and how to fix it
+### One thing this lane broke, and what it turned out to be
 
-**Run `make contract` once the pricing refactor lands.** Regenerating the wire
-types requires the backend to compile, and while it did not, this lane generated
-them from a tree pinned to the previous commit. That silently reverted every
-type whose Rust had moved on since — `AssetRow`, `SupplierBill`,
-`AssessAssetRequest` and `Money` among them — so `npm run build` in the hub now
-fails in `screens/finance/{assets,bank,journal,payments,supplier-bills}.tsx`
-against fields their own Rust still has.
+While `cargo check --features ts` was failing, this lane regenerated the wire
+types from a copy of the tree pinned to the previous commit. `export_all`
+writes every registered type, not only the ones you added, so that silently
+reverted `AssetRow`, `SupplierBill`, `AssessAssetRequest` and `Money` to older
+shapes and broke `npm run build` in the finance screens.
 
-Nothing is lost: the definitions are in `postgres/assets.rs` and its neighbours,
-and one regeneration restores them. It is blocked only by
-`crates/pricing-engine/src/rule.rs`, `postgres/{pricing,commercial}.rs` and
-`edge/pricing.rs`, which are mid-refactor in another lane.
+**Fixed the same evening.** The backend had never stopped compiling: the
+failure was a stale cargo fingerprint for `pricing-engine` under the `ts`
+feature — the compiler reported fields missing from `Markdown` that the source
+plainly had, while plain `cargo check` passed from cache in half a second.
+`cargo clean -p pricing-engine` cleared it; `make contract` from the working
+tree then restored every type. The pricing lane was not at fault and was not
+touched.
 
-The lesson worth keeping: **never generate the contract from a tree that is not
-the working tree.** `export_all` writes every registered type, not only the ones
-you added, so generating from an older tree is a silent revert of everybody
-else's.
+Two lessons worth keeping. **Never generate the contract from a tree that is
+not the working tree.** And when `--features ts` says "no field X" while `grep`
+finds X, clean that crate's artifacts before concluding somebody else's code is
+broken.
 
 ### What is not in a commit, and why
 
