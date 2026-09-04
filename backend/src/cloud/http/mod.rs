@@ -30,6 +30,7 @@ pub mod leave;
 pub mod audit;
 pub mod notifications;
 pub mod overtime;
+pub mod pay;
 pub mod performance;
 pub mod roster;
 pub mod suppliers;
@@ -744,6 +745,38 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/attendance-periods/{place}/{period}/reopening",
             post(roster::reopen_period),
+        )
+        // Pay and payroll: head office only, all of it. A place manager's
+        // whole contribution is closing their attendance period.
+        //
+        // `/pay` is the effective-dated *agreement* — what somebody is on —
+        // and `/payslips` is what they were actually paid in a month. Two
+        // routes because they are two questions; the employee app asked the
+        // second at the first one's path, and this is the resolution.
+        .route(
+            "/api/v1/employees/{id}/pay",
+            get(pay::read_pay).post(pay::agree_pay),
+        )
+        .route(
+            "/api/v1/employees/{id}/payroll-identity",
+            get(pay::read_identity).post(pay::amend_identity),
+        )
+        .route("/api/v1/employees/{id}/payslips", get(pay::payslips))
+        // The run, and the chain of people who sign it. Verify and approve are
+        // separate keys so the domain can compare actors: a control one person
+        // can complete alone is a record of a signature, not a control.
+        .route(
+            "/api/v1/payroll/runs",
+            get(pay::list_runs).post(pay::open_run),
+        )
+        .route("/api/v1/payroll/runs/{id}/verify", post(pay::verify_run))
+        .route("/api/v1/payroll/runs/{id}/approve", post(pay::approve_run))
+        .route("/api/v1/payroll/runs/{id}/seal", post(pay::seal_run))
+        .route("/api/v1/payroll/runs/{id}/reopen", post(pay::reopen_run))
+        .route("/api/v1/payroll/runs/{id}/slips", get(pay::run_slips))
+        .route(
+            "/api/v1/payroll/runs/{id}/reconciliation",
+            get(pay::run_reconciliation),
         )
         .route("/api/v1/notifications", get(notifications::list))
         .route(

@@ -6,6 +6,8 @@ import type {
   LeaveRequestView,
   LeaveTypeView,
   OvertimeOrderView,
+  PayrollIdentityView,
+  PayrollSlipRow,
   Notification as ContractNotification,
   NotificationPage,
 } from "@itulah/contract"
@@ -18,8 +20,6 @@ import type {
   HolidayCalendar,
   NewAttendanceCorrection,
   Notification,
-  PayrollIdentity,
-  PaySlip,
 } from "./types"
 
 /// The employee's own record, asked of the server, with a stand-in for the
@@ -156,20 +156,44 @@ export function contracts(
   )
 }
 
+// ── pay: live, and honest about what it does not know ─────────
+//
+// `/pay` serves the effective-dated *agreement* — what somebody is on — and
+// `/payslips` serves what they were actually paid in a month. This app asked
+// for the second at the first one's path, which was the one wire mismatch the
+// port recorded; the server kept the agreement at `/pay` and gave payslips
+// their own route, and this is the change that resolves it.
+//
+// # There are no deductions here, and that is not a gap in this file
+//
+// The proposal's `PaySlip` carried `gross_idr`, `deductions_idr` and
+// `net_idr`. The server computes none of them: PPh 21 and BPJS are statutory
+// arithmetic whose brackets change by regulation, and a figure computed by
+// this system is a figure somebody files with the tax office. A slip carries
+// the agreement in force and the facts recorded — and the screens say so,
+// rather than showing a net that is really a gross.
+
+/// Who this person is to payroll. The account number is masked by the server;
+/// there is no route that serves it whole.
 export function payrollIdentity(
   signal?: AbortSignal
-): Promise<PayrollIdentity> {
-  return read(
+): Promise<PayrollIdentityView> {
+  return node.get<PayrollIdentityView>(
     `/api/v1/employees/${SELF}/payroll-identity`,
-    () => demo.demoPayrollIdentity,
-    signal
+    { signal }
   )
 }
 
-export function paySlips(signal?: AbortSignal): Promise<readonly PaySlip[]> {
-  return read(`/api/v1/employees/${SELF}/pay`, () => demo.demoPaySlips, signal)
+/// What this person was paid, per month.
+///
+/// Only runs somebody has signed for come back. A draft is a working figure,
+/// and a payslip that changed after it was read would be worse than one that
+/// arrived late.
+export function paySlips(signal?: AbortSignal): Promise<PayrollSlipRow[]> {
+  return node.get<PayrollSlipRow[]>(`/api/v1/employees/${SELF}/payslips`, {
+    signal,
+  })
 }
-
 // ── leave: live, against the real routes ──────────────────────
 //
 // The first family to land. There is no stand-in below and no fallback: the

@@ -188,6 +188,20 @@ pub mod actions {
     /// The keys that may decide one. Deliberately excludes both requesting
     /// keys: asking for leave is not granting it.
     pub const LEAVE_DECIDING: &[&str] = &[LEAVE_DECIDE];
+    /// The keys that may agree or amend pay, and the payroll identity that
+    /// goes with it. One key for both: a bank account is not worth less than
+    /// the amount paid into it.
+    pub const PAY_CHANGING: &[&str] = &[PAY_CHANGE];
+    /// The keys that may verify a payroll run.
+    pub const PAYROLL_VERIFYING: &[&str] = &[PAYROLL_VERIFY];
+    /// The keys that may approve one. **Disjoint from [`PAYROLL_VERIFYING`]**,
+    /// which is what lets the two-person rule compare actors at all.
+    pub const PAYROLL_APPROVING: &[&str] = &[PAYROLL_APPROVE];
+    /// The keys that may seal one.
+    pub const PAYROLL_SEALING: &[&str] = &[PAYROLL_SEAL];
+    /// The keys that may send one back. Its own, because it undoes work
+    /// somebody has signed for.
+    pub const PAYROLL_REOPENING: &[&str] = &[PAYROLL_REOPEN];
     /// The keys that may plan or revise a roster.
     ///
     /// A plan is upstream of money — an absence only exists against one — so
@@ -348,6 +362,35 @@ impl Authorization {
     /// leave, wearing the shape of a decision.
     pub fn authorizes_leave_decision(&self) -> bool {
         actions::LEAVE_DECIDING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority agree or amend pay?
+    pub fn authorizes_pay_change(&self) -> bool {
+        actions::PAY_CHANGING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority verify a payroll run?
+    pub fn authorizes_payroll_verify(&self) -> bool {
+        actions::PAYROLL_VERIFYING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority approve one?
+    ///
+    /// Disjoint from verifying, and re-checked on decode: a stored run whose
+    /// two signatures were made under one key is a control one person
+    /// completed alone.
+    pub fn authorizes_payroll_approve(&self) -> bool {
+        actions::PAYROLL_APPROVING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority seal one?
+    pub fn authorizes_payroll_seal(&self) -> bool {
+        actions::PAYROLL_SEALING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority send one back to draft?
+    pub fn authorizes_payroll_reopen(&self) -> bool {
+        actions::PAYROLL_REOPENING.contains(&self.action_key.as_str())
     }
 
     /// May this authority plan or revise a roster?

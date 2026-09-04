@@ -1,43 +1,56 @@
 import { Link } from "@tanstack/react-router"
-import { ChevronRight } from "lucide-react"
 
 import { Async, Panel } from "@/components/bits"
 import { Separator } from "@/components/ui/separator"
-import { money, shortDate } from "@/lib/format"
+import { money } from "@/lib/format"
 import { usePaySlips } from "@/lib/hr/queries"
 
-/// Payslips, newest first, showing the only number anybody remembers.
+/// What you were paid, month by month.
+///
+/// # The big number is the agreement, not the net
+///
+/// There is no net here, because nothing computes one. PPh 21 and the BPJS
+/// contributions are statutory arithmetic whose brackets change by regulation,
+/// and a figure this system calculated would be a figure somebody files with
+/// the tax office. So what a slip shows is the agreement that was in force —
+/// base plus fixed allowances — and the facts recorded against the month.
+///
+/// Saying that plainly is the point. A screen that showed the agreement under
+/// the word "net" would be a screen somebody plans a month around.
 export function Pay() {
   const slips = usePaySlips()
 
   return (
-    <Panel title="Payslips">
+    <Panel title="Your pay">
       <Async query={slips} empty="No payslip has been released to you yet.">
         {(list) => (
           <div className="flex flex-col">
+            <p className="mb-3 text-xs text-muted-foreground">
+              Agreed pay and the days recorded against each month. Tax and BPJS
+              are not calculated here.
+            </p>
             {list.map((slip, index) => (
-              <div key={slip.pay_id}>
-                {index > 0 && <Separator className="my-1" />}
+              <div key={slip.run_id}>
+                {index > 0 && <Separator className="my-3" />}
                 <Link
                   to="/pay/$payId"
-                  params={{ payId: slip.pay_id }}
-                  // A whole row is the target, not the text in it: this is
-                  // tapped with a thumb, and `-mx-2 px-2` lets the highlight
-                  // reach the card's edge without the text moving.
-                  className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-muted/60"
+                  params={{ payId: slip.run_id }}
+                  className="flex items-baseline gap-3"
                 >
                   <div className="min-w-0">
-                    <p className="text-base font-semibold tabular-nums">
-                      {money(slip.net_idr)}
+                    <p className="text-lg font-semibold tabular-nums">
+                      {money(slip.statutory_base_minor)}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {shortDate(slip.period_start)} –{" "}
-                      {shortDate(slip.period_end)}
-                      {slip.paid_on !== null &&
-                        ` · paid ${shortDate(slip.paid_on)}`}
+                      {/* The run id carries the month, which is the only place
+                          a period appears on this row — the slip itself has no
+                          date range of its own. */}
+                      {slip.run_id}
                     </p>
                   </div>
-                  <ChevronRight className="ml-auto size-5 shrink-0 text-muted-foreground" />
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                    View
+                  </span>
                 </Link>
               </div>
             ))}

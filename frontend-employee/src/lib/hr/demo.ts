@@ -8,8 +8,6 @@ import type {
   HolidayCalendar,
   IsoDate,
   Notification,
-  PayrollIdentity,
-  PaySlip,
 } from "./types"
 
 /// A stand-in employee, for the days before the server has one.
@@ -77,55 +75,6 @@ export const demoContract: EmploymentContract = {
   signed_on: "2026-02-06",
 }
 
-export const demoPayrollIdentity: PayrollIdentity = {
-  npwp: "09.254.***.*-***.000",
-  bpjs_kesehatan: "0001****4471",
-  bpjs_ketenagakerjaan: "23****8810",
-  bank_name: "Bank Mandiri",
-  bank_account_masked: "•••• •••• 4417",
-  account_holder: "SITI RAHMAWATI",
-  ptkp_status: "TK/0",
-}
-
-export const demoPaySlips: readonly PaySlip[] = [
-  {
-    pay_id: "pay_2026_08",
-    period_start: dayOffset(-32),
-    period_end: dayOffset(-2),
-    paid_on: dayOffset(-1),
-    gross_idr: 7_450_000,
-    deductions_idr: 612_500,
-    net_idr: 6_837_500,
-    lines: [
-      { label: "Base salary", kind: "EARNING", amount_idr: 6_200_000 },
-      { label: "Attendance allowance", kind: "EARNING", amount_idr: 450_000 },
-      { label: "Overtime (6.5 h)", kind: "EARNING", amount_idr: 500_000 },
-      { label: "Sales incentive", kind: "EARNING", amount_idr: 300_000 },
-      { label: "BPJS Kesehatan (1%)", kind: "DEDUCTION", amount_idr: 74_500 },
-      { label: "BPJS JHT (2%)", kind: "DEDUCTION", amount_idr: 149_000 },
-      { label: "BPJS JP (1%)", kind: "DEDUCTION", amount_idr: 74_500 },
-      { label: "PPh 21", kind: "DEDUCTION", amount_idr: 314_500 },
-    ],
-  },
-  {
-    pay_id: "pay_2026_07",
-    period_start: dayOffset(-63),
-    period_end: dayOffset(-33),
-    paid_on: dayOffset(-32),
-    gross_idr: 7_100_000,
-    deductions_idr: 583_000,
-    net_idr: 6_517_000,
-    lines: [
-      { label: "Base salary", kind: "EARNING", amount_idr: 6_200_000 },
-      { label: "Attendance allowance", kind: "EARNING", amount_idr: 450_000 },
-      { label: "Sales incentive", kind: "EARNING", amount_idr: 450_000 },
-      { label: "BPJS Kesehatan (1%)", kind: "DEDUCTION", amount_idr: 71_000 },
-      { label: "BPJS JHT (2%)", kind: "DEDUCTION", amount_idr: 142_000 },
-      { label: "BPJS JP (1%)", kind: "DEDUCTION", amount_idr: 71_000 },
-      { label: "PPh 21", kind: "DEDUCTION", amount_idr: 299_000 },
-    ],
-  },
-]
 
 
 /// Fourteen days back from today, with the shape of a real fortnight in it:

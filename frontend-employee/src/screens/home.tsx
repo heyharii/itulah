@@ -179,15 +179,18 @@ export function Home() {
 
       {latestPay !== undefined && (
         <Link to="/pay" className="block">
-          <Panel title="Last payslip">
+          <Panel title="Latest payslip">
             <div className="flex items-center gap-2">
               <div>
+                {/* Agreed pay, not a net. Nothing here computes tax or BPJS,
+                    so a figure labelled "net" would be the agreement wearing a
+                    word it has not earned — and this is the card somebody
+                    glances at rather than reads. */}
                 <p className="text-lg font-semibold tabular-nums">
-                  {money(latestPay.net_idr)}
+                  {money(latestPay.statutory_base_minor)}
                 </p>
                 <p className="text-[13px] text-muted-foreground">
-                  {shortDate(latestPay.period_start)} –{" "}
-                  {shortDate(latestPay.period_end)}
+                  Agreed pay · {latestPay.run_id}
                 </p>
               </div>
               <ChevronRight className="ml-auto size-5 text-muted-foreground" />

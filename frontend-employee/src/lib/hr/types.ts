@@ -58,45 +58,6 @@ export interface EmploymentContract {
   readonly signed_on: IsoDate | null
 }
 
-/// The identifiers payroll needs, as the employee should see them.
-///
-/// Bank account arrives already masked from the server. Not a display choice
-/// made here: an unmasked account number that reached the browser would be in
-/// a response body, a cache and a screenshot, and this screen exists so
-/// somebody can check the last four digits are theirs, which the mask leaves
-/// intact.
-export interface PayrollIdentity {
-  readonly npwp: string | null
-  readonly bpjs_kesehatan: string | null
-  readonly bpjs_ketenagakerjaan: string | null
-  readonly bank_name: string | null
-  readonly bank_account_masked: string | null
-  readonly account_holder: string | null
-  readonly ptkp_status: string | null
-}
-
-export interface PayLine {
-  readonly label: string
-  readonly kind: "EARNING" | "DEDUCTION"
-  readonly amount_idr: number
-}
-
-/// One payslip.
-///
-/// `net_idr` is sent rather than derived from the lines. The server's total is
-/// the one that was actually paid into the bank, and a browser that recomputed
-/// it would eventually disagree with a bank statement over a rounding rule it
-/// invented.
-export interface PaySlip {
-  readonly pay_id: string
-  readonly period_start: IsoDate
-  readonly period_end: IsoDate
-  readonly paid_on: IsoDate | null
-  readonly gross_idr: number
-  readonly deductions_idr: number
-  readonly net_idr: number
-  readonly lines: readonly PayLine[]
-}
 
 export type AttendanceStatus =
   "PRESENT" | "LATE" | "INCOMPLETE" | "ABSENT" | "LEAVE" | "HOLIDAY" | "REST"

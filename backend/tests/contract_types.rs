@@ -554,6 +554,23 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("RosterDayView: {e}"));
     inventory_backend::cloud::http::roster::PeriodView::export_all(&config)
         .unwrap_or_else(|e| panic!("PeriodView: {e}"));
+    // Pay and payroll. `PayrollSlipRow` carries no deduction and no net, and
+    // it is generated rather than transcribed for exactly that reason: a
+    // hand-written type could grow a `net_minor` that nothing produces, and a
+    // screen would then show a zero as though somebody had computed it.
+    //
+    // `bank_account_masked` is the only account field on any of these. There is
+    // no view anywhere that serves the number whole.
+    inventory_backend::cloud::http::pay::PayRecordView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayRecordView: {e}"));
+    inventory_backend::cloud::http::pay::PayrollIdentityView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayrollIdentityView: {e}"));
+    inventory_backend::cloud::http::pay::PayrollRunView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayrollRunView: {e}"));
+    inventory_backend::cloud::postgres::PayrollSlipRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayrollSlipRow: {e}"));
+    inventory_backend::cloud::postgres::RunReconciliation::export_all(&config)
+        .unwrap_or_else(|e| panic!("RunReconciliation: {e}"));
     // The attendance policy. One root: `export_all` pulls the version view and
     // `Minutes` in behind it.
     inventory_backend::cloud::http::attendance::PolicyScheduleView::export_all(&config)

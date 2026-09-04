@@ -101,9 +101,9 @@ export function Me() {
             <>
               <Row label="Bank">{identity.bank_name ?? "—"}</Row>
               <Row label="Account">{identity.bank_account_masked ?? "—"}</Row>
-              <Row label="Account holder">{identity.account_holder ?? "—"}</Row>
+              <Row label="Account holder">{identity.bank_holder ?? "—"}</Row>
               <Row label="NPWP">{identity.npwp ?? "—"}</Row>
-              <Row label="PTKP">{identity.ptkp_status ?? "—"}</Row>
+              <Row label="PTKP">{identity.ptkp ?? "—"}</Row>
               <Row label="BPJS Kesehatan">{identity.bpjs_kesehatan ?? "—"}</Row>
               <Row label="BPJS Ketenagakerjaan">
                 {identity.bpjs_ketenagakerjaan ?? "—"}

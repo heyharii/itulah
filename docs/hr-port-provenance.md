@@ -150,7 +150,6 @@ Adaptations:
 
 | Area | Donor source | Blocked on |
 |---|---|---|
-| Salary structure and payroll identity | `employee-pay-domain`, `cloud-employee-pay`, migration 042 | nothing — buildable now |
 | Attendance corrections | `attendance-domain`, `cloud-attendance`, migration 044 | needs punches, and the punch source is undecided |
 | Payroll runs | second source only (`payroll-domain`, `cloud-payroll`) | needs attendance and salary structure first |
 
@@ -167,7 +166,12 @@ not do: compute anything statutory."*
 Same path, different meaning. This is the only mismatch found between the
 employee app and the donor; every other route matches path for path, with
 `cancel`↔`withdraw` and `acknowledge`↔`consent` the only naming differences.
-When salary structure lands, one of the two has to give up the route name.
+
+**Resolved 2026-09-04.** The Rust kept `/pay` for the agreement, and payslips
+got their own route at `/employees/{id}/payslips`. The employee app changed its
+one path. Neither meaning had to give up its name, because they were never one
+question: what somebody is *on* and what they were *paid in April* differ every
+time a raise lands mid-year.
 
 ## Holiday calendar
 
@@ -398,6 +402,60 @@ Adaptations:
 Not ported: punches, corrections, kiosks, `basis.rs` and `attendance.rs` — the
 derivation of a day's outcome from its punches. All of it waits on the punch
 source. `frontend-hub/PEOPLE-BRIEF.md` states the three options and their costs.
+
+## Pay, payroll identity, and the run
+
+Source: `fresh/crates/employee-pay-domain` and `cloud-employee-pay`, migration
+`042_employee_pay_v1.sql`; and, for the run lifecycle **only**, the retail
+backend's `payroll-domain` and `cloud-payroll`.
+
+Destination: `backend/src/cloud/domain/pay/`, `postgres/pay.rs`, `http/pay.rs`,
+migration `backend/migrations/postgres/0105_a_salary_is_a_history_not_a_number.sql`.
+
+Kept from the pay donor, all of it load-bearing: pay as an effective-dated
+timeline with no current-salary field and no setter; the refusal of a backdated
+record (a genuine backdated raise is a *rapel* in a current period, visible on
+the payslip, rather than a rewrite of a closed month); fixed allowances in the
+record and variable ones deliberately absent; and `statutory_base` as a fact
+about the agreement that no rule here is applied to.
+
+Adaptations and additions:
+
+- **The two-person rule is added, not ported.** The retail donor lets one actor
+  verify and approve. Here `verify` and `approve` are separate keys at the same
+  rung — which is what lets the domain compare *actors*, since a rung cannot —
+  and the same actor is refused on the transition **and** on the way in from
+  storage. A stored run whose two signatures carry one name fails to hydrate.
+- **Nothing statutory is computed, and the columns do not exist.** The retail
+  donor carries a component engine that applies PPh 21 brackets and BPJS rates;
+  none of it came across. `payroll_slip` has no `deductions` and no `net`, so
+  nothing can quietly acquire a zero that reads as "nothing was owed". What a
+  slip carries is the agreement in force plus the facts this backend recorded:
+  approved leave, agreed overtime, rostered days.
+- **A run knows it is incomplete, and says why.** There is no punch source, so
+  nothing knows what was *worked*. `payroll_run.complete` is false and
+  `incomplete_because` carries a sentence a person reads on the screen. The
+  schema refuses the halfway shape: complete with a reason, or incomplete
+  without one, are both unstorable.
+- **Runs are keyed by `org_place`, not by a store.** Head office employs people
+  too, and a payroll that could only be run for a shop cannot pay the buyer.
+- **A run refuses a month whose attendance is not closed.** The period is the
+  payroll gate; while it is open the facts are still moving.
+- **A reopen clears the verifier.** Otherwise the person who verified before a
+  reopen could never approve afterwards — a rule nobody stated.
+- **A payslip appears only once somebody has signed for it** (`APPROVED` or
+  `SEALED`). A draft is a working figure, and showing it to the person it is
+  about invites them to plan around a number that is still moving.
+- **The account number is masked everywhere.** It is stored whole because a
+  payment file needs it whole; no view serves it, and the masking happens in the
+  storage layer rather than the view so no caller can reach the number by asking
+  a different layer.
+- **`cloud-staff-auth` was not brought across**, as the plan required. The five
+  payroll keys join the one action-key space and map onto the existing ladder.
+
+Not ported: the component engine, `basis.rs`, `policy.rs` and the conservation
+identity that goes with them. They are the arithmetic this backend declines to
+do.
 
 ## A gate that was one rung too high
 
