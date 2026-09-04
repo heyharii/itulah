@@ -189,9 +189,9 @@ Each phase is verified and committed before the next starts.
 
 | Phase | What | State |
 |---|---|---|
-| 0 | This brief, and the People line in `IA-GAP.md` | — |
-| 1 | Scope and grants: reach resolution, the new keys, bounded Supervisor reads and writes, `useReach()` in the hub, the four-group `nav.ts` | — |
-| 2 | Leave + Holiday: leave types, holiday calendar with amendments, the Requests queue, balances on the Directory sheet, the employee app's leave screens live | — |
+| 0 | This brief, and the People line in `IA-GAP.md` | done, `6755c3c` |
+| 1 | Scope and grants: reach resolution, the new keys, bounded Supervisor reads and writes, `useReach()` in the hub, the four-group `nav.ts` | done, `93dd8b1` |
+| 2 | Leave + Holiday: leave types, holiday calendar with amendments, the Requests queue, balances on the Directory sheet, the employee app's leave screens live | done, `43c1d05` |
 | 3 | Overtime: orders, consent, withdrawal; "awaiting consent" joins the queue | — |
 | 4 | Shift patterns + Roster: patterns at head office, the weekly grid and its revisions at the place | — |
 | 5 | Pay + Payroll, head office only: agreements, payroll identity, the run lifecycle with its two-person rule, slips, and the attendance-period closure machine | — |
@@ -227,4 +227,80 @@ shipped, whatever the code suggests.
 ### Phase 0 — the brief
 
 Written 2026-09-04. `IA-GAP.md`'s People line now points here instead of listing
-six unbuilt screens.
+six unbuilt screens. Commit `6755c3c`.
+
+### Phase 1 — scope and grants
+
+Commit `93dd8b1` (backend and generated wire only — see "What is not in a
+commit" below).
+
+`Reach` resolves the caller's places from their own open posting, once per
+request, and `required_role` stays the single mapping from a key to a rung. The
+retrospective fix is the one worth naming: `GET /api/v1/employees` was
+rung-only, so a supervisor at any shop could page through the whole company's
+workforce. It could, and nobody had noticed, because the Directory was its only
+caller and only head office opened it.
+
+Thirteen action keys joined the space for the phases after this one.
+`/employees/me/reach` is new so the console can draw the right module without
+re-deriving the rule in the browser.
+
+### Phase 2 — leave and holiday
+
+Commit `43c1d05`. Ported from `leave-domain`/`cloud-leave` and
+`holiday-domain`/`cloud-holiday`; `docs/hr-port-provenance.md` records every
+adaptation. Migration `0101`.
+
+What shipped: the holiday calendar (publish once, amend for ever, with *cuti
+bersama* distinguished because it comes out of the twelve); leave types and the
+policy generations a balance folds under; balances as a fold with no stored
+number and no route that can spend one; and requests with approve, refuse and
+withdraw, bounded by the decider's own posting.
+
+Hub: **Setup › Leave types** and **Setup › Holiday calendar** at head office,
+**Work › Requests** for both faces, and a **Leave** tab on the Directory sheet.
+Employee app: leave, leave-new and the home card are live on the real routes,
+with their proposal types and demo fallbacks deleted.
+
+Three decisions taken here that the owner should hear about:
+
+- **`people.leave.grant` is a new key** the plan did not list. Putting days
+  *into* somebody's balance is head office's, and the alternative was letting
+  the key that decides requests also hand out days — a manager who could
+  approve leave could then grant themselves some.
+- **`withdraw` won over `cancel`.** The employee app's proposal used the second
+  word; the server uses the first, and the distinction is worth keeping.
+- **`POST /api/v1/employees/me/…` is now CASHIER at the path gate.** It had
+  been SUPERVISOR by fall-through, which silently made "ask for your own leave"
+  a supervisor act. It grants nothing — every handler re-checks its own key.
+
+Still open, unchanged: the punch source. Nothing in this phase needed one.
+
+### What is not in a commit, and why
+
+`frontend-hub` cannot be committed narrowly in this tree. Its `lib/navigation.ts`
+imports `screens/master/nav.ts`, `screens/members/nav.ts` and
+`screens/reports/nav.ts`, none of which is tracked in git — 130 hub files are
+uncommitted work belonging to several lanes at once, so a commit of the People
+files alone would not build, and a commit that made it build would be a commit
+of most of the app.
+
+So phases 1 and 2 commit their **backend and generated wire** — phase 2 also
+commits the employee app, which is entirely this lane's — and the hub work sits
+in the working tree.
+
+Two other things sit uncommitted in the working tree on purpose. The
+**login-provisioning** surface (`postgres/accounts.rs`, `users.rs::provision_account`,
+the two handlers in `http/employment.rs`, migration `0097`, and the Directory's
+form) belongs to another lane; the removal of the proposed-hires flow left its
+handlers homeless and this lane rehoused them, but the feature is theirs to
+commit. And the backend's committed `mod.rs` files must not be staged from the
+working tree wholesale: several lanes have added `pub mod` lines for modules
+they have not committed — `domain::voucher`, `http::{assistant,reports,vocabulary,vouchers}`,
+`postgres::{assistant,membership,saved_reports,segments,vocabulary,vouchers}` —
+and staging those registries by path publishes declarations with no file behind
+them. Both commits here reconstruct those four files from the previous commit
+plus their own lines, and each was verified by building the commit in isolation. The People files are
+`src/screens/people/{nav.ts,index.ts,directory.tsx,requests.tsx,leave-types.tsx,holidays.tsx,scope.ts}`,
+`src/lib/queries/people.ts`, and the `Audience` addition in `lib/navigation.ts`
+and `components/shell/sidebar.tsx`. Somebody should commit the hub as a whole.
