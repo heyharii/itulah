@@ -6093,7 +6093,8 @@ async fn apply_goods_receipt_invoice(
 pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, AppError> {
     let header = sqlx::query(
         "SELECT po_number, supplier_id, supplier_name, destination_site_id, origin_kind,
-                order_status, currency, created_by, issued_at, activation_command_id
+                order_status, currency, created_by, issued_at, activation_command_id,
+                discount_minor
          FROM purchase_order WHERE purchase_order_id = $1",
     )
     .bind(id)
@@ -6102,6 +6103,7 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
     .ok_or_else(|| AppError::NotFound("purchase order".into()))?;
     let lines = sqlx::query(
         "SELECT l.po_line_id, l.line_number, l.article_code, l.article_name, l.division_code,
+                l.image_url,
                 l.ordered_quantity,
                 l.cancelled_quantity, l.line_status, l.promised_date,
                 l.closed_short_units, l.closed_short_by, l.closed_short_reason,
@@ -6120,6 +6122,8 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
     .await?;
     let mut fully_received = true;
     let mut payable_total: i64 = 0;
+    let mut gross_total: i64 = 0;
+    let mut promised: Option<chrono::NaiveDate> = None;
     let items: Vec<Value> = lines
         .into_iter()
         .map(|r| {
@@ -6152,6 +6156,13 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
             let unit_price: i64 = r.get("unit_price_minor");
             let payable_minor = received.checked_mul(unit_price).unwrap_or(0);
             payable_total += payable_minor;
+            gross_total += r.get::<i64, _>("line_amount_minor");
+            // One promise per order, which is how it is agreed and how it is
+            // stamped. The earliest of the lines, so a split promise reads as
+            // the first thing due.
+            if let Some(date) = r.get::<Option<chrono::NaiveDate>, _>("promised_date") {
+                promised = Some(promised.map_or(date, |held| held.min(date)));
+            }
             json!({
                 "po_line_id": r.get::<Uuid, _>("po_line_id"),
                 "line_number": r.get::<i32, _>("line_number"),
@@ -6160,8 +6171,19 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                 "payable_minor": payable_minor,
                 "article_code": r.get::<String, _>("article_code"),
                 "article_name": r.get::<String, _>("article_name"),
+                // The picture the buyer chose when the order was raised. It has
+                // been stored on the line since the catalogue path was written
+                // and shown on no screen that reads the order back.
+                "image_url": r.get::<Option<String>, _>("image_url"),
                 "division_code": r.get::<Option<String>, _>("division_code"),
                 "tags": r.get::<Vec<String>, _>("tags"),
+                // When the supplier said it would arrive. Selected by this
+                // query since the column existed and then dropped on the way
+                // out, so the date a buyer sets when raising the order was
+                // write-only: stored, shipped to the DC, and invisible on the
+                // one screen that shows the order back to them.
+                "promised_date": r.get::<Option<chrono::NaiveDate>, _>("promised_date")
+                    .map(|date| date.to_string()),
                 "ordered_quantity": ordered,
                 "cancelled_quantity": cancelled,
                 "expected_stock_units": expected_stock_units,
@@ -6190,15 +6212,68 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
         // The sum of what the deliveries actually earned. An order closed
         // short settles here, at what arrived, not at what was ordered.
         "payable_minor": payable_total,
+        // What the order is WORTH, which is a different question and the one
+        // the list column and the composer's ladder both answer: the lines,
+        // the discount agreed on the whole order, and what will be invoiced.
+        "gross_minor": gross_total,
+        "discount_minor": header.get::<i64, _>("discount_minor"),
+        "net_minor": (gross_total - header.get::<i64, _>("discount_minor")).max(0),
+        "expected_arrival": promised.map(|date| date.to_string()),
         "lines": items,
     }))
 }
 
 /// Every purchase order with its outstanding position — the buyer's list.
-pub async fn list_purchase_orders(pool: &PgPool) -> Result<Value, AppError> {
+/// What narrows the order book, as the browser asked for it.
+///
+/// Named `PurchaseOrderFilter` and not `Filter`: everything in `postgres::` is
+/// re-exported into one namespace, and a generic name here collides with a
+/// module three doors down and reports it as something else entirely.
+#[derive(Clone, Debug, Default)]
+pub struct PurchaseOrderFilter {
+    /// PO number, supplier name or supplier code. One box, because that is the
+    /// one question — "where is that order" — and a buyer holding a number does
+    /// not want to be asked which KIND of thing they are holding.
+    pub q: Option<String>,
+    /// Empty means every status, never "no status". An empty list bound as an
+    /// array would match nothing and empty the screen on a filter nobody set.
+    pub statuses: Vec<String>,
+    pub suppliers: Vec<String>,
+    pub issued_from: Option<chrono::NaiveDate>,
+    pub issued_to: Option<chrono::NaiveDate>,
+    pub limit: i64,
+}
+
+/// The order book, narrowed HERE and not in the browser.
+///
+/// A list that is filtered after it arrives is a list that arrived: the whole
+/// book crosses the wire, is held in memory, and is then thrown away by a chip
+/// somebody set. This is the same lesson the pricelist learned at five hundred
+/// styles, applied before the order book gets there.
+///
+/// Every row carries what the list has to be able to say without opening
+/// anything: how many lines, what they come to, when the supplier promised
+/// them, and how much of the order has actually landed.
+pub async fn list_purchase_orders(
+    pool: &PgPool,
+    filter: &PurchaseOrderFilter,
+) -> Result<Value, AppError> {
+    // `%` on both sides and the escape hatch none of these has: a buyer types
+    // a fragment of a number, not a pattern.
+    let needle = filter
+        .q
+        .as_ref()
+        .map(|value| format!("%{}%", value.trim().replace('%', "\\%")));
+    let statuses = (!filter.statuses.is_empty()).then(|| filter.statuses.clone());
+    let suppliers = (!filter.suppliers.is_empty()).then(|| filter.suppliers.clone());
+
     let rows = sqlx::query(
         "SELECT o.purchase_order_id, o.po_number, o.supplier_id, o.supplier_name,
                 o.destination_site_id, o.order_status, o.currency, o.issued_at,
+                o.discount_minor,
+                count(l.po_line_id)::bigint AS line_count,
+                min(l.promised_date) AS expected_arrival,
+                COALESCE(sum(l.line_amount_minor), 0)::bigint AS gross_minor,
                 COALESCE(sum(l.ordered_quantity - l.cancelled_quantity), 0)::bigint
                     AS expected_stock_units,
                 COALESCE(sum((SELECT COALESCE(sum(r.quantity), 0) FROM goods_receipt_line r
@@ -6206,9 +6281,24 @@ pub async fn list_purchase_orders(pool: &PgPool) -> Result<Value, AppError> {
                     AS received_stock_units
          FROM purchase_order o
          LEFT JOIN purchase_order_line l ON l.purchase_order_id = o.purchase_order_id
+         WHERE ($1::text IS NULL
+                OR o.po_number ILIKE $1
+                OR o.supplier_name ILIKE $1
+                OR o.supplier_id ILIKE $1)
+           AND ($2::text[] IS NULL OR o.order_status = ANY($2))
+           AND ($3::text[] IS NULL OR o.supplier_id = ANY($3))
+           AND ($4::date IS NULL OR o.issued_at >= $4::date)
+           AND ($5::date IS NULL OR o.issued_at < $5::date + 1)
          GROUP BY o.purchase_order_id
-         ORDER BY o.issued_at DESC NULLS LAST, o.po_number",
+         ORDER BY o.issued_at DESC NULLS LAST, o.po_number
+         LIMIT $6",
     )
+    .bind(needle)
+    .bind(statuses)
+    .bind(suppliers)
+    .bind(filter.issued_from)
+    .bind(filter.issued_to)
+    .bind(filter.limit.clamp(1, 2000))
     .fetch_all(pool)
     .await?;
     let items: Vec<Value> = rows
@@ -6216,6 +6306,8 @@ pub async fn list_purchase_orders(pool: &PgPool) -> Result<Value, AppError> {
         .map(|r| {
             let expected: i64 = r.get("expected_stock_units");
             let received: i64 = r.get("received_stock_units");
+            let gross: i64 = r.get("gross_minor");
+            let discount: i64 = r.get("discount_minor");
             json!({
                 "purchase_order_id": r.get::<Uuid, _>("purchase_order_id"),
                 "po_number": r.get::<String, _>("po_number"),
@@ -6225,6 +6317,17 @@ pub async fn list_purchase_orders(pool: &PgPool) -> Result<Value, AppError> {
                 "order_status": r.get::<String, _>("order_status"),
                 "currency": r.get::<String, _>("currency"),
                 "issued_at": r.get::<Option<DateTime<Utc>>, _>("issued_at"),
+                // The date the supplier promised. One per order, because that
+                // is how it is agreed and how it is stamped — the earliest of
+                // the lines, so a split promise reads as the first thing due.
+                "expected_arrival": r.get::<Option<chrono::NaiveDate>, _>("expected_arrival"),
+                "line_count": r.get::<i64, _>("line_count"),
+                "gross_minor": gross,
+                "discount_minor": discount,
+                // What the supplier will invoice. Stated here rather than left
+                // to the browser to subtract, so the figure in the list and the
+                // figure on the order are one calculation.
+                "net_minor": (gross - discount).max(0),
                 "expected_stock_units": expected,
                 "received_stock_units": received,
                 "outstanding_stock_units": (expected - received).max(0),
@@ -6232,7 +6335,42 @@ pub async fn list_purchase_orders(pool: &PgPool) -> Result<Value, AppError> {
             })
         })
         .collect();
-    Ok(json!({ "items": items }))
+
+    // What the picker prints beside each option, counted over the WHOLE book
+    // rather than over the rows that survived the filters. The number answers
+    // "is this filter worth pressing" — a count that had already been narrowed
+    // by the filter it is offering would be zero beside every option nobody
+    // has ticked, which reads as a book with nothing in it.
+    let statuses = sqlx::query(
+        "SELECT order_status AS value, count(*)::bigint AS rows
+         FROM purchase_order GROUP BY order_status",
+    )
+    .fetch_all(pool)
+    .await?;
+    let suppliers = sqlx::query(
+        "SELECT supplier_id AS value, count(*)::bigint AS rows
+         FROM purchase_order GROUP BY supplier_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let counted = |rows: Vec<sqlx::postgres::PgRow>| -> Vec<Value> {
+        rows.into_iter()
+            .map(|r| {
+                json!({
+                    "value": r.get::<String, _>("value"),
+                    "count": r.get::<i64, _>("rows"),
+                })
+            })
+            .collect()
+    };
+
+    Ok(json!({
+        "items": items,
+        "facets": {
+            "order_status": counted(statuses),
+            "supplier": counted(suppliers),
+        }
+    }))
 }
 
 // ---- Price amendments: the question, and head office's answer ------------

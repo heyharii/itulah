@@ -27,11 +27,19 @@ export interface Choice {
 
 /// The trigger both shapes wear: a field, not a chip.
 ///
-/// They sit in table cells and in forms beside `<Input>`, so they take the
-/// same height and the same resting colour. A chip would read as a filter, and
-/// these are not filtering anything.
+/// It is `<Input>`'s chrome, class for class — `h-9`, the `{soft-2}` fill, the
+/// transparent border that only appears on hover — because that is what this
+/// comment always claimed and never was. It was a 32px white pill with a
+/// hairline round it, standing in the same form row as a 36px grey one, and a
+/// supplier box beside a PO number box read as two controls from two
+/// different applications.
+///
+/// `min-h-9` rather than `h-9`: `<PickMany>` grows as chips wrap, and a fixed
+/// height would clip the second row. A caller in a table or a toolbar
+/// compacts it the way `<Day>` is compacted — `min-h-8 px-2.5
+/// text-[0.71875rem]` — and twMerge lets those win.
 const FIELD =
-  "flex min-h-8 w-full items-center gap-1.5 rounded-full border border-hairline-2 bg-canvas px-2.5 py-1 text-left text-[0.78125rem] transition-colors hover:bg-soft-2 has-[input:focus-visible]:border-line has-[input:focus-visible]:bg-canvas"
+  "flex min-h-9 w-full items-center gap-1.5 rounded-full border border-transparent bg-soft-2 px-3.5 py-1 text-left text-[0.84375rem] transition-colors hover:border-hairline-2 hover:bg-soft-3 has-[input:focus-visible]:border-line has-[input:focus-visible]:bg-canvas"
 
 function match(choices: readonly Choice[], query: string): readonly Choice[] {
   const needle = query.trim().toLowerCase()

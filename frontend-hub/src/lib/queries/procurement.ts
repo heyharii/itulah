@@ -42,12 +42,37 @@ export interface PurchaseOrderRow {
   readonly order_status: string
   readonly currency: string
   readonly issued_at: string | null
+  /// What the supplier promised, as a day. The earliest of the lines, because
+  /// the promise is stamped on all of them and a split one is due first.
+  readonly expected_arrival: string | null
+  /// How many lines are on it — how many different things were ordered, not
+  /// how many pieces.
+  readonly line_count: number
+  readonly gross_minor: number
+  readonly discount_minor: number
+  /// What the supplier will invoice: the lines less the order's discount.
+  readonly net_minor: number
   /// Ordered minus cancelled — what the order still expects.
   readonly expected_stock_units: number
   /// Summed from the DC's goods receipts on every read, never stored.
   readonly received_stock_units: number
   readonly outstanding_stock_units: number
   readonly fully_received: boolean
+}
+
+/// How the order book is narrowed, on the SERVER.
+///
+/// Every field here is a query parameter the endpoint answers. Nothing is
+/// filtered in the browser: the book is the whole company's purchasing, and a
+/// chip applied after it arrives has already paid for all of it.
+export interface PurchaseOrderScope {
+  /// PO number, supplier name or supplier code — the plain-text search.
+  readonly q?: string
+  readonly statuses?: readonly string[]
+  readonly suppliers?: readonly string[]
+  /// ISO days, inclusive at both ends.
+  readonly issuedFrom?: string
+  readonly issuedTo?: string
 }
 
 export interface PurchaseOrderLine {
@@ -59,8 +84,13 @@ export interface PurchaseOrderLine {
   readonly payable_minor: number
   readonly article_code: string
   readonly article_name: string
+  /// The picture chosen when the order was raised, carried on the line since
+  /// the catalogue path was written.
+  readonly image_url: string | null
   readonly division_code: string | null
   readonly tags: readonly string[]
+  /// What the supplier promised, as `YYYY-MM-DD`. Null when nobody said.
+  readonly promised_date: string | null
   readonly ordered_quantity: number
   readonly cancelled_quantity: number
   readonly expected_stock_units: number
@@ -87,7 +117,16 @@ export interface PurchaseOrderDetail {
   readonly issued_at: string | null
   readonly activation_command_id: string | null
   readonly fully_received: boolean
+  /// What the DELIVERIES have earned — received times price. Not what the
+  /// order is worth: an order with nothing received is payable zero.
   readonly payable_minor: number
+  /// What the order is worth: the lines, the discount agreed on the whole
+  /// order, and what the supplier will invoice.
+  readonly gross_minor: number
+  readonly discount_minor: number
+  readonly net_minor: number
+  /// The day the supplier promised — the earliest of the lines.
+  readonly expected_arrival: string | null
   readonly lines: readonly PurchaseOrderLine[]
 }
 
@@ -369,7 +408,13 @@ export interface SourcingScope {
 /// with one call and does not have to remember the second.
 export const procurementKeys = {
   all: ["procurement"] as const,
-  orders: () => ["procurement", "purchase-orders"] as const,
+  /// The order book. The scope is part of the key because a narrowed book is
+  /// a different answer — and an unscoped read stays a distinct entry, which
+  /// is what the PO-number counter and the command palette want.
+  orders: (scope?: PurchaseOrderScope) =>
+    scope === undefined
+      ? (["procurement", "purchase-orders"] as const)
+      : (["procurement", "purchase-orders", "scoped", scope] as const),
   order: (id: string) => ["procurement", "purchase-orders", id] as const,
   destinations: () => ["procurement", "purchase-destinations"] as const,
   suppliers: () => ["procurement", "suppliers"] as const,
@@ -418,10 +463,85 @@ function guarded(
 // ---------------------------------------------------------------------------
 // Purchase orders
 
-export function listPurchaseOrders(signal?: AbortSignal) {
+/// A value and how many orders carry it, counted by the server over the whole
+/// book. What the filter picker prints beside an option: the number is the
+/// affordance — it is how somebody decides whether a filter is worth pressing
+/// before they press it — and counting the rows that survived the same filter
+/// would print a zero beside every option nobody has ticked.
+export interface PurchaseOrderFacets {
+  readonly order_status: readonly { value: string; count: number }[]
+  readonly supplier: readonly { value: string; count: number }[]
+}
+
+export interface PurchaseOrderPage {
+  readonly items: readonly PurchaseOrderRow[]
+  readonly facets: PurchaseOrderFacets
+}
+
+/// The scope as the route it addresses.
+function orderBookUrl(scope: PurchaseOrderScope): string {
+  const params = new URLSearchParams()
+  if (scope.q !== undefined && scope.q.trim() !== "")
+    params.set("q", scope.q.trim())
+  // A ticked list that is empty is not sent at all — `?status=` reaches the
+  // server as one blank code, matches nothing, and empties the screen on a
+  // filter nobody set.
+  if (scope.statuses?.length) params.set("status", scope.statuses.join(","))
+  if (scope.suppliers?.length) params.set("supplier", scope.suppliers.join(","))
+  if (scope.issuedFrom !== undefined)
+    params.set("issued_from", scope.issuedFrom)
+  if (scope.issuedTo !== undefined) params.set("issued_to", scope.issuedTo)
+  const query = params.toString()
+  return query === ""
+    ? "/api/v1/purchase-orders"
+    : `/api/v1/purchase-orders?${query}`
+}
+
+/// The order book, or as much of it as the scope asks for.
+export function listPurchaseOrders(
+  scope: PurchaseOrderScope = {},
+  signal?: AbortSignal
+) {
   return node
-    .get<{ items: PurchaseOrderRow[] }>("/api/v1/purchase-orders", { signal })
+    .get<PurchaseOrderPage>(orderBookUrl(scope), { signal })
     .then((body) => body.items)
+}
+
+/// The same read, keeping the facet counts the filter picker prints.
+///
+/// Two functions over one route rather than one that returns the envelope: six
+/// screens want the rows and nothing else, and making every one of them reach
+/// through `.items` to say so is the worse trade.
+export function purchaseOrderPage(
+  scope: PurchaseOrderScope = {},
+  signal?: AbortSignal
+) {
+  return node.get<PurchaseOrderPage>(orderBookUrl(scope), { signal })
+}
+
+/// The filter bar's clauses as the request they mean.
+///
+/// The operators each field offers are cut to what the endpoint can answer —
+/// see the fields declared in `purchase-orders.tsx` — so there is no case here
+/// for an operator a chip could show and the request could not carry.
+export function orderScopeFromFilters(
+  filters: readonly Filter[]
+): PurchaseOrderScope {
+  const scope: {
+    -readonly [K in keyof PurchaseOrderScope]: PurchaseOrderScope[K]
+  } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0) continue
+    if (column === "order_status" && operator === "isAnyOf")
+      scope.statuses = values
+    else if (column === "supplier" && operator === "isAnyOf")
+      scope.suppliers = values
+    else if (column === "issued_at") {
+      if (operator === "gte") scope.issuedFrom = values[0]
+      else if (operator === "lte") scope.issuedTo = values[0]
+    }
+  }
+  return scope
 }
 
 export function purchaseOrderDetail(id: string, signal?: AbortSignal) {
@@ -988,6 +1108,57 @@ export function supplierItemImage(
     `/api/v1/catalogue/suppliers/${supplierCode}/items/${itemCode}/image`,
     signal
   )
+}
+
+/// Put a photograph on a supplier's item.
+///
+/// Two steps like the article upload, and a third: the column holds a URL
+/// rather than a key the server can recompute, so the durable address is read
+/// back through the GET route once the bytes are up. That route is the one
+/// that knows whether this bucket serves a public URL or a signed one — and a
+/// signed one must not be written into `image_url`, because it stops resolving
+/// while the item it belongs to does not.
+///
+/// The key is the supplier's own code and the item's own code, so this can be
+/// called for an item that exists. It is not a way to park bytes before there
+/// is anything to hang them on.
+export async function uploadSupplierItemImage(
+  supplierCode: string,
+  itemCode: string,
+  file: Blob,
+  signal?: AbortSignal
+): Promise<string> {
+  const ticket = await node.post<ImageUploadTicket>(
+    `/api/v1/catalogue/suppliers/${supplierCode}/items/${itemCode}/image/upload-url`,
+    {},
+    { signal }
+  )
+  const response = await fetch(ticket.upload.url, {
+    method: ticket.method,
+    body: file,
+    headers: { "content-type": ticket.content_type },
+    signal,
+  })
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      `The image store refused the upload (${response.status}).`
+    )
+  }
+  const stored = await supplierItemImage(supplierCode, itemCode, signal)
+  if (stored === null) {
+    throw new ApiError(
+      502,
+      "The photograph uploaded but the store cannot say where it landed."
+    )
+  }
+  if (stored.expires_in_seconds !== null) {
+    throw new ApiError(
+      501,
+      "This bucket hands out expiring links, which cannot be stored against an item. Set a public base URL on the node."
+    )
+  }
+  return stored.url
 }
 
 /// Put a photograph on a colourway.

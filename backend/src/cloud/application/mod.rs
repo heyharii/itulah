@@ -748,21 +748,56 @@ pub struct ArticlePriceQuery {
     pub max_price: Option<i64>,
 }
 
+/// A comma-separated parameter as the list it means.
+///
+/// Blank entries are dropped rather than passed on: `?divisions=` is what a
+/// form sends when nothing is ticked, and an array holding one empty string
+/// would match no division at all — a filter nobody set, silently emptying the
+/// screen.
+///
+/// A free function rather than one query's method, because the second endpoint
+/// to take a ticked list needed exactly this and calling it
+/// `ArticlePriceQuery::list` from a purchase-order handler reads as a mistake.
+pub fn comma_list(raw: &Option<String>) -> Vec<String> {
+    raw.iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 impl ArticlePriceQuery {
-    /// A comma-separated parameter as the list it means.
-    ///
-    /// Blank entries are dropped rather than passed on: `?divisions=` is what
-    /// a form sends when nothing is ticked, and an array holding one empty
-    /// string would match no division at all — a filter nobody set, silently
-    /// emptying the screen.
     pub fn list(raw: &Option<String>) -> Vec<String> {
-        raw.iter()
-            .flat_map(|value| value.split(','))
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-            .collect()
+        comma_list(raw)
     }
+}
+
+/// How the order book is narrowed.
+///
+/// Every field is answered by the SQL rather than by the browser: the list is
+/// the whole book, and a chip that arrives after it has already been paid for.
+/// The operator list the filter bar offers on these columns is cut to what is
+/// here — an operator the request cannot carry is a chip that narrows nothing.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PurchaseOrderQuery {
+    /// PO number, supplier name or supplier code.
+    #[serde(default)]
+    pub q: Option<String>,
+    /// `DRAFT,ISSUED,CLOSED,CANCELLED` — comma separated, any of.
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Supplier codes, comma separated.
+    #[serde(default)]
+    pub supplier: Option<String>,
+    /// Issued on or after this day, and on or before that one. Days, not
+    /// instants: nobody filters an order book to the minute.
+    #[serde(default)]
+    pub issued_from: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub issued_to: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub limit: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

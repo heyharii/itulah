@@ -22,6 +22,7 @@ import { Lifecycle } from "@/components/ui/timeline"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, day, label, money, moment, toneFor } from "@/lib/format"
+import { asJpeg, PICTURE_TYPES } from "@/lib/image"
 import { cn } from "@/lib/utils"
 import {
   articleKeys,
@@ -649,7 +650,10 @@ function Colourway({
   })
 
   const upload = useMutation({
-    mutationFn: (file: File) => uploadArticleImage(articleCode, digit, file),
+    // Converted on the way in, not refused at the picker: the store is JPEG
+    // and almost everything a person has to hand is a PNG. See `lib/image`.
+    mutationFn: async (file: File) =>
+      uploadArticleImage(articleCode, digit, await asJpeg(file)),
     onSuccess: () =>
       client.invalidateQueries({
         queryKey: procurementKeys.articleImage(articleCode, digit),
@@ -690,7 +694,7 @@ function Colourway({
             : "Add a photograph"}
         <input
           type="file"
-          accept="image/jpeg"
+          accept={PICTURE_TYPES}
           className="sr-only"
           disabled={upload.isPending}
           onChange={(event) => {

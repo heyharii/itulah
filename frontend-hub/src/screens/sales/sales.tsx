@@ -169,7 +169,9 @@ export function Sales() {
           onChange={(next) =>
             next === null ? focus.close() : focus.open(next)
           }
-          className="w-44"
+          // Toolbar height, not form height — `<Segmented>` beside it is `h-8`,
+          // and the picker's own default is the `h-9` a `<Field>` wants.
+          className="min-h-8 w-44 px-2.5 text-[0.78125rem]"
         />
         <Segmented
           options={BUCKETS}

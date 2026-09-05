@@ -126,7 +126,19 @@ export function Day({
       </span>
 
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={6}>
+        {/* `z-50` on the POSITIONER, which is where `<Select>` and `<PickOne>`
+            put theirs and where this one did not. A calendar opened from a
+            field inside a `<Sheet>` — the sheet's panel is `z-40` — was
+            rendered, positioned and interactive, and painted UNDER the sheet:
+            clicking a day worked, and nobody could see the day they were
+            clicking. The popup's own `z-50` does not save it, because it is
+            the positioner that is placed. */}
+        <Popover.Positioner
+          className="z-50"
+          side="bottom"
+          align="start"
+          sideOffset={6}
+        >
           <Popover.Popup className={cn(POPUP, "w-[17.5rem] p-2.5")}>
             {presets && presets.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5 border-b border-hairline pb-2.5">

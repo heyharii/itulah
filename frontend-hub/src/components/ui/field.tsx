@@ -51,6 +51,12 @@ export function Input({
         "h-9 w-full rounded-full border border-transparent bg-soft-2 px-3.5 text-[0.84375rem] text-ink transition-colors outline-none",
         "placeholder:text-mute hover:border-hairline-2 hover:bg-soft-3",
         "disabled:opacity-50",
+        // No spinner on a number box. The little stepper is the operating
+        // system's drawing, in the operating system's grey, and it lands on
+        // top of the figure in a right-aligned cell — a quantity of 2 read as
+        // "2" with a grey box shoved against it. Nobody clicks it: a quantity
+        // is typed.
+        "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
         className
       )}
       {...props}

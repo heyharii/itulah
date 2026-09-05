@@ -2082,8 +2082,24 @@ async fn purchase_order_detail(
     ))
 }
 
-async fn list_purchase_orders(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::list_purchase_orders(&s.db).await?))
+async fn list_purchase_orders(
+    State(s): State<AppState>,
+    Query(q): Query<PurchaseOrderQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::list_purchase_orders(
+            &s.db,
+            &infrastructure::PurchaseOrderFilter {
+                q: q.q.clone().filter(|value| !value.trim().is_empty()),
+                statuses: comma_list(&q.status),
+                suppliers: comma_list(&q.supplier),
+                issued_from: q.issued_from,
+                issued_to: q.issued_to,
+                limit: q.limit.unwrap_or(500),
+            },
+        )
+        .await?,
+    ))
 }
 
 // ---- Article master setup -------------------------------------------------

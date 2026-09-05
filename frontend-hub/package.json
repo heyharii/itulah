@@ -10,6 +10,7 @@
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc -b",
     "preview": "vite preview",
+    "preview:laptop": "VITE_EDGE_TARGET=${VITE_EDGE_TARGET:-http://127.0.0.1:8092} vite preview",
     "design-lint": "node scripts/design-lint.mjs",
     "endpoint-audit": "node scripts/endpoint-audit.mjs"
   },
@@ -33,6 +34,7 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "recharts": "3.8.0",
+    "sonner": "^2.0.8",
     "tailwind-merge": "^2.6.0",
     "tailwindcss": "^4",
     "zod": "^4.3.6"
