@@ -141,7 +141,7 @@ export function Outstanding() {
 
   const orders = useQuery({
     queryKey: procurementKeys.orders(),
-    queryFn: ({ signal }) => listPurchaseOrders(signal),
+    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
   })
 
   // Filtered here rather than by the server: `GET /api/v1/purchase-orders`

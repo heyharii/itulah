@@ -807,7 +807,7 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
 function SupplierOrders({ supplierId }: { supplierId: string }) {
   const orders = useQuery({
     queryKey: procurementKeys.orders(),
-    queryFn: ({ signal }) => listPurchaseOrders(signal),
+    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
   })
 
   const mine = (orders.data ?? []).filter(

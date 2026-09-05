@@ -79,7 +79,7 @@ export const searchSources: readonly SearchSource[] = [
     run: async (query, client, signal) => {
       const orders = await client.fetchQuery({
         queryKey: procurementKeys.orders(),
-        queryFn: () => listPurchaseOrders(signal),
+        queryFn: () => listPurchaseOrders(undefined, signal),
       })
       return orders
         .filter((order) =>

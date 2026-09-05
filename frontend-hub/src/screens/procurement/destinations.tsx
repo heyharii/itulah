@@ -109,7 +109,7 @@ export function Destinations() {
 
   const orders = useQuery({
     queryKey: procurementKeys.orders(),
-    queryFn: ({ signal }) => listPurchaseOrders(signal),
+    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
   })
 
   const rows = useMemo<DestinationRow[]>(() => {

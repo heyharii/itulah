@@ -263,7 +263,7 @@ function AmendmentSheet({
   // join costs nothing and the link is not a dead end.
   const orders = useQuery({
     queryKey: procurementKeys.orders(),
-    queryFn: ({ signal }) => listPurchaseOrders(signal),
+    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
     enabled: amendment !== undefined,
   })
   const order = orders.data?.find(
