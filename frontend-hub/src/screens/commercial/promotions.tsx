@@ -37,6 +37,7 @@ import { Switch } from "@/components/ui/form"
 import { RuleForm } from "@/screens/commercial/rule-form"
 import { Terms } from "@/screens/commercial/controls"
 import {
+  capsOf,
   consumed,
   describeCustomers,
   describeEffect,
@@ -238,7 +239,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     cell: ({ row }) => {
       const budget =
         row.original.usage?.budget_minor ??
-        row.original.row.definition.caps.budget?.minor ??
+        capsOf(row.original.row.definition).budget?.minor ??
         null
       return budget === null ? (
         <span className="text-mute">Unlimited</span>
@@ -415,7 +416,7 @@ export function Promotions() {
             >
               {send.isPending ? "Sending…" : "Send counts to shops"}
             </Button>
-            <Button variant="dark" onClick={() => setWriting(true)}>
+            <Button variant="primary" onClick={() => setWriting(true)}>
               New promotion
             </Button>
           </>
@@ -616,7 +617,7 @@ function PromotionSheet({
             <Fact term="Applies to">{describeScope(rule)}</Fact>
             <Fact term="Campaign">{rule.campaign_id ?? "On its own"}</Fact>
             <Fact term="Shoppers">
-              {rule.scope.customers.who === "MEMBERS" ? "Members" : "Everyone"}
+              {describeCustomers(rule)}
             </Fact>
             {/* The counter's figure first, the rule's own where nothing has
                 been counted yet. A promotion that has never fired has no usage
@@ -625,10 +626,10 @@ function PromotionSheet({
                 that say it stops at five million. The list column already had
                 the fallback; this did not. */}
             <Fact term="Budget">
-              {(line.usage?.budget_minor ?? rule.caps.budget?.minor ?? null) ===
+              {(line.usage?.budget_minor ?? capsOf(rule).budget?.minor ?? null) ===
               null
                 ? "Unlimited"
-                : money(line.usage?.budget_minor ?? rule.caps.budget!.minor)}
+                : money(line.usage?.budget_minor ?? capsOf(rule).budget!.minor)}
             </Fact>
             <Fact term="Spent">{money(spent)}</Fact>
             <Fact term="Used">{count(line.usage?.uses ?? 0)}</Fact>

@@ -1,5 +1,11 @@
 import { useNavigate } from "@tanstack/react-router"
-import type { Effect, Rule } from "@itulah/contract"
+import type {
+  Caps,
+  Conditions,
+  Effect,
+  Rule,
+  RuleScope,
+} from "@itulah/contract"
 
 import { count, day, money } from "@/lib/format"
 import { oxford } from "@/screens/commercial/compose"
@@ -79,9 +85,69 @@ export function localInput(at: Date): string {
 // below decides what a rule does, and every branch that a build has not been
 // told about falls through to the wire word rather than to a guess.
 
+// A rule document is only as new as the book it was published in, and a book is
+// frozen. Every optional field on `pricing_engine::Rule` carries
+// `#[serde(default)]`, so a promotion written before `scope` — or `conditions`,
+// or `caps` — existed is still applied by every till in the fleet, which reads
+// it through that parse and notices nothing missing.
+//
+// The centre normalises the same way before it answers now
+// (`cloud/postgres/catalogue.rs::canonical`), and that is the fix. These three
+// are the second line: a hub deployed ahead of its node reads books that node
+// has not normalised yet, and the failure mode is not a blank cell but a thrown
+// `TypeError` inside a table cell, which takes the entire screen down — fifteen
+// legible promotions replaced by "Something went wrong!" because one row was
+// published in March. A list that cannot show a row must still show the rest.
+//
+// The defaults are the engine's own, not a guess: `RuleScope::default()` is
+// unscoped and open to everyone, `Conditions::default()` demands nothing,
+// `Caps::default()` limits nothing.
+
+const NO_SCOPE: RuleScope = {
+  applicability: null,
+  excluded_sku_codes: [],
+  site_ids: [],
+  channels: [],
+  customers: { who: "EVERYONE" },
+  effect_on: null,
+}
+
+const NO_CONDITIONS: Conditions = {
+  min_quantity: 0,
+  max_quantity: null,
+  min_amount: { minor: 0 },
+  max_amount: null,
+  effective_from: null,
+  effective_to: null,
+  days: { iso_weekdays: [] },
+  time_window: null,
+}
+
+const NO_CAPS: Caps = {
+  budget: null,
+  spent: { minor: 0 },
+  max_uses: null,
+  used: 0,
+}
+
+/// The three fields a stored document may predate, read the way the engine
+/// reads them. Exported because the screens reach for `caps` and `conditions`
+/// directly as well as through the sentences below.
+export function scopeOf(rule: Rule): RuleScope {
+  return rule.scope ?? NO_SCOPE
+}
+
+export function conditionsOf(rule: Rule): Conditions {
+  return rule.conditions ?? NO_CONDITIONS
+}
+
+export function capsOf(rule: Rule): Caps {
+  return rule.caps ?? NO_CAPS
+}
+
 /// What a rule matches.
 export function describeScope(rule: Rule): string {
-  const on = rule.scope.applicability
+  const on = scopeOf(rule).applicability
   if (on === null) return "Everything"
   switch (on.on) {
     case "SKU":
@@ -133,7 +199,7 @@ export function describeEffect(effect: Effect): string {
 /// `EVERYONE` and `MEMBERS` and no tier arm at all, so a tier control here
 /// would be a field that cannot be sent.
 export function describeCustomers(rule: Rule): string {
-  return rule.scope.customers.who === "MEMBERS" ? "Members" : "Everyone"
+  return scopeOf(rule).customers.who === "MEMBERS" ? "Members" : "Everyone"
 }
 
 /// How one cell of the Pricelist grid is named — in the URL, in the selection,
@@ -173,8 +239,8 @@ export function termsOf(
   clauses: readonly (string | false)[]
   hidden: readonly (string | false)[]
 } {
-  const on = rule.scope.applicability
-  const conditions = rule.conditions
+  const on = scopeOf(rule).applicability
+  const conditions = conditionsOf(rule)
   const least = conditions.min_quantity
   const spend = conditions.min_amount.minor
   const cart = on === null || on.on === "WHOLE_CART"
@@ -182,7 +248,7 @@ export function termsOf(
   return {
     clauses: [
       appliesTo(rule, named),
-      rule.scope.customers.who === "MEMBERS" &&
+      scopeOf(rule).customers.who === "MEMBERS" &&
         "The shopper has to be identified at the till as a member.",
       conditions.effective_from !== null && conditions.effective_to !== null
         ? `It runs from ${day(conditions.effective_from)} to ${day(conditions.effective_to)}, both days included.`
@@ -220,10 +286,10 @@ export function termsOf(
           : "It combines with every other offer that also shares.",
     ],
     hidden: [
-      rule.caps.budget !== null &&
-        `it stops once ${money(rule.caps.budget.minor)} has been given away`,
-      rule.caps.max_uses !== null &&
-        `it stops after ${count(rule.caps.max_uses)} baskets`,
+      capsOf(rule).budget !== null &&
+        `it stops once ${money(capsOf(rule).budget!.minor)} has been given away`,
+      capsOf(rule).max_uses !== null &&
+        `it stops after ${count(capsOf(rule).max_uses!)} baskets`,
       rule.priority > 0 &&
         `it is ranked ${count(rule.priority)} where two offers cannot both apply`,
     ],
@@ -240,7 +306,7 @@ function appliesTo(
   rule: Rule,
   named: (code: string) => string
 ): string | false {
-  const on = rule.scope.applicability
+  const on = scopeOf(rule).applicability
   if (on === null || on.on === "WHOLE_CART")
     return "It applies to the sale itself, not to any particular item."
   switch (on.on) {

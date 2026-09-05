@@ -24,6 +24,7 @@
 //! to wonder why it has never fired.
 
 use chrono::{DateTime, Utc};
+use pricing_engine::Rule;
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -64,12 +65,53 @@ async fn published_book_count(pool: &PgPool) -> Result<i64, AppError> {
     )
 }
 
+/// A stored rule document, as the engine would read it.
+///
+/// The column is whatever was written into the book on the day it was
+/// published, and that is not the same thing as what `Rule` is today. Every
+/// optional field on that struct carries `#[serde(default)]` — `scope`,
+/// `conditions`, `caps`, `stacking`, `earn_basis` — so a document written
+/// before one of them existed still deserialises, and every till in the fleet
+/// applies it without noticing: `load_rules` in `pricing.rs` reads it through
+/// exactly this parse.
+///
+/// The centre used to hand the raw column to the browser instead, and the
+/// asymmetry was the fault. A promotion whose document predates `scope` is
+/// applied correctly by every shop and had no `scope` key at all on the wire,
+/// which is not a field the screens can be asked to tolerate: the response is
+/// typed as `Rule`, the generated contract says `scope` is always there, and
+/// the list toppled on `rule.scope.applicability` — one old row taking out the
+/// whole screen, including the fifteen rows that were fine.
+///
+/// So the parse happens here, once, and what goes out is the engine's own
+/// serialisation. That is what the doc comment on this endpoint always claimed
+/// and what its consumers were already written against.
+///
+/// A document this build genuinely cannot read is passed through untouched
+/// rather than dropped. `load_rules` skips it — right for an evaluator, since a
+/// price must never be guessed — but wrong for a list whose entire job is to
+/// say which promotions exist. A row nobody can see is the one nobody turns
+/// off.
+fn canonical(document: Value) -> Value {
+    match serde_json::from_value::<Rule>(document.clone()) {
+        Ok(rule) => serde_json::to_value(rule).unwrap_or(document),
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "listing a promotion this build cannot fully read; it is shown as stored"
+            );
+            document
+        }
+    }
+}
+
 /// Every promotion any published book declares.
 ///
-/// The rule is handed back as the engine serialised it — `definition`, whole.
-/// A second reading of it here would be a second opinion about what a promotion
-/// does, and the screens already parse that document against the generated
-/// contract type.
+/// The rule is handed back as the engine serialises it — `definition`, whole,
+/// through `canonical` above. A second *reading* of it here would be a second
+/// opinion about what a promotion does; normalising it is the opposite, and is
+/// what lets the screens parse the document against the generated contract type
+/// the way they already claim to.
 pub async fn commercial_rules(pool: &PgPool) -> Result<Value, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT DISTINCT ON (r.rule_id)
@@ -93,7 +135,7 @@ pub async fn commercial_rules(pool: &PgPool) -> Result<Value, AppError> {
                 "name": row.get::<String, _>("name"),
                 "status": row.get::<String, _>("status"),
                 "priority": row.get::<i32, _>("priority"),
-                "definition": row.get::<Value, _>("definition"),
+                "definition": canonical(row.get::<Value, _>("definition")),
                 // Which book carried it. The screens name the publication on a
                 // detail sheet, and without this they would have to open one to
                 // find out — the round trip this module exists to remove.
@@ -207,4 +249,47 @@ pub async fn commercial_campaigns(pool: &PgPool) -> Result<Value, AppError> {
         .collect();
 
     Ok(json!({ "items": items, "book_count": published_book_count(pool).await? }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A rule published before `scope` existed.
+    ///
+    /// This is not a hypothetical: books in production carry documents this
+    /// shape, every till applies them, and the centre used to hand the column
+    /// out untouched — so the hub's promotions list read `scope.applicability`
+    /// of `undefined` and the whole screen was replaced by a stack trace.
+    #[test]
+    fn a_document_missing_scope_comes_back_with_the_engine_default() {
+        let stored = json!({
+            "rule_id": "rule-old",
+            "name": "Published before scope existed",
+            "effect": { "kind": "PERCENT", "bps": 2000, "compound": false },
+        });
+
+        let out = canonical(stored);
+
+        // Present, and open — `RuleScope::default()` is unscoped and applies to
+        // everyone, which is exactly what the till has always done with it.
+        assert_eq!(out["scope"]["applicability"], Value::Null);
+        assert_eq!(out["scope"]["customers"]["who"], "EVERYONE");
+        assert_eq!(out["conditions"]["min_quantity"], 0);
+        assert_eq!(out["caps"]["budget"], Value::Null);
+        // And the parts that were stored are untouched.
+        assert_eq!(out["effect"]["bps"], 2000);
+        assert_eq!(out["rule_id"], "rule-old");
+    }
+
+    /// A document this build genuinely cannot parse is still listed.
+    ///
+    /// The evaluator drops it — a price must never be guessed at. A list must
+    /// not, because a promotion nobody can see is a promotion nobody can turn
+    /// off.
+    #[test]
+    fn an_unreadable_document_is_passed_through_rather_than_dropped() {
+        let stored = json!({ "rule_id": "rule-broken", "name": "No effect at all" });
+        assert_eq!(canonical(stored.clone()), stored);
+    }
 }
