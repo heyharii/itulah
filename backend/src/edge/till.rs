@@ -1030,3 +1030,120 @@ pub fn print_receipt(
     super::printing::send_bytes(&request.printer_host, request.printer_port, &bytes)?;
     Ok(bytes.len())
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Telling head office what the drawer did
+// ════════════════════════════════════════════════════════════════════════════
+
+/// The fact the centre reads a shift from.
+///
+/// The shop authors a shift — it has to, because the counter keeps working when
+/// the line to head office does not — and this is how the centre gets a copy.
+/// Until it existed the centre could read what a shop SOLD and could not read
+/// what a shop HELD, so the two questions a cash retailer lives on had no answer
+/// outside the shop that cannot answer them honestly about itself.
+///
+/// One fact type rather than three. Whole-state rather than a diff: it carries
+/// the shift and every movement on it, and the centre upserts. A stream of
+/// `shift.opened`, `cash.moved`, `shift.closed` would be three parsers, three
+/// ordering assumptions and a shift that is permanently half-applied the day one
+/// of them is rejected. This one is idempotent by construction — replaying the
+/// last fact for a shift reconstructs it exactly.
+pub const FACT_SHIFT_RECORDED: &str = "till.shift.recorded";
+
+/// Build the payload for one shift, as it stands right now.
+///
+/// `site_id` is passed in rather than read: the shop's identity belongs to the
+/// node, not to the till, and a payload that named itself would be a claim
+/// rather than an attribution.
+pub fn shift_fact(
+    connection: &Connection,
+    shift_id: &str,
+    site_id: &str,
+) -> Result<serde_json::Value, EdgeError> {
+    let head = connection
+        .query_row(
+            "SELECT terminal_id,status,opened_by,opened_at,opening_float_minor,
+                    closed_by,closed_at,declared_cash_minor,expected_cash_minor,
+                    variance_minor,close_note
+               FROM cash_shift WHERE id=?1",
+            [shift_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, Option<i64>>(8)?,
+                    row.get::<_, Option<i64>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(db)?
+        .ok_or_else(|| EdgeError::NotFound(format!("shift {shift_id}")))?;
+
+    let mut statement = connection
+        .prepare(
+            "SELECT id,kind,amount_minor,reason,actor_id,approved_by,occurred_at
+               FROM cash_movement WHERE shift_id=?1 ORDER BY occurred_at,id",
+        )
+        .map_err(db)?;
+    let movements = statement
+        .query_map([shift_id], |row| {
+            Ok(serde_json::json!({
+                "movement_id": row.get::<_, String>(0)?,
+                "kind": row.get::<_, String>(1)?,
+                "amount_minor": row.get::<_, i64>(2)?,
+                "reason": row.get::<_, String>(3)?,
+                "actor_id": row.get::<_, String>(4)?,
+                "approved_by": row.get::<_, Option<String>>(5)?,
+                "occurred_at": row.get::<_, String>(6)?,
+            }))
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+
+    Ok(serde_json::json!({
+        "shift_id": shift_id,
+        "site_id": site_id,
+        "terminal_id": head.0,
+        "status": head.1,
+        "opened_by": head.2,
+        "opened_at": head.3,
+        "opening_float_minor": head.4,
+        "closed_by": head.5,
+        "closed_at": head.6,
+        "declared_cash_minor": head.7,
+        // What the SHOP worked out. The centre computes the same equation from
+        // the sales it has and shows both, so a till on an old build is visible
+        // as a disagreement rather than being silently authoritative.
+        "expected_cash_minor": head.8,
+        "variance_minor": head.9,
+        "close_note": head.10,
+        "movements": movements,
+    }))
+}
+
+/// Put the current state of a shift on the outbound queue.
+///
+/// Called after every write to a shift — open, movement, close — inside the
+/// same transaction, so a shift the shop believes it recorded and a fact the
+/// centre never received cannot happen. A fresh event id each time, because the
+/// centre deduplicates on it and the second and third facts for one shift are
+/// new information rather than a resend.
+pub fn enqueue_shift_fact(
+    tx: &Transaction<'_>,
+    shift_id: &str,
+    site_id: &str,
+) -> Result<(), EdgeError> {
+    let payload = shift_fact(tx, shift_id, site_id)?;
+    super::sync::enqueue_fact(tx, Uuid::new_v4(), FACT_SHIFT_RECORDED, &payload).map_err(db)?;
+    Ok(())
+}

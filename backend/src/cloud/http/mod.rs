@@ -35,6 +35,7 @@ pub mod pay;
 pub mod performance;
 pub mod reports;
 pub mod roster;
+pub mod store_money;
 pub mod suppliers;
 pub mod vocabulary;
 pub mod vouchers;
@@ -1011,6 +1012,11 @@ pub fn router(state: AppState) -> Router {
                 )),
         )
         .route("/api/v1/audit", get(audit::list))
+        // Store money: the drawer, the deposit, the remittance order, the
+        // manager's float, the receipt. One line rather than thirty, because
+        // several lanes are editing this file at once and a shared route table
+        // is a merge somebody resolves by hand at the wrong hour.
+        .merge(store_money::lane_b_routes(Router::new()))
         .route("/metrics", get(metrics))
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->

@@ -1926,6 +1926,25 @@ async fn apply_one(
                     });
                 }
                 false
+            } else if event_type == crate::edge::till::FACT_SHIFT_RECORDED {
+                // The drawer, on the same path the tenders take. Nothing here
+                // touches the watermark or the generation: the coordinate is
+                // handed over and stored, so the shift can be traced to the
+                // push that delivered it.
+                let shift = match super::store_money::parse_cash_shift(&payload) {
+                    Ok(shift) => shift,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) =
+                    super::store_money::cash_shift_ingest(&mut tx, origin_id, generation, next, &shift)
+                        .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
             } else if event_type == INVENTORY_ALLOTMENT_APPLICATION_RESULT_V1 {
                 let event_id: Uuid = row.get("event_id");
                 let result = match parse_allotment_application_result(&payload) {
