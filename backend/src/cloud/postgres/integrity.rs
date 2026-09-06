@@ -82,7 +82,7 @@ use crate::cloud::domain::{
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use sqlx::{PgPool, Row};
 use std::sync::{OnceLock, RwLock};
 use uuid::Uuid;
@@ -1654,8 +1654,11 @@ pub struct IntegrityResultRow {
     pub expected_minor: i64,
     pub actual_minor: i64,
     pub difference_minor: i64,
-    pub details: Value,
-    pub suggested_actions: Value,
+    /// The stored answer, read back as the type it was written as. The columns
+    /// are jsonb because a result's shape is the engine's business and not the
+    /// database's; the browser still gets a type rather than `unknown`.
+    pub details: Details,
+    pub suggested_actions: Vec<SuggestedAction>,
     pub evaluated_at: DateTime<Utc>,
 }
 
@@ -1979,8 +1982,8 @@ fn to_result_row(row: &sqlx::postgres::PgRow) -> Result<IntegrityResultRow, AppE
         expected_minor: row.try_get("expected_minor")?,
         actual_minor: row.try_get("actual_minor")?,
         difference_minor: row.try_get("difference_minor")?,
-        details: row.try_get("details")?,
-        suggested_actions: row.try_get("suggested_actions")?,
+        details: serde_json::from_value(row.try_get("details")?)?,
+        suggested_actions: serde_json::from_value(row.try_get("suggested_actions")?)?,
         evaluated_at: row.try_get("evaluated_at")?,
     })
 }
@@ -2027,7 +2030,7 @@ pub struct IntegrityHistoryPoint {
     pub expected_minor: i64,
     pub actual_minor: i64,
     pub difference_minor: i64,
-    pub details: Value,
+    pub details: Details,
     pub evaluated_at: DateTime<Utc>,
 }
 
@@ -2060,7 +2063,7 @@ pub async fn integrity_history(
                 expected_minor: row.try_get("expected_minor")?,
                 actual_minor: row.try_get("actual_minor")?,
                 difference_minor: row.try_get("difference_minor")?,
-                details: row.try_get("details")?,
+                details: serde_json::from_value(row.try_get("details")?)?,
                 evaluated_at: row.try_get("evaluated_at")?,
             })
         })
@@ -2083,7 +2086,7 @@ pub struct AttentionItemRow {
     pub severity: String,
     pub title: String,
     pub body: String,
-    pub suggested_actions: Value,
+    pub suggested_actions: Vec<SuggestedAction>,
     pub amount_minor: Option<i64>,
     pub opened_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
@@ -2130,7 +2133,7 @@ fn to_attention(row: &sqlx::postgres::PgRow) -> Result<AttentionItemRow, AppErro
         severity: row.try_get("severity")?,
         title: row.try_get("title")?,
         body: row.try_get("body")?,
-        suggested_actions: row.try_get("suggested_actions")?,
+        suggested_actions: serde_json::from_value(row.try_get("suggested_actions")?)?,
         amount_minor: row.try_get("amount_minor")?,
         opened_at: row.try_get("opened_at")?,
         last_seen_at: row.try_get("last_seen_at")?,
