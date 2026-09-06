@@ -65,9 +65,10 @@ CREATE TABLE integrity_result (
     result_id        uuid PRIMARY KEY,
     run_id           uuid NOT NULL REFERENCES integrity_run(run_id) ON DELETE CASCADE,
 
-    -- The check's stable name, e.g. `payables.ap_control`. Free text and not a
-    -- CHECK list: the registry is a Rust list that other lanes add to, and a
-    -- migration per new equation would make adding one a two-repository act.
+    -- The check's stable name, e.g. `payment_ledger.control_accounts`. Free
+    -- text and not a CHECK list: the registry is a Rust list that other lanes
+    -- register into, and a migration per new equation would make adding one a
+    -- two-repository act.
     key              text NOT NULL CHECK (btrim(key) <> ''),
 
     -- `GROUP` for a company-wide equation, otherwise a `site.id`. Stored as the
