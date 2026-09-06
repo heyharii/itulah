@@ -483,7 +483,8 @@ impl Tolerance {
 /// settlement window is timing, and the same difference a day later is not.
 ///
 /// `age_days` is `None` when the difference has no single age — a control
-/// account against a subledger is a standing total, not an item in flight — and
+/// account against the ledger behind it is a standing total, not an item in
+/// flight — and
 /// then there is nothing timing could explain, so it is an exception at once.
 pub fn classify(
     expected_minor: i64,
@@ -616,7 +617,7 @@ mod tests {
 
     #[test]
     fn a_difference_with_no_age_is_an_exception_at_once() {
-        // A subledger against its control account is a standing total. There is
+        // A ledger against its control account is a standing total. There is
         // no "it will clear tomorrow" available to it, so a generous settlement
         // window must not quietly buy it one.
         assert_eq!(

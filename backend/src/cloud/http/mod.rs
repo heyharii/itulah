@@ -27,6 +27,7 @@ pub mod employment;
 pub mod files;
 pub mod finance;
 pub mod holiday;
+pub mod integrity;
 pub mod leave;
 pub mod member;
 pub mod notifications;
@@ -66,7 +67,8 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
 
 pub fn router(state: AppState) -> Router {
     let frontend = state.config.frontend_dir.clone();
-    Router::new()
+    // The integrity engine and the attention feed, in one line rather than six.
+    integrity::lane_e_routes(Router::new())
         .merge(crate::cloud::media::router())
         .route("/api/v1/health", get(health))
         .route("/api/v1/inventory/pools", get(pools))

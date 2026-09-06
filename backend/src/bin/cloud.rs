@@ -46,6 +46,7 @@ async fn main() -> Result<(), AppError> {
     let state = AppState::new(pool, config);
     tokio::spawn(run_auth_policy_refresh_agent(state.db.clone()));
     tokio::spawn(run_catalog_publisher(state.db.clone()));
+    tokio::spawn(run_integrity_agent(state.db.clone()));
     if state.config.sync_apply_enabled {
         tokio::spawn(sync_agent::run_apply_agent(state.clone()));
     }
@@ -88,6 +89,50 @@ async fn run_catalog_publisher(pool: sqlx::PgPool) {
             }
             Ok(None) => {}
             Err(error) => tracing::error!(%error, "failed to publish the product list"),
+        }
+    }
+}
+
+/// Ask the ten control equations once a day, and leave the answers waiting.
+///
+/// Daily rather than on every posting, for the reason the catalogue publisher
+/// runs on a timer: "the books changed" has no single moment, and an equation
+/// that ran on every journal line would spend the day telling somebody that a
+/// bill posted at ten is not yet paid. What people want is one answer per day
+/// that they can trust, found before they arrive.
+///
+/// The date asked about is yesterday, not today. A run at three in the morning
+/// asking about today would be asking about a day with four hours in it, and
+/// would report every unposted document as an exception every night. Yesterday
+/// is a whole day, closed, and the same date whichever hour the run happens to
+/// start — which also makes two runs of the same night comparable.
+///
+/// Hourly ticks with a date guard rather than an interval of a day, because a
+/// process restarted at eight in the morning would otherwise wait until eight
+/// the next morning to ask anything, and a deploy would silently cost a night.
+async fn run_integrity_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    let mut last_asked: Option<chrono::NaiveDate> = None;
+    loop {
+        interval.tick().await;
+        let as_of = chrono::Utc::now().date_naive() - chrono::Duration::days(1);
+        if last_asked == Some(as_of) {
+            continue;
+        }
+        match postgres::integrity_run_now(&pool, as_of, "SCHEDULED", "system:integrity").await {
+            Ok(run) => {
+                last_asked = Some(as_of);
+                info!(
+                    %as_of,
+                    worst = run.worst_state.as_deref().unwrap_or("UNKNOWN"),
+                    open_items = run.open_items,
+                    "asked the control equations"
+                );
+            }
+            // Not recording `last_asked`, so a database that was briefly
+            // unreachable is asked again on the next tick rather than skipped
+            // for the day.
+            Err(error) => tracing::error!(%as_of,%error,"the integrity run failed"),
         }
     }
 }
