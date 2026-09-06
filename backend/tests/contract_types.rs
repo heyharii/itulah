@@ -516,6 +516,35 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("ConfirmMatchRequest: {e}"));
     inventory_backend::cloud::postgres::BookBankLineRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("BookBankLineRequest: {e}"));
+
+    // lane-C: the money documents, and the two things that make one without a
+    // person typing it.
+    //
+    // The slip is exported as its own shape rather than assembled in the
+    // browser from the row. Everything on it — the title, the account names,
+    // the amount in words — is derived, and a page that re-derived them would
+    // be a second implementation of the derivation: a slip whose words
+    // disagreed with its figures is worse than one with no words at all.
+    inventory_backend::cloud::postgres::RecordCashDocumentRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordCashDocumentRequest: {e}"));
+    inventory_backend::cloud::postgres::CashDocumentRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("CashDocumentRow: {e}"));
+    inventory_backend::cloud::postgres::CashDocumentSlip::export_all(&config)
+        .unwrap_or_else(|e| panic!("CashDocumentSlip: {e}"));
+    inventory_backend::cloud::postgres::RecordBankRuleRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordBankRuleRequest: {e}"));
+    inventory_backend::cloud::postgres::BankRuleRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankRuleRow: {e}"));
+    inventory_backend::cloud::postgres::BankRuleProposalRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankRuleProposalRow: {e}"));
+    inventory_backend::cloud::postgres::BankRuleRunOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankRuleRunOutcome: {e}"));
+    // One root: `export_all` pulls `GiroRow` and `GiroBankTotal` in behind the
+    // board.
+    inventory_backend::cloud::postgres::GiroBoard::export_all(&config)
+        .unwrap_or_else(|e| panic!("GiroBoard: {e}"));
+    inventory_backend::cloud::postgres::SettleGiroRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SettleGiroRequest: {e}"));
     // Where the money is. Driven off `account_map`, so a meaning nobody has
     // mapped produces no row — which is the honest answer and a visible one.
     inventory_backend::cloud::postgres::MoneyOverview::export_all(&config)
