@@ -460,6 +460,26 @@ async fn a_category_marked_not_directly_postable_is_refused_from_a_bank_line(poo
     .await;
     let message = format!("{}", refused.expect_err("a drawing needs a signature"));
     assert!(message.contains("approved"), "{message}");
+
+    // And a category that is not used on bank documents at all is refused
+    // before the question of postability even arises. `ops_miscellaneous` is
+    // deliberately a cash-slip category: every chart has that leaf and every
+    // chart has it as the largest expense nobody can explain, so the one place
+    // it must not be reachable from is the screen where explaining is quickest.
+    let elsewhere = cloud::transaction_category_read(&pool, "ops_miscellaneous", Some("dc"))
+        .await
+        .unwrap_or_else(|error| panic!("read: {error}"));
+    assert!(!elsewhere.domains.iter().any(|domain| domain == "BANK"));
+    let refused = cloud::bank_line_categorise(
+        &pool,
+        lines[0],
+        &explain("ops_miscellaneous", "lain-lain"),
+        ACTOR,
+    )
+    .await;
+    let message = format!("{}", refused.expect_err("not a bank-line category"));
+    assert!(message.contains("cash document"), "{message}");
+
     assert_eq!(
         count(&pool, "SELECT COUNT(*)::bigint AS n FROM journal_entry").await,
         0
@@ -587,11 +607,21 @@ async fn the_options_endpoint_returns_matches_before_categories(pool: PgPool) {
     );
     assert!(options.creatable.iter().all(|o| o.door == "CREATE"));
     assert!(
-        options
-            .creatable
-            .iter()
-            .any(|o| o.reached_by.len() > 1 || !o.reached_by.is_empty()),
-        "a document says which categories lead to it"
+        options.creatable.iter().all(|o| !o.reached_by.is_empty()),
+        "a document says which categories lead to it; \"create a supplier payment\" means \
+         nothing until it sits beside \"you were looking for Hutang Supplier\""
+    );
+    // Five payroll categories are one instruction, which is the whole reason
+    // this door is grouped by the document rather than listed per category.
+    let payroll = options
+        .creatable
+        .iter()
+        .find(|o| o.document_type == "PAYROLL_RUN")
+        .unwrap_or_else(|| panic!("money out should offer creating the payroll payment"));
+    assert!(
+        payroll.reached_by.len() > 1,
+        "grouped: {:?}",
+        payroll.reached_by
     );
 
     // The third: what may actually be posted, and what may only be explained.

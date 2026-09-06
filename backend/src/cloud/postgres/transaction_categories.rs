@@ -924,6 +924,29 @@ pub async fn bank_line_categorise(
             if outgoing { "going out" } else { "coming in" }
         )));
     }
+    // Where the category is allowed to be used at all. Checked here and not
+    // only in the list, because the list is a screen's convenience and this is
+    // the gate: a caller that never opened the list can still send a code, and
+    // `ops_miscellaneous` is deliberately not something a statement line may
+    // become however it is reached.
+    if !category.domains.iter().any(|domain| domain == "BANK") {
+        return Err(AppError::Validation(format!(
+            "'{}' is not something a bank line can be; it is used {}",
+            category.display_name,
+            if category.domains.is_empty() {
+                "nowhere — it exists so that a refusal can name it".to_string()
+            } else {
+                format!(
+                    "on a {} document",
+                    category
+                        .domains
+                        .join(" or ")
+                        .to_lowercase()
+                        .replace('_', " ")
+                )
+            }
+        )));
+    }
     if let Some(refusal) = refuse_from_bank_line(&facts) {
         return Err(AppError::Validation(refusal));
     }
