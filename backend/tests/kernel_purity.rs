@@ -39,6 +39,11 @@ use std::path::{Path, PathBuf};
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
+    // lane-A: the day's takings rule. Guarded for the same reason as the
+    // other two and one of its own — a posting rule that could read the
+    // database would produce a different entry in March than regenerating
+    // March produces, silently, with nothing failing.
+    "src/cloud/domain/sales_posting.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the

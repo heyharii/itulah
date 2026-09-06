@@ -17,6 +17,8 @@ mod overtime;
 mod pay;
 mod place;
 mod sales;
+// lane-A
+pub mod sales_posting;
 mod supplier;
 mod sync;
 mod voucher;
