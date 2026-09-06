@@ -36,6 +36,7 @@ pub mod performance;
 pub mod reports;
 pub mod roster;
 pub mod suppliers;
+pub mod sync_generation;
 pub mod vocabulary;
 pub mod vouchers;
 
@@ -66,7 +67,10 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
 
 pub fn router(state: AppState) -> Router {
     let frontend = state.config.frontend_dir.clone();
-    Router::new()
+    // Lane S adds the generation handshake and the receiver's integrity
+    // alerts. It wraps rather than chains so the routes it owns stay in one
+    // file instead of being threaded through this table.
+    sync_generation::lane_s_routes(Router::new())
         .merge(crate::cloud::media::router())
         .route("/api/v1/health", get(health))
         .route("/api/v1/inventory/pools", get(pools))
@@ -1897,9 +1901,17 @@ async fn sync_register_origin(
     ))
 }
 
-/// Registered origins, keys never included.
+/// Every origin, with where its stream actually stands. Keys never included.
+///
+/// This used to list credentials alone — who is registered, at which
+/// generation the fence sits — which answers "was this shop set up" and not
+/// "is this shop reaching me". Those look identical from a credential table
+/// and could not be further apart on the evening a till's database is
+/// replaced. The watermark, the last fact received and any unclosed integrity
+/// alert now ride along; the credential fields keep their names for the
+/// readers that already had them.
 async fn sync_list_origins(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::list_origin_credentials(&s.db).await?))
+    Ok(Json(infrastructure::sync_origins_list(&s.db).await?))
 }
 
 // ---- Downstream lane: issuing, recalling, and watching commands ----------

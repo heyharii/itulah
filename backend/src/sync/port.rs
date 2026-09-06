@@ -7,8 +7,8 @@
 //! leaking back into the adapters, and they will drift again.
 
 use crate::cloud::domain::{
-    plan_settlement, BreakerPolicy, CommandBlock, IngestBatch, IngestResponse, PushedCommand,
-    RejectedFact, SettlementOutcome, SyncFact,
+    plan_settlement, BreakerPolicy, CommandBlock, HandshakeAgreement, HandshakeRequest,
+    IngestBatch, IngestResponse, PushedCommand, RejectedFact, SettlementOutcome, SyncFact,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -111,6 +111,11 @@ pub trait SyncStore: Send + Sync {
     ) -> Result<CommandApplyReport, SyncError>;
 }
 
+/// The text a transport that cannot negotiate answers with. A sender that is
+/// gated on the handshake treats it as "the cloud is unreachable" — it queues
+/// rather than guessing, which is the same conclusion for the same reason.
+pub const HANDSHAKE_UNSUPPORTED: &str = "this transport cannot negotiate a generation";
+
 /// One upload, as the sender sees it.
 #[async_trait]
 pub trait SyncTransport: Send + Sync {
@@ -118,6 +123,18 @@ pub trait SyncTransport: Send + Sync {
     /// body). Every `Err` is treated identically: nothing advances and the
     /// failure counts toward the breaker.
     async fn send(&self, batch: &IngestBatch) -> Result<IngestResponse, String>;
+
+    /// Ask the receiver which generation this stream may write into.
+    ///
+    /// Defaulted rather than required because most transports in this
+    /// repository exist to drive one upload in a test, and a transport that
+    /// cannot negotiate is not wrong — it simply belongs to a node whose
+    /// generation nobody is disputing. The senders that DO gate on the
+    /// handshake refuse to send when this fails, so the default is safe in the
+    /// only direction that matters.
+    async fn handshake(&self, _request: &HandshakeRequest) -> Result<HandshakeAgreement, String> {
+        Err(HANDSHAKE_UNSUPPORTED.into())
+    }
 }
 
 /// The cycle's knobs.

@@ -61,6 +61,30 @@ pub struct LocalStream {
     pub next_seq: i64,
 }
 
+/// What a sender asks before its first upload.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct HandshakeRequest {
+    pub origin_id: String,
+    /// The generation this node's database says it is writing.
+    pub generation: i64,
+    /// The highest seq it has allocated in that generation.
+    pub next_seq: i64,
+}
+
+/// The receiver's answer, and the only thing the sender acts on.
+///
+/// The decision is made at the RECEIVER because the receiver is the authority
+/// on its own watermark; the sender adopting an answer it did not compute is
+/// the point. The horizon rides along anyway so the sender can log what it was
+/// told and refuse an answer that would move it backwards.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct HandshakeAgreement {
+    pub generation: i64,
+    pub rotated: bool,
+    pub reason: Option<String>,
+    pub horizon: OriginHorizon,
+}
+
 /// Which generation the sender may write into.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "plan", rename_all = "snake_case")]
@@ -83,6 +107,19 @@ impl HandshakePlan {
 
     pub fn rotated(&self) -> bool {
         matches!(self, Self::Rotate { .. })
+    }
+
+    /// The plan as the sender receives it.
+    pub fn agreement(&self, horizon: OriginHorizon) -> HandshakeAgreement {
+        HandshakeAgreement {
+            generation: self.generation(),
+            rotated: self.rotated(),
+            reason: match self {
+                Self::Keep { .. } => None,
+                Self::Rotate { reason, .. } => Some(reason.clone()),
+            },
+            horizon,
+        }
     }
 }
 
@@ -325,14 +362,20 @@ mod tests {
 
     #[test]
     fn an_ordinary_batch_above_the_watermark_is_admitted() {
-        assert_eq!(admit_batch(10, &[11, 12, 13], false), BatchAdmission::Proceed);
+        assert_eq!(
+            admit_batch(10, &[11, 12, 13], false),
+            BatchAdmission::Proceed
+        );
     }
 
     #[test]
     fn a_batch_straddling_the_watermark_is_admitted() {
         // The sender resending from a watermark it never advanced past is the
         // ordinary recovery, not a divergence.
-        assert_eq!(admit_batch(12, &[11, 12, 13], false), BatchAdmission::Proceed);
+        assert_eq!(
+            admit_batch(12, &[11, 12, 13], false),
+            BatchAdmission::Proceed
+        );
     }
 
     #[test]

@@ -8,8 +8,9 @@ use super::allotments::{insert_allotment_event, LineIdentity};
 use super::payload_digest;
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    cooldown_after_failure, ingest_rejection_reason, BreakerPolicy, DestinationType, IngestBatch,
-    IngestResponse, MovementCommand, RejectedFact, SyncFact,
+    admit_batch, cooldown_after_failure, ingest_rejection_reason, stale_generation_message,
+    BatchAdmission, BreakerPolicy, DestinationType, IngestBatch, IngestResponse, MovementCommand,
+    RejectedFact, SyncFact,
 };
 use crate::edge::{
     EdgeRole, InventoryState, MovementCause as EdgeMovementCause, MovementLine as EdgeMovementLine,
@@ -492,6 +493,56 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
             held_by_sequence.insert(row.get("seq"), (status, reason));
         }
     }
+    // Whose seqs are these? Below the watermark the loop that follows treats
+    // every fact as a duplicate and skips it, which is right for a resend and
+    // catastrophic for a sender whose database was replaced: its brand new
+    // sales are silently discarded and it is told they are durable. A batch
+    // lying ENTIRELY at or below the watermark with no tombstone to replay is
+    // not a resend, so it is refused by name instead of being swallowed.
+    let tombstoned = facts.iter().any(|fact| {
+        held_by_sequence
+            .get(&fact.seq)
+            .is_some_and(|(status, _)| status == "REJECTED")
+            || held_by_event
+                .get(&fact.event_id)
+                .is_some_and(|(status, _)| status == "REJECTED")
+    });
+    if let BatchAdmission::BelowWatermark {
+        watermark,
+        lowest_seq,
+        highest_seq,
+    } = admit_batch(durable, &sequences, tombstoned)
+    {
+        let message = stale_generation_message(
+            &batch.origin_id,
+            batch.generation,
+            watermark,
+            lowest_seq,
+            highest_seq,
+        );
+        // Roll the receipt back before recording the alert: the alert is what
+        // the operator sees, and it must survive the refusal that produced it.
+        drop(tx);
+        super::sync_raise_integrity_alert(
+            pool,
+            &batch.origin_id,
+            batch.generation,
+            super::SYNC_ALERT_BELOW_WATERMARK,
+            &message,
+            Some(watermark),
+        )
+        .await?;
+        tracing::error!(
+            origin = %batch.origin_id,
+            generation = batch.generation,
+            watermark,
+            lowest_seq,
+            highest_seq,
+            "refused a sync batch lying entirely below the watermark"
+        );
+        return Err(AppError::Conflict(message));
+    }
+
     let mut rejected = Vec::new();
     let mut pending_rows = Vec::new();
     for fact in facts {
