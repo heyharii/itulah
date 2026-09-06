@@ -784,7 +784,7 @@ async fn sides_for(
                 Ok(Sides {
                     debit: balance,
                     debit_site: site.clone(),
-                    credit: meaning("other_income", ""),
+                    credit: meaning("other_income_expense", ""),
                     credit_site: site,
                     memo,
                 })
