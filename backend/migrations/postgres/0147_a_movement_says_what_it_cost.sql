@@ -200,12 +200,17 @@ SELECT l.layer_id,
        l.quantity                                  AS received_quantity,
        l.unit_cost_minor,
        l.opening_cost_minor,
-       COALESCE(e.qty, 0)                          AS remaining_quantity,
-       COALESCE(e.value, 0)                        AS remaining_value_minor,
+       -- Cast back to bigint, and not for tidiness. `SUM(bigint)` in Postgres
+       -- is `numeric`, so without this the residual columns come out of a view
+       -- over bigint columns as a type nothing that reads them expects — and
+       -- the reader's complaint is about decoding a column, which points at the
+       -- caller rather than at the SUM three joins away that caused it.
+       COALESCE(e.qty, 0)::bigint                  AS remaining_quantity,
+       COALESCE(e.value, 0)::bigint                AS remaining_value_minor,
        -- What the layer says the goods cost in total, corrections folded in.
        -- Not the same as the remaining value: this one ignores what has already
        -- gone out, and is what a person means by "what did we pay for these".
-       l.opening_cost_minor + COALESCE(adj.total, 0) AS effective_cost_minor
+       (l.opening_cost_minor + COALESCE(adj.total, 0))::bigint AS effective_cost_minor
   FROM cost_layer l
   LEFT JOIN LATERAL (
       SELECT SUM(s.qty_delta)                     AS qty,

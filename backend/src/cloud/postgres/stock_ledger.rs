@@ -28,20 +28,30 @@
 //!
 //! # Why an advisory lock as well as `FOR UPDATE`
 //!
-//! `SELECT ... FOR UPDATE` over the layers is not sufficient on its own, and it
-//! looks sufficient, which is why this comment exists. The lock does serialise
-//! access to the layer rows. But the residual quantity comes from
-//! `cost_layer_remaining`, which sums the stock ledger — and a consuming
-//! transaction never UPDATEs `cost_layer`, it only inserts entries. So when the
-//! second transaction's row lock is released there is no new row version for
-//! Postgres to re-evaluate against: it proceeds with residuals from before the
-//! first transaction committed, and spends the same basis twice.
+//! Two consumers of the same article are already safe without it, and it is
+//! worth being exact about that rather than claiming more for the lock than it
+//! does. `read_queue` takes `FOR UPDATE` over the layers before reading their
+//! residuals; the second consumer blocks there, and because this runs at READ
+//! COMMITTED its next statement takes a fresh snapshot once the lock is granted
+//! — so it reads `cost_layer_remaining` AFTER the first has committed and sees
+//! what that one took. Removing the advisory lock does not make two concurrent
+//! sales spend the same basis, and a test that says otherwise is passing for
+//! the wrong reason.
 //!
-//! This is not hypothetical. It is the bug the reference implementation shipped
-//! with, latent for months, and only the shortness of the transaction kept two
-//! sales of six against ten on hand from both succeeding. A transaction-scoped
-//! advisory lock on the article is released at commit or rollback, so the second
-//! consumer's queries run after the first has committed and see what it took.
+//! The race row locks cannot reach is a delivery and an outflow of one article
+//! at the same moment. A receipt INSERTS a layer, so there is no row for the
+//! two to collide on: `FOR UPDATE` can only lock rows that already exist. Both
+//! transactions then read the article's running position from its last stock
+//! ledger entry, both get the same answer, and both append an entry whose
+//! `qty_after` and `stock_value_after_minor` were computed from a position that
+//! stopped being true when the other committed.
+//!
+//! Nothing complains about that. Both entries balance, both layers are right,
+//! the queue is right — and the running totals, which are what say what an
+//! article is worth without summing its whole history, are quietly wrong from
+//! there on. A transaction-scoped advisory lock on the article is released at
+//! commit or rollback and serialises every writer of that article's history,
+//! whether or not there is a row in common to lock.
 
 use super::ledger::resolve_account;
 use super::poster::{post, PostingIntent, PostingLine};
@@ -64,12 +74,32 @@ pub const STOCK_LEDGER_METHOD: &str = "FIFO";
 /// Which entry a posting is, when one document produces more than one.
 ///
 /// A day's sales produce a revenue entry from the sales rule and a cost entry
-/// from this one, against the same document. The two are already kept apart by
-/// `source_kind` — `SALE_DAY` against `COGS_DAY` — which is what makes a
-/// collision impossible today. When `poster::post` grows the `purpose` argument
-/// the cost entry passes this, and the separation stops depending on two rules
-/// remembering to use different kinds.
+/// from this one, against the same document. `source_kind` already keeps them
+/// apart — `SALE_DAY` against `COGS_DAY` — and this is the belt to that
+/// braces: the separation stops depending on two rules remembering to choose
+/// different kinds.
 pub const COGS_POSTING_PURPOSE: &str = "COGS";
+
+/// Name this posting's step within its document, and say which thing it is for.
+///
+/// 0140 makes `(source_kind, source_id, purpose)` unique, which is exactly the
+/// guard a cost posting wants and exactly one grain coarser than it needs. One
+/// document consumes basis for as many articles as it touched, and every one of
+/// those is a separate queue, a separate lock and a separate entry — so the
+/// step alone would refuse the second article of a day's sales as a double
+/// post. The thing consumed is what makes one of them different from the next.
+///
+/// Uppercase hex with no separators because 0140 constrains a purpose to
+/// `^[A-Z][A-Z0-9_]*$`, which a UUID's own spelling does not satisfy.
+///
+/// The consequence is worth stating: a caller must aggregate one document's
+/// consumption per article before calling. Two calls naming the same document,
+/// the same kind and the same article are refused by the unique index — which
+/// is the right answer, because they would be two costs for one article on one
+/// document and only one of them can be the cost.
+fn posting_purpose(step: &str, of: Uuid) -> String {
+    format!("{step}_{}", of.simple().to_string().to_uppercase())
+}
 
 // ---------------------------------------------------------------------------
 // What goes in
@@ -398,7 +428,21 @@ fn collect_posting(rows: &[sqlx::postgres::PgRow]) -> Result<StockLedgerPosting,
 }
 
 /// Turn a kernel refusal into something a person can act on.
-fn refused(error: ConsumeError, article: Uuid, when: NaiveDate) -> AppError {
+///
+/// `first_layer_after` is the earliest layer this article has that the queue
+/// could NOT see, because it is dated after the outflow claims to have happened.
+/// The kernel cannot know about it — the caller filters by date before handing
+/// the queue over, so from inside the kernel "we have never bought this" and "we
+/// bought it the week after this sale" look identical. They are very different
+/// conversations: the first is a missing receipt, the second is a wrong date on
+/// one of the two documents, and naming the layer sitting just out of reach is
+/// what lets somebody find which.
+fn refused(
+    error: ConsumeError,
+    article: Uuid,
+    when: NaiveDate,
+    first_layer_after: Option<NaiveDate>,
+) -> AppError {
     match error {
         ConsumeError::Refused(refusal) => AppError::Validation(refusal.message().to_string()),
         ConsumeError::Insufficient(short) => AppError::Conflict(format!(
@@ -407,14 +451,35 @@ fn refused(error: ConsumeError, article: Uuid, when: NaiveDate) -> AppError {
              it, and the shortfall surfaces later as a variance nobody can explain",
             short.available_quantity,
             short.wanted_quantity,
-            match short.newest_layer_day {
-                None => " Nothing has ever been received for it.".to_string(),
-                Some(day) if day > short.as_of_day =>
-                    format!(" There are layers for it, but the earliest is dated after {when}."),
-                Some(_) => String::new(),
+            match (short.newest_layer_day, first_layer_after) {
+                (None, None) => " Nothing has ever been received for it.".to_string(),
+                (_, Some(later)) => format!(
+                    " There is basis for it dated {later}, which the queue could not reach \
+                     because that is after {when}. Either the receipt is dated late or this is."
+                ),
+                (Some(_), None) => String::new(),
             }
         )),
     }
+}
+
+/// The earliest layer for an article that is dated after a given day.
+///
+/// Asked only on the way to refusing, so the ordinary path pays nothing for it.
+async fn first_layer_after(
+    tx: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+    when: NaiveDate,
+) -> Result<Option<NaiveDate>, AppError> {
+    Ok(sqlx::query(
+        "SELECT MIN(economic_date) AS first FROM cost_layer
+          WHERE article_id = $1 AND economic_date > $2",
+    )
+    .bind(article_id)
+    .bind(when)
+    .fetch_one(&mut **tx)
+    .await?
+    .try_get("first")?)
 }
 
 /// The kernel wants a day number and must not be given a calendar type.
@@ -608,26 +673,28 @@ pub async fn cost_layer_create(
 /// into disagreeing about what a write-off is — which is exactly how supplier
 /// returns spent their whole life being posted as sales in the system this was
 /// ported from.
-fn outflow_posting(event_kind: &str) -> Option<(&'static str, &'static str)> {
+/// The kind of entry, the account the other side lands in, and the name of the
+/// step within the document.
+fn outflow_posting(event_kind: &str) -> Option<(&'static str, &'static str, &'static str)> {
     match event_kind {
         // The cost of a day's sales. A different `source_kind` from the sales
         // rule's `SALE_DAY` on purpose: the two entries have different rules,
         // different lines, and different reasons to be reposted.
-        "SALE" => Some(("COGS_DAY", "cogs")),
+        "SALE" => Some(("COGS_DAY", "cogs", COGS_POSTING_PURPOSE)),
         // A stock count difference. `8010110006 Kehilangan Barang atau Selisih
         // Stock Opname` is the client's own account and it is named for exactly
         // this.
-        "LOSS" => Some(("ADJUSTMENT", "stock_loss")),
+        "LOSS" => Some(("ADJUSTMENT", "stock_loss", "STOCK_LOSS")),
         // Damage and disposal land in the same account. The reference
         // implementation keeps loss and damage apart; this client's chart does
         // not, and inventing a second account puts a line in their books their
         // own accountant cannot explain.
-        "WRITE_OFF" | "DISPOSAL" => Some(("WRITE_OFF", "stock_loss")),
+        "WRITE_OFF" | "DISPOSAL" => Some(("WRITE_OFF", "stock_loss", "WRITE_OFF")),
         // Goods going BACK to the vendor are not a cost of goods sold. The
         // debit belongs on the payable, whichever of the three ways the return
         // settles: a refund pays that debit off with cash, a debt reduction IS
         // the debit, and replacement goods clear it with stock. None is a cost.
-        "SUPPLIER_RETURN" => Some(("CREDIT_NOTE", "trade_payable")),
+        "SUPPLIER_RETURN" => Some(("CREDIT_NOTE", "trade_payable", "SUPPLIER_RETURN")),
         _ => None,
     }
 }
@@ -642,8 +709,8 @@ pub async fn stock_ledger_consume(
     request: &StockOutflow,
     actor: &str,
 ) -> Result<StockLedgerPosting, AppError> {
-    let (source_kind, expense_key) = match outflow_posting(&request.event_kind) {
-        Some(pair) if request.event_kind != "SUPPLIER_RETURN" => pair,
+    let (source_kind, expense_key, purpose_step) = match outflow_posting(&request.event_kind) {
+        Some(triple) if request.event_kind != "SUPPLIER_RETURN" => triple,
         Some(_) => {
             return Err(AppError::Validation(
                 "a supplier return goes back to the receipt those goods came from, not to the \
@@ -686,8 +753,18 @@ pub async fn stock_ledger_consume(
             economic_day: day_number(layer.economic_date),
         })
         .collect();
-    let taken = consume_fifo(&slices, request.quantity, day_number(request.economic_date))
-        .map_err(|error| refused(error, request.article_id, request.economic_date))?;
+    let taken = match consume_fifo(&slices, request.quantity, day_number(request.economic_date)) {
+        Ok(taken) => taken,
+        Err(error) => {
+            let later = first_layer_after(tx, request.article_id, request.economic_date).await?;
+            return Err(refused(
+                error,
+                request.article_id,
+                request.economic_date,
+                later,
+            ));
+        }
+    };
 
     let total: i64 = taken.iter().map(|a| a.value_minor).sum();
 
@@ -708,10 +785,17 @@ pub async fn stock_ledger_consume(
                     currency: "IDR".into(),
                     memo: request.memo.clone(),
                     lines: vec![
+                        // No `counter_site_id` on either line. A cost of sales
+                        // and the stock it came out of are both the selling
+                        // site's, so there is no other unit in this entry — and
+                        // where there is one, Lane D's balancer adds the
+                        // affiliate legs itself. A rule that wrote them by hand
+                        // would be a second author of the same fact.
                         PostingLine::debit(expense_key, &request.site_id, total),
                         PostingLine::credit("inventory", &request.site_id, total),
                     ],
                 },
+                Some(&posting_purpose(purpose_step, request.article_id)),
                 actor,
             )
             .await?,
@@ -887,6 +971,10 @@ pub async fn stock_ledger_return_to_supplier(
                         PostingLine::credit("inventory", &request.site_id, value),
                     ],
                 },
+                // Keyed on the layer and not the article: one credit note can
+                // send back goods from two receipts of the same article, and
+                // each of those is its own basis going out.
+                Some(&posting_purpose("SUPPLIER_RETURN", request.layer_id)),
                 actor,
             )
             .await?,
@@ -1130,6 +1218,9 @@ pub async fn cost_layer_correct_price(
             memo: Some(request.reason.clone()),
             lines,
         },
+        // The layer, again: one debit note can correct the price of two
+        // receipts, and the split is a different sum on each of them.
+        Some(&posting_purpose("PRICE_CORRECTION", request.layer_id)),
         actor,
     )
     .await?;
