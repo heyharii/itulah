@@ -35,7 +35,7 @@
 
 use super::ledger::resolve_account;
 use super::payables::AgingBuckets;
-use super::poster::{post, PostingIntent, PostingLine, Posted};
+use super::poster::{post, Posted, PostingIntent, PostingLine};
 use super::sales_posting::{RetenderOutcome, RetenderRequest};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
@@ -132,6 +132,85 @@ pub struct TenderDecisionRow {
     pub note: Option<String>,
     pub decided_by: String,
     pub decided_at: DateTime<Utc>,
+}
+
+/// What the comparison proposes, as a screen reads it.
+///
+/// The kernel's own answer, retyped. `domain::tender_recon` carries no serde
+/// and no `Uuid` — it compares two lists of strings and integers, which is what
+/// lets it be tested exhaustively without a database — so the identities go out
+/// as the text they came in as and the shape gains the derives a response
+/// needs. Lane-A's kernel is kept clean the same way, for the same reason.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TenderSuggestionRow {
+    pub sale_id: String,
+    pub tender_seq: i32,
+    pub batch_line_id: String,
+    /// `MATCHED` or `RETENDER`. The two a comparison of two lists can reach on
+    /// the evidence in front of it; the other three answers say something about
+    /// a day the kernel was not given.
+    pub decision: String,
+    /// Where the books say the money is owed. Set for a retender only.
+    pub from_acquirer: Option<String>,
+    /// Where it is actually owed.
+    pub to_acquirer: Option<String>,
+    /// In words, because a person has to accept this and a score would tell
+    /// them nothing about which field agreed.
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UnexplainedReceiptRow {
+    pub sale_id: String,
+    pub tender_seq: i32,
+    pub amount_minor: i64,
+    pub acquirer: String,
+}
+
+/// Everything the comparison found, including what it could not explain.
+///
+/// The leftovers are the working list, not an afterthought: a shop accepts the
+/// suggestions in a moment and then spends its evening on these.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TenderSuggestionsView {
+    pub suggestions: Vec<TenderSuggestionRow>,
+    pub receipts_without_approval: Vec<UnexplainedReceiptRow>,
+    /// Approvals on the slip that no receipt accounts for, by id.
+    pub approvals_without_receipt: Vec<String>,
+}
+
+impl From<TenderSuggestions> for TenderSuggestionsView {
+    fn from(found: TenderSuggestions) -> Self {
+        Self {
+            suggestions: found
+                .suggestions
+                .into_iter()
+                .map(|one| TenderSuggestionRow {
+                    sale_id: one.sale_id,
+                    tender_seq: one.tender_seq,
+                    batch_line_id: one.batch_line_id,
+                    decision: one.decision.as_str().to_string(),
+                    from_acquirer: one.from_acquirer,
+                    to_acquirer: one.to_acquirer,
+                    reason: one.reason,
+                })
+                .collect(),
+            receipts_without_approval: found
+                .receipts_without_approval
+                .into_iter()
+                .map(|one| UnexplainedReceiptRow {
+                    sale_id: one.sale_id,
+                    tender_seq: one.tender_seq,
+                    amount_minor: one.amount_minor,
+                    acquirer: one.acquirer,
+                })
+                .collect(),
+            approvals_without_receipt: found.approvals_without_receipt,
+        }
+    }
 }
 
 /// An answer, and what recording it did to the books.
@@ -254,7 +333,8 @@ pub async fn tender_recon_open(
     // and there are two of them. A read first, then an insert, is honest about
     // what this is: the unique indexes remain the guarantee, and a race loses
     // the insert and re-reads.
-    if let Some(existing) = tender_recon_find(pool, site_id, business_date, &kind, terminal).await? {
+    if let Some(existing) = tender_recon_find(pool, site_id, business_date, &kind, terminal).await?
+    {
         return Ok(existing);
     }
     let recon_id = Uuid::new_v4();
@@ -299,7 +379,9 @@ async fn tender_recon_find(
     .fetch_optional(pool)
     .await?;
     match found {
-        Some(row) => Ok(Some(tender_recon_row(pool, row.try_get("recon_id")?).await?)),
+        Some(row) => Ok(Some(
+            tender_recon_row(pool, row.try_get("recon_id")?).await?,
+        )),
         None => Ok(None),
     }
 }
@@ -558,16 +640,15 @@ pub async fn tender_recon_record_batch(
         ));
     }
     if !matches!(kind.as_str(), "CARD" | "QRIS") {
-        return Err(AppError::Validation(format!(
-            "{kind} has no batch slip"
-        )));
+        return Err(AppError::Validation(format!("{kind} has no batch slip")));
     }
-    let terminal: String = sqlx::query("SELECT terminal_id FROM tender_reconciliation WHERE recon_id = $1")
-        .bind(recon_id)
-        .fetch_one(pool)
-        .await?
-        .try_get::<Option<String>, _>("terminal_id")?
-        .ok_or_else(|| AppError::Validation("this reconciliation names no terminal".into()))?;
+    let terminal: String =
+        sqlx::query("SELECT terminal_id FROM tender_reconciliation WHERE recon_id = $1")
+            .bind(recon_id)
+            .fetch_one(pool)
+            .await?
+            .try_get::<Option<String>, _>("terminal_id")?
+            .ok_or_else(|| AppError::Validation("this reconciliation names no terminal".into()))?;
 
     let mut written = 0i64;
     let mut tx = pool.begin().await?;
@@ -618,7 +699,7 @@ pub async fn tender_recon_record_batch(
 pub async fn tender_recon_suggest(
     pool: &PgPool,
     recon_id: Uuid,
-) -> Result<TenderSuggestions, AppError> {
+) -> Result<TenderSuggestionsView, AppError> {
     let (site_id, business_date, kind, _) = recon_scope(pool, recon_id).await?;
     let receipts = tender_recon_receipt_rows(pool, &site_id, business_date, &kind).await?;
     let day = business_date.num_days_from_ce();
@@ -661,7 +742,7 @@ pub async fn tender_recon_suggest(
         });
     }
 
-    Ok(suggest_tender_decisions(&undecided, &approvals))
+    Ok(suggest_tender_decisions(&undecided, &approvals).into())
 }
 
 /// The retender a RETENDER decision hands on.
@@ -720,13 +801,21 @@ impl AcquirerRetender {
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| {
-            AppError::NotFound(format!("tender {} of sale {}", self.tender_seq, self.sale_id))
+            AppError::NotFound(format!(
+                "tender {} of sale {}",
+                self.tender_seq, self.sale_id
+            ))
         })?;
         let tender_id: Uuid = row.try_get("tender_id")?;
         let method: String = row.try_get("method")?;
         let card_kind: Option<String> = row.try_get("card_kind")?;
 
-        let reason = match self.note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        let reason = match self
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+        {
             Some(note) => format!(
                 "{} reconciliation {}: the receipt says {} and {} approved it — {note}",
                 self.site_id, self.business_date, self.from_acquirer, self.to_acquirer
@@ -850,7 +939,13 @@ pub async fn tender_recon_decide(
     .bind(&decision)
     .bind(from_acquirer.as_deref())
     .bind(to_acquirer.as_deref())
-    .bind(request.note.as_deref().map(str::trim).filter(|n| !n.is_empty()))
+    .bind(
+        request
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty()),
+    )
     .bind(actor)
     .execute(pool)
     .await?;
@@ -912,26 +1007,25 @@ pub async fn tender_recon_close(
         ));
     }
 
-    let counted = if current.tender_kind == "CASH" {
-        let counted = request.counted_cash_minor.or(current.counted_cash_minor);
-        match counted {
-            Some(value) if value >= 0 => Some(value),
-            Some(_) => {
-                return Err(AppError::Validation(
-                    "a drawer cannot hold less than nothing".into(),
-                ))
-            }
-            None => {
-                return Err(AppError::Validation(
+    let counted =
+        if current.tender_kind == "CASH" {
+            let counted = request.counted_cash_minor.or(current.counted_cash_minor);
+            match counted {
+                Some(value) if value >= 0 => Some(value),
+                Some(_) => {
+                    return Err(AppError::Validation(
+                        "a drawer cannot hold less than nothing".into(),
+                    ))
+                }
+                None => return Err(AppError::Validation(
                     "count the drawer before closing a cash reconciliation; a cash tender closes \
                      on a counted figure and its variance, not on the till's own arithmetic"
                         .into(),
-                ))
+                )),
             }
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
     if current.undecided_receipts > 0 || current.undecided_batch_lines > 0 {
         return Err(AppError::Conflict(format!(
@@ -1236,7 +1330,12 @@ async fn insert_settlement_line(
     .bind(line.tender_seq)
     .bind(line.site_id.trim())
     .bind(&kind)
-    .bind(line.auth_code.as_deref().map(str::trim).filter(|c| !c.is_empty()))
+    .bind(
+        line.auth_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty()),
+    )
     .bind(line.amount_minor)
     .bind(line.mdr_minor)
     .execute(&mut **tx)
@@ -1304,8 +1403,9 @@ async fn acq_settlement_row(
     pool: &PgPool,
     settlement_id: Uuid,
 ) -> Result<AcquirerSettlementRow, AppError> {
-    let sql =
-        format!("SELECT {SETTLEMENT_COLUMNS} FROM acquirer_settlement s WHERE s.settlement_id = $1");
+    let sql = format!(
+        "SELECT {SETTLEMENT_COLUMNS} FROM acquirer_settlement s WHERE s.settlement_id = $1"
+    );
     let row = sqlx::query(&sql)
         .bind(settlement_id)
         .fetch_optional(pool)
@@ -1566,8 +1666,9 @@ pub async fn acq_settlement_curate(
     // Ledger below. Gathered here rather than re-queried: the posting and the
     // items have to describe the same rows or they describe different debts.
     let mut discharged: Vec<(String, String, i64)> = Vec::with_capacity(lines.len());
-    let mut posting_lines = vec![PostingLine::debit(bank_key, "dc", settlement.net_minor)
-        .with_qualifier(&bank_qualifier)];
+    let mut posting_lines =
+        vec![PostingLine::debit(bank_key, "dc", settlement.net_minor)
+            .with_qualifier(&bank_qualifier)];
     for row in &lines {
         let site_id: String = row.try_get("site_id")?;
         let tender_kind: String = row.try_get("tender_kind")?;
@@ -1676,17 +1777,15 @@ pub async fn acq_settlement_match(
     let settlement = acq_settlement_row(pool, settlement_id).await?;
     if settlement.status == "DRAFT" {
         return Err(AppError::Conflict(
-            "curate this settlement before matching it; there is no entry to agree with yet"
-                .into(),
+            "curate this settlement before matching it; there is no entry to agree with yet".into(),
         ));
     }
-    let line = sqlx::query(
-        "SELECT debit_minor, credit_minor FROM bank_statement_line WHERE line_id = $1",
-    )
-    .bind(request.bank_statement_line_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("bank statement line".into()))?;
+    let line =
+        sqlx::query("SELECT debit_minor, credit_minor FROM bank_statement_line WHERE line_id = $1")
+            .bind(request.bank_statement_line_id)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("bank statement line".into()))?;
     let debit: i64 = line.try_get("debit_minor")?;
     let credit: i64 = line.try_get("credit_minor")?;
     if credit == 0 {
@@ -1927,7 +2026,10 @@ async fn settlement_bank_qualifier(
     .fetch_optional(pool)
     .await?;
     match mapped {
-        Some(row) => Ok(Some((row.try_get("semantic_key")?, row.try_get("qualifier")?))),
+        Some(row) => Ok(Some((
+            row.try_get("semantic_key")?,
+            row.try_get("qualifier")?,
+        ))),
         None => Ok(None),
     }
 }

@@ -44,6 +44,15 @@ const KERNELS: &[&str] = &[
     // database would produce a different entry in March than regenerating
     // March produces, silently, with nothing failing.
     "src/cloud/domain/sales_posting.rs",
+    // lane-H: what a till receipt and an EDC slip say about each other. A
+    // suggestion computed on the evening of the 5th and re-computed by an
+    // auditor in December has to be the same suggestion, or the screen is
+    // showing a judgement that quietly depends on when it was opened.
+    "src/cloud/domain/tender_recon.rs",
+    // lane-H: an acquirer's own report, read. Pure so that re-reading the
+    // bytes kept in `acquirer_settlement_report` reproduces exactly what the
+    // curator saw — which is the only reason keeping them is worth anything.
+    "src/cloud/domain/settlement_report.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the

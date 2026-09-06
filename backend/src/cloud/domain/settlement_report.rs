@@ -107,7 +107,10 @@ pub fn parse_settlement_report(text: &str) -> ParsedSettlementReport {
             if fields.len() > 1 {
                 parsed.rejected.push(RejectedReportRow {
                     line_number,
-                    reason: format!("{} fields; expected auth code, amount, MDR, date", fields.len()),
+                    reason: format!(
+                        "{} fields; expected auth code, amount, MDR, date",
+                        fields.len()
+                    ),
                     text: trimmed.to_string(),
                 });
             }

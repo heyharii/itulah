@@ -189,7 +189,9 @@ pub fn suggest_tender_decisions(
                 to_acquirer: None,
                 reason: format!(
                     "{} approved {} on terminal {} the same day",
-                    approvals[slot].acquirer, approvals[slot].amount_minor, approvals[slot].terminal_id
+                    approvals[slot].acquirer,
+                    approvals[slot].amount_minor,
+                    approvals[slot].terminal_id
                 ),
             });
         }
@@ -205,7 +207,9 @@ pub fn suggest_tender_decisions(
             .iter()
             .enumerate()
             .filter(|(at, approval)| {
-                !claimed[*at] && same_payment(receipt, approval) && approval.acquirer != receipt.acquirer
+                !claimed[*at]
+                    && same_payment(receipt, approval)
+                    && approval.acquirer != receipt.acquirer
             })
             .map(|(at, _)| at)
             .collect();
@@ -392,7 +396,10 @@ mod tests {
     #[test]
     fn interchangeable_approvals_are_claimed_once_each() {
         let found = suggest_tender_decisions(
-            &[receipt("s1", 0, "BCA", 100_000), receipt("s2", 0, "BCA", 100_000)],
+            &[
+                receipt("s1", 0, "BCA", 100_000),
+                receipt("s2", 0, "BCA", 100_000),
+            ],
             &[
                 approval("b1", "EDC-1", "BCA", 100_000),
                 approval("b2", "EDC-1", "BCA", 100_000),
@@ -406,15 +413,17 @@ mod tests {
 
     #[test]
     fn an_approval_nobody_rang_up_comes_back_as_one() {
-        let found =
-            suggest_tender_decisions(&[], &[approval("b1", "EDC-1", "BCA", 100_000)]);
+        let found = suggest_tender_decisions(&[], &[approval("b1", "EDC-1", "BCA", 100_000)]);
         assert!(found.suggestions.is_empty());
         assert_eq!(found.approvals_without_receipt, vec!["b1"]);
     }
 
     #[test]
     fn the_same_two_lists_give_the_same_answer_twice() {
-        let receipts = [receipt("s1", 0, "BCA", 100_000), receipt("s2", 1, "BCA", 100_000)];
+        let receipts = [
+            receipt("s1", 0, "BCA", 100_000),
+            receipt("s2", 1, "BCA", 100_000),
+        ];
         let approvals = [
             approval("b1", "EDC-1", "BCA", 100_000),
             approval("b2", "EDC-1", "BCA", 100_000),
