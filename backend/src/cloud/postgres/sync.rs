@@ -9,8 +9,8 @@ use super::payload_digest;
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     admit_batch, cooldown_after_failure, ingest_rejection_reason, stale_generation_message,
-    BatchAdmission, BreakerPolicy, DestinationType, IngestBatch, IngestResponse, MovementCommand,
-    RejectedFact, SyncFact,
+    BatchAdmission, BatchFact, BreakerPolicy, DestinationType, IngestBatch, IngestResponse,
+    MovementCommand, RejectedFact, SyncFact,
 };
 use crate::edge::{
     EdgeRole, InventoryState, MovementCause as EdgeMovementCause, MovementLine as EdgeMovementLine,
@@ -494,24 +494,26 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
         }
     }
     // Whose seqs are these? Below the watermark the loop that follows treats
-    // every fact as a duplicate and skips it, which is right for a resend and
-    // catastrophic for a sender whose database was replaced: its brand new
-    // sales are silently discarded and it is told they are durable. A batch
-    // lying ENTIRELY at or below the watermark with no tombstone to replay is
-    // not a resend, so it is refused by name instead of being swallowed.
-    let tombstoned = facts.iter().any(|fact| {
-        held_by_sequence
-            .get(&fact.seq)
-            .is_some_and(|(status, _)| status == "REJECTED")
-            || held_by_event
-                .get(&fact.event_id)
-                .is_some_and(|(status, _)| status == "REJECTED")
-    });
+    // every fact as a duplicate and skips it. For a sender resending its own
+    // facts after losing its watermark that is exactly right. For a sender
+    // whose database was replaced it is catastrophic: brand new sales are
+    // discarded in silence and the response reports them durable.
+    //
+    // Identity is what tells the two apart, so that is what is handed to the
+    // guard — whether this cloud has ever seen each fact, not where it sits.
+    let arriving: Vec<BatchFact> = facts
+        .iter()
+        .map(|fact| BatchFact {
+            seq: fact.seq,
+            known: held_by_event.contains_key(&fact.event_id),
+        })
+        .collect();
     if let BatchAdmission::BelowWatermark {
         watermark,
         lowest_seq,
         highest_seq,
-    } = admit_batch(durable, &sequences, tombstoned)
+        contested,
+    } = admit_batch(durable, &arriving)
     {
         let message = stale_generation_message(
             &batch.origin_id,
@@ -519,6 +521,7 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
             watermark,
             lowest_seq,
             highest_seq,
+            contested,
         );
         // Roll the receipt back before recording the alert: the alert is what
         // the operator sees, and it must survive the refusal that produced it.

@@ -19,7 +19,7 @@
 
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    plan_handshake, HandshakeAgreement, HandshakeRequest, LocalStream, OriginHorizon,
+    plan_handshake, HandshakeAgreement, HandshakeRequest, OriginHorizon, WitnessCheck,
 };
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
@@ -91,9 +91,15 @@ pub async fn sync_negotiate_generation(
     pool: &PgPool,
     request: &HandshakeRequest,
 ) -> Result<HandshakeAgreement, AppError> {
-    if request.origin_id.trim().is_empty() || request.generation < 1 || request.next_seq < 0 {
+    if request.origin_id.trim().is_empty()
+        || request.generation < 1
+        || request.next_seq < 0
+        || request.durable_through < 0
+        || request.durable_through > request.next_seq
+    {
         return Err(AppError::Validation(
-            "handshake requires origin_id, generation >= 1 and next_seq >= 0".into(),
+            "handshake requires origin_id, generation >= 1, and 0 <= durable_through <= next_seq"
+                .into(),
         ));
     }
     let mut tx = pool.begin().await?;
@@ -104,13 +110,35 @@ pub async fn sync_negotiate_generation(
         .execute(&mut *tx)
         .await?;
     let horizon = sync_origin_horizon_tx(&mut tx, &request.origin_id, request.generation).await?;
-    let plan = plan_handshake(
-        LocalStream {
-            generation: request.generation,
-            next_seq: request.next_seq,
-        },
-        horizon,
-    );
+    // Does the receiver hold the same fact the sender does at the first seq
+    // that could be contested? This is the question a watermark comparison
+    // cannot answer, and the one that separates a lost acknowledgement from a
+    // database that was replaced under this origin.
+    let witness = match &request.witness {
+        None => WitnessCheck::Unknown,
+        Some(witness) => {
+            let held: Option<String> = sqlx::query_scalar(
+                "SELECT event_id::text FROM sync_ingest_fact
+                 WHERE origin_id = $1 AND generation = $2 AND seq = $3",
+            )
+            .bind(&request.origin_id)
+            .bind(request.generation)
+            .bind(witness.seq)
+            .fetch_optional(&mut *tx)
+            .await?;
+            match held {
+                // A receipt aged out of retention cannot testify. Unknown, and
+                // `plan_handshake` treats that as a reason to rotate rather
+                // than to hope.
+                None => WitnessCheck::Unknown,
+                Some(held) if held.eq_ignore_ascii_case(witness.event_id.trim()) => {
+                    WitnessCheck::Agrees
+                }
+                Some(_) => WitnessCheck::Disagrees,
+            }
+        }
+    };
+    let plan = plan_handshake(request.local_stream(), horizon, witness);
     let agreement = plan.agreement(horizon);
 
     // Open the stream on the receiver's side. Doing it here rather than
@@ -282,8 +310,10 @@ pub async fn sync_origins_list(pool: &PgPool) -> Result<Value, AppError> {
          ),
          alerts AS (
              SELECT origin_id,
-                    count(*) AS open_alerts,
-                    sum(occurrences) AS occurrences,
+                    count(*)::bigint AS open_alerts,
+                    -- sum() over a bigint answers NUMERIC in PostgreSQL, and
+                    -- decoding that as i64 fails at runtime rather than here.
+                    COALESCE(sum(occurrences), 0)::bigint AS occurrences,
                     max(last_seen_at) AS last_alert_at,
                     (array_agg(kind ORDER BY last_seen_at DESC))[1] AS latest_kind,
                     (array_agg(detail ORDER BY last_seen_at DESC))[1] AS latest_detail

@@ -33,7 +33,7 @@
 //! link was down, and it removes the one window in which a re-provisioned node
 //! could push a day of sales into seqs the cloud will discard.
 
-use crate::cloud::domain::{HandshakeAgreement, HandshakeRequest, LocalStream};
+use crate::cloud::domain::{HandshakeAgreement, HandshakeRequest};
 use crate::sync::port::{SyncError, SyncTransport};
 use async_trait::async_trait;
 
@@ -45,8 +45,10 @@ use async_trait::async_trait;
 /// expects it to keep counting from one.
 #[async_trait]
 pub trait GenerationStore: Send + Sync {
-    /// `(origin_id, stream)`, or `None` on a node that was never provisioned.
-    async fn local_stream(&self) -> Result<Option<(String, LocalStream)>, SyncError>;
+    /// Where this node stands, in the shape the receiver is asked — including
+    /// the witness that separates "my acknowledgement was lost" from "this is
+    /// a different database". `None` on a node that was never provisioned.
+    async fn local_stream(&self) -> Result<Option<HandshakeRequest>, SyncError>;
 
     /// Whether this node has already agreed its generation with the receiver.
     /// False on a database that has never negotiated — which is exactly the
@@ -114,42 +116,37 @@ pub async fn negotiate_generation(
     store: &dyn GenerationStore,
     transport: &dyn SyncTransport,
 ) -> Result<HandshakeReport, SyncError> {
-    let Some((origin_id, local)) = store.local_stream().await? else {
+    let Some(request) = store.local_stream().await? else {
         return Ok(HandshakeReport::NotProvisioned);
     };
     if store.handshake_settled().await? {
         return Ok(HandshakeReport::Settled {
-            generation: local.generation,
+            generation: request.generation,
         });
     }
-    let request = HandshakeRequest {
-        origin_id,
-        generation: local.generation,
-        next_seq: local.next_seq,
-    };
     let agreement = match transport.handshake(&request).await {
         Ok(agreement) => agreement,
         Err(error) => return Ok(HandshakeReport::Unreachable { error }),
     };
-    adopt(store, local, agreement).await
+    adopt(store, request.generation, agreement).await
 }
 
 /// Apply an agreement the sender has been handed.
 async fn adopt(
     store: &dyn GenerationStore,
-    local: LocalStream,
+    local_generation: i64,
     agreement: HandshakeAgreement,
 ) -> Result<HandshakeReport, SyncError> {
     // The sender's one veto. A generation below the one this node is already
     // writing would put its next fact into seqs some earlier incarnation of
     // itself has used, which is the failure this exchange exists to prevent —
     // arriving from the other direction.
-    if agreement.generation < local.generation {
+    if agreement.generation < local_generation {
         return Ok(HandshakeReport::Refused {
             reason: format!(
                 "receiver answered generation {} for a node already writing generation {}; \
                  a handshake may move a stream forward, never back",
-                agreement.generation, local.generation
+                agreement.generation, local_generation
             ),
         });
     }
@@ -163,13 +160,13 @@ async fn adopt(
         .clone()
         .unwrap_or_else(|| format!("confirmed at generation {}", agreement.generation));
     store.adopt_generation(agreement.generation, &note).await?;
-    if agreement.generation == local.generation {
+    if agreement.generation == local_generation {
         Ok(HandshakeReport::Kept {
             generation: agreement.generation,
         })
     } else {
         Ok(HandshakeReport::Rotated {
-            from: local.generation,
+            from: local_generation,
             to: agreement.generation,
             reason: agreement.reason,
         })
@@ -203,15 +200,15 @@ mod tests {
 
     #[async_trait]
     impl GenerationStore for Store {
-        async fn local_stream(&self) -> Result<Option<(String, LocalStream)>, SyncError> {
+        async fn local_stream(&self) -> Result<Option<HandshakeRequest>, SyncError> {
             let state = self.0.lock().expect("store");
-            Ok(Some((
-                "store-07-edge".into(),
-                LocalStream {
-                    generation: state.generation,
-                    next_seq: 0,
-                },
-            )))
+            Ok(Some(HandshakeRequest {
+                origin_id: "store-07-edge".into(),
+                generation: state.generation,
+                next_seq: 0,
+                durable_through: 0,
+                witness: None,
+            }))
         }
         async fn handshake_settled(&self) -> Result<bool, SyncError> {
             Ok(self.0.lock().expect("store").settled)

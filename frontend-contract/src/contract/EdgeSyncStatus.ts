@@ -16,6 +16,25 @@ export type EdgeSyncStatus = {
  */
 origin_id: string | null, generation: number, 
 /**
+ * The highest seq this node has allocated. Together with `generation` it
+ * is the pair a person compares against `GET /api/v1/sync/origins` on the
+ * cloud to see whether the two ends are talking about the same stream —
+ * the one question a green dashboard could not answer while a restored
+ * database was writing into seqs the cloud had already acknowledged.
+ */
+next_seq: number, 
+/**
+ * False while this node has not agreed its generation with the cloud. It
+ * is still capturing and its backlog is still durable; it is not
+ * uploading, deliberately.
+ */
+handshake_settled: boolean, handshake_at: string | null, 
+/**
+ * What the cloud said when the generation was last agreed, or why the
+ * agreement was dropped.
+ */
+handshake_note: string | null, 
+/**
  * Facts captured locally and not yet acknowledged by Cloud. This is the
  * number a shop actually cares about: it is what would be lost if the
  * site burned down tonight.

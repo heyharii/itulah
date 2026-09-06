@@ -30,8 +30,8 @@ use crate::cloud::domain::{
 };
 use crate::cloud::domain::{
     decide_command, is_stale_generation, parse_activate_publication, parse_auth_policy,
-    AuthPolicySnapshot, BreakerPolicy, CommandBlock, CommandDisposition, LocalStream,
-    PushedCommand, RejectedFact, SyncFact, COMMAND_ACTIVATE_PUBLICATION,
+    AuthPolicySnapshot, BreakerPolicy, CommandBlock, CommandDisposition, HandshakeRequest,
+    PushedCommand, RejectedFact, StreamWitness, SyncFact, COMMAND_ACTIVATE_PUBLICATION,
     COMMAND_AUTH_POLICY_REPLACE,
 };
 use crate::edge::{
@@ -2276,24 +2276,58 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
 
 #[async_trait::async_trait]
 impl GenerationStore for SqliteSyncStore {
-    async fn local_stream(&self) -> Result<Option<(String, LocalStream)>, SyncError> {
+    /// Where this node stands, witness and all.
+    ///
+    /// The witness is the first fact it is still waiting to send. That is the
+    /// only seq that can be contested — everything below it the receiver has
+    /// acknowledged, everything above it the receiver has never seen — and
+    /// naming the fact there is what lets the receiver tell a lost
+    /// acknowledgement from a database that was swapped underneath the origin.
+    async fn local_stream(&self) -> Result<Option<HandshakeRequest>, SyncError> {
         self.with_connection(|connection| {
-            connection
+            let origin: Option<(String, i64, i64)> = connection
                 .query_row(
                     "SELECT origin_id, generation, next_seq FROM sync_origin WHERE singleton=1",
                     [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(err)?;
+            let Some((origin_id, generation, next_seq)) = origin else {
+                return Ok(None);
+            };
+            let durable_through: i64 = connection
+                .query_row(
+                    "SELECT durable_seq FROM sync_watermark
+                     WHERE origin_id = ?1 AND generation = ?2",
+                    params![&origin_id, generation],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(err)?
+                .unwrap_or(0);
+            let witness = connection
+                .query_row(
+                    "SELECT seq, event_id FROM sync_fact_log
+                     WHERE origin_id = ?1 AND generation = ?2 AND seq > ?3
+                     ORDER BY seq LIMIT 1",
+                    params![&origin_id, generation, durable_through],
                     |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            LocalStream {
-                                generation: row.get(1)?,
-                                next_seq: row.get(2)?,
-                            },
-                        ))
+                        Ok(StreamWitness {
+                            seq: row.get(0)?,
+                            event_id: row.get(1)?,
+                        })
                     },
                 )
                 .optional()
-                .map_err(err)
+                .map_err(err)?;
+            Ok(Some(HandshakeRequest {
+                origin_id,
+                generation,
+                next_seq,
+                durable_through,
+                witness,
+            }))
         })
     }
 
