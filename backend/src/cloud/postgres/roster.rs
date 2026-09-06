@@ -159,8 +159,11 @@ fn decode_period(row: &sqlx::postgres::PgRow) -> Result<AttendancePeriod, AppErr
 
     AttendancePeriod::try_new(
         PlaceId::try_new(&place).map_err(|error| corrupt("place id", error.to_string()))?,
-        AttendanceMonth::try_new(period.year(), u8::try_from(period.month()).unwrap_or(1))
-            .map_err(|error| corrupt("period", error.to_string()))?,
+        AttendanceMonth::try_new(
+            period.year(),
+            u8::try_from(period.month()).unwrap_or(1),
+        )
+        .map_err(|error| corrupt("period", error.to_string()))?,
         PeriodStatus::parse(&status).ok_or_else(|| corrupt("period status", status.clone()))?,
         serde_json::from_value::<Vec<PeriodEvent>>(history)
             .map_err(|error| corrupt("period history", error.to_string()))?,
@@ -199,7 +202,10 @@ pub async fn period_for(
 }
 
 /// Every period a place has ever closed or reopened, newest first.
-pub async fn periods_of(pool: &PgPool, place: &PlaceId) -> Result<Vec<AttendancePeriod>, AppError> {
+pub async fn periods_of(
+    pool: &PgPool,
+    place: &PlaceId,
+) -> Result<Vec<AttendancePeriod>, AppError> {
     let rows = sqlx::query(
         "SELECT place_id, period, status, history
            FROM attendance_period WHERE place_id = $1 ORDER BY period DESC",
@@ -311,8 +317,7 @@ fn decode_roster_day(row: &sqlx::postgres::PgRow) -> Result<RosterDay, AppError>
     let amendments: serde_json::Value = row.try_get("amendments")?;
 
     RosterDay::try_new(
-        EmployeeId::try_new(&employee)
-            .map_err(|error| corrupt("employee id", error.to_string()))?,
+        EmployeeId::try_new(&employee).map_err(|error| corrupt("employee id", error.to_string()))?,
         PlaceId::try_new(&place).map_err(|error| corrupt("place id", error.to_string()))?,
         date,
         serde_json::from_value::<RosterRevision>(planned)
@@ -348,8 +353,7 @@ pub async fn roster_of(
         .map(decode_roster_day)
         .collect::<Result<Vec<_>, AppError>>()?;
     DatedRoster::try_new(
-        EmployeeId::try_new(employee_id)
-            .map_err(|error| corrupt("employee id", error.to_string()))?,
+        EmployeeId::try_new(employee_id).map_err(|error| corrupt("employee id", error.to_string()))?,
         days,
     )
     .map_err(|error| corrupt("roster", error.to_string()))

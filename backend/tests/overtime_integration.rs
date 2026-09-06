@@ -185,12 +185,7 @@ async fn staff_at(
         Some(json!({ "employee_code": code })),
     )
     .await;
-    assert_eq!(
-        registered.status,
-        StatusCode::OK,
-        "register: {:?}",
-        registered.body
-    );
+    assert_eq!(registered.status, StatusCode::OK, "register: {:?}", registered.body);
     let employee_id = registered.body["employee_id"]
         .as_str()
         .unwrap_or_else(|| panic!("employee_id: {:?}", registered.body))
@@ -222,12 +217,7 @@ async fn staff_at(
         })),
     )
     .await;
-    assert_eq!(
-        assigned.status,
-        StatusCode::OK,
-        "assign: {:?}",
-        assigned.body
-    );
+    assert_eq!(assigned.status, StatusCode::OK, "assign: {:?}", assigned.body);
     employee_id
 }
 
@@ -254,12 +244,7 @@ async fn login_for(
         })),
     )
     .await;
-    assert_eq!(
-        created.status,
-        StatusCode::OK,
-        "create user: {:?}",
-        created.body
-    );
+    assert_eq!(created.status, StatusCode::OK, "create user: {:?}", created.body);
     let linked = send(
         app.clone(),
         "POST",
@@ -289,12 +274,7 @@ async fn publish_2026(app: &axum::Router, cookies: &str, csrf: &str) {
         })),
     )
     .await;
-    assert_eq!(
-        published.status,
-        StatusCode::OK,
-        "publish: {:?}",
-        published.body
-    );
+    assert_eq!(published.status, StatusCode::OK, "publish: {:?}", published.body);
 }
 
 /// Four hours a day, eighteen a week — PP 35/2021 art. 26(1), stated by the
@@ -313,12 +293,7 @@ async fn ratify_caps(app: &axum::Router, cookies: &str, csrf: &str) {
         })),
     )
     .await;
-    assert_eq!(
-        ratified.status,
-        StatusCode::OK,
-        "ratify: {:?}",
-        ratified.body
-    );
+    assert_eq!(ratified.status, StatusCode::OK, "ratify: {:?}", ratified.body);
 }
 
 async fn order_overtime(
@@ -361,27 +336,9 @@ async fn a_supervisor_cannot_answer_for_the_worker(pool: PgPool) {
     ratify_caps(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &siti,
-        "siti",
-        "CASHIER",
-        CASHIER_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
 
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
     let ordered = order_overtime(&app, &hers, &her_csrf, &siti, "OT-0001", "2026-04-06", 120).await;
@@ -431,27 +388,9 @@ async fn a_declined_order_is_terminal(pool: PgPool) {
     ratify_caps(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &siti,
-        "siti",
-        "CASHIER",
-        CASHIER_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
 
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
     order_overtime(&app, &hers, &her_csrf, &siti, "OT-0002", "2026-04-06", 120).await;
@@ -506,27 +445,9 @@ async fn only_an_unanswered_order_can_be_withdrawn(pool: PgPool) {
     ratify_caps(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &siti,
-        "siti",
-        "CASHIER",
-        CASHIER_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
 
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
     order_overtime(&app, &hers, &her_csrf, &siti, "OT-0003", "2026-04-06", 120).await;
@@ -578,16 +499,7 @@ async fn overtime_cannot_be_ordered_before_the_caps_are_ratified(pool: PgPool) {
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
 
     let refused = order_overtime(&app, &hers, &her_csrf, &siti, "OT-0005", "2026-04-06", 120).await;
@@ -637,27 +549,9 @@ async fn the_caps_bite_and_only_agreed_orders_fill_the_week(pool: PgPool) {
     ratify_caps(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &siti,
-        "siti",
-        "CASHIER",
-        CASHIER_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
     let (his, his_csrf) = sign_in(&app, "siti", CASHIER_PASSWORD).await;
 
@@ -673,16 +567,8 @@ async fn the_caps_bite_and_only_agreed_orders_fill_the_week(pool: PgPool) {
         .iter()
         .enumerate()
     {
-        let queued = order_overtime(
-            &app,
-            &hers,
-            &her_csrf,
-            &siti,
-            &format!("OT-U{index}"),
-            day,
-            240,
-        )
-        .await;
+        let queued =
+            order_overtime(&app, &hers, &her_csrf, &siti, &format!("OT-U{index}"), day, 240).await;
         assert_eq!(queued.status, StatusCode::OK, "{day}: {:?}", queued.body);
     }
     // 5 × 4h ordered, none agreed but the first. Agreeing to them all would be
@@ -697,30 +583,15 @@ async fn the_caps_bite_and_only_agreed_orders_fill_the_week(pool: PgPool) {
             Some(json!({ "agreed": true, "reason": "bersedia" })),
         )
         .await;
-        assert_eq!(
-            agreed.status,
-            StatusCode::OK,
-            "consent {index}: {:?}",
-            agreed.body
-        );
+        assert_eq!(agreed.status, StatusCode::OK, "consent {index}: {:?}", agreed.body);
     }
     // Now 16h are agreed. A fifth 4h order would make 20h.
     let full = order_overtime(&app, &hers, &her_csrf, &siti, "OT-U9", "2026-04-11", 240).await;
-    assert_eq!(
-        full.status,
-        StatusCode::CONFLICT,
-        "the week is full: {:?}",
-        full.body
-    );
+    assert_eq!(full.status, StatusCode::CONFLICT, "the week is full: {:?}", full.body);
 
     // A shorter one still fits: 16h + 2h = 18h, exactly the cap.
     let fits = order_overtime(&app, &hers, &her_csrf, &siti, "OT-U8", "2026-04-11", 120).await;
-    assert_eq!(
-        fits.status,
-        StatusCode::OK,
-        "exactly at the cap: {:?}",
-        fits.body
-    );
+    assert_eq!(fits.status, StatusCode::OK, "exactly at the cap: {:?}", fits.body);
 }
 
 /// The bound the Requests queue reads, and the same reach the Directory has.
@@ -736,16 +607,7 @@ async fn a_manager_sees_only_their_own_shops_unanswered_orders(pool: PgPool) {
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     let budi = staff_at(&app, &cookies, &csrf, "K0301", "store-03").await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
 
     // Head office orders one at each shop.
     order_overtime(&app, &cookies, &csrf, &siti, "OT-S7", "2026-04-06", 120).await;
@@ -772,12 +634,7 @@ async fn a_manager_sees_only_their_own_shops_unanswered_orders(pool: PgPool) {
 
     // And she cannot order at a shop she is not posted to.
     let elsewhere = order_overtime(&app, &hers, &her_csrf, &budi, "OT-X", "2026-04-06", 120).await;
-    assert_eq!(
-        elsewhere.status,
-        StatusCode::FORBIDDEN,
-        "{:?}",
-        elsewhere.body
-    );
+    assert_eq!(elsewhere.status, StatusCode::FORBIDDEN, "{:?}", elsewhere.body);
 
     // Head office sees both.
     let all = send(

@@ -184,12 +184,7 @@ async fn staff_at(
         Some(json!({ "employee_code": code })),
     )
     .await;
-    assert_eq!(
-        registered.status,
-        StatusCode::OK,
-        "register: {:?}",
-        registered.body
-    );
+    assert_eq!(registered.status, StatusCode::OK, "register: {:?}", registered.body);
     let employee_id = registered.body["employee_id"]
         .as_str()
         .unwrap_or_else(|| panic!("employee_id: {:?}", registered.body))
@@ -221,12 +216,7 @@ async fn staff_at(
         })),
     )
     .await;
-    assert_eq!(
-        assigned.status,
-        StatusCode::OK,
-        "assign: {:?}",
-        assigned.body
-    );
+    assert_eq!(assigned.status, StatusCode::OK, "assign: {:?}", assigned.body);
     employee_id
 }
 
@@ -253,12 +243,7 @@ async fn login_for(
         })),
     )
     .await;
-    assert_eq!(
-        created.status,
-        StatusCode::OK,
-        "create user: {:?}",
-        created.body
-    );
+    assert_eq!(created.status, StatusCode::OK, "create user: {:?}", created.body);
     let linked = send(
         app.clone(),
         "POST",
@@ -288,12 +273,7 @@ async fn publish_2026(app: &axum::Router, cookies: &str, csrf: &str) {
         })),
     )
     .await;
-    assert_eq!(
-        published.status,
-        StatusCode::OK,
-        "publish: {:?}",
-        published.body
-    );
+    assert_eq!(published.status, StatusCode::OK, "publish: {:?}", published.body);
 }
 
 /// Annual leave, sick leave, and the policy a balance folds under.
@@ -340,12 +320,7 @@ async fn ratify_leave(app: &axum::Router, cookies: &str, csrf: &str) {
         })),
     )
     .await;
-    assert_eq!(
-        ratified.status,
-        StatusCode::OK,
-        "policy: {:?}",
-        ratified.body
-    );
+    assert_eq!(ratified.status, StatusCode::OK, "policy: {:?}", ratified.body);
 }
 
 /// Put this year's entitlement into somebody's balance.
@@ -442,16 +417,7 @@ async fn shifts_are_set_at_head_office_and_read_by_everybody(pool: PgPool) {
     define_shifts(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &siti,
-        "siti",
-        "CASHIER",
-        CASHIER_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
     let (hers, her_csrf) = sign_in(&app, "siti", CASHIER_PASSWORD).await;
 
     let listed = send(
@@ -467,8 +433,7 @@ async fn shifts_are_set_at_head_office_and_read_by_everybody(pool: PgPool) {
 
     // The overnight shift is eight hours less its break, and says it crosses
     // midnight rather than leaving the reader to compare two clock readings.
-    let malam = listed
-        .body
+    let malam = listed.body
         .as_array()
         .unwrap_or_else(|| panic!("a list"))
         .iter()
@@ -500,12 +465,7 @@ async fn shifts_are_set_at_head_office_and_read_by_everybody(pool: PgPool) {
         Some(json!({ "id": "X", "name": "X", "starts_at": "22:00", "ends_at": "06:00" })),
     )
     .await;
-    assert_eq!(
-        backwards.status,
-        StatusCode::BAD_REQUEST,
-        "{:?}",
-        backwards.body
-    );
+    assert_eq!(backwards.status, StatusCode::BAD_REQUEST, "{:?}", backwards.body);
 
     // And a break as long as the shift is paid time nobody is being paid for.
     let all_break = send(
@@ -519,12 +479,7 @@ async fn shifts_are_set_at_head_office_and_read_by_everybody(pool: PgPool) {
         })),
     )
     .await;
-    assert_eq!(
-        all_break.status,
-        StatusCode::BAD_REQUEST,
-        "{:?}",
-        all_break.body
-    );
+    assert_eq!(all_break.status, StatusCode::BAD_REQUEST, "{:?}", all_break.body);
 }
 
 /// A day is planned, and planning it again is a revision — the earlier plan
@@ -540,16 +495,7 @@ async fn a_revision_keeps_the_plan_it_replaced(pool: PgPool) {
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
 
     let first = plan(
@@ -588,14 +534,7 @@ async fn a_revision_keeps_the_plan_it_replaced(pool: PgPool) {
     assert_eq!(revisions[1]["shift_id"], "MALAM");
 
     // A rest day names no shift, and a scheduled day must name one.
-    let rested = plan(
-        &app,
-        &hers,
-        &her_csrf,
-        &siti,
-        rest("2026-04-07", "libur mingguan"),
-    )
-    .await;
+    let rested = plan(&app, &hers, &her_csrf, &siti, rest("2026-04-07", "libur mingguan")).await;
     assert_eq!(rested.status, StatusCode::OK, "{:?}", rested.body);
     assert_eq!(rested.body["plan"], "REST_DAY");
     assert_eq!(rested.body["shift_id"], Value::Null);
@@ -608,12 +547,7 @@ async fn a_revision_keeps_the_plan_it_replaced(pool: PgPool) {
         json!({ "on_date": "2026-04-08", "plan": "SCHEDULED", "reason": "lupa shift" }),
     )
     .await;
-    assert_eq!(
-        shiftless.status,
-        StatusCode::BAD_REQUEST,
-        "{:?}",
-        shiftless.body
-    );
+    assert_eq!(shiftless.status, StatusCode::BAD_REQUEST, "{:?}", shiftless.body);
 }
 
 /// The bound the Roster screen reads: a manager builds their own shop's week.
@@ -629,36 +563,13 @@ async fn a_manager_can_only_roster_their_own_shop(pool: PgPool) {
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     let budi = staff_at(&app, &cookies, &csrf, "K0301", "store-03").await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
 
-    let ours = plan(
-        &app,
-        &hers,
-        &her_csrf,
-        &siti,
-        scheduled("2026-04-06", "PAGI", "jadwal"),
-    )
-    .await;
+    let ours = plan(&app, &hers, &her_csrf, &siti, scheduled("2026-04-06", "PAGI", "jadwal")).await;
     assert_eq!(ours.status, StatusCode::OK, "{:?}", ours.body);
 
-    let theirs = plan(
-        &app,
-        &hers,
-        &her_csrf,
-        &budi,
-        scheduled("2026-04-06", "PAGI", "jadwal"),
-    )
-    .await;
+    let theirs = plan(&app, &hers, &her_csrf, &budi, scheduled("2026-04-06", "PAGI", "jadwal")).await;
     assert_eq!(theirs.status, StatusCode::FORBIDDEN, "{:?}", theirs.body);
 
     // The grid, bounded the same way.
@@ -681,24 +592,10 @@ async fn a_manager_can_only_roster_their_own_shop(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(
-        elsewhere.status,
-        StatusCode::FORBIDDEN,
-        "{:?}",
-        elsewhere.body
-    );
+    assert_eq!(elsewhere.status, StatusCode::FORBIDDEN, "{:?}", elsewhere.body);
 
     // Siti reads her own week without any grant at all: it is her week.
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &siti,
-        "siti",
-        "CASHIER",
-        CASHIER_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
     let (his, _) = sign_in(&app, "siti", CASHIER_PASSWORD).await;
     let mine = send(
         app.clone(),
@@ -728,26 +625,10 @@ async fn a_closed_month_refuses_a_roster_change(pool: PgPool) {
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
 
-    plan(
-        &app,
-        &hers,
-        &her_csrf,
-        &siti,
-        scheduled("2026-04-06", "PAGI", "jadwal"),
-    )
-    .await;
+    plan(&app, &hers, &her_csrf, &siti, scheduled("2026-04-06", "PAGI", "jadwal")).await;
 
     // What stands between the month and a close, before anything is closed.
     let before = send(
@@ -791,35 +672,14 @@ async fn a_closed_month_refuses_a_roster_change(pool: PgPool) {
 
     // And now the plan is frozen — both a new day and a revision to an existing
     // one are refused, as a conflict rather than a bad request.
-    let added = plan(
-        &app,
-        &hers,
-        &her_csrf,
-        &siti,
-        scheduled("2026-04-20", "PAGI", "tambahan"),
-    )
-    .await;
+    let added = plan(&app, &hers, &her_csrf, &siti, scheduled("2026-04-20", "PAGI", "tambahan")).await;
     assert_eq!(added.status, StatusCode::CONFLICT, "{:?}", added.body);
 
-    let revised = plan(
-        &app,
-        &hers,
-        &her_csrf,
-        &siti,
-        rest("2026-04-06", "ganti jadi libur"),
-    )
-    .await;
+    let revised = plan(&app, &hers, &her_csrf, &siti, rest("2026-04-06", "ganti jadi libur")).await;
     assert_eq!(revised.status, StatusCode::CONFLICT, "{:?}", revised.body);
 
     // A day in the *next* month is untouched by April's close.
-    let may = plan(
-        &app,
-        &hers,
-        &her_csrf,
-        &siti,
-        scheduled("2026-05-04", "PAGI", "jadwal Mei"),
-    )
-    .await;
+    let may = plan(&app, &hers, &her_csrf, &siti, scheduled("2026-05-04", "PAGI", "jadwal Mei")).await;
     assert_eq!(may.status, StatusCode::OK, "{:?}", may.body);
 }
 
@@ -834,16 +694,7 @@ async fn only_head_office_reopens_a_month(pool: PgPool) {
     define_shifts(&app, &cookies, &csrf).await;
 
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
 
     send(
@@ -863,12 +714,7 @@ async fn only_head_office_reopens_a_month(pool: PgPool) {
         Some(json!({ "reason": "ada yang terlewat" })),
     )
     .await;
-    assert_eq!(
-        hers_again.status,
-        StatusCode::FORBIDDEN,
-        "{:?}",
-        hers_again.body
-    );
+    assert_eq!(hers_again.status, StatusCode::FORBIDDEN, "{:?}", hers_again.body);
 
     let reopened = send(
         app.clone(),
@@ -878,12 +724,7 @@ async fn only_head_office_reopens_a_month(pool: PgPool) {
         Some(json!({ "reason": "koreksi jadwal Siti" })),
     )
     .await;
-    assert_eq!(
-        reopened.status,
-        StatusCode::OK,
-        "reopen: {:?}",
-        reopened.body
-    );
+    assert_eq!(reopened.status, StatusCode::OK, "reopen: {:?}", reopened.body);
     assert_eq!(reopened.body["status"], "OPEN");
     assert_eq!(reopened.body["reopen_count"], 1);
     assert_eq!(reopened.body["history"][1]["event"], "REOPENED");
@@ -915,27 +756,9 @@ async fn undecided_leave_and_unanswered_overtime_block_the_close(pool: PgPool) {
     ratify_leave(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &siti,
-        "siti",
-        "CASHIER",
-        CASHIER_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
     allocate(&app, &cookies, &csrf, &siti, 12).await;
 
     let (his, his_csrf) = sign_in(&app, "siti", CASHIER_PASSWORD).await;

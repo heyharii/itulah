@@ -86,9 +86,7 @@ impl Shift {
     ) -> Result<Self, AttendanceError> {
         let name = name.trim();
         if name.is_empty() {
-            return Err(AttendanceError::Required {
-                field: "shift name",
-            });
+            return Err(AttendanceError::Required { field: "shift name" });
         }
         let span = ShiftPosition::new(DayOffset::SAME_DAY, start)
             .minutes_until(ShiftPosition::new(end_day_offset, end))
@@ -203,7 +201,10 @@ pub struct RosterRevision {
 }
 
 impl RosterRevision {
-    pub fn try_new(plan: DayPlan, authorization: Authorization) -> Result<Self, AttendanceError> {
+    pub fn try_new(
+        plan: DayPlan,
+        authorization: Authorization,
+    ) -> Result<Self, AttendanceError> {
         if !authorization.authorizes_roster_change() {
             return Err(AttendanceError::ActionForbidsRosterChange {
                 action_key: authorization.action_key().to_owned(),
@@ -386,7 +387,10 @@ impl RosterDay {
 
     /// Append a revision. The caller must already have established that the
     /// day's period is open — [`DatedRoster::revise`] is the checked path.
-    fn push_revision(&mut self, revision: RosterRevision) -> Result<(), AttendanceError> {
+    fn push_revision(
+        &mut self,
+        revision: RosterRevision,
+    ) -> Result<(), AttendanceError> {
         if revision.effective_at() < self.current_revision().effective_at() {
             return Err(AttendanceError::RosterRevisionNotForward);
         }

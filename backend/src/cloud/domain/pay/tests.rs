@@ -43,20 +43,10 @@ fn record(from: &str, base: i64, allowances: Vec<FixedAllowance>, offset: i64) -
 fn a_raise_does_not_rewrite_what_last_month_was_paid() {
     let mut timeline = PayTimeline::new();
     timeline
-        .append(record(
-            "2026-01-01",
-            5_000_000,
-            vec![allowance("JABATAN", 500_000)],
-            0,
-        ))
+        .append(record("2026-01-01", 5_000_000, vec![allowance("JABATAN", 500_000)], 0))
         .unwrap_or_else(|error| panic!("append: {error}"));
     timeline
-        .append(record(
-            "2026-04-01",
-            6_000_000,
-            vec![allowance("JABATAN", 750_000)],
-            10,
-        ))
+        .append(record("2026-04-01", 6_000_000, vec![allowance("JABATAN", 750_000)], 10))
         .unwrap_or_else(|error| panic!("append: {error}"));
 
     let february = timeline

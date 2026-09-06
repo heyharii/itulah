@@ -328,10 +328,7 @@ mod tests {
             required_role_for_action(actions::EMPLOYMENT_CHANGE),
             Role::Admin
         );
-        assert_eq!(
-            required_role_for_action(actions::PROFILE_CHANGE),
-            Role::Admin
-        );
+        assert_eq!(required_role_for_action(actions::PROFILE_CHANGE), Role::Admin);
         assert_eq!(required_role_for_action(actions::LEAVE_GRANT), Role::Admin);
         // And the one act the carve-out exists for really is cashier work.
         assert_eq!(

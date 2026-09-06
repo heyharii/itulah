@@ -185,12 +185,7 @@ async fn staff_at(
         Some(json!({ "employee_code": code })),
     )
     .await;
-    assert_eq!(
-        registered.status,
-        StatusCode::OK,
-        "register: {:?}",
-        registered.body
-    );
+    assert_eq!(registered.status, StatusCode::OK, "register: {:?}", registered.body);
     let employee_id = registered.body["employee_id"]
         .as_str()
         .unwrap_or_else(|| panic!("employee_id: {:?}", registered.body))
@@ -222,12 +217,7 @@ async fn staff_at(
         })),
     )
     .await;
-    assert_eq!(
-        assigned.status,
-        StatusCode::OK,
-        "assign: {:?}",
-        assigned.body
-    );
+    assert_eq!(assigned.status, StatusCode::OK, "assign: {:?}", assigned.body);
     employee_id
 }
 
@@ -254,12 +244,7 @@ async fn login_for(
         })),
     )
     .await;
-    assert_eq!(
-        created.status,
-        StatusCode::OK,
-        "create user: {:?}",
-        created.body
-    );
+    assert_eq!(created.status, StatusCode::OK, "create user: {:?}", created.body);
     let linked = send(
         app.clone(),
         "POST",
@@ -289,12 +274,7 @@ async fn publish_2026(app: &axum::Router, cookies: &str, csrf: &str) {
         })),
     )
     .await;
-    assert_eq!(
-        published.status,
-        StatusCode::OK,
-        "publish: {:?}",
-        published.body
-    );
+    assert_eq!(published.status, StatusCode::OK, "publish: {:?}", published.body);
 }
 
 /// Annual leave, sick leave, and the policy a balance folds under.
@@ -341,12 +321,7 @@ async fn ratify_leave(app: &axum::Router, cookies: &str, csrf: &str) {
         })),
     )
     .await;
-    assert_eq!(
-        ratified.status,
-        StatusCode::OK,
-        "policy: {:?}",
-        ratified.body
-    );
+    assert_eq!(ratified.status, StatusCode::OK, "policy: {:?}", ratified.body);
 }
 
 /// Put this year's entitlement into somebody's balance.
@@ -518,26 +493,12 @@ async fn pay_is_a_history_and_cannot_be_backdated(pool: PgPool) {
         })),
     )
     .await;
-    assert_eq!(
-        backdated.status,
-        StatusCode::CONFLICT,
-        "{:?}",
-        backdated.body
-    );
+    assert_eq!(backdated.status, StatusCode::CONFLICT, "{:?}", backdated.body);
 
     // And a shop manager may not read salaries at all: what everybody earns is
     // not a rota question.
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &rina,
-        "rina",
-        "SUPERVISOR",
-        SUPERVISOR_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
     let (hers, _) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
     let refused = send(
         app.clone(),
@@ -606,12 +567,7 @@ async fn an_account_number_never_leaves_the_server_whole(pool: PgPool) {
         })),
     )
     .await;
-    assert_eq!(
-        too_many.status,
-        StatusCode::BAD_REQUEST,
-        "{:?}",
-        too_many.body
-    );
+    assert_eq!(too_many.status, StatusCode::BAD_REQUEST, "{:?}", too_many.body);
 }
 
 /// The test this file exists for.
@@ -650,12 +606,7 @@ async fn one_person_cannot_verify_and_approve_the_same_run(pool: PgPool) {
         Some(json!({ "reason": "angka sudah dicek" })),
     )
     .await;
-    assert_eq!(
-        verified.status,
-        StatusCode::OK,
-        "verify: {:?}",
-        verified.body
-    );
+    assert_eq!(verified.status, StatusCode::OK, "verify: {:?}", verified.body);
     assert_eq!(verified.body["state"], "VERIFIED");
     assert_eq!(verified.body["verified_by"], "admin");
 
@@ -680,12 +631,7 @@ async fn one_person_cannot_verify_and_approve_the_same_run(pool: PgPool) {
         Some(json!({ "reason": "disetujui" })),
     )
     .await;
-    assert_eq!(
-        approved.status,
-        StatusCode::OK,
-        "approve: {:?}",
-        approved.body
-    );
+    assert_eq!(approved.status, StatusCode::OK, "approve: {:?}", approved.body);
     assert_eq!(approved.body["state"], "APPROVED");
 
     let sealed = send(
@@ -751,16 +697,7 @@ async fn a_slip_carries_the_agreement_and_the_facts_and_no_deductions(pool: PgPo
     ratify_leave(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &siti,
-        "siti",
-        "CASHIER",
-        CASHIER_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
     agree_pay(&app, &cookies, &csrf, &siti, 5_000_000).await;
     set_account(&app, &cookies, &csrf, &siti, "1234567890").await;
     allocate(&app, &cookies, &csrf, &siti, 12).await;
@@ -832,12 +769,7 @@ async fn a_slip_carries_the_agreement_and_the_facts_and_no_deductions(pool: PgPo
         None,
     )
     .await;
-    assert_eq!(
-        reconciliation.status,
-        StatusCode::OK,
-        "{:?}",
-        reconciliation.body
-    );
+    assert_eq!(reconciliation.status, StatusCode::OK, "{:?}", reconciliation.body);
     assert_eq!(reconciliation.body["slips"], 1);
     assert_eq!(reconciliation.body["base_total_minor"], 5_000_000);
     assert_eq!(reconciliation.body["leave_days_total"], 2);
@@ -857,16 +789,7 @@ async fn a_payslip_appears_only_once_somebody_has_signed_for_it(pool: PgPool) {
     let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(
-        &app,
-        &cookies,
-        &csrf,
-        &siti,
-        "siti",
-        "CASHIER",
-        CASHIER_PASSWORD,
-    )
-    .await;
+    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
     agree_pay(&app, &cookies, &csrf, &siti, 5_000_000).await;
     set_account(&app, &cookies, &csrf, &siti, "1234567890").await;
     close_april(&app, &cookies, &csrf).await;
@@ -883,11 +806,7 @@ async fn a_payslip_appears_only_once_somebody_has_signed_for_it(pool: PgPool) {
     )
     .await;
     assert_eq!(early.status, StatusCode::OK, "{:?}", early.body);
-    assert_eq!(
-        early.body.as_array().map(Vec::len),
-        Some(0),
-        "a draft is not a payslip"
-    );
+    assert_eq!(early.body.as_array().map(Vec::len), Some(0), "a draft is not a payslip");
 
     send(
         app.clone(),

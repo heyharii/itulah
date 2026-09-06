@@ -85,7 +85,9 @@ pub async fn agree_pay(
 ) -> Result<(), AppError> {
     let allowances: Vec<FixedAllowance> = record
         .allowances()
-        .map(|(code, amount)| FixedAllowance::try_new(code.clone(), amount).map_err(pay_error))
+        .map(|(code, amount)| {
+            FixedAllowance::try_new(code.clone(), amount).map_err(pay_error)
+        })
         .collect::<Result<_, AppError>>()?;
     let inserted = sqlx::query(
         "INSERT INTO employee_pay
@@ -121,8 +123,9 @@ pub async fn payroll_identity(
         .fetch_optional(pool)
         .await?;
     let Some(row) = row else { return Ok(None) };
-    let amendments: Vec<IdentityAmendment> = serde_json::from_value(row.try_get("amendments")?)
-        .map_err(|error| corrupt("identity amendments", error.to_string()))?;
+    let amendments: Vec<IdentityAmendment> =
+        serde_json::from_value(row.try_get("amendments")?)
+            .map_err(|error| corrupt("identity amendments", error.to_string()))?;
     PayrollIdentity::replay(amendments)
         .map(Some)
         .map_err(|error| corrupt("payroll identity", error.to_string()))
@@ -193,18 +196,19 @@ const RUN_COLUMNS: &str =
     "id, place_id, period, state, complete, incomplete_because, history, created_at";
 
 pub async fn load_run(pool: &PgPool, id: &str) -> Result<Option<PayrollRun>, AppError> {
-    let row = sqlx::query(&format!(
-        "SELECT {RUN_COLUMNS} FROM payroll_run WHERE id = $1"
-    ))
-    .bind(id)
-    .fetch_optional(pool)
-    .await?;
+    let row = sqlx::query(&format!("SELECT {RUN_COLUMNS} FROM payroll_run WHERE id = $1"))
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
     row.as_ref().map(decode_run).transpose()
 }
 
 /// Every run at a place, newest first. `None` reads every place — head
 /// office's.
-pub async fn list_runs(pool: &PgPool, place_id: Option<&str>) -> Result<Vec<PayrollRun>, AppError> {
+pub async fn list_runs(
+    pool: &PgPool,
+    place_id: Option<&str>,
+) -> Result<Vec<PayrollRun>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {RUN_COLUMNS} FROM payroll_run
           WHERE ($1::text IS NULL OR place_id = $1)
@@ -291,9 +295,7 @@ pub async fn build_slips(
         let allowances = decode_allowances(agreement.try_get("fixed_allowances")?)?;
         let statutory_base = allowances
             .iter()
-            .try_fold(base, |sum, allowance| {
-                sum.checked_add(allowance.amount().minor)
-            })
+            .try_fold(base, |sum, allowance| sum.checked_add(allowance.amount().minor))
             .ok_or_else(|| corrupt("pay total", "the agreement overflows".to_owned()))?;
 
         let leave_days: Option<i64> = sqlx::query_scalar(

@@ -24,14 +24,14 @@
 //! 4. **Stopping a membership stops the phone already in the pocket**, not
 //!    merely the next pairing.
 
-use axum::body::{to_bytes, Body};
-use http::{header, Request, StatusCode};
 use inventory_backend::cloud::{
     application::{AppConfig, AppState, CreateUserRequest},
     domain::Role,
     http as cloud_http, postgres as cloud,
 };
 use inventory_backend::security;
+use axum::body::{to_bytes, Body};
+use http::{header, Request, StatusCode};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, path::PathBuf};
@@ -96,12 +96,8 @@ async fn send(
     let body = if bytes.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-            panic!(
-                "json {method} {path}: {e} — {:?}",
-                String::from_utf8_lossy(&bytes)
-            )
-        })
+        serde_json::from_slice(&bytes)
+            .unwrap_or_else(|e| panic!("json {method} {path}: {e} — {:?}", String::from_utf8_lossy(&bytes)))
     };
     Answer {
         status,
@@ -246,12 +242,7 @@ async fn shop(pool: &PgPool) -> (axum::Router, Counter) {
         Some(json!({ "username": CASHIER, "password": CASHIER_PASSWORD })),
     )
     .await;
-    assert_eq!(
-        login.status,
-        StatusCode::OK,
-        "cashier login: {:?}",
-        login.body
-    );
+    assert_eq!(login.status, StatusCode::OK, "cashier login: {:?}", login.body);
     let session = cookie(&login.set_cookies, security::SESSION_COOKIE);
     let csrf = cookie(&login.set_cookies, security::CSRF_COOKIE);
     let counter = Counter {
@@ -349,12 +340,7 @@ async fn a_cashier_enrols_a_card_and_the_phone_pairs_with_the_code(pool: PgPool)
         None,
     )
     .await;
-    assert_eq!(
-        summary.status,
-        StatusCode::OK,
-        "summary: {:?}",
-        summary.body
-    );
+    assert_eq!(summary.status, StatusCode::OK, "summary: {:?}", summary.body);
 
     // Who issued it is the only defence this scheme has against its one attack
     // — a dishonest cashier pairing their own phone to somebody else's card —
@@ -806,7 +792,11 @@ async fn blocking_a_membership_stops_a_phone_already_paired(pool: PgPool) {
     );
 }
 
-async fn issue_expecting_conflict(app: &axum::Router, counter: &Counter, card: &str) -> StatusCode {
+async fn issue_expecting_conflict(
+    app: &axum::Router,
+    counter: &Counter,
+    card: &str,
+) -> StatusCode {
     send(
         app.clone(),
         "POST",
@@ -846,10 +836,6 @@ fn wrong_code(good: &str) -> String {
     let mut digits: Vec<u8> = good.bytes().collect();
     // Move the first digit on by one, wrapping, so the result is always six
     // digits and never the code itself.
-    digits[0] = if digits[0] == b'9' {
-        b'0'
-    } else {
-        digits[0] + 1
-    };
+    digits[0] = if digits[0] == b'9' { b'0' } else { digits[0] + 1 };
     String::from_utf8(digits).unwrap_or_else(|e| panic!("wrong code: {e}"))
 }

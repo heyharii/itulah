@@ -207,12 +207,7 @@ pub async fn assistant_conversation_turns(
     .await?;
     Ok(rows
         .iter()
-        .map(|row| {
-            (
-                row.get::<String, _>("role"),
-                row.get::<String, _>("content"),
-            )
-        })
+        .map(|row| (row.get::<String, _>("role"), row.get::<String, _>("content")))
         .collect())
 }
 
@@ -281,11 +276,7 @@ pub async fn rename_assistant_conversation(
 /// Put one away. Archived rather than deleted: a conversation is the only
 /// record of what somebody was told, and "the assistant said we were fine"
 /// is a sentence that has to be checkable afterwards.
-pub async fn archive_assistant_conversation(
-    pool: &PgPool,
-    id: Uuid,
-    owner: &str,
-) -> Result<(), AppError> {
+pub async fn archive_assistant_conversation(pool: &PgPool, id: Uuid, owner: &str) -> Result<(), AppError> {
     let done = sqlx::query(
         "UPDATE assistant_conversation SET archived_at = now()
           WHERE conversation_id = $1 AND owner_username = $2 AND archived_at IS NULL",
@@ -493,9 +484,9 @@ pub async fn run_read_only_query(
 /// cost nothing but a place in the array.
 async fn explain_failure(pool: &PgPool, statement: &str, complaint: &str) -> String {
     let mut words: Vec<String> = Vec::new();
-    for word in
-        statement.split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
-    {
+    for word in statement.split(|character: char| {
+        !character.is_ascii_alphanumeric() && character != '_'
+    }) {
         let word = word.to_ascii_lowercase();
         if word.len() < 3 || words.iter().any(|seen| *seen == word) {
             continue;
@@ -757,10 +748,7 @@ async fn column_names(pool: &PgPool, tables: &[String]) -> Result<Value, AppErro
     for row in &rows {
         let table = row.get::<String, _>("table_name");
         let column = row.get::<String, _>("column_name");
-        match listed
-            .entry(table)
-            .or_insert_with(|| Value::Array(Vec::new()))
-        {
+        match listed.entry(table).or_insert_with(|| Value::Array(Vec::new())) {
             Value::Array(columns) => columns.push(Value::String(column)),
             _ => unreachable!("the entry above is always an array"),
         }
@@ -908,14 +896,8 @@ mod tests {
     #[test]
     fn a_caveat_reaches_the_table_it_is_written_for() {
         let found = caveats_for(&["sale".to_owned(), "article".to_owned()]);
-        assert!(
-            found.get("sale").is_some(),
-            "sale carries the COMPLETED rule"
-        );
-        assert!(
-            found.get("article").is_none(),
-            "nothing is invented for article"
-        );
+        assert!(found.get("sale").is_some(), "sale carries the COMPLETED rule");
+        assert!(found.get("article").is_none(), "nothing is invented for article");
 
         // The two prefix rules, which are the ones that would silently stop
         // matching if the suffix convention were changed.

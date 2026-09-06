@@ -507,10 +507,7 @@ pub async fn member_segments(pool: &PgPool) -> Result<SegmentBook, AppError> {
 /// written out again rather than shared through a CTE, because [`MEMBER_SOURCE`]
 /// explains why nothing in this file may use `WITH`, and two readers of one
 /// three-line `WHERE` is cheaper than a source the catalogue cannot splice.
-pub async fn list_unenrolled(
-    pool: &PgPool,
-    limit: Option<i64>,
-) -> Result<UnenrolledList, AppError> {
+pub async fn list_unenrolled(pool: &PgPool, limit: Option<i64>) -> Result<UnenrolledList, AppError> {
     let limit = limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
     let rows = sqlx::query(
         "SELECT customer_id,
