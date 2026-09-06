@@ -49,7 +49,68 @@ PLAIN: dict[str, str] = {
     "cogs": "5010110001",
     "stock_loss": "8010110006",
     "interest_expense": "8020111001",
+    # lane-B — the store cash chain.
+    #
+    # Two of these do not exist in the client's export and are created by
+    # `seed_proposed_accounts` below. Everything else here is a real leaf,
+    # checked against Laporan_Master_Account1.csv.
+    "cash_in_transit": "1011005001",      # PROPOSED
+    "cash_variance": "8010110008",        # PROPOSED
+    # What a store manager is HOLDING for the company, which is not what an
+    # employee OWES it. 1011102001 PIUTANG PEGAWAI is the second thing and is
+    # deliberately not mapped by this lane; a float posted there would be
+    # indistinguishable from a staff debt on an ageing report.
+    "store_manager_receivable": "1011102002",  # PIUTANG KEPALA TOKO
+    # Wages owed and not yet handed over. What a manager paying an employee out
+    # of a fund debits — never a second salary expense.
+    "payroll_payable": "2012201001",      # Biaya Gaji dan Upah YMHD
+    # What a shop may spend petty cash or an operating fund on. Nine
+    # categories, all real, and the
+    # last is the catch-all — a list with no bottom means a genuine receipt
+    # eventually has nowhere to go and comes out of the drawer instead.
+    "expense_electricity": "6010310006",  # Biaya Pemakaian Listrik
+    "expense_water": "6010310007",        # Biaya Pemakaian Air Bersih (PDAM)
+    "expense_telephone": "6010310005",    # Biaya Telephone,Facsimile, Modem
+    "expense_household": "6010310003",    # Biaya Rumah Tangga
+    "expense_stationery": "6010310002",   # Alat Tulis Kantor & Barang Cetakan
+    "expense_repairs": "6010410004",      # BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN
+    "expense_transport": "6010310009",    # Biaya Lokal Transport
+    "expense_cleaning": "6010310001",     # Biaya Kebersihan (Cleaning)
+    "expense_misc": "6010310099",         # Miscellaneous Expences
+    # end lane-B
 }
+
+# lane-B — the two accounts the client's chart does not have.
+#
+# `import-coa.py` builds the chart from the client's own export, so anything
+# not in that export does not exist. These two are PROPOSALS, and this is the
+# only place in the system that invents an account code. They are written here
+# rather than in a migration because the chart is the client's document: a
+# migration that added rows to it would make this system a second author of it,
+# and the day the client sends a new export the two would have to be
+# reconciled.
+#
+# `1011005` is an unused rung of `10110 KAS & SETARA KAS`, sitting beside CASH
+# ON HAND, CASH IN BANK GIRO, CASH IN BANK TABUNGAN and TIME DEPOSIT — where a
+# treasurer would look for money that has left a shop and not yet reached a
+# bank. `8010110008` is the next free leaf under the rung that already holds
+# `Selisih pembulatan` and `Kehilangan Barang atau Selisih Stock Opname`, which
+# is where this client already keeps differences of exactly this species.
+#
+# (rung code, rung name, leaf code, leaf name, per-site name)
+PROPOSED: list[tuple[str | None, str, str, str, str]] = [
+    ("1011005", "KAS DALAM PERJALANAN", "1011005001", "KAS DALAM PERJALANAN",
+     "Kas Dalam Perjalanan"),
+    (None, "", "8010110008", "SELISIH KAS", "Selisih Kas"),
+]
+
+# The client writes head office `HO` and shop n `C00n` in every leaf name.
+def unit_suffix(site: str) -> tuple[str, str]:
+    """(two-digit code suffix, the name the client would write)."""
+    if site == "dc":
+        return "00", "HO"
+    number = int(site.split("-")[1])
+    return f"{number:02d}", f"C{number:03d}"
 
 # The seven asset categories the register offers, and what each one means in
 # the client's chart. The depreciation run passes the category code as the
@@ -129,6 +190,50 @@ def psql(db: str, sql: str) -> list[list[str]]:
         check=True,
     ).stdout
     return [line.split("\x1f") for line in out.splitlines() if line]
+
+
+def psql_exec(db: str, sql: str) -> None:
+    subprocess.run(["psql", "-d", db, "-q", "-v", "ON_ERROR_STOP=1", "-c", sql],
+                   capture_output=True, text=True, check=True)
+
+
+def seed_proposed_accounts(db: str, dry: bool, report: dict) -> None:
+    """Create the two accounts lane B proposes, and their fourteen leaves.
+
+    Written straight to Postgres rather than through the API, because that is
+    how the chart itself arrives (`import-coa.py` emits INSERTs) and there is no
+    endpoint for adding an account — deliberately, since the chart is the
+    client's document and not ours to edit from a screen.
+
+    Idempotent: ON CONFLICT DO NOTHING, so running the seed twice is a no-op and
+    a client export that later contains these codes wins.
+    """
+    statements: list[str] = []
+    for rung_code, rung_name, leaf_code, leaf_name, site_name in PROPOSED:
+        if rung_code:
+            statements.append(
+                "INSERT INTO ledger_account "
+                "(account_code,name,parent_code,is_group,is_active,site_id) VALUES "
+                f"('{rung_code}','{rung_name}','{rung_code[:5]}',true,true,NULL) "
+                "ON CONFLICT (account_code) DO NOTHING")
+        statements.append(
+            "INSERT INTO ledger_account "
+            "(account_code,name,parent_code,is_group,is_active,site_id) VALUES "
+            f"('{leaf_code}','{leaf_name}','{leaf_code[:7]}',true,true,NULL) "
+            "ON CONFLICT (account_code) DO NOTHING")
+        for site in SITES:
+            suffix, unit = unit_suffix(site)
+            statements.append(
+                "INSERT INTO ledger_account "
+                "(account_code,name,parent_code,is_group,is_active,site_id) VALUES "
+                f"('{leaf_code}{suffix}','{site_name} {unit}','{leaf_code}',"
+                f"false,true,'{site}') ON CONFLICT (account_code) DO NOTHING")
+    report["proposed_accounts"] = len(statements)
+    if dry:
+        return
+    # One transaction: a half-created family would leave the leaves orphaned of
+    # the rung their foreign key names.
+    psql_exec(db, "BEGIN; " + "; ".join(statements) + "; COMMIT")
 
 
 def leaves(db: str) -> dict[tuple[str, str], str]:
@@ -456,6 +561,11 @@ def main() -> int:
 
     want = args.stage
     if want in ("all", "map"):
+        # lane-B: the two proposed accounts have to exist before anything can
+        # be mapped to them, and `leaf` was read before they did.
+        seed_proposed_accounts(args.db, args.dry_run, report)
+        if not args.dry_run:
+            leaf = leaves(args.db)
         seed_account_map(api, leaf, report)
     if want in ("all", "periods"):
         seed_periods(api, months, report)

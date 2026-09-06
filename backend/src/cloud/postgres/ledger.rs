@@ -424,7 +424,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Loans & Financing",
         ),
-        // lane-B — the store cash chain.
+        // ── lane-B — the store cash chain ────────────────────────────────
         //
         // Two of these are PROPOSED: the client's chart has no account for
         // either, and both are named as proposals on the Account Map screen so
@@ -433,9 +433,9 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // `cash_in_transit` is the one that matters. Without it a shop's
         // banking is credited on the day the bag leaves and debited on the day
         // the bank posts it, and in between the money is in no account and no
-        // report. `1011005` is an unused rung of `10110 KAS & SETARA KAS`,
-        // beside CASH ON HAND, CASH IN BANK GIRO/TABUNGAN and TIME DEPOSIT,
-        // which is exactly where a treasurer would look for it.
+        // report. `1011005` is the next free rung of `10110 KAS & SETARA KAS`,
+        // after CASH ON HAND, CASH IN BANK GIRO, CASH IN BANK TABUNGAN and TIME
+        // DEPOSIT — exactly where a treasurer would look for it.
         key(
             "cash_in_transit",
             "Cash in transit",
@@ -443,11 +443,11 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Cash & Bank",
         ),
-        // The drawer's difference, once somebody has accepted it. Under the
-        // same rung as `8010110002 Selisih pembulatan` and
-        // `8010110006 Kehilangan Barang atau Selisih Stock Opname`, because a
-        // till shortfall is the same species of number as a stock one and the
-        // client already keeps that species there.
+        // The drawer's difference, once somebody has accepted it. The next free
+        // leaf under the rung that already holds `8010110002 Selisih
+        // pembulatan` and `8010110006 Kehilangan Barang atau Selisih Stock
+        // Opname`, because a till shortfall is the same species of number as a
+        // stock one and the client already keeps that species there.
         key(
             "cash_variance",
             "Cash over and short",
@@ -455,45 +455,42 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Cash & Bank",
         ),
-        // The advance accounts, one per purpose. Separate meanings rather than
-        // qualifiers on `advance`, because the client's chart gives each its
-        // own leaf and a rule that had to pass a qualifier could pass one that
-        // was never mapped.
+        // What a store manager is HOLDING for the company, which is not what an
+        // employee OWES it. The client's chart keeps the two apart and an
+        // earlier draft of this lane did not:
+        //
+        //   1011102001 PIUTANG PEGAWAI      a staff debt
+        //   1011102002 PIUTANG KEPALA TOKO  a float in a manager's hands
+        //
+        // Unqualified, because the location IS the narrowing: the client has a
+        // leaf per shop under this heading and `account_map` is already keyed
+        // by site.
+        //
+        // NOTE FOR WHOEVER MERGES: lane P declares this same key, in its own
+        // block, for the Payment Ledger's control account. It is one key and
+        // one meaning — keep exactly one of the two declarations.
         key(
-            "advance_purchase",
-            "Advance — purchase",
-            "1011303002 Advanced - Purchase",
+            "store_manager_receivable",
+            "Store manager float",
+            "1011102002 PIUTANG KEPALA TOKO",
             false,
-            "Store cash",
+            "Receivables",
         ),
+        // Wages owed and not yet handed over. What a manager paying an employee
+        // out of a fund DEBITS — never a second salary expense, which was
+        // already recognised when payroll was finalised.
         key(
-            "advance_travel",
-            "Advance — travel",
-            "1011303001 Advanced - Travelling",
+            "payroll_payable",
+            "Wages payable",
+            "2012201001 Biaya Gaji dan Upah YMHD",
             false,
-            "Store cash",
+            "Payables",
         ),
-        key(
-            "advance_contractor",
-            "Advance — contractor",
-            "1011303003 Advanced - To Contractors",
-            false,
-            "Store cash",
-        ),
-        // An advance held by a person rather than by a place is a staff debt,
-        // and the client keeps those somewhere else entirely.
-        key(
-            "employee_receivable",
-            "Employee receivable",
-            "1011102001 PIUTANG PEGAWAI",
-            false,
-            "Store cash",
-        ),
-        // What a shop may spend petty cash on. Nine, and the ninth is a
-        // catch-all on purpose: a category list with no bottom means a real
-        // receipt eventually has nowhere to go, and the shop pays for it out
-        // of the drawer instead — which is the exact behaviour this lane
-        // exists to end.
+        // What a shop may spend petty cash or an operating fund on. Nine, and
+        // the ninth is a catch-all on purpose: a category list with no bottom
+        // means a real receipt eventually has nowhere to go, and the shop pays
+        // for it out of the drawer instead — which is the exact behaviour this
+        // lane exists to end.
         key(
             "expense_electricity",
             "Electricity",
@@ -557,7 +554,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Store cash",
         ),
-        // end lane-B
+        // ── end lane-B ───────────────────────────────────────────────────
     ]
 }
 
