@@ -507,3 +507,70 @@ CREATE TABLE custodian_handover_item (
 COMMENT ON TABLE custodian_handover_item IS
     'Which outstanding funds a handover moved, and for how much each. A list '
     'rather than a total, so ageing survives the change of hands.';
+
+-- ---------------------------------------------------------------------------
+-- The Payment Ledger, until the Payment Ledger arrives
+-- ---------------------------------------------------------------------------
+--
+-- TODO(lane-P): the Payment Ledger is `payment_ledger_item` and
+-- `payment_ledger_allocation`, migrations 0143-0145, with `ple_open` and
+-- `ple_settle` in `postgres/payment_ledger.rs`. It is not merged into this
+-- branch. These two tables are the same shape under a different name, written
+-- and read only through `lane_b_ple_open` / `lane_b_ple_settle` in
+-- `postgres/store_money.rs`, whose arguments already match Lane P's
+-- signatures.
+--
+-- When that lane lands, both functions become one call each and this migration
+-- loses these two tables and their rows are re-opened from the funds. They are
+-- here rather than absent because the equation this lane has to prove —
+-- Σ open funds = payment ledger outstanding = the GL balance of Piutang Kepala
+-- Toko — needs three readings to compare, and a test that compared two of them
+-- and asserted the third would be proving nothing.
+--
+-- They are deliberately named so that nobody mistakes them for the real thing.
+CREATE TABLE store_ledger_shim (
+    shim_entry_id    uuid PRIMARY KEY,
+    account_key      text NOT NULL,
+    qualifier        text NOT NULL DEFAULT '',
+    site_id          text NOT NULL REFERENCES site(id),
+    party_type       text NOT NULL,
+    party_id         text NOT NULL,
+    party_name       text,
+    voucher_kind     text NOT NULL,
+    voucher_id       text NOT NULL,
+    journal_entry_id uuid NOT NULL REFERENCES journal_entry(entry_id),
+    side             text NOT NULL CHECK (side IN ('RECEIVABLE', 'PAYABLE')),
+    amount_minor     bigint NOT NULL CHECK (amount_minor > 0),
+    settled_minor    bigint NOT NULL DEFAULT 0 CHECK (settled_minor >= 0),
+    currency         char(3) NOT NULL DEFAULT 'IDR',
+    due_date         date,
+    posting_date     date NOT NULL,
+    created_by       text NOT NULL,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    CHECK (settled_minor <= amount_minor)
+);
+
+CREATE INDEX ix_store_ledger_shim_open
+    ON store_ledger_shim (account_key, site_id, party_id)
+    WHERE settled_minor < amount_minor;
+
+CREATE TABLE store_ledger_shim_allocation (
+    shim_entry_id        uuid NOT NULL REFERENCES store_ledger_shim(shim_entry_id)
+                              ON DELETE CASCADE,
+    against_voucher_kind text NOT NULL,
+    against_voucher_id   text NOT NULL,
+    journal_entry_id     uuid NOT NULL REFERENCES journal_entry(entry_id),
+    posting_date         date NOT NULL,
+    amount_minor         bigint NOT NULL CHECK (amount_minor >= 0),
+    created_by           text NOT NULL,
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    -- One settlement puts money against one item once. A retry is a no-op
+    -- rather than a second payment.
+    PRIMARY KEY (shim_entry_id, against_voucher_kind, against_voucher_id)
+);
+
+COMMENT ON TABLE store_ledger_shim IS
+    'A stand-in for the Payment Ledger (lane P, migrations 0143-0145) so this '
+    'lane can prove its equation before that one merges. Written only through '
+    'lane_b_ple_open / lane_b_ple_settle, whose arguments match ple_open and '
+    'ple_settle exactly.';

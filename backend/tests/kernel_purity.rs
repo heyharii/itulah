@@ -39,6 +39,11 @@ use std::path::{Path, PathBuf};
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
+    // The store cash arithmetic: the cashier equation, fund accountability,
+    // the remittance projection and the approval limit. Here for the same
+    // reason as the other two — a drawer that gave two answers depending on
+    // when it was asked would be worse than one that gave none.
+    "src/cloud/domain/store_cash.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
