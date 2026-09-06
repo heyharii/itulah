@@ -49,6 +49,19 @@ PLAIN: dict[str, str] = {
     "cogs": "5010110001",
     "stock_loss": "8010110006",
     "interest_expense": "8020111001",
+    # lane-A: what posting a day of takings needs, beyond the four above it
+    # already reuses (cash, card_receivable_debit, card_receivable_credit,
+    # rounding). Three of these are PROPOSED codes — the client's chart has no
+    # account for QRIS, for a QRIS receivable, or for vouchers outstanding, so
+    # each is the next free leaf in the family it belongs to and has to be
+    # confirmed with Finance before these books are compared with theirs.
+    "revenue_cash": "4010110001",
+    "revenue_qris": "4010113001",  # proposed
+    "sales_return": "4010214001",
+    "sales_discount": "4010213001",
+    "vat_out": "2012101003",
+    "voucher_liability": "2012305001",  # proposed
+    # end lane-A
 }
 
 # The seven asset categories the register offers, and what each one means in
@@ -80,6 +93,35 @@ QUALIFIED: dict[str, list[tuple[str, str]]] = {
     "prepaid_expense": [("ASURANSI", "1011301001")],
     "advance": [("PERJALANAN", "1011303001")],
     "loan_principal": [("BANK", "2022401001")],
+    # lane-A: income and receivables split by who settled them, which is how
+    # the client's own chart keeps them — a debit card is a named bank's debt,
+    # a credit card is a network's, and they are different accounts because
+    # they clear on different days for different fees.
+    #
+    # The qualifiers here are the ones the till will actually send. A tender
+    # naming an acquirer nothing is mapped for is refused by name at posting
+    # time, which is the point: it is a gap somebody can close on the Account
+    # Map screen, not a figure quietly filed under "cards".
+    "revenue_debit": [("BCA", "4010111001"), ("MANDIRI", "4010111002")],
+    "revenue_credit": [("VISA", "4010112001"), ("MASTER", "4010112002")],
+    # The two card receivables are ALSO mapped unqualified, above, and both
+    # mappings are wanted. The posting rule resolves them per acquirer, because
+    # what a shop is owed is owed by a named bank; the client's chart keeps one
+    # account for all of them, so every qualifier points at the same leaf until
+    # Finance decides to split it. Mapping the qualifier now costs nothing and
+    # means that split is a change to this file rather than to a posting rule.
+    "card_receivable_debit": [("BCA", "1011101002"), ("MANDIRI", "1011101002")],
+    "card_receivable_credit": [("VISA", "1011101001"), ("MASTER", "1011101001")],
+    # Who owes the QRIS money: the acquiring bank or the wallet, whichever the
+    # till names. Proposed code, like the income account it pairs with.
+    "qris_receivable": [
+        ("BCA", "1011101003"),
+        ("GOPAY", "1011101003"),
+        ("OVO", "1011101003"),
+        ("DANA", "1011101003"),
+        ("SHOPEEPAY", "1011101003"),
+    ],  # proposed
+    # end lane-A
 }
 
 SITES = ["dc"] + [f"store-{n:02d}" for n in range(1, 14)]
