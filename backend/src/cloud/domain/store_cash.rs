@@ -514,8 +514,10 @@ mod tests {
 
     #[test]
     fn a_cancelled_order_authorises_nothing_more() {
-        let standing =
-            remittance_standing(true, &[line(5_000_000, &[(5_000_000, ExecutionState::Confirmed)])]);
+        let standing = remittance_standing(
+            true,
+            &[line(5_000_000, &[(5_000_000, ExecutionState::Confirmed)])],
+        );
         assert_eq!(standing.progress, RemittanceProgress::Cancelled);
         assert_eq!(standing.unexecuted_minor, 0);
         // The execution is still visible: somebody did pay.

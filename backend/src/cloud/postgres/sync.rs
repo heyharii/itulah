@@ -1935,9 +1935,10 @@ async fn apply_one(
                     Ok(shift) => shift,
                     Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
                 };
-                if let Err(error) =
-                    super::store_money::cash_shift_ingest(&mut tx, origin_id, generation, next, &shift)
-                        .await
+                if let Err(error) = super::store_money::cash_shift_ingest(
+                    &mut tx, origin_id, generation, next, &shift,
+                )
+                .await
                 {
                     return Ok(ApplyStep::Blocked {
                         seq: next,

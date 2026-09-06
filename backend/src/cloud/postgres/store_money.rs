@@ -561,7 +561,10 @@ pub async fn cash_shift_post_float(
     .await?
     .ok_or_else(|| AppError::NotFound(format!("there is no cash shift {shift_id}")))?;
 
-    if row.try_get::<Option<Uuid>, _>("float_out_entry_id")?.is_some() {
+    if row
+        .try_get::<Option<Uuid>, _>("float_out_entry_id")?
+        .is_some()
+    {
         return Ok(json!({ "shift_id": shift_id, "posted": false,
                           "reason": "the float on this shift is already in the books" }));
     }
@@ -640,7 +643,10 @@ pub async fn cash_shift_approve_variance(
                 .into(),
         ));
     }
-    if row.try_get::<Option<DateTime<Utc>>, _>("approved_at")?.is_some() {
+    if row
+        .try_get::<Option<DateTime<Utc>>, _>("approved_at")?
+        .is_some()
+    {
         return Err(AppError::Conflict(
             "this difference has already been accepted".into(),
         ));
@@ -895,9 +901,10 @@ pub async fn store_deposit_hand_over(
     let site_id: String = row.try_get("site_id")?;
     let amount: i64 = row.try_get("amount_minor")?;
     let number: String = row.try_get("deposit_number")?;
-    let posting_date = request
-        .posting_date
-        .unwrap_or_else(|| row.try_get::<NaiveDate, _>("deposit_date").unwrap_or_default());
+    let posting_date = request.posting_date.unwrap_or_else(|| {
+        row.try_get::<NaiveDate, _>("deposit_date")
+            .unwrap_or_default()
+    });
 
     let intent = PostingIntent {
         posting_date,
@@ -975,9 +982,10 @@ pub async fn store_deposit_confirm(
     let amount: i64 = row.try_get("amount_minor")?;
     let bank_key: String = row.try_get("bank_key")?;
     let bank_qualifier: String = row.try_get("bank_qualifier")?;
-    let posting_date = request
-        .posting_date
-        .unwrap_or_else(|| row.try_get::<NaiveDate, _>("deposit_date").unwrap_or_default());
+    let posting_date = request.posting_date.unwrap_or_else(|| {
+        row.try_get::<NaiveDate, _>("deposit_date")
+            .unwrap_or_default()
+    });
 
     let intent = PostingIntent {
         posting_date,
@@ -1006,8 +1014,10 @@ pub async fn store_deposit_confirm(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(json!({ "deposit_id": deposit_id, "status": "CONFIRMED", "posted": true,
-               "entry_number": posted.entry_number }))
+    Ok(
+        json!({ "deposit_id": deposit_id, "status": "CONFIRMED", "posted": true,
+               "entry_number": posted.entry_number }),
+    )
 }
 
 async fn deposit_for_update(
@@ -1138,13 +1148,16 @@ pub async fn remittance_order_issue(
         .collect();
 
     if lines.is_empty() {
-        let total = request.total_minor.filter(|amount| *amount > 0).ok_or_else(|| {
-            AppError::Validation(
+        let total = request
+            .total_minor
+            .filter(|amount| *amount > 0)
+            .ok_or_else(|| {
+                AppError::Validation(
                 "an order with no lines needs the amount to dispose of, so the shop's standing \
                  destination can carry it"
                     .into(),
             )
-        })?;
+            })?;
         let default = sqlx::query(
             "SELECT destination_kind, destination_ref, purpose
                FROM store_remittance_default WHERE site_id = $1",
@@ -1223,8 +1236,10 @@ pub async fn remittance_order_issue(
         .await?;
     }
     tx.commit().await?;
-    Ok(json!({ "order_id": order_id, "order_number": number, "status": "ISSUED",
-               "posted": false }))
+    Ok(
+        json!({ "order_id": order_id, "order_number": number, "status": "ISSUED",
+               "posted": false }),
+    )
 }
 
 /// Turn a destination reference into the name a printed order carries, and
@@ -1245,18 +1260,20 @@ async fn resolve_destination(
     }
     match kind {
         "SUPPLIER" => {
-            let name: Option<String> = sqlx::query("SELECT name FROM supplier WHERE supplier_code = $1")
-                .bind(reference)
-                .fetch_optional(&mut **tx)
-                .await?
-                .map(|row| row.try_get("name"))
-                .transpose()?;
-            name.or_else(|| supplied.map(str::to_string)).ok_or_else(|| {
-                AppError::NotFound(format!(
-                    "there is no supplier {reference}. A payee with no supplier record is a \
+            let name: Option<String> =
+                sqlx::query("SELECT name FROM supplier WHERE supplier_code = $1")
+                    .bind(reference)
+                    .fetch_optional(&mut **tx)
+                    .await?
+                    .map(|row| row.try_get("name"))
+                    .transpose()?;
+            name.or_else(|| supplied.map(str::to_string))
+                .ok_or_else(|| {
+                    AppError::NotFound(format!(
+                        "there is no supplier {reference}. A payee with no supplier record is a \
                      VENDOR line, which takes the name written on it."
-                ))
-            })
+                    ))
+                })
         }
         "OTHER_SITE" => {
             let name: Option<String> = sqlx::query("SELECT name FROM site WHERE id = $1")
@@ -1504,11 +1521,12 @@ async fn remittance_lines_and_standing(
     .fetch_all(pool)
     .await?;
 
-    let cancelled: bool = sqlx::query("SELECT status = 'CANCELLED' AS c FROM remittance_order WHERE order_id = $1")
-        .bind(order_id)
-        .fetch_one(pool)
-        .await?
-        .try_get("c")?;
+    let cancelled: bool =
+        sqlx::query("SELECT status = 'CANCELLED' AS c FROM remittance_order WHERE order_id = $1")
+            .bind(order_id)
+            .fetch_one(pool)
+            .await?
+            .try_get("c")?;
 
     let mut lines = Vec::with_capacity(line_rows.len());
     let mut progress_lines = Vec::with_capacity(line_rows.len());
@@ -1951,9 +1969,7 @@ pub async fn fund_settlement_record(
         ],
         "DIRECT_EXPENSE" => {
             let key = request.expense_key.as_deref().ok_or_else(|| {
-                AppError::Validation(
-                    "a direct expense has to say which account it lands in".into(),
-                )
+                AppError::Validation("a direct expense has to say which account it lands in".into())
             })?;
             vec![
                 PostingLine::debit(key, &site_id, request.amount_minor),
@@ -2221,8 +2237,10 @@ pub async fn payroll_payout_build(
         created += 1;
     }
     tx.commit().await?;
-    Ok(json!({ "allocation_id": request.allocation_id, "run_id": run_id,
-               "tasks": created, "total_minor": total }))
+    Ok(
+        json!({ "allocation_id": request.allocation_id, "run_id": run_id,
+               "tasks": created, "total_minor": total }),
+    )
 }
 
 /// What the manager sees.
@@ -2344,8 +2362,10 @@ pub async fn payroll_payout_pay(
     .execute(pool)
     .await?;
 
-    Ok(json!({ "task_id": task_id, "status": "PAID", "net_minor": net,
-               "settlement": settled }))
+    Ok(
+        json!({ "task_id": task_id, "status": "PAID", "net_minor": net,
+               "settlement": settled }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -2441,8 +2461,10 @@ pub async fn custodian_handover_prepare(
         .await?;
     }
     tx.commit().await?;
-    Ok(json!({ "handover_id": handover_id, "handover_number": number,
-               "amount_minor": total, "funds": items.len(), "status": "DRAFT" }))
+    Ok(
+        json!({ "handover_id": handover_id, "handover_number": number,
+               "amount_minor": total, "funds": items.len(), "status": "DRAFT" }),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -2485,32 +2507,35 @@ pub async fn custodian_handover_sign(
         )));
     }
 
-    if side == "FROM" {
-        sqlx::query(
-            "UPDATE custodian_handover SET from_signed_by=$2, from_signed_at=now()
-              WHERE handover_id=$1",
-        )
+    // Whether this signature completes the pair, decided BEFORE anything is
+    // written.
+    //
+    // The row constraint is `(status = 'SIGNED') = (both stamps are set)`, and
+    // it is checked per statement — so an UPDATE that set the second signature
+    // and left the status alone would be refused by the database at the moment
+    // it was half true. The signature and the status therefore go in one
+    // statement, which means the entry has to exist first.
+    let other_signed: bool = if side == "FROM" {
+        row.try_get::<Option<DateTime<Utc>>, _>("to_signed_at")?
+            .is_some()
     } else {
-        sqlx::query(
+        row.try_get::<Option<DateTime<Utc>>, _>("from_signed_at")?
+            .is_some()
+    };
+
+    if !other_signed {
+        let column = if side == "FROM" {
+            "UPDATE custodian_handover SET from_signed_by=$2, from_signed_at=now()
+              WHERE handover_id=$1"
+        } else {
             "UPDATE custodian_handover SET to_signed_by=$2, to_signed_at=now()
-              WHERE handover_id=$1",
-        )
-    }
-    .bind(handover_id)
-    .bind(actor)
-    .execute(&mut *tx)
-    .await?;
-
-    let both: bool = sqlx::query(
-        "SELECT from_signed_at IS NOT NULL AND to_signed_at IS NOT NULL AS both
-           FROM custodian_handover WHERE handover_id = $1",
-    )
-    .bind(handover_id)
-    .fetch_one(&mut *tx)
-    .await?
-    .try_get("both")?;
-
-    if !both {
+              WHERE handover_id=$1"
+        };
+        sqlx::query(column)
+            .bind(handover_id)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         return Ok(json!({ "handover_id": handover_id, "status": "DRAFT",
                           "signed": side, "posted": false }));
@@ -2617,19 +2642,32 @@ pub async fn custodian_handover_sign(
         .await?;
     }
 
-    sqlx::query(
-        "UPDATE custodian_handover SET status='SIGNED', journal_entry_id=$2
-          WHERE handover_id=$1",
-    )
-    .bind(handover_id)
-    .bind(posted.entry_id)
-    .execute(&mut *tx)
-    .await?;
+    // The second signature, the status and the entry, in one statement — see
+    // the note above about the row constraint.
+    let complete = if side == "FROM" {
+        "UPDATE custodian_handover
+            SET from_signed_by=$2, from_signed_at=now(), status='SIGNED',
+                journal_entry_id=$3
+          WHERE handover_id=$1"
+    } else {
+        "UPDATE custodian_handover
+            SET to_signed_by=$2, to_signed_at=now(), status='SIGNED',
+                journal_entry_id=$3
+          WHERE handover_id=$1"
+    };
+    sqlx::query(complete)
+        .bind(handover_id)
+        .bind(actor)
+        .bind(posted.entry_id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
 
-    Ok(json!({ "handover_id": handover_id, "status": "SIGNED", "posted": true,
+    Ok(
+        json!({ "handover_id": handover_id, "status": "SIGNED", "posted": true,
                "entry_number": posted.entry_number, "amount_minor": amount,
-               "funds_moved": items.len() }))
+               "funds_moved": items.len() }),
+    )
 }
 
 pub async fn custodian_handover_list(
@@ -2946,8 +2984,10 @@ pub async fn store_expense_approve(
     }
     tx.commit().await?;
 
-    Ok(json!({ "expense_id": expense_id, "expense_number": number, "status": "POSTED",
-               "entry_number": posted.entry_number, "approved_role": level.as_str() }))
+    Ok(
+        json!({ "expense_id": expense_id, "expense_number": number, "status": "POSTED",
+               "entry_number": posted.entry_number, "approved_role": level.as_str() }),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -3076,7 +3116,10 @@ pub async fn petty_cash_replenish(
         source_id: Some(replenishment_id.to_string()),
         rule_version: "petty_cash_replenish/1".into(),
         currency: "IDR".into(),
-        memo: Some(format!("{number} — pengisian kas kecil {}", request.site_id)),
+        memo: Some(format!(
+            "{number} — pengisian kas kecil {}",
+            request.site_id
+        )),
         lines: vec![
             PostingLine::debit("petty_cash", &request.site_id, request.amount_minor),
             PostingLine::credit(&request.bank_key, HEAD_OFFICE_SITE_ID, request.amount_minor)
@@ -3106,8 +3149,10 @@ pub async fn petty_cash_replenish(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(json!({ "replenishment_id": replenishment_id, "replenishment_number": number,
-               "entry_number": posted.entry_number }))
+    Ok(
+        json!({ "replenishment_id": replenishment_id, "replenishment_number": number,
+               "entry_number": posted.entry_number }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3188,7 +3233,9 @@ pub async fn store_cash_position(
     .bind(site_id)
     .fetch_one(pool)
     .await?;
-    let awaiting_remittance: i64 = ordered.try_get::<Option<i64>, _>("unexecuted")?.unwrap_or(0);
+    let awaiting_remittance: i64 = ordered
+        .try_get::<Option<i64>, _>("unexecuted")?
+        .unwrap_or(0);
 
     let funds = sqlx::query(
         "SELECT COALESCE(SUM(amount_minor - settled_minor - returned_minor), 0)::bigint AS open

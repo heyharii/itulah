@@ -93,15 +93,18 @@ pub fn lane_b_routes(router: Router<AppState>) -> Router<AppState> {
             "/api/v1/store-money/funds/{id}/accountability",
             get(fund_accountability),
         )
-        .route("/api/v1/store-money/fund-allocations", post(allocation_open))
+        .route(
+            "/api/v1/store-money/fund-allocations",
+            post(allocation_open),
+        )
         .route("/api/v1/store-money/fund-settlements", post(fund_settle))
         // Wages the manager hands over.
         .route("/api/v1/store-money/payouts", post(payout_build))
+        .route("/api/v1/store-money/payouts/{allocation}", get(payout_list))
         .route(
-            "/api/v1/store-money/payouts/{allocation}",
-            get(payout_list),
+            "/api/v1/store-money/payouts/tasks/{id}/pay",
+            post(payout_pay),
         )
-        .route("/api/v1/store-money/payouts/tasks/{id}/pay", post(payout_pay))
         // The float changing hands.
         .route(
             "/api/v1/store-money/handovers",
@@ -249,7 +252,9 @@ pub async fn shift_equation(
     let site = shift_site(&state, id).await?;
     allow_site(&state, &principal, &site).await?;
     let equation = infrastructure::cash_shift_equation(&state.db, id).await?;
-    Ok(Json(json!({ "shift_id": id, "site_id": site, "equation": equation })))
+    Ok(Json(
+        json!({ "shift_id": id, "site_id": site, "equation": equation }),
+    ))
 }
 
 async fn shift_site(state: &AppState, shift_id: Uuid) -> Result<String, AppError> {
@@ -572,13 +577,14 @@ pub async fn fund_settle(
     Extension(principal): Extension<Principal>,
     Json(request): Json<infrastructure::SettleFundRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let site = sqlx::query_scalar::<_, String>("SELECT site_id FROM operating_fund WHERE fund_id = $1")
-        .bind(request.fund_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or_else(|| {
-            AppError::NotFound(format!("there is no operating fund {}", request.fund_id))
-        })?;
+    let site =
+        sqlx::query_scalar::<_, String>("SELECT site_id FROM operating_fund WHERE fund_id = $1")
+            .bind(request.fund_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("there is no operating fund {}", request.fund_id))
+            })?;
     allow_site(&state, &principal, &site).await?;
     at_least_supervisor(&principal, "accounting for an operating fund")?;
     Ok(Json(
@@ -695,12 +701,13 @@ pub async fn handover_sign(
     Path(id): Path<Uuid>,
     Json(request): Json<infrastructure::SignHandoverRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let site =
-        sqlx::query_scalar::<_, String>("SELECT site_id FROM custodian_handover WHERE handover_id = $1")
-            .bind(id)
-            .fetch_optional(&state.db)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("there is no handover {id}")))?;
+    let site = sqlx::query_scalar::<_, String>(
+        "SELECT site_id FROM custodian_handover WHERE handover_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("there is no handover {id}")))?;
     allow_site(&state, &principal, &site).await?;
     at_least_supervisor(&principal, "signing for a store float")?;
     Ok(Json(
@@ -768,11 +775,12 @@ pub async fn expense_approve(
     Path(id): Path<Uuid>,
     Json(body): Json<ApproveExpenseBody>,
 ) -> Result<Json<Value>, AppError> {
-    let site = sqlx::query_scalar::<_, String>("SELECT site_id FROM store_expense WHERE expense_id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("there is no expense {id}")))?;
+    let site =
+        sqlx::query_scalar::<_, String>("SELECT site_id FROM store_expense WHERE expense_id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("there is no expense {id}")))?;
     allow_site(&state, &principal, &site).await?;
     at_least_supervisor(&principal, "approving a store expense")?;
     let request = infrastructure::ApproveExpenseRequest {
@@ -793,11 +801,12 @@ pub async fn expense_reject(
     Path(id): Path<Uuid>,
     Json(request): Json<infrastructure::RejectExpenseRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let site = sqlx::query_scalar::<_, String>("SELECT site_id FROM store_expense WHERE expense_id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("there is no expense {id}")))?;
+    let site =
+        sqlx::query_scalar::<_, String>("SELECT site_id FROM store_expense WHERE expense_id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("there is no expense {id}")))?;
     allow_site(&state, &principal, &site).await?;
     at_least_supervisor(&principal, "refusing a store expense")?;
     Ok(Json(
