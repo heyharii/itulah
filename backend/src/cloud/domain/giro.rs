@@ -92,7 +92,10 @@ impl GiroState {
 /// that did not happen.
 pub fn giro_may_move(from: GiroState, to: GiroState) -> Result<(), String> {
     if from == to {
-        return Err(format!("this giro is already {}", to.as_str().to_lowercase()));
+        return Err(format!(
+            "this giro is already {}",
+            to.as_str().to_lowercase()
+        ));
     }
     if from.is_settled() {
         return Err(format!(

@@ -355,7 +355,11 @@ pub struct RuleHit {
 /// give the same answer whatever order they arrived in.
 pub fn recognise(line: &BankLine, rules: &[NarrationRule]) -> Option<RuleHit> {
     let mut ordered: Vec<&NarrationRule> = rules.iter().collect();
-    ordered.sort_by(|a, b| a.priority.cmp(&b.priority).then_with(|| a.rule_id.cmp(&b.rule_id)));
+    ordered.sort_by(|a, b| {
+        a.priority
+            .cmp(&b.priority)
+            .then_with(|| a.rule_id.cmp(&b.rule_id))
+    });
 
     let narration = normalise(&line.description);
     for rule in ordered {
@@ -639,8 +643,7 @@ mod tests {
         // Same word, opposite directions. Interest credited is income;
         // "BUNGA" on the debit side is not, and the IN rule must not take it.
         assert_eq!(
-            recognise(&narration("BUNGA BANK", false), &seeded())
-                .map(|hit| hit.rule_id),
+            recognise(&narration("BUNGA BANK", false), &seeded()).map(|hit| hit.rule_id),
             Some("interest".to_string())
         );
         assert_eq!(recognise(&narration("BUNGA BANK", true), &seeded()), None);
@@ -683,9 +686,13 @@ mod tests {
                 matched: true,
             },
         }];
-        let hit = recognise(&narration("SETORAN 4412", false), &rules)
-            .expect("Postgres said it matched");
-        assert!(hit.reason.contains("^SETORAN [0-9]+$"), "said: {}", hit.reason);
+        let hit =
+            recognise(&narration("SETORAN 4412", false), &rules).expect("Postgres said it matched");
+        assert!(
+            hit.reason.contains("^SETORAN [0-9]+$"),
+            "said: {}",
+            hit.reason
+        );
 
         let refused = vec![NarrationRule {
             matcher: RuleMatch::Regex {
@@ -699,8 +706,7 @@ mod tests {
 
     #[test]
     fn every_hit_says_why_in_words_a_person_can_check() {
-        let hit = recognise(&narration("BIAYA ADM BULANAN", true), &seeded())
-            .expect("recognised");
+        let hit = recognise(&narration("BIAYA ADM BULANAN", true), &seeded()).expect("recognised");
         assert_eq!(hit.reason, "the narration contains BIAYA ADM");
     }
 }

@@ -137,7 +137,12 @@ pub fn accounting_month(year: i32, month: u32) -> i32 {
 /// digits of sequence, which is a hundred documents a day for three years in
 /// one kind in one month; beyond that the number simply grows rather than
 /// wrapping, because a wrapped number would collide with one already filed.
-pub fn cash_document_number(direction: CashDirection, year: i32, month: u32, sequence: i64) -> String {
+pub fn cash_document_number(
+    direction: CashDirection,
+    year: i32,
+    month: u32,
+    sequence: i64,
+) -> String {
     format!(
         "{}-{:02}-{:02}-{:05}",
         direction.prefix(),
@@ -177,10 +182,7 @@ fn spell(value: u64) -> String {
         0 => String::new(),
         1..=11 => SMALL[value as usize].to_string(),
         12..=19 => format!("{} belas", SMALL[(value - 10) as usize]),
-        20..=99 => join(
-            format!("{} puluh", spell(value / 10)),
-            spell(value % 10),
-        ),
+        20..=99 => join(format!("{} puluh", spell(value / 10)), spell(value % 10)),
         100..=199 => join("seratus".to_string(), spell(value - 100)),
         200..=999 => join(format!("{} ratus", spell(value / 100)), spell(value % 100)),
         1_000..=1_999 => join("seribu".to_string(), spell(value - 1_000)),
@@ -266,7 +268,13 @@ mod tests {
 
     #[test]
     fn every_bank_the_client_keeps_is_a_money_meaning() {
-        for key in ["cash", "petty_cash", "bank_giro", "bank_savings", "time_deposit"] {
+        for key in [
+            "cash",
+            "petty_cash",
+            "bank_giro",
+            "bank_savings",
+            "time_deposit",
+        ] {
             assert!(holds_money(key), "{key} holds money");
         }
         // The other side of a bank charge does not, which is what makes that
@@ -284,7 +292,10 @@ mod tests {
         assert_eq!(rupiah_in_words(10), "Sepuluh rupiah");
         assert_eq!(rupiah_in_words(15), "Lima belas rupiah");
 
-        assert_eq!(rupiah_in_words(2_500_000), "Dua juta lima ratus ribu rupiah");
+        assert_eq!(
+            rupiah_in_words(2_500_000),
+            "Dua juta lima ratus ribu rupiah"
+        );
         assert_eq!(
             rupiah_in_words(125_750),
             "Seratus dua puluh lima ribu tujuh ratus lima puluh rupiah"
@@ -298,9 +309,6 @@ mod tests {
         // The bug every recursive speller has: a zero group swallowing the
         // group after it.
         assert_eq!(rupiah_in_words(101_000_000), "Seratus satu juta rupiah");
-        assert_eq!(
-            rupiah_in_words(1_000_001),
-            "Satu juta satu rupiah"
-        );
+        assert_eq!(rupiah_in_words(1_000_001), "Satu juta satu rupiah");
     }
 }

@@ -49,6 +49,16 @@ PLAIN: dict[str, str] = {
     "cogs": "5010110001",
     "stock_loss": "8010110006",
     "interest_expense": "8020111001",
+    # lane-C: the three lines every statement carries every month, and the
+    # accounts the seeded bank rules (migration 0116) propose for them.
+    # 6010310004 Biaya Bank HO / 8010110001 Pendapatan Bunga Bank.
+    "bank_admin_fee": "6010310004",
+    "interest_income": "8010110001",
+    # PPh 4(2) on bank interest is FINAL — withheld at source, never recovered
+    # — so it is an expense and not the prepaid it looks like. The chart has no
+    # leaf named for it; 8030112001 Current Tax Inc/Exp PPH Pasal 25 is the
+    # income-tax expense the client does keep, and Finance can repoint it.
+    "tax_on_interest": "8030112001",
 }
 
 # The seven asset categories the register offers, and what each one means in
@@ -70,9 +80,44 @@ CATEGORIES: list[tuple[str, str, str, str]] = [
 # qualifier each is enough to close the gap the Account map screen counts,
 # and each is a real account under the prefix the meaning documents.
 QUALIFIED: dict[str, list[tuple[str, str]]] = {
-    "bank_giro": [("BCA", "1011002001"), ("MANDIRI", "1011002002")],
-    "bank_savings": [("BCA", "1011003001"), ("MANDIRI", "1011003002")],
-    "giro_outstanding": [("BCA", "2012002001")],
+    # lane-C: widened to match `giro_outstanding`. A giro credited to
+    # `giro_outstanding` at MANDIRI clears to `bank_giro` at MANDIRI, so a bank
+    # mapped on one side and not the other is a giro that can be written and
+    # never cleared.
+    "bank_giro": [
+        ("BCA", "1011002001"),
+        ("MANDIRI", "1011002002"),
+        ("BRI", "1011002003"),
+        ("BNI", "1011002004"),
+        ("DANAMON", "1011002005"),
+    ],
+    "bank_savings": [
+        ("BCA", "1011003001"),
+        ("MANDIRI", "1011003002"),
+        ("BRI", "1011003003"),
+        ("BNI", "1011003004"),
+    ],
+    # lane-C: every bank the client has, not just the first. A giro is drawn
+    # on one particular bank and the chart keeps one leaf each; a single BCA
+    # mapping made a Mandiri giro unpostable, which is how it had stayed
+    # unwritten-to since the ledger's first day.
+    # 2012002001 Outstanding Giro Bank BCA .. 2012002005 Bank DANAMON.
+    "giro_outstanding": [
+        ("BCA", "2012002001"),
+        ("MANDIRI", "2012002002"),
+        ("BRI", "2012002003"),
+        ("BNI", "2012002004"),
+        ("DANAMON", "2012002005"),
+    ],
+    # lane-C: money the company has and cannot spend today. Holding money is
+    # what makes a deposit a TRANSFER rather than a payment.
+    # 1011004001 TIME DEPOSIT BANK BCA .. 1011004004 BANK BNI.
+    "time_deposit": [
+        ("BCA", "1011004001"),
+        ("MANDIRI", "1011004002"),
+        ("BRI", "1011004003"),
+        ("BNI", "1011004004"),
+    ],
     "accrued_expense": [("UMUM", "2012201001")],
     "affiliate_receivable": [("PEMBIAYAAN", "1021401001")],
     "affiliate_payable": [("PEMBIAYAAN", "2012301001")],
