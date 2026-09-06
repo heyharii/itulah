@@ -39,6 +39,12 @@ use std::path::{Path, PathBuf};
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
+    // lane-P: splitting a settlement across open items, and putting an age in
+    // a bucket. Here for the same reason as the other two — an ageing report
+    // that changed its answer depending on when it was run would be a report
+    // nobody could compare with last month's, and the way that happens is a
+    // kernel reaching for the calendar. Ages arrive as whole days.
+    "src/cloud/domain/payment_ledger.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the

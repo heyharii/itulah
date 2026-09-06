@@ -32,6 +32,7 @@ pub mod member;
 pub mod notifications;
 pub mod overtime;
 pub mod pay;
+pub mod payment_ledger;
 pub mod performance;
 pub mod reports;
 pub mod roster;
@@ -717,6 +718,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/finance/journal/{id}/reverse",
             post(finance::reverse_entry),
         )
+        // The Payment Ledger: what is open, how old it is, and whether it
+        // agrees with the books. Read-only — an open balance is opened by the
+        // posting rule that created the document, never by a screen.
+        .merge(payment_ledger::lane_p_routes(Router::new()))
         // What "late" means. Readable by anybody signed in — a tolerance
         // kept from the people measured against it is a trap, not a rule —
         // and writable only at head office.
