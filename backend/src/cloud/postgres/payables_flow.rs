@@ -49,6 +49,101 @@ const ADVANCE: &str = "advance_purchase";
 const BANK_CHARGE: &str = "bank_admin_fee";
 
 // ---------------------------------------------------------------------------
+// Two lanes this one has to meet, and does not build
+// ---------------------------------------------------------------------------
+//
+// Both are being written in parallel by somebody else, and both would be
+// half-built and wrong if this lane guessed at them. So each is one function
+// here, called at the exact point it belongs, taking exactly the arguments its
+// owner asked for, and returning `Ok(())`. When the lane lands, its author
+// replaces one body and every call site is already correct and already in a
+// transaction that will roll the whole document back if the call fails.
+//
+// Deliberately not traits, not events and not a table: a hook that had a shape
+// of its own would be a shape the real lane then has to agree with.
+
+/// Open or settle one line of the payment ledger.
+///
+/// TODO(lane-P): body. The Payment Ledger tracks what is owed to and by each
+/// party, per account, so that "what do we owe this supplier" is a query
+/// against one place rather than a sum over bills minus a sum over payments
+/// minus a sum over credit notes minus a sum over advances.
+///
+/// The field shape, as its author specified it:
+///
+/// * `account_key`      — the meaning, e.g. `trade_payable`
+/// * `qualifier`        — narrowing, empty when the meaning needs none
+/// * `site_id`          — the location the item belongs to
+/// * `party_type`       — `SUPPLIER` throughout this lane
+/// * `party_id`         — the supplier
+/// * `voucher_kind`     — the `source_kind` of the entry that caused it
+/// * `voucher_id`       — that document's id
+/// * `side`             — `CREDIT` opens a payable, `DEBIT` settles one
+/// * `amount_minor`     — always positive; the side carries the direction
+/// * `due_date`         — the bill's, and `None` on a document that has none
+/// * `journal_entry_id` — the entry this item was raised by
+///
+/// A bill paid by a store manager out of their own pocket settles against
+/// `store_manager_receivable` rather than a bank account. That is lane-P's
+/// rule and not this lane's: the argument this module passes is what the
+/// document says, and lane-P decides what the settlement faces.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn lane_p_payable_item(
+    _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    _account_key: &str,
+    _qualifier: &str,
+    _site_id: &str,
+    _party_type: &str,
+    _party_id: &str,
+    _voucher_kind: &str,
+    _voucher_id: Uuid,
+    _side: &str,
+    _amount_minor: i64,
+    _due_date: Option<NaiveDate>,
+    _journal_entry_id: Uuid,
+) -> Result<(), AppError> {
+    Ok(())
+}
+
+/// Open a cost layer for goods that have arrived.
+///
+/// TODO(lane-I): body. The Stock Ledger owns cost layers and valuation, and
+/// this is the only place in this lane where one would be created.
+///
+/// The field shape, as its author specified it:
+///
+/// * `article_code`     — what arrived
+/// * `quantity`         — stock units, the count the bay accepted
+/// * `unit_cost_minor`  — the NET purchase price of one of them
+/// * `economic_date`    — when the goods arrived, not when finance posted them
+/// * `receipt_id`       — the delivery this layer came from
+///
+/// # The frozen policy, so this hook matches it
+///
+/// The layer carries the net purchase price: the purchase price less any
+/// invoice discount, plus any later price correction. Freight and handling are
+/// expensed and never enter a layer, and an invoice discount reduces the layer
+/// rather than becoming other income.
+///
+/// At the moment this is called there is no bill yet, so `unit_cost_minor` is
+/// the ordered unit price — which is also what the journal entry beside it
+/// values the delivery at, so the ledger and the layers agree by construction.
+/// The discount and any price correction arrive later, when the bill is matched
+/// and posted, and adjusting a layer that already exists is lane-I's business:
+/// it owns whether that is a revaluation of the remaining quantity or a
+/// difference straight to cost of sales, and this lane must not pre-empt it.
+pub(super) async fn lane_i_cost_layer(
+    _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    _article_code: &str,
+    _quantity: i64,
+    _unit_cost_minor: i64,
+    _economic_date: NaiveDate,
+    _receipt_id: Uuid,
+) -> Result<(), AppError> {
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Valuing a delivery
 // ---------------------------------------------------------------------------
 
@@ -231,6 +326,37 @@ pub async fn receipt_post(
     .bind(actor)
     .execute(&mut *tx)
     .await?;
+
+    // The layers, one per accepted line, in the same transaction as the entry
+    // that values them. Inside rather than after, so a ledger that says the
+    // stock is worth something and layers that say it is worth nothing cannot
+    // both be committed.
+    //
+    // `arrived_at` and not `date`: a layer is consumed in the order the goods
+    // turned up, and finance posting a September delivery in October must not
+    // put it behind October's arrivals.
+    let layers = sqlx::query(
+        "SELECT pl.article_code, l.quantity, pl.unit_price_minor
+           FROM goods_receipt_line l
+           JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
+          WHERE l.receipt_id = $1
+          ORDER BY pl.line_number",
+    )
+    .bind(receipt_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    for layer in &layers {
+        lane_i_cost_layer(
+            &mut tx,
+            layer.try_get("article_code")?,
+            layer.try_get("quantity")?,
+            layer.try_get("unit_price_minor")?,
+            arrived.date_naive(),
+            receipt_id,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     receipt_posting(pool, receipt_id)
@@ -1105,6 +1231,26 @@ pub async fn credit_note_post(
     .bind(actor)
     .execute(&mut *tx)
     .await?;
+    // Part of what the bill opened is answered without any money moving.
+    lane_p_payable_item(
+        &mut tx,
+        if expense {
+            "non_merchandise_payable"
+        } else {
+            "trade_payable"
+        },
+        "",
+        &note.site_id,
+        "SUPPLIER",
+        &note.supplier_id,
+        "CREDIT_NOTE",
+        credit_note_id,
+        "DEBIT",
+        note.total_minor,
+        None,
+        posted.entry_id,
+    )
+    .await?;
     tx.commit().await?;
 
     credit_note(pool, credit_note_id).await
@@ -1518,6 +1664,28 @@ pub async fn supplier_advance_apply(
     .bind(posted.entry_id)
     .bind(actor)
     .execute(&mut *tx)
+    .await?;
+    // Money that left the bank weeks ago answers part of a debt that exists
+    // today. The item settles against the bill, not against the bank: the bank
+    // was answered when the advance was posted.
+    lane_p_payable_item(
+        &mut tx,
+        if kind == "EXPENSE" {
+            "non_merchandise_payable"
+        } else {
+            "trade_payable"
+        },
+        "",
+        &advance.site_id,
+        "SUPPLIER",
+        &advance.supplier_id,
+        "SUPPLIER_ADVANCE",
+        advance_id,
+        "DEBIT",
+        request.amount_minor,
+        None,
+        posted.entry_id,
+    )
     .await?;
     tx.commit().await?;
 

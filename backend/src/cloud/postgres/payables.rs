@@ -92,6 +92,19 @@ pub struct SupplierBill {
     /// `MERCHANDISE` or `EXPENSE`. What decides which accounts the posting
     /// debits, and therefore whether `lines` means anything.
     pub kind: String,
+    /// What the bill charges for its deliveries, minus what those deliveries
+    /// were valued at when they arrived. Signed: positive is a debit to
+    /// purchase price variance and negative a credit. Zero on a bill that
+    /// answers no delivery, and decided at matching rather than at posting —
+    /// the journal quotes it and the journal cannot move.
+    pub price_variance_minor: i64,
+    /// Who tied this bill to its deliveries, and when. `None` until somebody
+    /// has, which for a service bill is forever.
+    pub matched_by: Option<String>,
+    pub matched_at: Option<DateTime<Utc>>,
+    /// Which income tax is kept back when this bill is paid. See
+    /// `RecordBillRequest::withholding_code`.
+    pub withholding_code: Option<String>,
     /// What an expense bill was for, account by account.
     ///
     /// `None` on a list read, where it is not fetched — one query per row to
@@ -164,6 +177,36 @@ pub struct RecordBillRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub lines: Option<Vec<RecordBillLine>>,
+    /// Which deliveries this bill answers, and what it charges for each of
+    /// them. `None` on a service bill, a freight charge or an expense, which
+    /// answer no delivery and post by 0094's path.
+    ///
+    /// Optional, and not merely for the sake of the callers written before it.
+    /// Matching is a decision with an actor and a possible variance to accept,
+    /// and it can be made by somebody other than whoever keyed the paper, on
+    /// another day. So it is also its own endpoint. Recording and matching in
+    /// one call is the case where the same person does both at once, which is
+    /// most of them: a clerk with the delivery note and the invoice side by
+    /// side should not have to make two requests to say so.
+    ///
+    /// Handed to `payables_flow::bill_match` unchanged. When it is present the
+    /// bill comes back MATCHED, and when the deliveries disagree with it the
+    /// whole call fails and no bill is recorded — a DRAFT left behind by a
+    /// refused match is a row somebody has to find and delete.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub matching: Option<super::payables_flow::BillMatchRequest>,
+    /// Which income tax is kept back when this bill is paid, or `None` for
+    /// none — which is the ordinary case, because goods for resale are not
+    /// subject to PPh 23.
+    ///
+    /// A property of what was bought and therefore of the bill, not of the
+    /// payment: the rate follows from whether this was a service, a hire, a
+    /// royalty or the rent of a building. `domain::withholding` holds the codes
+    /// and 0133's CHECK holds the same list.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub withholding_code: Option<String>,
 }
 
 /// A delivery nobody has billed for.
@@ -194,6 +237,7 @@ const BILL_COLUMNS: &str = "i.invoice_id, i.invoice_number, i.supplier_id, i.sup
      i.site_id, i.invoice_date, i.due_date, i.currency, i.subtotal_minor, i.tax_minor,
      i.discount_minor, i.total_minor, i.status, i.journal_entry_id, i.recorded_by,
      i.recorded_at, i.posted_by, i.note, i.kind,
+     i.price_variance_minor, i.matched_by, i.matched_at, i.withholding_code,
      (SELECT e.entry_number FROM journal_entry e WHERE e.entry_id = i.journal_entry_id) AS entry_number,
      COALESCE((CURRENT_DATE - i.due_date), 0)::int AS days_overdue,
      COALESCE((SELECT SUM(al.amount_minor) FROM supplier_payment_allocation al
@@ -233,6 +277,10 @@ fn to_bill(row: &sqlx::postgres::PgRow) -> Result<SupplierBill, AppError> {
         note: row.try_get("note")?,
         days_overdue: row.try_get("days_overdue")?,
         kind: row.try_get("kind")?,
+        price_variance_minor: row.try_get("price_variance_minor")?,
+        matched_by: row.try_get("matched_by")?,
+        matched_at: row.try_get("matched_at")?,
+        withholding_code: row.try_get("withholding_code")?,
         lines: None,
     })
 }
@@ -430,6 +478,24 @@ pub async fn record_bill(
         }
     }
 
+    // Checked against `domain::withholding` and not only against 0133's CHECK,
+    // for `assert_postable`'s reason: the constraint reaches a person as
+    // "database operation failed" and names neither the column nor the codes
+    // that would have worked. A bill naming a tax this system cannot compute
+    // is a bill whose payment would refuse months later, at the bank.
+    let withholding_code = match request.withholding_code.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(code) => {
+            let known = crate::cloud::domain::withholding::category(code).ok_or_else(|| {
+                AppError::Validation(format!(
+                    "'{code}' is not a withholding this system computes; it knows {}",
+                    crate::cloud::domain::withholding::category_codes().join(", ")
+                ))
+            })?;
+            Some(known.code)
+        }
+    };
+
     // The header and its lines in one transaction, because 0094's deferred
     // trigger checks them together at COMMIT: an expense bill without its lines
     // is not a state that ever exists.
@@ -439,8 +505,8 @@ pub async fn record_bill(
         "INSERT INTO supplier_invoice
            (invoice_id, invoice_number, supplier_id, supplier_name, site_id, invoice_date,
             due_date, currency, subtotal_minor, tax_minor, discount_minor, total_minor,
-            recorded_by, note, kind)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13,$14)",
+            recorded_by, note, kind, withholding_code)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13,$14,$15)",
     )
     .bind(invoice_id)
     .bind(request.invoice_number.trim())
@@ -456,6 +522,7 @@ pub async fn record_bill(
     .bind(actor)
     .bind(request.note.as_deref())
     .bind(&kind)
+    .bind(withholding_code)
     .execute(&mut *tx)
     .await?;
 
@@ -476,6 +543,24 @@ pub async fn record_bill(
         .await?;
     }
     tx.commit().await?;
+
+    // Matching is the same person's second sentence, not a second request. It
+    // runs after the commit because it is its own transaction with its own
+    // actor and its own refusals — but a refusal must not leave a DRAFT bill
+    // behind for somebody to find and delete, so a failed match takes the bill
+    // with it. Deleted rather than voided: nothing has referenced it, it has
+    // existed for a few milliseconds, and there is no ledger entry to explain.
+    if let Some(matching) = &request.matching {
+        if let Err(error) =
+            super::payables_flow::bill_match(pool, invoice_id, matching, actor).await
+        {
+            sqlx::query("DELETE FROM supplier_invoice WHERE invoice_id = $1 AND status = 'DRAFT'")
+                .bind(invoice_id)
+                .execute(pool)
+                .await?;
+            return Err(error);
+        }
+    }
 
     bill(pool, invoice_id).await
 }
@@ -549,11 +634,26 @@ pub async fn post_bill(
             })
             .collect()
     } else {
-        vec![PostingLine::debit(
-            "inventory",
+        // MERCHANDISE — what a merchandise bill debits depends on whether it
+        // answers a delivery, and that is `payables_flow`'s question because it
+        // owns the suspense account the delivery credited.
+        //
+        // A bill matched to deliveries debits `supplier_suspend` for what those
+        // deliveries were valued at and sends the difference to purchase price
+        // variance; the suspense account then empties exactly as it filled,
+        // which is the property that makes it worth having. A bill that answers
+        // no delivery still debits `inventory` for the whole subtotal, exactly
+        // as it did before 0130 — which is every merchandise bill recorded up
+        // to now, so nothing that already works changes.
+        super::payables_flow::merchandise_debit_lines(
+            pool,
+            invoice_id,
             &existing.site_id,
+            &existing.supplier_id,
             existing.subtotal_minor,
-        )]
+            existing.price_variance_minor,
+        )
+        .await?
     };
     if existing.tax_minor > 0 {
         lines.push(PostingLine::debit(
@@ -617,6 +717,28 @@ pub async fn post_bill(
     .bind(posted.entry_id)
     .bind(actor)
     .execute(&mut *tx)
+    .await?;
+    // A posted bill is a debt to a named supplier, due on a named date. In the
+    // same transaction as the entry that raised it: a payable item without its
+    // journal entry is a figure nobody can trace.
+    super::payables_flow::lane_p_payable_item(
+        &mut tx,
+        if expense {
+            "non_merchandise_payable"
+        } else {
+            "trade_payable"
+        },
+        "",
+        &existing.site_id,
+        "SUPPLIER",
+        &existing.supplier_id,
+        "SUPPLIER_INVOICE",
+        invoice_id,
+        "CREDIT",
+        existing.total_minor,
+        existing.due_date,
+        posted.entry_id,
+    )
     .await?;
     tx.commit().await?;
 
