@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
+    "src/cloud/domain/integrity.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
@@ -128,6 +129,8 @@ fn the_kernels_still_expose_the_functions_they_exist_for() {
         .unwrap_or_else(|error| panic!("read: {error}"));
     let matching = std::fs::read_to_string(repository().join(KERNELS[1]))
         .unwrap_or_else(|error| panic!("read: {error}"));
+    let integrity = std::fs::read_to_string(repository().join(KERNELS[2]))
+        .unwrap_or_else(|error| panic!("read: {error}"));
 
     assert!(
         depreciation.contains("pub fn monthly_charge(basis: Basis) -> Outcome"),
@@ -137,9 +140,21 @@ fn the_kernels_still_expose_the_functions_they_exist_for() {
         matching.contains("pub fn suggest(") && matching.contains("pub fn resolve("),
         "the matcher scores one line and plans a whole statement, and both are public"
     );
+    // The integrity engine's whole job is to turn a comparison into one of four
+    // states. Both classifiers are doors: the ordinary one, and the stricter
+    // reading the two foundation equations get. A version of either that took a
+    // pool or a clock would be one the same night could answer two ways.
+    assert!(
+        integrity.contains("pub fn classify(") && integrity.contains("pub fn classify_foundation("),
+        "the integrity kernel reads a difference two ways, and both are public"
+    );
     // No `&mut self`, no `&PgPool`, no `async`: the signatures themselves say
     // these are functions of their arguments.
-    for (name, source) in [("depreciation", &depreciation), ("bank_match", &matching)] {
+    for (name, source) in [
+        ("depreciation", &depreciation),
+        ("bank_match", &matching),
+        ("integrity", &integrity),
+    ] {
         assert!(
             !source.contains("pub async fn"),
             "{name} has an async door; a pure kernel has nothing to await"
