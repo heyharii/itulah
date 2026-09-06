@@ -534,7 +534,10 @@ pub fn router(state: AppState) -> Router {
         // The chats themselves. Kept on the node rather than in the tab that
         // asked, so the sidebar of past questions survives a reload and a
         // different machine — see migration `0102`.
-        .route("/api/v1/assistant/conversations", get(assistant::conversations))
+        .route(
+            "/api/v1/assistant/conversations",
+            get(assistant::conversations),
+        )
         .route(
             "/api/v1/assistant/conversations/{id}",
             get(assistant::conversation)
@@ -708,6 +711,53 @@ pub fn router(state: AppState) -> Router {
             get(finance::periods).post(finance::open_period),
         )
         .route("/api/v1/finance/periods/close", post(finance::close_period))
+        // A period's id is its label — `2026-09` — because a month has no
+        // surrogate key and `/periods/2026-09/reopen` is a URL somebody can
+        // read in a log. Registered after `/periods/close` so that the literal
+        // segment is matched first and nobody can name a period "close".
+        .route(
+            "/api/v1/finance/periods/{id}/checklist",
+            get(finance::period_checklist),
+        )
+        .route(
+            "/api/v1/finance/periods/{id}/reopen",
+            post(finance::reopen_period),
+        )
+        .route(
+            "/api/v1/finance/periods/{id}/events",
+            get(finance::period_events),
+        )
+        // The three corrections. One collection and one document, then the
+        // three drafting routes: the kind is in the path rather than the body
+        // because they take genuinely different requests, and one endpoint
+        // switching on a `kind` field would be one handler with three
+        // half-validated shapes in it.
+        .route("/api/v1/finance/corrections", get(finance::corrections))
+        .route(
+            "/api/v1/finance/corrections/reclass",
+            post(finance::create_reclass),
+        )
+        .route(
+            "/api/v1/finance/corrections/adjustment",
+            post(finance::create_adjustment),
+        )
+        .route(
+            "/api/v1/finance/corrections/write-off",
+            post(finance::create_write_off),
+        )
+        .route("/api/v1/finance/corrections/{id}", get(finance::correction))
+        .route(
+            "/api/v1/finance/corrections/{id}/approve",
+            post(finance::approve_correction),
+        )
+        .route(
+            "/api/v1/finance/corrections/{id}/post",
+            post(finance::post_correction),
+        )
+        .route(
+            "/api/v1/finance/corrections/{id}/reverse",
+            post(finance::reverse_correction),
+        )
         .route(
             "/api/v1/finance/journal",
             get(finance::journal).post(finance::post_manual_entry),
