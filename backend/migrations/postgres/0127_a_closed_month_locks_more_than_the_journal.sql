@@ -246,24 +246,125 @@ $$ LANGUAGE plpgsql;
 COMMENT ON FUNCTION attach_period_lock(text, text[], text, text[]) IS
     'Attach the period lock to a dated document table, if it exists. Safe to call for a table another lane has not written yet.';
 
--- The money documents on the roadmap, offered the lock. Each returns a note
--- saying whether it took it; a table that has not landed yet says so and the
--- migration carries on.
+-- ---------------------------------------------------------------------------
+-- The money documents on the roadmap, offered the lock
+-- ---------------------------------------------------------------------------
+--
+-- These tables are being written on other branches right now. An earlier draft
+-- of this migration guessed their names and their date columns from a list, and
+-- got two names wrong and missed two more — `remittance_instruction` for
+-- `remittance_order`, `operating_advance` for `operating_fund`, and nothing at
+-- all for `fund_allocation` or `stock_ledger_entry`. Each wrong guess is a
+-- table that silently does not get locked, which is the worst possible failure
+-- for a control: absent, and reported as attached.
+--
+-- Worse, guessing their STATUSES is a deeper version of the same mistake. They
+-- do not agree on what "posted" is called — `store_deposit` says CONFIRMED,
+-- `acquirer_settlement` says MATCHED, `giro` says CLEARED, `remittance_order`
+-- says ISSUED — and a lock waiting for a state named POSTED on a table that
+-- never reaches one is a lock that never fires.
+--
+-- So the opt-in half asks a different question, and it is the one that is
+-- actually true of every document here: **a document is in the books exactly
+-- when it names a journal entry.** The trigger fires when `journal_entry_id`
+-- goes from nothing to something, whatever the row calls its status, and it is
+-- correct for a table nobody has written yet.
+--
+-- A table with no `journal_entry_id` column is not posting anything and gets no
+-- lock — `remittance_order`, `fund_allocation` and `store_deposit` are on the
+-- list below for exactly that reason: to be checked, and to say so out loud.
+
+CREATE OR REPLACE FUNCTION assert_period_open_on_entry_link() RETURNS trigger AS $$
+DECLARE
+    date_column text  := TG_ARGV[0];
+    new_row     jsonb := to_jsonb(NEW);
+    on_date     date;
+BEGIN
+    -- Only the transition into the books. An UPDATE that leaves the entry link
+    -- alone is a document being edited, and a document may be edited in a
+    -- closed month as long as it stays out of the ledger.
+    IF new_row ->> 'journal_entry_id' IS NULL THEN
+        RETURN NEW;
+    END IF;
+    IF TG_OP = 'UPDATE'
+       AND (to_jsonb(OLD) ->> 'journal_entry_id') IS NOT DISTINCT FROM (new_row ->> 'journal_entry_id') THEN
+        RETURN NEW;
+    END IF;
+
+    on_date := (new_row ->> date_column)::date;
+    PERFORM assert_period_open_for(
+        on_date,
+        format('%s dated %s cannot reach the ledger', TG_TABLE_NAME, on_date));
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION assert_period_open_on_entry_link() IS
+    'Period lock keyed on the journal link rather than on a status word. Argument: the date column. Correct for any document table, including ones whose status vocabulary this migration has never seen.';
+
+CREATE OR REPLACE FUNCTION attach_entry_link_period_lock(
+    target_table text,
+    date_column  text
+) RETURNS text AS $$
+DECLARE
+    trigger_name text := target_table || '_period_lock';
+BEGIN
+    IF to_regclass(quote_ident(target_table)) IS NULL THEN
+        RETURN format('%s: has not landed yet', target_table);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = target_table
+                      AND column_name = 'journal_entry_id') THEN
+        RETURN format('%s: posts nothing itself, so nothing to lock', target_table);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = target_table
+                      AND column_name = date_column) THEN
+        RETURN format('%s: has no %I to date the entry by', target_table, date_column);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_trigger
+                WHERE tgname = trigger_name AND NOT tgisinternal
+                  AND tgrelid = to_regclass(quote_ident(target_table))) THEN
+        RETURN format('%s: already locked', target_table);
+    END IF;
+    EXECUTE format(
+        'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW
+           EXECUTE FUNCTION assert_period_open_on_entry_link(%L)',
+        trigger_name, target_table, date_column);
+    RETURN format('%s: locked on %I', target_table, date_column);
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION attach_entry_link_period_lock(text, text) IS
+    'Attach the journal-link period lock to a document table if it exists. Safe to call for a table another lane has not merged yet; says what it did either way.';
+
+-- The list, with each table's own date column — read off the migration that
+-- creates it, not guessed. A lane that renames its date column drops the
+-- trigger and calls this again with the new one.
 DO $$
 DECLARE
-    candidate text;
-    dates text[] := ARRAY[
-        'document_date', 'posting_date', 'business_date', 'value_date',
-        'settlement_date', 'deposit_date', 'expense_date', 'issued_on',
-        'instructed_on', 'advanced_on', 'occurred_on'];
+    spec text[];
     note text;
 BEGIN
-    FOREACH candidate IN ARRAY ARRAY[
-        'cash_document', 'store_deposit', 'remittance_instruction',
-        'operating_advance', 'store_expense', 'sales_posting',
-        'acquirer_settlement', 'giro'
+    FOREACH spec SLICE 1 IN ARRAY ARRAY[
+        ['cash_document',       'doc_date'],
+        ['store_deposit',       'deposit_date'],
+        -- An order is not a payment: it has a date and no journal link, and
+        -- the money it instructs moves under a document that does post.
+        ['remittance_order',    'order_date'],
+        ['operating_fund',      'value_date'],
+        -- A child of operating_fund with no money and no date of its own; it
+        -- is on the list to be checked, and it answers "posts nothing".
+        ['fund_allocation',     'allocated_on'],
+        ['store_expense',       'spent_on'],
+        ['sales_posting',       'business_date'],
+        ['acquirer_settlement', 'settlement_date'],
+        ['giro',                'issue_date'],
+        ['stock_ledger_entry',  'economic_date']
     ] LOOP
-        note := attach_period_lock(candidate, dates, 'status', ARRAY['POSTED']);
+        note := attach_entry_link_period_lock(spec[1], spec[2]);
         RAISE NOTICE 'period lock: %', note;
     END LOOP;
 END;

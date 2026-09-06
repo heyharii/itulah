@@ -722,3 +722,118 @@ async fn a_supervisor_reads_what_a_shop_needs_and_no_more(pool: PgPool) {
     assert_eq!(checklist.status, StatusCode::OK);
     assert_eq!(checklist.body["may_close"], json!(true));
 }
+
+/// The lock a table that has not been written yet will get.
+///
+/// Nine money documents are being built on other branches, and every one of
+/// them has to be shut out of a sealed month. An earlier draft of `0127`
+/// offered them a lock keyed on a status named `POSTED` — which `store_deposit`
+/// calls CONFIRMED, `acquirer_settlement` calls MATCHED and `giro` calls
+/// CLEARED. That lock would have attached, reported success, and never fired.
+///
+/// So this proves the rule that replaced it, against a table standing in for
+/// one of theirs: a document is in the books exactly when it names a journal
+/// entry, whatever its status column happens to say.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_document_table_that_lands_later_is_shut_out_of_a_sealed_month(pool: PgPool) {
+    install_stand_in();
+    seed_chart(&pool).await;
+    open_september(&pool).await;
+
+    // A sister lane's table, with a status vocabulary this migration has never
+    // seen and a date column of its own.
+    sqlx::query(
+        "CREATE TABLE store_deposit (
+             deposit_id uuid PRIMARY KEY,
+             deposit_date date NOT NULL,
+             status text NOT NULL DEFAULT 'PREPARED',
+             journal_entry_id uuid REFERENCES journal_entry(entry_id))",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("stand-in table: {error}"));
+    let note: String =
+        sqlx::query_scalar("SELECT attach_entry_link_period_lock('store_deposit', 'deposit_date')")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("attach: {error}"));
+    assert!(note.contains("locked on"), "{note}");
+
+    // A table nobody has merged says so instead of failing the migration.
+    let absent: String = sqlx::query_scalar(
+        "SELECT attach_entry_link_period_lock('remittance_order', 'order_date')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("attach absent: {error}"));
+    assert!(absent.contains("has not landed yet"), "{absent}");
+
+    // Something in the ledger for the deposit to point at, while the month is
+    // still open.
+    let invoice = draft_a_bill(&pool, "INV-9100").await;
+    cloud::post_bill(&pool, invoice, None, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post while open: {error}"));
+
+    // While the month is open the deposit may be prepared AND may reach the
+    // ledger. Both halves matter: a lock that refused everything would pass a
+    // test that only tried the refusal.
+    sqlx::query(
+        "INSERT INTO store_deposit (deposit_id, deposit_date, status, journal_entry_id)
+         SELECT gen_random_uuid(), DATE '2026-09-14', 'CONFIRMED', entry_id
+           FROM journal_entry LIMIT 1",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("confirm while open: {error}"));
+    sqlx::query(
+        "INSERT INTO store_deposit (deposit_id, deposit_date, status)
+         VALUES (gen_random_uuid(), DATE '2026-09-14', 'PREPARED')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("prepare a deposit: {error}"));
+
+    cloud::period_close(&pool, 2026, 9, ACTOR, None)
+        .await
+        .unwrap_or_else(|error| panic!("close: {}", as_shown_to_a_person(&error)));
+
+    // Still editable in a sealed month, as long as it stays out of the ledger.
+    // A document with no entry is not in the books, and refusing a typo
+    // correction would be a rule about paperwork rather than about the ledger.
+    sqlx::query("UPDATE store_deposit SET status='CANCELLED' WHERE journal_entry_id IS NULL")
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("edit a deposit in a closed month: {error}"));
+
+    // The transition into the books is what is refused, and the status word
+    // does not appear anywhere in the rule that refuses it.
+    let linked = sqlx::query(
+        "UPDATE store_deposit
+            SET status='CONFIRMED',
+                journal_entry_id = (SELECT entry_id FROM journal_entry LIMIT 1)
+          WHERE journal_entry_id IS NULL",
+    )
+    .execute(&pool)
+    .await;
+    assert!(
+        linked.is_err(),
+        "a deposit cannot reach the ledger in a month that has been sealed"
+    );
+    let shown = format!("{:?}", linked.err());
+    assert!(
+        shown.contains("2026-09") && shown.contains("closed"),
+        "and the refusal says which month: {shown}"
+    );
+
+    // An INSERT that arrives already linked — the shape a sync or a batch job
+    // uses — is refused by the same trigger.
+    let arrived = sqlx::query(
+        "INSERT INTO store_deposit (deposit_id, deposit_date, status, journal_entry_id)
+         SELECT gen_random_uuid(), DATE '2026-09-14', 'CONFIRMED', entry_id
+           FROM journal_entry LIMIT 1",
+    )
+    .execute(&pool)
+    .await;
+    assert!(arrived.is_err(), "and it cannot arrive linked either");
+}
