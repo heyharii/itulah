@@ -35,6 +35,8 @@ pub mod pay;
 pub mod performance;
 pub mod reports;
 pub mod roster;
+// lane-A
+pub mod sales_posting;
 pub mod suppliers;
 pub mod vocabulary;
 pub mod vouchers;
@@ -717,6 +719,8 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/finance/journal/{id}/reverse",
             post(finance::reverse_entry),
         )
+        // lane-A routes: a day of takings, and moving a settled tender.
+        .merge(sales_posting::lane_a_routes(Router::new()))
         // What "late" means. Readable by anybody signed in — a tolerance
         // kept from the people measured against it is a trap, not a rule —
         // and writable only at head office.
