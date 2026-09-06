@@ -39,6 +39,11 @@ use std::path::{Path, PathBuf};
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
+    // Which of the seven screens a payment gets. Pure for the same reason as
+    // the other two and for one more: the answer is a contract with the
+    // frontend, and a rule that could read the database could answer twice for
+    // one bill depending on what had been posted since.
+    "src/cloud/domain/payment.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
