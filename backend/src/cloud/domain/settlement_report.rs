@@ -116,7 +116,10 @@ pub fn parse_settlement_report(text: &str) -> ParsedSettlementReport {
             }
             continue;
         }
-        if looks_like_a_heading(&fields) {
+        // And only above the data. A file has one header and it is at the top;
+        // a line further down that happens to look like one is a line that lost
+        // its numbers, which is a rejection.
+        if parsed.rows.is_empty() && looks_like_a_heading(&fields) {
             continue;
         }
 
@@ -238,7 +241,20 @@ fn split_row(line: &str, separator: char) -> Vec<String> {
 /// A header row, recognised by the one field that cannot be a heading anywhere
 /// else: an amount column that holds no digits.
 fn looks_like_a_heading(fields: &[String]) -> bool {
-    !fields[1].chars().any(|c| c.is_ascii_digit())
+    // Every one of the three data columns has to be unreadable, not just the
+    // amount. The first version asked only whether the amount column had
+    // letters and no digits, and `AUTH-2;oops;0;16/09/2026` answered yes — so a
+    // row with a corrupted amount was silently taken for a second header and
+    // dropped. That is precisely the failure the module header promises not to
+    // have: a settlement short by an amount nobody can find, because the
+    // evidence that it existed never arrived.
+    //
+    // A real header says AMOUNT, MDR, DATE; none of the three parses. A broken
+    // row has at least one column that still does, and belongs in `rejected`
+    // where somebody can read it.
+    parse_money(&fields[1]).is_none()
+        && parse_money(&fields[2]).is_none()
+        && parse_date(&fields[3]).is_none()
         && fields[1].chars().any(|c| c.is_ascii_alphabetic())
 }
 
@@ -456,6 +472,32 @@ mod tests {
         assert!(parsed.rows.is_empty());
         assert!(parsed.rejected.is_empty());
         assert_eq!(parsed.gross_minor, 0);
+    }
+
+    #[test]
+    fn a_row_that_lost_its_amount_is_not_mistaken_for_a_second_header() {
+        // The regression this file exists to prevent, and the one it once had.
+        // A header is unreadable in every column; this row still has a fee and
+        // a date, so it is a broken row and has to be said out loud.
+        let found = parse_settlement_report(
+            "AUTH;AMOUNT;MDR;DATE\n\
+             AUTH-1;1.000.000,00;15.000,00;16/09/2026\n\
+             AUTH-2;oops;0;16/09/2026\n",
+        );
+        assert_eq!(found.rows.len(), 1);
+        assert_eq!(found.rejected.len(), 1, "{found:#?}");
+        assert_eq!(found.rejected[0].line_number, 3);
+        assert!(found.rejected[0].reason.contains("oops"), "{found:#?}");
+    }
+
+    #[test]
+    fn a_headerless_report_keeps_its_first_row() {
+        // The other half of the same rule: the guard is "before any row", not
+        // "the first line", so a file that starts straight into data does not
+        // lose its first sale.
+        let found = parse_settlement_report("AUTH-1,1000000,15000,2026-09-16\n");
+        assert_eq!(found.rows.len(), 1);
+        assert_eq!(found.gross_minor, 1_000_000);
     }
 
     #[test]

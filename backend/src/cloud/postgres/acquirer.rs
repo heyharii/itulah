@@ -589,8 +589,16 @@ async fn tender_recon_receipt_rows(
     tender_kind: &str,
 ) -> Result<Vec<TenderReceiptRow>, AppError> {
     let sql = format!(
+        // The acquirer the way `sales_posting::acquirer_of` reads it: the
+        // column 0106 added, falling back to the free-text reference for
+        // tenders a shop synced before that column existed. Reading only one of
+        // the two would make a shop's suggestion disagree with the ledger about
+        // who took the money, which is the single thing this screen is for.
         "SELECT st.sale_id, st.tender_seq, st.amount_minor,
-                COALESCE(UPPER(NULLIF(TRIM(st.reference), '')), '') AS acquirer,
+                COALESCE(
+                    UPPER(NULLIF(TRIM(st.acquirer), '')),
+                    UPPER(NULLIF(TRIM(st.reference), '')),
+                    '') AS acquirer,
                 e.occurred_at,
                 (SELECT d.decision FROM tender_reconciliation_decision d
                   WHERE d.sale_id = st.sale_id AND d.tender_seq = st.tender_seq) AS decision
@@ -2038,11 +2046,18 @@ async fn settlement_bank_qualifier(
 // What the acquirers still owe
 // ---------------------------------------------------------------------------
 
-/// One acquirer's outstanding receivable at one shop.
+/// One outstanding receivable balance at one shop, and whose it is.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AcquirerAgingRow {
+    /// The acquirer, when the ledger can name one: exactly one qualifier is
+    /// mapped to this account at this shop. Empty when several share it — see
+    /// [`AcquirerAgingRow::acquirers`], and the note on `acq_receivable_aging`.
     pub acquirer: String,
+    /// Every acquirer mapped to this account at this shop. One name in the
+    /// ordinary case; several when the client's chart keeps one leaf for all of
+    /// them, which is exactly what `1011101002 Piutang Debit Card` is.
+    pub acquirers: Vec<String>,
     pub site_id: String,
     /// Which receivable: `card_receivable_debit`, `card_receivable_credit` or
     /// `qris_receivable`.
@@ -2065,18 +2080,38 @@ const RECEIVABLE_KEYS: [&str; 3] = [
     "qris_receivable",
 ];
 
-/// What each acquirer still owes each shop, by how long it has owed it.
+/// What is still owed on cards at each shop, by how long it has been owed.
 ///
 /// Computed from the journal and not from a settlement table, which is the
 /// whole point: the receivable is raised by whatever posts the day's sales and
 /// discharged by the curation above, and an ageing built from either one alone
 /// would be blind to the other. Reading the ledger means this is right on the
-/// day the sales posting lands, without a line changing here.
+/// day a sale posts, without a line changing here.
 ///
 /// The join is `account_map` — semantic key and qualifier to a client account,
 /// per shop — because that is the only place a meaning becomes a code. An
 /// acquirer with no mapping simply has no row, which is the honest answer:
 /// nothing has been posted for it.
+///
+/// # Why a row is not always one acquirer
+///
+/// `journal_line` records the account a posting resolved to, not the meaning
+/// and qualifier it resolved FROM. Where each acquirer has its own leaf, the
+/// two are the same thing and every row names one acquirer. Where they share a
+/// leaf — and the client's chart does exactly that, one `Piutang Debit Card`
+/// for every bank — the ledger genuinely cannot tell BCA's balance from
+/// MANDIRI's, and no query over it can.
+///
+/// So the grouping is by ACCOUNT and the qualifiers that reach it are listed.
+/// The first version grouped by qualifier instead, and reported the same
+/// 1,000,000 twice, once against each bank that shared the leaf: a total of
+/// two million owed on one sale, from a query that looked right. Counting each
+/// line once and admitting the split is unavailable is the honest answer, and
+/// the fix is in the chart or in a qualifier on `journal_line` — not here.
+///
+/// `acquirer` therefore filters on whether that acquirer is mapped to the
+/// account, not on the row's own name; asking for BCA at a shared leaf returns
+/// the shared balance, labelled with everyone who shares it.
 pub async fn acq_receivable_aging(
     pool: &PgPool,
     as_of: NaiveDate,
@@ -2084,21 +2119,34 @@ pub async fn acq_receivable_aging(
     site_id: Option<&str>,
 ) -> Result<AcquirerReceivableAging, AppError> {
     let rows = sqlx::query(
-        "WITH receivable AS (
-             SELECT m.qualifier AS acquirer, m.site_id, m.semantic_key, m.account_code,
-                    ($1::date - e.posting_date)::int AS age_days,
-                    (l.debit_minor - l.credit_minor)::bigint AS balance_minor
+        // `leaf` collapses the map to one row per account before anything is
+        // joined to the journal. That collapse is the whole correction: joining
+        // `account_map` straight onto `journal_line` multiplies every line by
+        // the number of acquirers mapped to its account.
+        "WITH leaf AS (
+             SELECT m.site_id, m.semantic_key, m.account_code,
+                    ARRAY_AGG(DISTINCT m.qualifier ORDER BY m.qualifier) AS acquirers
                FROM account_map m
-               JOIN journal_line l
-                 ON l.account_code = m.account_code AND l.site_id = m.site_id
-               JOIN journal_entry e ON e.entry_id = l.entry_id
               WHERE m.semantic_key = ANY($2)
                 AND m.qualifier <> ''
-                AND e.posting_date <= $1
-                AND ($3::text IS NULL OR m.qualifier = UPPER($3))
                 AND ($4::text IS NULL OR m.site_id = $4)
+              GROUP BY m.site_id, m.semantic_key, m.account_code
+         ),
+         wanted AS (
+             SELECT * FROM leaf
+              WHERE $3::text IS NULL OR UPPER($3) = ANY(acquirers)
+         ),
+         receivable AS (
+             SELECT w.site_id, w.semantic_key, w.account_code, w.acquirers,
+                    ($1::date - e.posting_date)::int AS age_days,
+                    (l.debit_minor - l.credit_minor)::bigint AS balance_minor
+               FROM wanted w
+               JOIN journal_line l
+                 ON l.account_code = w.account_code AND l.site_id = w.site_id
+               JOIN journal_entry e ON e.entry_id = l.entry_id
+              WHERE e.posting_date <= $1
          )
-         SELECT acquirer, site_id, semantic_key, account_code,
+         SELECT site_id, semantic_key, account_code, acquirers,
                 SUM(balance_minor) FILTER (WHERE age_days <= 0)::bigint AS not_due,
                 SUM(balance_minor) FILTER (WHERE age_days BETWEEN 1 AND 30)::bigint AS d1_30,
                 SUM(balance_minor) FILTER (WHERE age_days BETWEEN 31 AND 60)::bigint AS d31_60,
@@ -2106,9 +2154,9 @@ pub async fn acq_receivable_aging(
                 SUM(balance_minor) FILTER (WHERE age_days > 90)::bigint AS d90_plus,
                 SUM(balance_minor)::bigint AS total
            FROM receivable
-          GROUP BY acquirer, site_id, semantic_key, account_code
+          GROUP BY site_id, semantic_key, account_code, acquirers
          HAVING SUM(balance_minor) <> 0
-          ORDER BY acquirer, site_id, semantic_key",
+          ORDER BY site_id, semantic_key, account_code",
     )
     .bind(as_of)
     .bind(&RECEIVABLE_KEYS[..])
@@ -2140,8 +2188,16 @@ pub async fn acq_receivable_aging(
         total.days_61_90_minor += buckets.days_61_90_minor;
         total.days_over_90_minor += buckets.days_over_90_minor;
         total.total_minor += buckets.total_minor;
+        let acquirers: Vec<String> = row.try_get("acquirers")?;
         out.push(AcquirerAgingRow {
-            acquirer: row.try_get("acquirer")?,
+            // Named only when the ledger can name it. A leaf two banks share
+            // labelled with either one would be a figure somebody chases the
+            // wrong bank for.
+            acquirer: match acquirers.as_slice() {
+                [only] => only.clone(),
+                _ => String::new(),
+            },
+            acquirers,
             site_id: row.try_get("site_id")?,
             semantic_key: row.try_get("semantic_key")?,
             account_code: row.try_get("account_code")?,

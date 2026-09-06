@@ -187,7 +187,13 @@ CREATE TABLE tender_reconciliation_decision (
     CHECK (decision <> 'MATCHED' OR (sale_id IS NOT NULL AND batch_line_id IS NOT NULL)),
     CHECK ((decision = 'RETENDER')
            = (from_acquirer IS NOT NULL AND to_acquirer IS NOT NULL)),
-    CHECK (from_acquirer IS DISTINCT FROM to_acquirer)
+    -- Guarded on NULL, and that guard is the whole of this constraint's
+    -- history. `from_acquirer IS DISTINCT FROM to_acquirer` on its own reads
+    -- as "the two must differ" and is true of every pair of names — but
+    -- `NULL IS DISTINCT FROM NULL` is FALSE, so the bare version refused every
+    -- one of the four decisions that names no acquirer at all. A shop could
+    -- record a retender and nothing else.
+    CHECK (from_acquirer IS NULL OR from_acquirer <> to_acquirer)
 );
 
 -- One decision per receipt tender and one per approval. Deciding twice is two
