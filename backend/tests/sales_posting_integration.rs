@@ -481,24 +481,60 @@ async fn reversing_a_day_lets_it_be_generated_again(pool: PgPool) {
     assert_eq!(reversed.posting.status, "REVERSED");
     assert!(reversed.posting.reversal_entry_id.is_some());
 
-    // Both entries stay, and together they come to nothing.
+    // Both entries stay, and together they come to nothing. The accounts do
+    // NOT drop off the trial balance — it lists anything that moved, and both
+    // halves moved — so what has to hold is that every one of them nets to
+    // zero. That is the stronger statement anyway: an account that vanished
+    // would only prove it was never touched.
     let trial = cloud::trial_balance(&pool, day(), None)
         .await
         .unwrap_or_else(|error| panic!("trial balance: {error}"));
     assert!(trial.balanced);
-    assert!(
-        trial.rows.is_empty(),
-        "a reversed day leaves no balance anywhere, said: {:?}",
-        trial.rows
-    );
+    assert_eq!(trial.total_debit_minor, trial.total_credit_minor);
+    for row in &trial.rows {
+        assert_eq!(
+            row.debit_minor, row.credit_minor,
+            "{} should carry nothing after the reversal, said: {row:?}",
+            row.account_code
+        );
+    }
 
-    // And the day can be built afresh.
-    let fresh = cloud::sales_posting_generate(&pool, &ask(), ACTOR).await;
-    assert!(
-        fresh.is_ok(),
-        "a reversed day should be generatable again: {:?}",
-        fresh.err()
-    );
+    // And the day can be built afresh, which is the second half of the only
+    // correction path this ledger has. A reversed day that could not be
+    // regenerated would be a day posted once and wrong forever.
+    let fresh = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("a reversed day should be generatable again: {error}"));
+    assert_eq!(fresh.posting.posting_id, document.posting.posting_id);
+    assert_eq!(fresh.posting.status, "DRAFT");
+    assert!(fresh.posting.journal_entry_id.is_none());
+    assert!(fresh.posting.reversal_entry_id.is_none());
+
+    // And posted again, for real.
+    let reposted = cloud::sales_posting_post(&pool, fresh.posting.posting_id, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("repost: {error}"));
+    assert_eq!(reposted.posting.status, "POSTED");
+
+    // Three entries now — the original, its reversal, and the correction — and
+    // all three lead back to this document. That is where the history of a
+    // corrected day lives: the working paper only ever shows the current
+    // answer, and the journal shows how it was arrived at.
+    let entries: i64 = sqlx::query(
+        "SELECT COUNT(*)::bigint AS n FROM journal_entry
+          WHERE source_kind = 'SALE_DAY' AND source_id = $1",
+    )
+    .bind(document.posting.posting_id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count: {error}"))
+    .try_get("n")
+    .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(entries, 2, "the original and its replacement");
+
+    // The books carry the day exactly once, not twice and not not at all.
+    assert_eq!(balance(&pool, "101100100101").await.0, 1_110_000 * 2);
+    assert_eq!(balance(&pool, "101100100101").await.1, 1_110_000);
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -822,16 +858,20 @@ fn pool_ref(pool: &PgPool) -> &PgPool {
 /// site and a movement group, and a sale names a price book. Faking any of
 /// them would be faking the join the generator actually reads.
 async fn a_cash_refund(pool: &PgPool, amount_minor: i64) {
-    let publication = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO commercial_publication
-           (id, version, name, status, effective_from, created_by, published_by, published_at)
-         VALUES ($1, 1, 'test book', 'PUBLISHED', now(), 'ana', 'ana', now())",
-    )
-    .bind(publication)
-    .execute(pool)
-    .await
-    .unwrap_or_else(|error| panic!("publication: {error}"));
+    // The price book `0003` seeds, rather than one of our own. A sale needs a
+    // publication to point at, and inserting a second one would collide on
+    // `version` — and, worse, would quietly move what `day_vat_rate_bps`
+    // reads: it takes the NEWEST publication, and a fresh one carrying no tax
+    // rule would send the rate to the 11% fallback by a different road. The
+    // seeded book declares 11% outright, which is the rate this test's
+    // arithmetic is written against.
+    let publication: Uuid =
+        sqlx::query("SELECT id FROM commercial_publication ORDER BY version DESC LIMIT 1")
+            .fetch_one(pool)
+            .await
+            .unwrap_or_else(|error| panic!("publication: {error}"))
+            .try_get("id")
+            .unwrap_or_else(|error| panic!("publication id: {error}"));
 
     let group = Uuid::new_v4();
     sqlx::query(

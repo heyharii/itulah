@@ -722,14 +722,17 @@ pub async fn sales_posting_generate(
     .bind(request.business_date)
     .fetch_optional(pool)
     .await?;
+    // POSTED is the only status that refuses. DRAFT is replaced in place, and
+    // so is REVERSED — regenerating a reversed day is the second half of the
+    // only correction path this ledger has, and refusing it here would leave a
+    // day that was posted once uncorrectable forever.
     if let Some(row) = &existing {
         let status: String = row.try_get("status")?;
-        if status != "DRAFT" {
+        if status == "POSTED" {
             return Err(AppError::Conflict(format!(
-                "{site_id} {} is already {}; a posted day is corrected by reversing it \
-                 and generating again, never by regenerating over it",
-                request.business_date,
-                status.to_lowercase()
+                "{site_id} {} is already posted; a posted day is corrected by reversing \
+                 it and generating again, never by regenerating over it",
+                request.business_date
             )));
         }
     }
@@ -761,7 +764,24 @@ pub async fn sales_posting_generate(
              sale_count = EXCLUDED.sale_count,
              vat_rate_bps = EXCLUDED.vat_rate_bps,
              generated_at = now(),
-             generated_by = EXCLUDED.generated_by",
+             generated_by = EXCLUDED.generated_by,
+             -- A regenerated day is a draft again, whatever it was. On a
+             -- draft these are already null; on a reversed one they have to
+             -- be let go, because the table insists a draft has no journal
+             -- behind it -- and it is right to. Nothing is lost doing it:
+             -- both the original entry and its reversal stay in the journal
+             -- carrying this document's id as their `source_id`, which is
+             -- where the history of a corrected day belongs and the only
+             -- place an auditor would accept it. The document is the working
+             -- paper; the ledger is the record.
+             status = 'DRAFT',
+             journal_entry_id = NULL,
+             posted_at = NULL,
+             posted_by = NULL,
+             reversal_entry_id = NULL,
+             reversed_at = NULL,
+             reversed_by = NULL,
+             reversal_reason = NULL",
     )
     .bind(posting_id)
     .bind(&site_id)
