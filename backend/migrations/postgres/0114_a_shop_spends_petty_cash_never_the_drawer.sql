@@ -11,16 +11,20 @@
 --
 -- # Two pots, and the drawer is not one of them
 --
---   PETTY_CASH  an imprest float, `1011001002 Petty Cash` at that shop, topped
---               back up by head office against the receipts spent out of it
---   ADVANCE     money issued for a stated purpose (0113), spent down against
---               that purpose
+--   PETTY_CASH        an imprest float, `1011001002 Petty Cash` at that shop,
+--                     topped back up by head office against the receipts spent
+--                     out of it
+--   FUND_ALLOCATION   part of an operating fund the store manager is holding
+--                     (0113), spent down against the purpose it was earmarked
+--                     for
 --
--- The drawer is deliberately absent, and asking for it is refused with a
--- sentence rather than a code. Takings are head office's money in the shop's
--- keeping; the shop banks them (0111) or pays what head office orders (0112).
--- A shop that may dip into the till for a light bulb is a shop whose cash
--- variance is unreadable, because every shortfall has an explanation available.
+-- The drawer is deliberately absent, and so are sales proceeds. Asking for
+-- either is refused with a sentence that says where to go instead, not with a
+-- code. Takings are head office's money in the shop's keeping: they are
+-- reconciled, and then disposed of under a Remittance Order (0112) — banked,
+-- or paid to somebody head office named. A shop that may dip into the till for
+-- a light bulb is a shop whose cash variance is unreadable, because every
+-- shortfall has an explanation available.
 --
 -- # Approval by size, not by seniority alone
 --
@@ -36,12 +40,18 @@
 --
 -- # Postings
 --
---   POSTED  Dr <the category's meaning> (the shop)
---           Cr petty_cash (the shop)  — or the advance's own meaning
+--   POSTED  Dr <the category's meaning>       (the shop)
+--           Cr petty_cash                     (the shop)   from the imprest
+--           Cr store_manager_receivable       (the shop)   from a fund
 --
 -- One entry per expense, at the shop, balancing there. No cross-site leg: the
 -- cost belongs to the shop that incurred it and the money was already at that
 -- shop. That is what makes this the cheap document it needs to be.
+--
+-- An expense drawn on a fund also settles the manager's payment ledger item,
+-- through the `DIRECT_EXPENSE` settlement in 0113 — one document, two records,
+-- one transaction. An expense from petty cash settles nothing: the imprest is
+-- an asset of the shop, not a debt of a person.
 
 CREATE TABLE store_expense (
     expense_id     uuid PRIMARY KEY,
@@ -51,11 +61,12 @@ CREATE TABLE store_expense (
 
     site_id        text NOT NULL REFERENCES site(id),
 
-    source         text NOT NULL CHECK (source IN ('PETTY_CASH', 'ADVANCE')),
-    -- Required for an advance, forbidden otherwise. The CHECK is what makes
-    -- "spent" summable: every rupiah drawn on an advance names it.
-    advance_id     uuid REFERENCES operating_advance(advance_id),
-    CHECK ((advance_id IS NOT NULL) = (source = 'ADVANCE')),
+    source         text NOT NULL CHECK (source IN ('PETTY_CASH', 'FUND_ALLOCATION')),
+    -- Required for a fund, forbidden otherwise. The CHECK is what makes
+    -- "spent" summable: every rupiah drawn on a fund names the earmark it came
+    -- out of.
+    allocation_id  uuid REFERENCES fund_allocation(allocation_id),
+    CHECK ((allocation_id IS NOT NULL) = (source = 'FUND_ALLOCATION')),
 
     -- What kind of cost this is, said as a meaning. The posting rule resolves it
     -- through `account_map` like every other rule; nothing here names a client
@@ -124,69 +135,73 @@ CREATE TABLE store_expense (
 CREATE INDEX ix_store_expense_site_date ON store_expense (site_id, spent_on DESC);
 CREATE INDEX ix_store_expense_awaiting ON store_expense (site_id, claimed_at)
     WHERE status = 'DRAFT';
--- Everything drawn on one advance, which is how "spent" is summed.
-CREATE INDEX ix_store_expense_advance ON store_expense (advance_id)
-    WHERE advance_id IS NOT NULL;
+-- Everything drawn on one earmark, which is how "spent" is summed.
+CREATE INDEX ix_store_expense_allocation ON store_expense (allocation_id)
+    WHERE allocation_id IS NOT NULL;
 
 COMMENT ON TABLE store_expense IS
-    'A shop spending petty cash or an advance. Never the drawer: takings are '
-    'banked or remitted, never spent. The approver is never the claimant.';
+    'A shop spending petty cash or an operating fund. Never the drawer and '
+    'never sales proceeds: takings are reconciled and then disposed of under a '
+    'remittance order. The approver is never the claimant.';
 
--- An expense drawn on an advance is drawn on an advance that its own shop
--- holds, and on one that is still open.
+-- An expense drawn on a fund is drawn on a fund its own shop's manager holds,
+-- and on one with room left in the earmark.
 --
 -- In the database rather than in Rust because it is the rule that keeps the
--- advance equation true. A read-then-write in the application would let two
+-- fund equation true. A read-then-write in the application would let two
 -- concurrent claims each see the same remaining balance.
-CREATE FUNCTION store_expense_advance_is_usable() RETURNS trigger
+CREATE FUNCTION store_expense_allocation_is_usable() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
-    holder_site text;
-    advance_status text;
-    issued bigint;
-    returned bigint;
+    fund_site     text;
+    fund_status   text;
+    earmark       bigint;
+    earmark_state text;
     already_spent bigint;
 BEGIN
-    IF NEW.advance_id IS NULL THEN
+    IF NEW.allocation_id IS NULL THEN
         RETURN NEW;
     END IF;
-    SELECT a.issued_to_site_id, a.status, a.amount_minor, a.returned_minor
-      INTO holder_site, advance_status, issued, returned
-      FROM operating_advance a
-     WHERE a.advance_id = NEW.advance_id
-       FOR UPDATE;
+    SELECT f.site_id, f.status, a.amount_minor, a.status
+      INTO fund_site, fund_status, earmark, earmark_state
+      FROM fund_allocation a
+      JOIN operating_fund f ON f.fund_id = a.fund_id
+     WHERE a.allocation_id = NEW.allocation_id
+       FOR UPDATE OF a, f;
 
-    IF advance_status = 'CLOSED' THEN
-        RAISE EXCEPTION 'advance % is closed and cannot be spent against',
-            NEW.advance_id;
+    IF earmark IS NULL THEN
+        RAISE EXCEPTION 'there is no fund allocation %', NEW.allocation_id;
     END IF;
-    -- A site-held advance is spent by that site. An advance held by a person
-    -- only (holder_site IS NULL) may be spent wherever they are.
-    IF holder_site IS NOT NULL AND holder_site <> NEW.site_id THEN
+    IF fund_status = 'CLOSED' OR earmark_state = 'CLOSED' THEN
         RAISE EXCEPTION
-            'advance % is held by % and cannot be spent at %',
-            NEW.advance_id, holder_site, NEW.site_id;
+            'fund allocation % is closed and cannot be spent against',
+            NEW.allocation_id;
+    END IF;
+    IF fund_site <> NEW.site_id THEN
+        RAISE EXCEPTION
+            'fund allocation % is held at % and cannot be spent at %',
+            NEW.allocation_id, fund_site, NEW.site_id;
     END IF;
 
     SELECT COALESCE(SUM(e.amount_minor), 0) INTO already_spent
       FROM store_expense e
-     WHERE e.advance_id = NEW.advance_id
+     WHERE e.allocation_id = NEW.allocation_id
        AND e.status IN ('APPROVED', 'POSTED')
        AND e.expense_id <> NEW.expense_id;
 
     IF NEW.status IN ('APPROVED', 'POSTED')
-       AND already_spent + NEW.amount_minor + returned > issued THEN
+       AND already_spent + NEW.amount_minor > earmark THEN
         RAISE EXCEPTION
-            'advance % has % left; this claim of % would overdraw it',
-            NEW.advance_id, issued - returned - already_spent, NEW.amount_minor;
+            'fund allocation % has % left; this claim of % would overdraw it',
+            NEW.allocation_id, earmark - already_spent, NEW.amount_minor;
     END IF;
     RETURN NEW;
 END;
 $$;
 
-CREATE TRIGGER store_expense_advance_is_usable
+CREATE TRIGGER store_expense_allocation_is_usable
     BEFORE INSERT OR UPDATE ON store_expense
-    FOR EACH ROW EXECUTE FUNCTION store_expense_advance_is_usable();
+    FOR EACH ROW EXECUTE FUNCTION store_expense_allocation_is_usable();
 
 -- ---------------------------------------------------------------------------
 -- Topping the imprest back up

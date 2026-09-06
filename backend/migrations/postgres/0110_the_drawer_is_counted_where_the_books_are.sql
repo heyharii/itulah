@@ -133,7 +133,7 @@ COMMENT ON TABLE cash_shift IS
 -- PAYOUT is the exception worth naming: it is money leaving the drawer for
 -- something other than change, and it is exactly what this lane refuses to let
 -- a shop do informally. A store expense is `store_expense` (0114), paid from
--- petty cash or an advance, never from the drawer.
+-- petty cash or an operating fund, never from the drawer.
 CREATE TABLE cash_movement (
     movement_id  uuid PRIMARY KEY,
     shift_id     uuid NOT NULL REFERENCES cash_shift(shift_id) ON DELETE CASCADE,
@@ -190,10 +190,14 @@ COMMENT ON TABLE cash_movement IS
 --
 --   CASH_SHIFT       a float issued or returned, or an approved difference
 --   STORE_DEPOSIT    a shop's takings on their way to an HO bank account
---   REMITTANCE       a shop paying somebody on head office's written order
---   ADVANCE          an operating advance issued, or returned
---   STORE_EXPENSE    a shop spending petty cash or an advance
+--   ADVANCE          an operating fund sent to a manager, or accounted for
+--   STORE_EXPENSE    a shop spending petty cash or an operating fund
 --   PETTY_REPLENISH  head office topping the imprest back up
+--
+-- REMITTANCE is in the list below and this lane never writes it. A Remittance
+-- Order posts nothing at all — it is an instruction, carried out by documents
+-- that post under their own rules — so the kind stays in the union for the
+-- neighbouring lanes' sake and no rule here emits it. See 0112.
 --
 -- The last five names are declared now although 0111-0114 are what write them.
 -- A CHECK widened five times is five migrations that cannot be reordered, and
@@ -211,7 +215,7 @@ COMMENT ON TABLE cash_movement IS
 -- So the list below is the agreed union across every lane in flight, written
 -- identically in each of them. Recreating it with the same list twice is a
 -- no-op; recreating it with a subset is the bug. Nothing is ever removed here.
-ALTER TABLE journal_entry DROP CONSTRAINT journal_entry_source_kind_check;
+ALTER TABLE journal_entry DROP CONSTRAINT IF EXISTS journal_entry_source_kind_check;
 ALTER TABLE journal_entry ADD CONSTRAINT journal_entry_source_kind_check
     CHECK (source_kind IN (
         -- The list as 0096 left it.
@@ -231,7 +235,7 @@ ALTER TABLE journal_entry ADD CONSTRAINT journal_entry_source_kind_check
 -- Document numbers that restart with the month
 -- ---------------------------------------------------------------------------
 --
--- `PB-26-09-00001`, `ADV-26-09-00001`, `KK-STORE-03-26-09-00001`. The client's
+-- `REM-26-09-00001`, `OF-26-09-00001`, `KK-STORE-03-26-09-00001`. The client's
 -- own paperwork is numbered this way and the people who file it read the month
 -- out of the number, so a global running sequence — which is what `JV-` and
 -- `PV-` use — would be the wrong shape here even though it is simpler.
@@ -248,9 +252,12 @@ ALTER TABLE journal_entry ADD CONSTRAINT journal_entry_source_kind_check
 -- one row. At the volumes a thirteen-shop chain produces — tens of documents
 -- per shop per month — that is not a cost anybody will measure.
 CREATE TABLE store_document_counter (
-    -- `PB`, `ADV`, or `KK:<site_id>`. Store expenses are numbered per shop
-    -- because the shop's own book is what the sequence has to be gapless in.
-    scope        text NOT NULL,
+    -- `REM` (remittance order), `OF` (operating fund), `SB` (store deposit),
+    -- `RPL` (petty cash replenishment), `HO` (custodian handover), or
+    -- `KK:<site_id>`. Store expenses are numbered per shop because the shop's
+    -- own book is what the sequence has to be gapless in; everything else is
+    -- head office's paperwork and is numbered once for the chain.
+    scope        text NOT NULL CHECK (btrim(scope) <> ''),
     year         smallint NOT NULL,
     month        smallint NOT NULL CHECK (month BETWEEN 1 AND 12),
     last_number  integer NOT NULL DEFAULT 0 CHECK (last_number >= 0),
