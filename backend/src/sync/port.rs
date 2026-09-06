@@ -149,6 +149,16 @@ pub enum CycleReport {
         consecutive_failures: u32,
         breaker_opened: bool,
     },
+    /// The receiver answered about a stream this sender is not the sender of:
+    /// it claims a seq above the highest we uploaded. Reported apart from
+    /// `Failed` because the two need different responses — a failure waits out
+    /// a cooldown and retries, and this one waits for a person or a handshake.
+    /// Nothing advanced, and the failure was durably recorded either way.
+    Divergent {
+        reason: String,
+        claimed: i64,
+        max_sent: i64,
+    },
 }
 
 /// What one whole cycle did, in both directions.
@@ -244,6 +254,30 @@ pub async fn run_cycle<S: SyncStore + ?Sized>(
             }
             SettlementOutcome::NoProgress { reason } => {
                 record_failure(store, config, reason).await?
+            }
+            SettlementOutcome::Divergent {
+                reason,
+                claimed,
+                max_sent,
+            } => {
+                // Durably recorded like any failure — the breaker still opens,
+                // and it survives a restart — but logged at error level and
+                // reported under its own name, because retrying will not fix
+                // it. What fixes it is a new generation.
+                tracing::error!(
+                    claimed,
+                    max_sent,
+                    origin = %origin_id,
+                    generation,
+                    %reason,
+                    "sync settlement diverged; the watermark was NOT advanced"
+                );
+                record_failure(store, config, reason.clone()).await?;
+                CycleReport::Divergent {
+                    reason,
+                    claimed,
+                    max_sent,
+                }
             }
         }
     };
