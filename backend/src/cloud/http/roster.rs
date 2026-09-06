@@ -21,8 +21,8 @@ use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, AttendanceMonth, Authorization,
-        CloseReadiness, DayOffset, DayPlan, EmployeeId, MinuteOfDay, Minutes, PeriodEvent, PlaceId,
-        RosterDay, Shift, ShiftId,
+        CloseReadiness, DayOffset, DayPlan, EmployeeId, MinuteOfDay, Minutes, PeriodEvent,
+        PlaceId, RosterDay, Shift, ShiftId,
     },
     postgres::{self as infrastructure, RosterDayRow},
 };

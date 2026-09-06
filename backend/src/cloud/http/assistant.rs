@@ -536,11 +536,7 @@ async fn run_turn(
             let outcome = run_tool(state, &name, &input).await;
             let (shown, told, failed) = match outcome {
                 Ok(outcome) => (outcome.shown, outcome.told, false),
-                Err(message) => (
-                    json!({ "error": message }),
-                    json!({ "error": message }),
-                    true,
-                ),
+                Err(message) => (json!({ "error": message }), json!({ "error": message }), true),
             };
             let event = json!({ "id": id, "name": name, "ok": !failed, "data": shown });
             let _ = tx.send(sse("result", event.clone())).await;

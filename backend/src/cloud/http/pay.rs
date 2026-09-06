@@ -442,7 +442,8 @@ pub async fn open_run(
 ) -> Result<Json<PayrollRunView>, AppError> {
     require(&principal, actions::PAYROLL_VERIFY)?;
     let place = PlaceId::try_new(&body.place_id).map_err(invalid)?;
-    let month = AttendanceMonth::parse(&body.period).map_err(infrastructure::attendance_error)?;
+    let month = AttendanceMonth::parse(&body.period)
+        .map_err(infrastructure::attendance_error)?;
     let first = infrastructure::month_first_day(month)?;
 
     let period = infrastructure::period_for(&state.db, &place, first).await?;
@@ -492,8 +493,9 @@ async fn step(
     let mut run = infrastructure::load_run(&state.db, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("payroll run {id}")))?;
-    let authorization = Authorization::try_new(&principal.username, action_key, Utc::now(), reason)
-        .map_err(invalid)?;
+    let authorization =
+        Authorization::try_new(&principal.username, action_key, Utc::now(), reason)
+            .map_err(invalid)?;
     apply(&mut run, authorization).map_err(infrastructure::pay_error)?;
     infrastructure::save_run(&state.db, &run).await?;
     read_back(state, id).await
@@ -585,7 +587,8 @@ pub async fn run_reconciliation(
     let run = infrastructure::load_run(&state.db, &id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("payroll run {id}")))?;
-    let month = AttendanceMonth::parse(run.period()).map_err(infrastructure::attendance_error)?;
+    let month = AttendanceMonth::parse(run.period())
+        .map_err(infrastructure::attendance_error)?;
     let first = infrastructure::month_first_day(month)?;
     Ok(Json(
         infrastructure::reconcile(&state.db, &run, first).await?,
