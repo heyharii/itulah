@@ -1,0 +1,391 @@
+//! Making every unit's books balance on their own.
+//!
+//! # The failure this exists to end
+//!
+//! The client keeps a profit and loss per location, and their chart carries the
+//! location in the account code itself. So an entry that debits store 01 and
+//! credits head office balances in total and leaves BOTH sets of books wrong:
+//! store 01's trial balance is out by the cost, head office's is out by the same
+//! amount the other way, and the consolidated one balances perfectly. That is
+//! the failure this repository keeps naming — wrong in a way the trial balance
+//! cannot see.
+//!
+//! 0098 answered it by refusing: a cost had to sit at its own bill's location,
+//! and `assert_allocation_fits` in 0084 refused a cross-location payment on the
+//! same argument. Both said, in writing, that the honest answer is an inter-unit
+//! balance and that no rule wrote one yet. This is that rule.
+//!
+//! # What it does
+//!
+//! Given the lines a posting rule built, it works out what each unit nets and
+//! adds the legs that bring every one of them back to zero:
+//!
+//! ```text
+//!   Dr Biaya Listrik  @store-03   1,000,000     head office pays store 03's
+//!   Cr Bank BCA       @dc         1,000,000     electricity from its own bank
+//!
+//!   + Cr Hutang Affiliasi   @store-03  (counter dc)        1,000,000
+//!   + Dr Piutang Affiliasi  @dc        (counter store-03)  1,000,000
+//! ```
+//!
+//! Store 03 now balances on its own — a cost and the debt that funded it — and
+//! so does head office: money out, and a receivable in its place.
+//!
+//! # Two decisions, both the owner's
+//!
+//! **The account is head-office-centric.** Head office books the receivable,
+//! the shop books the payable, always, in both directions. A shop that has
+//! overpaid carries a negative payable rather than a receivable of its own,
+//! because the client's chart has one account per pair per column and a rule
+//! that chose between two would need a second rule to say when it had chosen
+//! wrongly.
+//!
+//! **Two columns, by kind.** `BARANG` is goods — what a shop owes for stock it
+//! received, settled by its deposits. `PEMBIAYAAN` is financing — head office
+//! paying a shop's costs, replenishing its petty cash, advancing it money. The
+//! client keeps these as separate account families and reconciles them
+//! separately, so a rule that merged them would produce one balance neither
+//! side could agree.
+//!
+//! # Why a store-to-store entry goes through head office
+//!
+//! Two shops moving stock between them could book a balance against each other,
+//! and the client's chart even has the accounts for it. It would also mean
+//! thirteen shops reconciling against twelve counterparties each. Routing
+//! through head office makes it two pairs instead of one, and leaves every shop
+//! with exactly one counterparty to agree with — which is how the client
+//! actually works, and how their own `Piutang/Hutang Affiliasi` suffixes are
+//! laid out.
+//!
+//! This module is pure: no database, no clock, no randomness. Every fact it
+//! needs arrives as an argument, which is what lets the properties below be
+//! checked exhaustively without a Postgres.
+
+/// Which of the client's two inter-unit columns a balance lands in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AffiliateKind {
+    /// `Piutang/Hutang Affiliasi Atas Barang`. Stock sent to a shop, and the
+    /// deposits and on-behalf payments that settle it.
+    Goods,
+    /// `Piutang/Hutang Affiliasi Pembiayaan`. Head office funding a shop:
+    /// paying its costs, topping up its float, advancing it money.
+    Financing,
+}
+
+impl AffiliateKind {
+    /// The client's own word for it, which is what the qualifier carries and
+    /// what an accountant reads on the screen.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Goods => "BARANG",
+            Self::Financing => "PEMBIAYAAN",
+        }
+    }
+}
+
+/// The meaning head office's side resolves through. An asset: debit when the
+/// shop owes more.
+pub const AFFILIATE_RECEIVABLE: &str = "affiliate_receivable";
+/// The meaning a shop's side resolves through. A liability: credit when it
+/// owes more.
+pub const AFFILIATE_PAYABLE: &str = "affiliate_payable";
+
+/// The source kinds that move GOODS between units.
+///
+/// Everything else is financing, and financing is the default deliberately:
+/// a new source kind that nobody has thought about lands in the column head
+/// office reconciles by hand anyway, rather than quietly joining the goods
+/// balance a shop is asked to agree line by line.
+const GOODS_SOURCES: &[&str] = &[
+    // A shop banking its takings against what it owes for stock.
+    "STORE_DEPOSIT",
+    // A shop paying head office's supplier under an instruction to do so.
+    "REMITTANCE",
+    // Stock leaving one unit and arriving at another.
+    "TRANSFER",
+];
+
+/// Which column an entry's balance belongs in, from the kind of document
+/// behind it.
+pub fn kind_for_source(source_kind: &str) -> AffiliateKind {
+    if GOODS_SOURCES.contains(&source_kind) {
+        AffiliateKind::Goods
+    } else {
+        AffiliateKind::Financing
+    }
+}
+
+/// One posting line, as the balancer needs to see it.
+///
+/// Not the poster's `PostingLine`: this module never learns which account a
+/// line names, only where it lands and which way it goes. That is the whole
+/// input, and it is why the answer is a function of its arguments.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SiteMovement {
+    pub site_id: String,
+    pub debit_minor: i64,
+    pub credit_minor: i64,
+}
+
+impl SiteMovement {
+    pub fn new(site_id: &str, debit_minor: i64, credit_minor: i64) -> Self {
+        Self {
+            site_id: site_id.to_string(),
+            debit_minor,
+            credit_minor,
+        }
+    }
+}
+
+/// One leg the balancer wants added.
+///
+/// It names a MEANING and a qualifier, never an account code — the same rule
+/// every posting rule in this system follows, and the reason Finance can move
+/// an affiliate account without a release.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AffiliateLeg {
+    /// [`AFFILIATE_RECEIVABLE`] at head office, [`AFFILIATE_PAYABLE`] at a shop.
+    pub semantic_key: &'static str,
+    /// `<KIND>:<counterparty site>`, e.g. `BARANG:store-01`. The client's own
+    /// codes name the counterparty and carry the owner in the two-digit suffix,
+    /// so this is exactly the pair `account_map` needs to pick a leaf.
+    pub qualifier: String,
+    /// Whose books this leg lands in.
+    pub site_id: String,
+    /// The unit on the other side of it. Written onto the line so a shop's
+    /// ledger can say who the balance is with, rather than leaving somebody to
+    /// decode a twelve-digit account code.
+    pub counter_site_id: String,
+    pub debit_minor: i64,
+    pub credit_minor: i64,
+}
+
+/// What one unit nets over an entry, in the order the units first appear.
+///
+/// A `Vec` and not a map: the order legs come out in has to be the same on
+/// every run, and a hash map's is not.
+fn net_by_site(lines: &[SiteMovement]) -> Vec<(String, i64)> {
+    let mut nets: Vec<(String, i64)> = Vec::new();
+    for line in lines {
+        // Saturating rather than checked, and it cannot bite: the poster has
+        // already refused an entry whose debits or credits overflow an i64, so
+        // every partial sum here is inside one, and a net is a difference of
+        // two non-negative i64s.
+        let signed = line.debit_minor.saturating_sub(line.credit_minor);
+        match nets.iter_mut().find(|(site, _)| site == &line.site_id) {
+            Some((_, net)) => *net = net.saturating_add(signed),
+            None => nets.push((line.site_id.clone(), signed)),
+        }
+    }
+    nets
+}
+
+/// The unit that is out, if any is.
+///
+/// The poster calls this after balancing as an assertion rather than as a
+/// question: an entry that still has a unit out of balance after the legs were
+/// added is a bug in this file, and one that would otherwise reach the ledger
+/// looking correct.
+pub fn first_unbalanced_site(lines: &[SiteMovement]) -> Option<(String, i64)> {
+    net_by_site(lines).into_iter().find(|(_, net)| *net != 0)
+}
+
+/// The legs that make every unit balance on its own.
+///
+/// Empty when there is nothing to do: one unit, or several that already balance
+/// individually. That is what makes this safe to run on every posting — the
+/// overwhelming majority of entries are at one location and come back untouched.
+///
+/// The caller must have checked that the entry balances in total. When it does
+/// not, the legs below would silently push the whole difference onto head
+/// office; when it does, head office's own net is cured by the shops' legs
+/// without a leg of its own, because the nets sum to zero.
+pub fn balancing_legs(
+    lines: &[SiteMovement],
+    kind: AffiliateKind,
+    ho_site_id: &str,
+) -> Vec<AffiliateLeg> {
+    let mut legs = Vec::new();
+    for (site, net) in net_by_site(lines) {
+        if net == 0 || site == ho_site_id {
+            continue;
+        }
+        // `net` is what the shop is holding that nobody in its own books has
+        // paid for. A debit excess means value arrived there — a cost, or
+        // stock — so the shop owes head office more, and a payable grows by a
+        // credit. A credit excess is the mirror: the shop gave up value on head
+        // office's behalf, so what it owes falls.
+        let (store_debit, store_credit) = if net > 0 { (0, net) } else { (-net, 0) };
+        legs.push(AffiliateLeg {
+            semantic_key: AFFILIATE_PAYABLE,
+            qualifier: format!("{}:{ho_site_id}", kind.as_str()),
+            site_id: site.clone(),
+            counter_site_id: ho_site_id.to_string(),
+            debit_minor: store_debit,
+            credit_minor: store_credit,
+        });
+        legs.push(AffiliateLeg {
+            semantic_key: AFFILIATE_RECEIVABLE,
+            qualifier: format!("{}:{site}", kind.as_str()),
+            site_id: ho_site_id.to_string(),
+            counter_site_id: site,
+            // The mirror, so head office's receivable and the shop's payable
+            // are the same number written twice. That equality is what
+            // `interunit_pairs` reports, and it is the only thing that makes an
+            // inter-unit balance worth agreeing about.
+            debit_minor: store_credit,
+            credit_minor: store_debit,
+        });
+    }
+    legs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn legs(lines: &[SiteMovement], kind: AffiliateKind) -> Vec<AffiliateLeg> {
+        balancing_legs(lines, kind, "dc")
+    }
+
+    /// The case 0098 refused: head office pays a shop's electricity.
+    #[test]
+    fn head_office_paying_a_shops_cost_leaves_both_books_balanced() {
+        let lines = [
+            SiteMovement::new("store-03", 1_000_000, 0),
+            SiteMovement::new("dc", 0, 1_000_000),
+        ];
+        let added = legs(&lines, AffiliateKind::Financing);
+        assert_eq!(added.len(), 2);
+
+        assert_eq!(added[0].semantic_key, AFFILIATE_PAYABLE);
+        assert_eq!(added[0].site_id, "store-03");
+        assert_eq!(added[0].counter_site_id, "dc");
+        assert_eq!(added[0].qualifier, "PEMBIAYAAN:dc");
+        // The shop owes more, so its payable is credited.
+        assert_eq!(
+            (added[0].debit_minor, added[0].credit_minor),
+            (0, 1_000_000)
+        );
+
+        assert_eq!(added[1].semantic_key, AFFILIATE_RECEIVABLE);
+        assert_eq!(added[1].site_id, "dc");
+        assert_eq!(added[1].counter_site_id, "store-03");
+        assert_eq!(added[1].qualifier, "PEMBIAYAAN:store-03");
+        assert_eq!(
+            (added[1].debit_minor, added[1].credit_minor),
+            (1_000_000, 0)
+        );
+    }
+
+    /// A shop banking its takings, which is how the goods balance comes down.
+    #[test]
+    fn a_shop_banking_its_takings_reduces_what_it_owes() {
+        let lines = [
+            SiteMovement::new("dc", 5_000_000, 0),
+            SiteMovement::new("store-01", 0, 5_000_000),
+        ];
+        let added = balancing_legs(&lines, kind_for_source("STORE_DEPOSIT"), "dc");
+        assert_eq!(added[0].qualifier, "BARANG:dc");
+        // Debited: the payable falls.
+        assert_eq!(
+            (added[0].debit_minor, added[0].credit_minor),
+            (5_000_000, 0)
+        );
+        assert_eq!(
+            (added[1].debit_minor, added[1].credit_minor),
+            (0, 5_000_000)
+        );
+    }
+
+    /// Two shops and no head office: two pairs, not one.
+    #[test]
+    fn a_move_between_two_shops_is_routed_through_head_office() {
+        let lines = [
+            SiteMovement::new("store-01", 0, 800_000),
+            SiteMovement::new("store-02", 800_000, 0),
+        ];
+        let added = balancing_legs(&lines, kind_for_source("TRANSFER"), "dc");
+        assert_eq!(added.len(), 4);
+        let ho_debits: i64 = added
+            .iter()
+            .filter(|leg| leg.site_id == "dc")
+            .map(|leg| leg.debit_minor)
+            .sum();
+        let ho_credits: i64 = added
+            .iter()
+            .filter(|leg| leg.site_id == "dc")
+            .map(|leg| leg.credit_minor)
+            .sum();
+        // Head office nets to nothing and still carries both counterparties,
+        // which is the point of routing through it.
+        assert_eq!(ho_debits, ho_credits);
+        assert_eq!(added[0].site_id, "store-01");
+        assert_eq!(added[2].site_id, "store-02");
+    }
+
+    #[test]
+    fn an_entry_at_one_location_is_left_exactly_as_it_was() {
+        let lines = [
+            SiteMovement::new("dc", 8_600_000, 0),
+            SiteMovement::new("dc", 0, 8_600_000),
+        ];
+        assert!(legs(&lines, AffiliateKind::Financing).is_empty());
+    }
+
+    /// Several units, each already balanced. Nothing is owed, so nothing is
+    /// added — a payroll run charging every shop its own wages against its own
+    /// accrual is the ordinary case.
+    #[test]
+    fn units_that_already_balance_get_no_legs() {
+        let lines = [
+            SiteMovement::new("dc", 100, 0),
+            SiteMovement::new("dc", 0, 100),
+            SiteMovement::new("store-05", 250, 0),
+            SiteMovement::new("store-05", 0, 250),
+        ];
+        assert!(legs(&lines, AffiliateKind::Financing).is_empty());
+    }
+
+    #[test]
+    fn the_kind_comes_from_the_document_and_defaults_to_financing() {
+        assert_eq!(kind_for_source("STORE_DEPOSIT"), AffiliateKind::Goods);
+        assert_eq!(kind_for_source("REMITTANCE"), AffiliateKind::Goods);
+        assert_eq!(kind_for_source("TRANSFER"), AffiliateKind::Goods);
+        assert_eq!(
+            kind_for_source("SUPPLIER_INVOICE"),
+            AffiliateKind::Financing
+        );
+        assert_eq!(kind_for_source("ASSET_TRANSFER"), AffiliateKind::Financing);
+        assert_eq!(kind_for_source("anything at all"), AffiliateKind::Financing);
+    }
+
+    /// Running the balancer over its own output changes nothing. The poster
+    /// depends on this: a reversal copies the stored lines, legs and all, and
+    /// must not grow a second set.
+    #[test]
+    fn balancing_an_already_balanced_entry_adds_nothing() {
+        let mut lines = vec![
+            SiteMovement::new("store-03", 1_000_000, 0),
+            SiteMovement::new("dc", 0, 1_000_000),
+        ];
+        for leg in legs(&lines, AffiliateKind::Financing) {
+            lines.push(SiteMovement::new(
+                &leg.site_id,
+                leg.debit_minor,
+                leg.credit_minor,
+            ));
+        }
+        assert!(legs(&lines, AffiliateKind::Financing).is_empty());
+        assert_eq!(first_unbalanced_site(&lines), None);
+    }
+
+    #[test]
+    fn an_unbalanced_unit_is_named_with_what_it_is_out_by() {
+        let lines = [
+            SiteMovement::new("dc", 500, 0),
+            SiteMovement::new("store-02", 0, 300),
+        ];
+        assert_eq!(first_unbalanced_site(&lines), Some(("dc".to_string(), 500)));
+    }
+}
