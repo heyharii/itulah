@@ -24,13 +24,15 @@
 //!
 //! # Assumptions, stated because they are choices and not facts
 //!
-//! * **One payment, one account, one site, one date.** The site is the
-//!   payment's, and the database refuses an allocation to a bill at another
-//!   location. Head office paying a shop's supplier is a real thing an
-//!   Indonesian retailer does, and doing it honestly needs the client's
-//!   inter-unit accounts — which they keep — plus a rule about which side
-//!   carries the balance. Refusing is not the final answer; it is the honest
-//!   one until that rule is written down.
+//! * **One payment, one account, one date — but not one site.** The money
+//!   leaves the PAYMENT's location and the payable is cleared at the BILL's,
+//!   which is where the bill credited it. Head office paying a shop's supplier
+//!   is a real thing an Indonesian retailer does every week, and until the
+//!   inter-unit rule existed `assert_allocation_fits` refused it, because the
+//!   honest entry does not balance per location on its own. It does now:
+//!   `domain::interunit` completes it through the client's affiliate accounts,
+//!   0121 took the refusal off, and the shop's books show its payable cleared
+//!   against what it owes head office instead of against money it never had.
 //! * **One payment may settle several bills, in part.** Both are ordinary: a
 //!   weekly transfer clears a batch, and a disputed line gets paid short.
 //! * **No foreign exchange.** Bill and payment must agree on currency. Every
@@ -78,6 +80,13 @@ pub struct PaymentAllocation {
     /// a screen listing what a transfer settled should be able to say that one
     /// of the four was the electricity.
     pub kind: String,
+    /// Where the BILL is, which is not always where the payment is.
+    ///
+    /// It decides where the payable is debited, and it has to: a payable
+    /// credited in store 03's books and cleared in head office's would leave
+    /// store 03 owing a supplier for ever while head office's balance sheet
+    /// carried a debt it never had.
+    pub site_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -202,7 +211,7 @@ async fn attach_allocations(
     let rows = sqlx::query(
         "SELECT al.payment_id, al.invoice_id, al.amount_minor,
                 i.invoice_number, i.supplier_id, i.supplier_name, i.invoice_date,
-                i.due_date, i.total_minor AS invoice_total_minor, i.kind
+                i.due_date, i.total_minor AS invoice_total_minor, i.kind, i.site_id
            FROM supplier_payment_allocation al
            JOIN supplier_invoice i USING (invoice_id)
           WHERE al.payment_id = ANY($1)
@@ -224,6 +233,7 @@ async fn attach_allocations(
             invoice_total_minor: row.try_get("invoice_total_minor")?,
             amount_minor: row.try_get("amount_minor")?,
             kind: row.try_get("kind")?,
+            site_id: row.try_get("site_id")?,
         };
         if let Some(payment) = payments.iter_mut().find(|p| p.payment_id == payment_id) {
             payment.allocations.push(allocation);
@@ -432,7 +442,14 @@ pub async fn post_payment(
         } else {
             "trade_payable"
         };
-        let mut line = PostingLine::debit(payable, &existing.site_id, allocation.amount_minor)
+        // At the BILL's location, not the payment's. That is where the bill
+        // credited this payable, and clearing it anywhere else would leave two
+        // sets of books wrong in opposite directions with a trial balance that
+        // still balanced. When the two differ the entry does not balance per
+        // location on its own, and `poster::post` adds the affiliate legs that
+        // make it — which is the whole reason this line is allowed to say
+        // something the payment's site does not.
+        let mut line = PostingLine::debit(payable, &allocation.site_id, allocation.amount_minor)
             .for_supplier(&allocation.supplier_id);
         line.memo = Some(format!(
             "{} {}",

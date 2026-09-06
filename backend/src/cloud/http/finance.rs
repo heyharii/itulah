@@ -113,6 +113,10 @@ pub async fn account_detail(
 #[derive(Debug, Deserialize)]
 pub struct LedgerQuery {
     pub site: Option<String>,
+    /// The other unit, on an inter-unit account. `?site=dc&counter=store-03`
+    /// is head office's ledger of what store 03 owes it, which is the only
+    /// form in which an affiliate balance means anything.
+    pub counter: Option<String>,
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
 }
@@ -131,7 +135,15 @@ pub async fn account_ledger(
         return Err(AppError::Validation("from is after to".into()));
     }
     Ok(Json(
-        infrastructure::general_ledger(&state.db, &code, query.site.as_deref(), from, to).await?,
+        infrastructure::general_ledger(
+            &state.db,
+            &code,
+            query.site.as_deref(),
+            query.counter.as_deref(),
+            from,
+            to,
+        )
+        .await?,
     ))
 }
 

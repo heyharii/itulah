@@ -535,6 +535,7 @@ async fn the_general_ledger_opens_where_the_previous_window_closed(pool: PgPool)
         &pool,
         "101120100100",
         None,
+        None,
         NaiveDate::from_ymd_opt(2026, 10, 1).unwrap_or_else(|| panic!("date")),
         NaiveDate::from_ymd_opt(2026, 10, 31).unwrap_or_else(|| panic!("date")),
     )
