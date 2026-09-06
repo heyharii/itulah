@@ -410,6 +410,33 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Fixed Assets",
         ),
+        // The client's seventh asset family is not depreciated. `1021607` is
+        // named `Reserve Replacement - Operating Equipment` where the other six
+        // under `10216` are named `Akum-Penyusu - …`, and `70102` has no
+        // depreciation family for operating equipment at all — its sixth child
+        // is `BIAYA REPLACEMENT OPERATING EQUIPMENT`. Three parallel blocks of
+        // thirty-six accounts, class for class.
+        //
+        // So these two are qualified by the CLASS and not by the category: the
+        // qualifier is `1021507001 OE - Rak 1` and the pair it resolves to is
+        // `1021607001` and `7010215001`. Qualifying by the family instead would
+        // put every rack, mannequin and hanger in the company into one reserve
+        // account, which is what the account map did before 0139 and what made
+        // the client's own reserve report unreadable.
+        key(
+            "replacement_reserve",
+            "Replacement reserve",
+            "1021607* Reserve Replacement - Operating Equipment",
+            true,
+            "Fixed Assets",
+        ),
+        key(
+            "replacement_expense",
+            "Replacement charge",
+            "7010215* Biaya Replacement Operating Equipment",
+            true,
+            "Fixed Assets",
+        ),
         key(
             "loan_principal",
             "Loan principal",

@@ -683,6 +683,7 @@ pub async fn book_bank_line(
         debit_minor: if outgoing { amount } else { 0 },
         credit_minor: if outgoing { 0 } else { amount },
         supplier_id: None,
+        asset_id: None,
         memo: Some(memo.to_string()),
     };
 

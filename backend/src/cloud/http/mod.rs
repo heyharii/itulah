@@ -12,6 +12,7 @@ use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use uuid::Uuid;
 
 pub mod articles;
+pub mod assets;
 pub mod assistant;
 pub mod attendance;
 pub mod audit;
@@ -671,6 +672,9 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/finance/depreciation/run",
             post(finance::run_depreciation),
         )
+        // The month that charges itself, whether or not a month is complete,
+        // and the replacement reserve the client's own chart has always had.
+        .merge(assets::lane_j_routes(Router::new()))
         // Where the money is. One row per mapped money account per location,
         // beside the last statement imported for it — the list a treasurer
         // opens. `bank-statements` below is the drill-in from a row of it.

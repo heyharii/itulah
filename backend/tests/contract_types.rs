@@ -497,6 +497,32 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::cloud::postgres::UnclaimedAcquisitionLine::export_all(&config)
         .unwrap_or_else(|e| panic!("UnclaimedAcquisitionLine: {e}"));
 
+    // Whether a month's depreciation is actually done, for the period-close
+    // checklist. `missing` is a list and not a count: a screen saying "11
+    // outstanding" sends somebody looking for which eleven.
+    inventory_backend::cloud::postgres::AssetDepreciationStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetDepreciationStatus: {e}"));
+    inventory_backend::cloud::postgres::AssetAwaitingCharge::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetAwaitingCharge: {e}"));
+    inventory_backend::cloud::postgres::DepreciationRunRecord::export_all(&config)
+        .unwrap_or_else(|e| panic!("DepreciationRunRecord: {e}"));
+
+    // The replacement reserve. The client's seventh asset family is not
+    // depreciated at all — their chart carries three parallel blocks of
+    // thirty-six accounts for reserving against it instead.
+    inventory_backend::cloud::postgres::AssetReserveClass::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetReserveClass: {e}"));
+    inventory_backend::cloud::postgres::AssetReplacementRate::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetReplacementRate: {e}"));
+    inventory_backend::cloud::postgres::SetReplacementRateRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetReplacementRateRequest: {e}"));
+    inventory_backend::cloud::postgres::ReserveRun::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReserveRun: {e}"));
+    inventory_backend::cloud::postgres::ReserveChargeLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReserveChargeLine: {e}"));
+    inventory_backend::cloud::postgres::ReserveStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReserveStatus: {e}"));
+
     // Bank reconciliation. `Suggestion.reasons` is the field that matters: a
     // 0-100 score explains nothing about which field agreed, and the person
     // accepting a match is reading the reasons, not the number.

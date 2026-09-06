@@ -63,6 +63,16 @@ pub struct PostingLine {
     pub debit_minor: i64,
     pub credit_minor: i64,
     pub supplier_id: Option<String>,
+    /// Which asset this line is about, when it is about one.
+    ///
+    /// The second sub-ledger dimension, and it is set the same way the first
+    /// is: by the rule that KNOWS. Depreciation, disposal, transfer and an
+    /// acquisition all name one asset; a reserve charge names a class of
+    /// equipment and no asset at all, and leaves this alone. Nothing infers it
+    /// from the account code afterwards — a class holds many assets, so the
+    /// inference would be wrong the first time a shop owned two racks.
+    #[serde(default)]
+    pub asset_id: Option<Uuid>,
     pub memo: Option<String>,
 }
 
@@ -77,6 +87,7 @@ impl PostingLine {
             debit_minor: amount_minor,
             credit_minor: 0,
             supplier_id: None,
+            asset_id: None,
             memo: None,
         }
     }
@@ -91,6 +102,7 @@ impl PostingLine {
             debit_minor: 0,
             credit_minor: amount_minor,
             supplier_id: None,
+            asset_id: None,
             memo: None,
         }
     }
@@ -107,6 +119,17 @@ impl PostingLine {
 
     pub fn for_supplier(mut self, supplier_id: &str) -> Self {
         self.supplier_id = Some(supplier_id.to_string());
+        self
+    }
+
+    /// Say which asset this line is about.
+    ///
+    /// The counterpart of `for_supplier`, and it earns its place for the same
+    /// reason: without it "what has this machine cost us" is a question only
+    /// `asset_depreciation_entry` can answer, and that table knows nothing
+    /// about the disposal, the transfer or the acquisition.
+    pub fn for_asset(mut self, asset_id: Uuid) -> Self {
+        self.asset_id = Some(asset_id);
         self
     }
 }
@@ -247,8 +270,8 @@ pub async fn post(
         sqlx::query(
             "INSERT INTO journal_line
                (line_id, entry_id, line_number, account_code, site_id,
-                debit_minor, credit_minor, supplier_id, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                debit_minor, credit_minor, supplier_id, asset_id, memo)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
@@ -258,6 +281,7 @@ pub async fn post(
         .bind(line.debit_minor)
         .bind(line.credit_minor)
         .bind(line.supplier_id.as_deref())
+        .bind(line.asset_id)
         .bind(line.memo.as_deref())
         .execute(&mut **tx)
         .await?;
@@ -298,7 +322,8 @@ pub async fn reverse(
     // `reversal_of` is UNIQUE, so a second attempt is refused by the database
     // rather than by a check somebody could forget to write.
     let lines = sqlx::query(
-        "SELECT line_number, account_code, site_id, debit_minor, credit_minor, supplier_id, memo
+        "SELECT line_number, account_code, site_id, debit_minor, credit_minor,
+                supplier_id, asset_id, memo
            FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
     )
     .bind(entry_id)
@@ -335,8 +360,8 @@ pub async fn reverse(
         sqlx::query(
             "INSERT INTO journal_line
                (line_id, entry_id, line_number, account_code, site_id,
-                debit_minor, credit_minor, supplier_id, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                debit_minor, credit_minor, supplier_id, asset_id, memo)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
         )
         .bind(Uuid::new_v4())
         .bind(reversal_id)
@@ -347,6 +372,11 @@ pub async fn reverse(
         .bind(credit)
         .bind(debit)
         .bind(row.try_get::<Option<String>, _>("supplier_id")?)
+        // Copied, like the account code and for the same reason: a reversal is
+        // about whatever the original was about. An undone disposal that lost
+        // its asset would leave the asset's own ledger showing the cost going
+        // out and never coming back.
+        .bind(row.try_get::<Option<Uuid>, _>("asset_id")?)
         .bind(row.try_get::<Option<String>, _>("memo")?)
         .execute(&mut **tx)
         .await?;
