@@ -607,6 +607,77 @@ async fn a_correction_on_a_half_sold_layer_lands_on_both_sides(pool: PgPool) {
     assert_eq!(posting.value_minor, 50_000);
 }
 
+/// Where the goods physically are, which is a different question from what the
+/// company's queue is worth.
+///
+/// The per-site figure is quantity at that place times the article's
+/// company-wide average rate, and it is a presentation number rather than an
+/// authority: the FIFO queue is the company's, so there is no honest per-place
+/// split of it. What has to be right is the QUANTITY, because that comes from
+/// summing movements in and out of each place and is easy to get backwards.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn stock_is_counted_where_it_actually_sits(pool: PgPool) {
+    let article = a_world(&pool).await;
+    receive(&pool, &a_delivery(article, 10, 1_250_000, 1, "GR-1")).await;
+
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin: {error}"));
+    cloud::stock_ledger_record_transfer(
+        &mut tx,
+        &StockTransfer {
+            article_id: article,
+            sku_id: None,
+            epc: None,
+            quantity: 6,
+            event_id: "T1".into(),
+            from_pool_id: "dc.warehouse".into(),
+            to_pool_id: "store-01.floor".into(),
+            site_id: "store-01".into(),
+            economic_date: september(3),
+            source_id: "ALLOT-1".into(),
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("transfer: {error}"));
+    cloud::stock_ledger_consume(&mut tx, &a_sale(article, 2, 4, "S1"), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("consume: {error}"));
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit: {error}"));
+
+    // Ten in, six sent to the shop, two sold out of the warehouse.
+    let shop = cloud::stock_ledger_valuation_by_site(&pool, Some("store-01"), 50)
+        .await
+        .unwrap_or_else(|error| panic!("by site: {error}"));
+    assert_eq!(shop.len(), 1);
+    assert_eq!(shop[0].quantity, 6);
+    assert_eq!(shop[0].value_minor, 6 * 125_000);
+
+    let centre = cloud::stock_ledger_valuation_by_site(&pool, Some("dc"), 50)
+        .await
+        .unwrap_or_else(|error| panic!("by site: {error}"));
+    assert_eq!(centre.len(), 1);
+    assert_eq!(centre[0].quantity, 2, "ten less six sent out less two sold");
+
+    // The company's own answer is still eight pieces: the transfer moved
+    // custody and the sale is the only thing that took any away.
+    let company = cloud::stock_ledger_valuation(&pool, Some("ART-001"), 10)
+        .await
+        .unwrap_or_else(|error| panic!("valuation: {error}"));
+    assert_eq!(company[0].quantity, 8);
+    assert_eq!(company[0].value_minor, 1_000_000);
+    assert_eq!(company[0].average_rate_minor, 125_000);
+    assert_eq!(
+        company[0].quantity,
+        shop[0].quantity + centre[0].quantity,
+        "the places do not add up to the company"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The two ways to spend basis that is not there
 // ---------------------------------------------------------------------------
