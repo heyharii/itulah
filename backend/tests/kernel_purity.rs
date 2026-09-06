@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
+    "src/cloud/domain/period_close.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the

@@ -39,7 +39,7 @@
 --   COGS_DAY          a day's cost of goods, recognised
 --   ASSET_RESERVE     a provision raised or released against an asset
 
-ALTER TABLE journal_entry DROP CONSTRAINT journal_entry_source_kind_check;
+ALTER TABLE journal_entry DROP CONSTRAINT IF EXISTS journal_entry_source_kind_check;
 ALTER TABLE journal_entry ADD CONSTRAINT journal_entry_source_kind_check
     CHECK (source_kind IN (
         -- as at 0096
