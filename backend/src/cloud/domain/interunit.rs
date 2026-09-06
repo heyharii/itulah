@@ -380,6 +380,98 @@ mod tests {
         assert_eq!(first_unbalanced_site(&lines), None);
     }
 
+    /// Every entry that can be built out of these pieces, checked exhaustively.
+    ///
+    /// Not a hand-picked case: 6 units x 5 amounts across four lines is 22,500
+    /// entries, which is a second's work here and a shape of failure a chosen
+    /// example cannot find. The generator only builds entries that balance in
+    /// TOTAL, because that is the precondition `balancing_legs` documents and
+    /// the poster enforces before it calls in.
+    fn every_balanced_entry(mut check: impl FnMut(&[SiteMovement])) {
+        let sites = ["dc", "store-01", "store-02", "store-03", "store-11", "dc"];
+        let amounts = [1_i64, 250, 1_000_000, 8_600_001, 9_000_000_000];
+        for first in sites {
+            for second in sites {
+                for third in sites {
+                    for fourth in sites {
+                        for left in amounts {
+                            for right in amounts {
+                                check(&[
+                                    SiteMovement::new(first, left, 0),
+                                    SiteMovement::new(second, 0, left),
+                                    SiteMovement::new(third, right, 0),
+                                    SiteMovement::new(fourth, 0, right),
+                                ]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The property the whole module exists for.
+    #[test]
+    fn every_unit_balances_once_the_legs_are_added() {
+        every_balanced_entry(|lines| {
+            let mut all = lines.to_vec();
+            for leg in balancing_legs(lines, AffiliateKind::Financing, "dc") {
+                all.push(SiteMovement::new(
+                    &leg.site_id,
+                    leg.debit_minor,
+                    leg.credit_minor,
+                ));
+            }
+            assert_eq!(
+                first_unbalanced_site(&all),
+                None,
+                "left a unit out: {lines:?}"
+            );
+        });
+    }
+
+    /// And the entry is still the entry. Legs are added in pairs of equal
+    /// weight, so the total the poster writes to `journal_entry.total_minor`
+    /// grows by the same amount on both sides and never by a different one.
+    #[test]
+    fn the_legs_add_as_much_debit_as_credit() {
+        every_balanced_entry(|lines| {
+            let legs = balancing_legs(lines, AffiliateKind::Goods, "dc");
+            let debits: i64 = legs.iter().map(|leg| leg.debit_minor).sum();
+            let credits: i64 = legs.iter().map(|leg| leg.credit_minor).sum();
+            assert_eq!(debits, credits, "unbalanced legs for {lines:?}");
+            // And each leg is one side or the other, never both and never
+            // neither — `check_balanced` refuses a line that is.
+            for leg in &legs {
+                assert!(
+                    (leg.debit_minor == 0) != (leg.credit_minor == 0),
+                    "a leg must be a debit or a credit: {leg:?}"
+                );
+            }
+        });
+    }
+
+    /// Running it over its own output changes nothing, over every entry the
+    /// generator can build. The reversal path depends on this and so does a
+    /// posting rule that has already added a leg of its own.
+    #[test]
+    fn balancing_is_idempotent_everywhere_not_just_in_the_example() {
+        every_balanced_entry(|lines| {
+            let mut all = lines.to_vec();
+            for leg in balancing_legs(lines, AffiliateKind::Financing, "dc") {
+                all.push(SiteMovement::new(
+                    &leg.site_id,
+                    leg.debit_minor,
+                    leg.credit_minor,
+                ));
+            }
+            assert!(
+                balancing_legs(&all, AffiliateKind::Financing, "dc").is_empty(),
+                "a second pass wanted more legs for {lines:?}"
+            );
+        });
+    }
+
     #[test]
     fn an_unbalanced_unit_is_named_with_what_it_is_out_by() {
         let lines = [
