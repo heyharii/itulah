@@ -19,7 +19,9 @@ mod place;
 mod sales;
 mod supplier;
 mod sync;
+pub mod three_way;
 mod voucher;
+pub mod withholding;
 
 pub use allotment::*;
 pub use attendance::*;
