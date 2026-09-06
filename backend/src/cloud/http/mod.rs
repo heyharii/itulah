@@ -35,6 +35,7 @@ pub mod pay;
 pub mod performance;
 pub mod reports;
 pub mod roster;
+pub mod stock_ledger;
 pub mod suppliers;
 pub mod vocabulary;
 pub mod vouchers;
@@ -717,6 +718,11 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/finance/journal/{id}/reverse",
             post(finance::reverse_entry),
         )
+        // What stock cost, which layers a posting took, and whether the stock
+        // ledger and the inventory account still agree. Merged rather than
+        // spelled out here because several sessions edit this file at once and
+        // one line collides less than four.
+        .merge(stock_ledger::lane_i_routes(Router::new()))
         // What "late" means. Readable by anybody signed in — a tolerance
         // kept from the people measured against it is a trap, not a rule —
         // and writable only at head office.

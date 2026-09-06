@@ -39,6 +39,12 @@ use std::path::{Path, PathBuf};
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
+    // What an outflow took from the FIFO queue, and how a late price correction
+    // splits between the goods still held and the ones already sold. Here for
+    // the same reason as the other two, and one of its own: the split has to
+    // give the same answer when it is re-run to explain a posting somebody is
+    // querying, months after the correction landed.
+    "src/cloud/domain/costing.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
@@ -137,9 +143,20 @@ fn the_kernels_still_expose_the_functions_they_exist_for() {
         matching.contains("pub fn suggest(") && matching.contains("pub fn resolve("),
         "the matcher scores one line and plans a whole statement, and both are public"
     );
+    let costing = std::fs::read_to_string(repository().join(KERNELS[2]))
+        .unwrap_or_else(|error| panic!("read: {error}"));
+    assert!(
+        costing.contains("pub fn consume_fifo(")
+            && costing.contains("pub fn split_price_correction("),
+        "the costing kernel takes basis off a queue and splits a late correction, and both are public"
+    );
     // No `&mut self`, no `&PgPool`, no `async`: the signatures themselves say
     // these are functions of their arguments.
-    for (name, source) in [("depreciation", &depreciation), ("bank_match", &matching)] {
+    for (name, source) in [
+        ("depreciation", &depreciation),
+        ("bank_match", &matching),
+        ("costing", &costing),
+    ] {
         assert!(
             !source.contains("pub async fn"),
             "{name} has an async door; a pure kernel has nothing to await"
