@@ -27,17 +27,29 @@ const ACTOR: &str = "ana";
 // Seed
 // ---------------------------------------------------------------------------
 
-/// A chart shaped like the client's: the ladder matters, not just the leaves.
+/// A chart shaped like the client's, because it IS the client's.
+///
+/// Every code and every name below is verified against their master account
+/// list. That matters more than it looks: the client's chart carries the
+/// location in the code itself, so `…00100` is head office and `…00101` is
+/// store C001. A fixture that invented a store account would pass while the
+/// real chart failed, and the failure would surface as a balance in the wrong
+/// place months later.
 ///
 /// Two locations, because half of what this engine notices is value that moved
 /// between two of them and was only recorded at one.
 async fn seed_chart(pool: &PgPool) {
-    let accounts: [(&str, &str, Option<&str>, Option<&str>); 16] = [
+    let accounts: [(&str, &str, Option<&str>, Option<&str>); 15] = [
         ("1", "ASSET", None, None),
         ("101", "CURRENT ASSET", Some("1"), None),
-        ("10110", "KAS DAN BANK", Some("101"), None),
-        ("1011002", "BANK - GIRO", Some("10110"), None),
-        ("101100200100", "Bank Giro HO", Some("1011002"), Some("dc")),
+        ("10110", "KAS & SETARA KAS", Some("101"), None),
+        ("1011002", "CASH IN BANK GIRO", Some("10110"), None),
+        (
+            "101100200100",
+            "Cash In Bank Giro Bank BCA HO",
+            Some("1011002"),
+            Some("dc"),
+        ),
         ("10112", "INVENTORY", Some("101"), None),
         ("1011201", "Persediaan Barang Dagang", Some("10112"), None),
         (
@@ -47,8 +59,8 @@ async fn seed_chart(pool: &PgPool) {
             Some("dc"),
         ),
         (
-            "101120100200",
-            "Persediaan Barang Dagangan Store 01",
+            "101120100101",
+            "Persediaan Barang Dagangan  C001",
             Some("1011201"),
             Some("store-01"),
         ),
@@ -63,12 +75,11 @@ async fn seed_chart(pool: &PgPool) {
             Some("dc"),
         ),
         (
-            "201200100200",
-            "Hutang Suppliers Store 01",
+            "201200100101",
+            "Hutang Suppliers  Barang Dagangan C001",
             Some("2012001"),
             Some("store-01"),
         ),
-        ("999999999999", "Suspense HO", None, Some("dc")),
     ];
     for (code, name, parent, site) in accounts {
         let is_group = code.len() < 12;
@@ -113,8 +124,8 @@ async fn seed(pool: &PgPool) {
     map_at(pool, "inventory", "dc", "101120100100").await;
     map_at(pool, "trade_payable", "dc", "201200100100").await;
     map_at(pool, "bank_giro", "dc", "101100200100").await;
-    map_at(pool, "inventory", "store-01", "101120100200").await;
-    map_at(pool, "trade_payable", "store-01", "201200100200").await;
+    map_at(pool, "inventory", "store-01", "101120100101").await;
+    map_at(pool, "trade_payable", "store-01", "201200100101").await;
 }
 
 fn september(day: u32) -> NaiveDate {
