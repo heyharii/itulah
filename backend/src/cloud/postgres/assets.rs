@@ -440,10 +440,12 @@ pub async fn assess_asset(
     // REGISTERED has always meant, so this is not a new state machine — it is
     // the draft joining the one that already exists. Guarded on DRAFT so an
     // asset already IN_SERVICE is not walked backwards by a re-assessment.
-    sqlx::query("UPDATE fixed_asset SET status = 'REGISTERED' WHERE asset_id = $1 AND status = 'DRAFT'")
-        .bind(asset_id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE fixed_asset SET status = 'REGISTERED' WHERE asset_id = $1 AND status = 'DRAFT'",
+    )
+    .bind(asset_id)
+    .execute(pool)
+    .await?;
     asset(pool, asset_id).await
 }
 
@@ -928,12 +930,10 @@ pub async fn dispose_asset(
     // somebody makes twice on the Account Map.
     let result = cost - accumulated - request.proceeds_minor;
     match result.cmp(&0) {
-        std::cmp::Ordering::Greater => lines.push(
-            PostingLine::debit("asset_disposal_result", &site, result).for_asset(asset_id),
-        ),
-        std::cmp::Ordering::Less => lines.push(
-            PostingLine::credit("asset_disposal_result", &site, -result).for_asset(asset_id),
-        ),
+        std::cmp::Ordering::Greater => lines
+            .push(PostingLine::debit("asset_disposal_result", &site, result).for_asset(asset_id)),
+        std::cmp::Ordering::Less => lines
+            .push(PostingLine::credit("asset_disposal_result", &site, -result).for_asset(asset_id)),
         std::cmp::Ordering::Equal => {}
     }
 
@@ -1605,7 +1605,8 @@ pub struct AssetDepreciationStatus {
 
 /// The candidate query the run and the status share, so the two cannot drift
 /// about what "an asset this month concerns" means.
-const DUE_CANDIDATES: &str = "SELECT a.asset_id, a.asset_number, a.name, a.site_id, a.category_code,
+const DUE_CANDIDATES: &str =
+    "SELECT a.asset_id, a.asset_number, a.name, a.site_id, a.category_code,
                 k.capitalized_cost_minor, k.salvage_value_minor, k.useful_life_months,
                 k.method, k.in_service_on,
                 COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d

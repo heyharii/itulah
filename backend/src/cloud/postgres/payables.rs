@@ -459,7 +459,8 @@ pub async fn record_bill(
                 // carry. A line that DRAWS the reserve is the opposite: its
                 // account is whatever the person chose and the posting rule
                 // ignores it, so nothing is asked of it here.
-                if !line.draws_reserve && !line.account_code.trim().starts_with(ASSET_ACCOUNT_FAMILY)
+                if !line.draws_reserve
+                    && !line.account_code.trim().starts_with(ASSET_ACCOUNT_FAMILY)
                 {
                     return Err(AppError::Validation(format!(
                         "line {} buys a {class} but is coded to {}; a capital purchase is coded \

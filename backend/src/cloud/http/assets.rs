@@ -48,7 +48,12 @@ pub struct PeriodQuery {
 /// argument that charged the month still in progress would post a full month's
 /// depreciation on the 3rd.
 fn month_of(query: &PeriodQuery) -> Result<(i32, u32), AppError> {
-    let Some(raw) = query.period.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+    let Some(raw) = query
+        .period
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
         let previous = Utc::now()
             .date_naive()
             .checked_sub_months(Months::new(1))
@@ -94,13 +99,8 @@ pub async fn asset_depreciation_run(
         )));
     }
     Ok(Json(
-        infrastructure::asset_depreciation_run_month(
-            &state.db,
-            year,
-            month,
-            &principal.username,
-        )
-        .await?,
+        infrastructure::asset_depreciation_run_month(&state.db, year, month, &principal.username)
+            .await?,
     ))
 }
 

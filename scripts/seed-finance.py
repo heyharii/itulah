@@ -49,6 +49,20 @@ PLAIN: dict[str, str] = {
     "cogs": "5010110001",
     "stock_loss": "8010110006",
     "interest_expense": "8020111001",
+    # lane-J: where the difference between what an asset was worth and what it
+    # fetched lands. Reading all 496 ten-digit template accounts in
+    # `Laporan_Master_Account1.csv`, the client keeps no "Laba (Rugi) Penjualan
+    # Aktiva Tetap" — classes 4 and 8 have nothing of the kind. What they do
+    # keep is one signed other-income-and-expense leaf, which is why
+    # `asset_disposal_result` is one key and not a gain key beside a loss key:
+    #
+    #   8010110007  Pendapatan (Biaya) Lain-Lain   (14 location leaves)
+    #
+    # It was the only one of the 29 meanings the posting rules use that this
+    # script never mapped, so every disposal with a gain or a loss — which is
+    # every disposal that is not exactly at book value — was refused by
+    # `poster.rs` naming a key nobody had set.
+    "asset_disposal_result": "8010110007",
 }
 
 # The seven asset categories the register offers, and what each one means in
@@ -81,6 +95,68 @@ QUALIFIED: dict[str, list[tuple[str, str]]] = {
     "advance": [("PERJALANAN", "1011303001")],
     "loan_principal": [("BANK", "2022401001")],
 }
+
+# lane-J: the client does not depreciate operating equipment. Their chart
+# carries three parallel blocks of thirty-six accounts, class for class:
+#
+#   1021507xxx  OE - <thing>                        the asset
+#   1021607xxx  RR OE- <thing>                      the replacement reserve
+#   7010215xxx  Biaya Replacement OE - <thing>      the monthly charge
+#
+# `1021607` is named "Reserve Replacement - Operating Equipment" where the other
+# six families under `10216` are named "Akum-Penyusu - …", and `70102` has no
+# depreciation family for operating equipment at all — its sixth child is
+# "BIAYA REPLACEMENT OPERATING EQUIPMENT". All three blocks and all fourteen
+# location leaves of each were verified against `Laporan_Master_Account1.csv`.
+#
+# The thirty-six suffixes, in the client's own order and with their own names:
+OPERATING_EQUIPMENT: list[tuple[str, str]] = [
+    ("001", "Rak 1"),
+    ("002", "Rak 2"),
+    ("003", "Rak 3"),
+    ("004", "Rak 4"),
+    ("005", "Pajangan Gantungan 2"),
+    ("006", "Pajangan Gantungan 4"),
+    ("007", "Pajangan Gantungan 6"),
+    ("008", "Pajangan Gantungan Lain-lain"),
+    ("009", "Meja 1"),
+    ("010", "Meja 2"),
+    ("011", "Meja 3"),
+    ("012", "Box OB Kayu"),
+    ("013", "Box OB Besi"),
+    ("014", "Holo"),
+    ("015", "Breket"),
+    ("016", "Belalai"),
+    ("017", "Patung Full Bodi Dewasa"),
+    ("018", "Patung Full Bodi Anak"),
+    ("019", "Patung Setengah Badan Pria"),
+    ("020", "Patung Setengah Badan Wanita 1"),
+    ("021", "Patung Setengah Badan Wanita 2"),
+    ("022", "Patung Setengah Badan Anak"),
+    ("023", "Patung Kepala Dewasa"),
+    ("024", "Patung Kepala Anak"),
+    ("025", "Patung Kaki Dewasa"),
+    ("026", "Patung Kaki Anak"),
+    ("027", "Hanger Wanita / ABG"),
+    ("028", "Hanger Pria"),
+    ("029", "Hanger Jacket"),
+    ("030", "Hanger Kayu Anak"),
+    ("031", "Hanger Body / Stelan"),
+    ("032", "Hanger Jepit Dewasa"),
+    ("033", "Hanger Jepit Anak"),
+    ("034", "Hanger Gamis / Ibu"),
+    ("035", "PIN / Kawat Sensor"),
+    ("036", "Tas / Keranjang Belanja"),
+]
+
+# The qualifier is the CLASS — `1021507001` — and not the family. Qualifying by
+# `1021507` instead would put every rack, mannequin and hanger in the company
+# into one reserve account, which is what the map did before and what made the
+# client's own reserve report unreadable.
+RESERVE_KEYS: list[tuple[str, str, str]] = [
+    (f"1021507{suffix}", f"1021607{suffix}", f"7010215{suffix}")
+    for suffix, _ in OPERATING_EQUIPMENT
+]
 
 SITES = ["dc"] + [f"store-{n:02d}" for n in range(1, 14)]
 
@@ -177,6 +253,28 @@ def seed_account_map(api: Api, leaf: dict, report: dict) -> None:
             ("fixed_asset", asset),
             ("accumulated_depreciation", accum),
             ("depreciation_expense", expense),
+        ):
+            for site in SITES:
+                account = leaf.get((code, site))
+                if account is None:
+                    missing.append(f"{key}/{site}/{code}")
+                    continue
+                ok = api.post(
+                    "/api/v1/finance/account-map",
+                    {
+                        "semantic_key": key,
+                        "site_id": site,
+                        "qualifier": qualifier,
+                        "account_code": account,
+                        "note": "seed",
+                    },
+                )
+                written += ok is not None
+    # lane-J: the replacement reserve, class by class.
+    for qualifier, reserve, expense in RESERVE_KEYS:
+        for key, code in (
+            ("replacement_reserve", reserve),
+            ("replacement_expense", expense),
         ):
             for site in SITES:
                 account = leaf.get((code, site))
@@ -344,6 +442,44 @@ def seed_depreciation(api: Api, months, report) -> None:
     report["depreciation"] = runs
 
 
+def seed_reserve(api: Api, months, rng, report) -> None:
+    """lane-J: what each shop puts aside against its operating equipment.
+
+    Six of the thirty-six classes, at every location, rather than all of them:
+    the point of the seed is that the reserve is visible and posts, and 504
+    rates would be 504 rows nobody reads on a screen built to be read. The
+    remaining thirty are mapped and unrated, which is the ordinary state of a
+    class Finance has not decided about yet — and which `rated_sites = 0` on
+    the classes list is there to show.
+    """
+    rated, runs = 0, []
+    for suffix, _ in OPERATING_EQUIPMENT[:6]:
+        for site in SITES:
+            body = {
+                "class_code": f"1021507{suffix}",
+                "site_id": site,
+                "effective_from": date(months[0][0], months[0][1], 1).isoformat(),
+                "monthly_charge_minor": rng.randrange(150, 600) * 1_000,
+                "note": "Seed: cadangan penggantian sesuai praktik klien",
+            }
+            if api.post("/api/v1/finance/assets/reserve/rates", body) is not None:
+                rated += 1
+    for year, month in months:
+        run = api.post(
+            f"/api/v1/finance/assets/reserve/run?period={year}-{month:02d}", {}
+        )
+        if run:
+            runs.append(
+                {
+                    "month": f"{year}-{month:02d}",
+                    "posted": run.get("posted_count"),
+                    "total": run.get("posted_total_minor"),
+                }
+            )
+    report["reserve_rates"] = rated
+    report["reserve_runs"] = runs
+
+
 def seed_bank(api: Api, leaf: dict, months, rng, report) -> None:
     imported = 0
     for index, site in enumerate(SITES[:4]):
@@ -444,7 +580,16 @@ def main() -> int:
     parser.add_argument(
         "--stage",
         default="all",
-        choices=["all", "map", "periods", "bills", "assets", "bank", "opening"],
+        choices=[
+            "all",
+            "map",
+            "periods",
+            "bills",
+            "assets",
+            "reserve",
+            "bank",
+            "opening",
+        ],
     )
     args = parser.parse_args()
 
@@ -467,6 +612,8 @@ def main() -> int:
     if want in ("all", "assets"):
         seed_assets(api, months, rng, report)
         seed_depreciation(api, months, report)
+    if want in ("all", "reserve"):
+        seed_reserve(api, months, rng, report)
     if want in ("all", "bank"):
         seed_bank(api, leaf, months, rng, report)
 

@@ -134,7 +134,10 @@ async fn run_asset_month_end_agent(pool: sqlx::PgPool) {
         else {
             continue;
         };
-        let (year, month) = (chrono::Datelike::year(&previous), chrono::Datelike::month(&previous));
+        let (year, month) = (
+            chrono::Datelike::year(&previous),
+            chrono::Datelike::month(&previous),
+        );
 
         // Asked before anything is posted, so an ordinary hour of an ordinary
         // day costs one query and writes no run row. Without this the log would
@@ -150,13 +153,8 @@ async fn run_asset_month_end_agent(pool: sqlx::PgPool) {
                 );
             }
             Ok(_) => {
-                match postgres::asset_depreciation_run_month(
-                    &pool,
-                    year,
-                    month,
-                    "system:month-end",
-                )
-                .await
+                match postgres::asset_depreciation_run_month(&pool, year, month, "system:month-end")
+                    .await
                 {
                     Ok(run) => info!(
                         %year, %month, posted = run.posted_count, total = run.posted_total_minor,
@@ -172,17 +170,17 @@ async fn run_asset_month_end_agent(pool: sqlx::PgPool) {
 
         match postgres::asset_reserve_status(&pool, year, month).await {
             Ok(status) if status.complete => {}
-            Ok(_) => match postgres::asset_reserve_charge(&pool, year, month, "system:month-end")
-                .await
-            {
-                Ok(run) => info!(
-                    %year, %month, posted = run.posted_count, total = run.posted_total_minor,
-                    "charged a month of replacement reserve"
-                ),
-                Err(error) => {
-                    tracing::error!(%year,%month,%error,"could not charge the replacement reserve")
+            Ok(_) => {
+                match postgres::asset_reserve_charge(&pool, year, month, "system:month-end").await {
+                    Ok(run) => info!(
+                        %year, %month, posted = run.posted_count, total = run.posted_total_minor,
+                        "charged a month of replacement reserve"
+                    ),
+                    Err(error) => {
+                        tracing::error!(%year,%month,%error,"could not charge the replacement reserve")
+                    }
                 }
-            },
+            }
             Err(error) => {
                 tracing::error!(%year,%month,%error,"could not read the reserve's status")
             }
