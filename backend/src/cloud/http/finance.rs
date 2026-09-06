@@ -293,7 +293,7 @@ pub async fn post_manual_entry(
         lines: request.lines,
     };
     let mut tx = state.db.begin().await?;
-    let posted = infrastructure::post(&mut tx, &intent, &principal.username).await?;
+    let posted = infrastructure::post(&mut tx, &intent, None, &principal.username).await?;
     tx.commit().await?;
     Ok(Json(json!({
         "entry_id": posted.entry_id,

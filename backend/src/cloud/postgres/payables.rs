@@ -542,6 +542,7 @@ pub async fn post_bill(
                     account_code: line.account_code.clone(),
                 },
                 site_id: line.site_id.clone(),
+                counter_site_id: None,
                 debit_minor: line.amount_minor,
                 credit_minor: 0,
                 supplier_id: None,
@@ -607,7 +608,7 @@ pub async fn post_bill(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
     sqlx::query(
         "UPDATE supplier_invoice
             SET status='POSTED', journal_entry_id=$2, posted_by=$3, posted_at=now()

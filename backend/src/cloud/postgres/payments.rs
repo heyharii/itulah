@@ -470,7 +470,7 @@ pub async fn post_payment(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
     sqlx::query(
         "UPDATE supplier_payment
             SET status='POSTED', journal_entry_id=$2, posted_by=$3, posted_at=now()

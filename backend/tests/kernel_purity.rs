@@ -39,6 +39,12 @@ use std::path::{Path, PathBuf};
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
+    // The balancer. It decides what an entry owes between units, which is the
+    // one decision in this system that has to give the same answer to the
+    // poster and to the reversal of the same entry a year later — so it may
+    // not read a map, a site table, or a clock. Where head office is arrives
+    // as an argument for exactly that reason.
+    "src/cloud/domain/interunit.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
