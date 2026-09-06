@@ -762,6 +762,15 @@ async fn a_transfer_is_a_transfer_and_a_float_is_a_float(pool: PgPool) {
         ),
     }
 
+    // Money arriving is the sixth pattern, and it is never a payout however
+    // many parties it touches.
+    let incoming = cloud::payment_context_resolve(&pool, "SETTLEMENT", "acq-bca")
+        .await
+        .unwrap_or_else(|e| panic!("settlement context: {e}"));
+    assert_eq!(incoming.pattern, PaymentPattern::ReceiveMoney);
+    assert_eq!(incoming.primitive, "RECEIVE");
+    assert!(incoming.allocates);
+
     let float = cloud::payment_context_resolve(&pool, "FUND_ALLOCATION", "emp-1")
         .await
         .unwrap_or_else(|e| panic!("fund context: {e}"));
