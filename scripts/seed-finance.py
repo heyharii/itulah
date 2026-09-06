@@ -18,7 +18,9 @@ a month that was never opened. Only then the documents.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
+import os
 import random
 import subprocess
 import sys
@@ -74,8 +76,12 @@ QUALIFIED: dict[str, list[tuple[str, str]]] = {
     "bank_savings": [("BCA", "1011003001"), ("MANDIRI", "1011003002")],
     "giro_outstanding": [("BCA", "2012002001")],
     "accrued_expense": [("UMUM", "2012201001")],
-    "affiliate_receivable": [("PEMBIAYAAN", "1021401001")],
-    "affiliate_payable": [("PEMBIAYAAN", "2012301001")],
+    # affiliate_receivable and affiliate_payable are NOT here. They used to be,
+    # with the qualifier PEMBIAYAAN and the leaf under `1021401001` at all
+    # fourteen locations — which is head office's account with ITSELF, shared by
+    # thirteen shops. Nothing posted to it, so nothing was wrong yet. The
+    # `# lane-D` block below maps them properly: one leaf per pair per column,
+    # keyed `<KIND>:<counterparty>`. See migration 0122.
     "goods_in_transit": [("DC", "1011203001")],
     "prepaid_expense": [("ASURANSI", "1011301001")],
     "advance": [("PERJALANAN", "1011303001")],
@@ -214,6 +220,125 @@ def seed_account_map(api: Api, leaf: dict, report: dict) -> None:
                 written += ok is not None
     report["mappings"] = written
     report["mapping_gaps"] = missing
+
+
+# lane-D
+# --------------------------------------------------------------------------
+# the affiliate map: one leaf per pair, per column
+# --------------------------------------------------------------------------
+#
+# The client's chart carries all 784 combinations of fourteen units against
+# fourteen, in four families. Fifty-two of them are the ones head office and its
+# thirteen shops actually use, and this maps those.
+#
+# Read one of their codes out loud and the shape is unambiguous:
+#
+#   102140200200   Piutang Affiliasi Atas Barang CIKUPA - HO
+#   |______|                                              ^^  owner: 00 = HO
+#          ^^^                                                counterparty: 002
+#
+#   201230200101   Hutang Affiliasi Atas Barang HEAD OFFICE - C001
+#                  owner: suffix 01 = C001; counterparty: 001 = HEAD OFFICE
+#
+# Those two are one balance written from both sides. The OWNER is the two-digit
+# suffix — which is what `import-coa.py` files `ledger_account.site_id` by, so
+# agreeing with it is not optional — and the counterparty is the three-digit
+# rung, indexed from 001 = head office.
+#
+# The codes are not invented here. They are computed and then CHECKED against
+# the client's own export, by name, and a code the export does not carry is
+# skipped and reported rather than written. `csv.reader` and not `line.split(",")`:
+# the account names contain commas.
+
+AFFILIATE_CSV = os.path.expanduser("~/Downloads/Laporan_Master_Account1.csv")
+
+# kind -> (receivable family, payable family, the client's own headings)
+AFFILIATE_FAMILIES: dict[str, tuple[str, str, str, str]] = {
+    # What a shop owes for stock, settled by its deposits.
+    "BARANG": ("1021402", "2012302",
+               "PIUTANG AFFILIASI ATAS BARANG", "HUTANG AFFILIASI ATAS BARANG"),
+    # Head office funding a shop: paying its costs, topping up its float.
+    "PEMBIAYAAN": ("1021401", "2012301",
+                   "PIUTANG AFFILIASI PEMBIAYAAN", "HUTANG AFFILIASI PEMBIAYAAN"),
+}
+
+HEAD_OFFICE = "dc"
+
+
+def client_chart(path: str) -> dict[str, str]:
+    """code -> name, from the client's own export. Empty if it is not here."""
+    if not os.path.exists(path):
+        return {}
+    chart: dict[str, str] = {}
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        for row in csv.reader(handle):
+            # Same filter `import-coa.py` uses: an account row is one whose
+            # second column is a number. The banner and legend rows fail it.
+            if len(row) < 5:
+                continue
+            code = row[1].strip()
+            if code.isdigit():
+                chart.setdefault(code, " ".join(row[2].split()))
+    return chart
+
+
+def affiliate_rows(chart: dict[str, str]) -> tuple[list[dict], list[str]]:
+    """The 52 mappings, and the codes the client's chart does not carry."""
+    # suffix and rung index for each unit. `001` is head office, so a shop's
+    # rung index is its number plus one — the same ordering `import-coa.py`
+    # assumed when it filed the leaves.
+    units = [(HEAD_OFFICE, "00", "001")] + [
+        (f"store-{n:02d}", f"{n:02d}", f"{n + 1:03d}") for n in range(1, 14)
+    ]
+    ho_suffix, ho_index = "00", "001"
+
+    rows: list[dict] = []
+    missing: list[str] = []
+    for kind, (receivable, payable, recv_name, pay_name) in AFFILIATE_FAMILIES.items():
+        # The families themselves, checked by name. If these four have moved,
+        # every code below is wrong and silence would be the worst outcome.
+        for family, expected in ((receivable, recv_name), (payable, pay_name)):
+            if chart and chart.get(family, "").upper() != expected:
+                missing.append(f"family {family} is {chart.get(family)!r}, expected {expected!r}")
+        for site, suffix, index in units:
+            if site == HEAD_OFFICE:
+                continue
+            for key, owner, counterparty, code in (
+                # Head office books the receivable, named for the shop, at 00.
+                ("affiliate_receivable", HEAD_OFFICE, site,
+                 receivable + index + ho_suffix),
+                # The shop books the payable, named for head office, at its own.
+                ("affiliate_payable", site, HEAD_OFFICE,
+                 payable + ho_index + suffix),
+            ):
+                if chart and code not in chart:
+                    missing.append(f"{key}/{owner}/{kind}:{counterparty}/{code}")
+                    continue
+                rows.append({
+                    "semantic_key": key,
+                    "site_id": owner,
+                    # Both facts the client's code carries in its rung and its
+                    # suffix, in the order somebody reads them. `domain::interunit`
+                    # builds exactly this string, so a leg the poster adds
+                    # resolves without the poster ever naming a code.
+                    "qualifier": f"{kind}:{counterparty}",
+                    "account_code": code,
+                    "note": chart.get(code, "inter-unit pair"),
+                })
+    return rows, missing
+
+
+def seed_affiliate_map(api: Api, report: dict, csv_path: str) -> None:
+    chart = client_chart(csv_path)
+    rows, missing = affiliate_rows(chart)
+    written = 0
+    for row in rows:
+        written += api.post("/api/v1/finance/account-map", row) is not None
+    report["affiliate_mappings"] = written
+    report["affiliate_gaps"] = missing
+    # Said out loud, because a run without the client's export writes the same
+    # 52 rows without having checked a single one of them.
+    report["affiliate_verified_against"] = csv_path if chart else None
 
 
 def seed_periods(api: Api, months: list[tuple[int, int]], report: dict) -> None:
@@ -441,6 +566,8 @@ def main() -> int:
     parser.add_argument("--api", default="http://127.0.0.1:8080")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--seed", type=int, default=20260902)
+    # lane-D: the client's own chart export, used to check the affiliate codes.
+    parser.add_argument("--coa", default=AFFILIATE_CSV)
     parser.add_argument(
         "--stage",
         default="all",
@@ -457,6 +584,9 @@ def main() -> int:
     want = args.stage
     if want in ("all", "map"):
         seed_account_map(api, leaf, report)
+        # lane-D. After the rest of the map, so a failure here is legible on
+        # its own line of the report rather than hidden in the same counter.
+        seed_affiliate_map(api, report, args.coa)
     if want in ("all", "periods"):
         seed_periods(api, months, report)
     if want in ("all", "opening"):
