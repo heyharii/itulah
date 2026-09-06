@@ -56,7 +56,10 @@ PLAIN: dict[str, str] = {
     # each is the next free leaf in the family it belongs to and has to be
     # confirmed with Finance before these books are compared with theirs.
     "revenue_cash": "4010110001",
-    "revenue_qris": "4010113001",  # proposed
+    # PROPOSED. Not 4010113001, which their chart already spends on
+    # "Penjualan Online Sendiri" — 401011.3 is their online rung, with .3002
+    # for the marketplaces. 401011.4 is the next one nobody has taken.
+    "revenue_qris": "4010114001",  # proposed
     "sales_return": "4010214001",
     "sales_discount": "4010213001",
     "vat_out": "2012101003",

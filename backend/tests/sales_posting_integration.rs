@@ -73,7 +73,7 @@ async fn seed_chart(pool: &PgPool) {
             "401011200101",
             "Penjualan Kartu Kredit VISA C001",
         ),
-        ("4010113001", "401011300101", "Penjualan QRIS C001"),
+        ("4010114001", "401011400101", "Penjualan QRIS C001"),
         ("4010213001", "401021300101", "Potongan Penjualan C001"),
         ("4010214001", "401021400101", "Retur Penjualan C001"),
         ("8010110002", "801011000201", "Selisih pembulatan C001"),
@@ -128,7 +128,7 @@ async fn map_everything(pool: &PgPool) {
         ("vat_out", "201210100301"),
         ("voucher_liability", "201230500101"),
         ("revenue_cash", "401011000101"),
-        ("revenue_qris", "401011300101"),
+        ("revenue_qris", "401011400101"),
         ("sales_discount", "401021300101"),
         ("sales_return", "401021400101"),
         ("rounding", "801011000201"),
@@ -362,7 +362,7 @@ async fn a_mixed_day_becomes_one_balanced_entry(pool: PgPool) {
         "401011000101",
         "401011100101",
         "401011200101",
-        "401011300101",
+        "401011400101",
     ] {
         assert!(
             balance(&pool, code).await.1 > 0,

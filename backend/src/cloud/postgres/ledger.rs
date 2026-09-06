@@ -436,12 +436,22 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // a named acquirer's debt that arrives on Thursday net of a fee, so the
         // income keys below are qualified the same way the receivables are.
         //
-        // Three of these are marked "proposed": the client's chart has no
-        // account for them. QRIS did not exist when their chart was drawn, and
-        // they have never sold a gift card. The codes suggested are the next
-        // free leaf in the family each belongs to, and every one of them is a
-        // suggestion on the Account Map screen and nothing more — unmapped, the
-        // day refuses and names the key.
+        // Three of these are marked "proposed": their chart, all 496 accounts
+        // of it, has nothing for them. QRIS did not exist when it was drawn and
+        // they have never sold a gift card — checked, not assumed: no account
+        // in it mentions QRIS, a wallet, or a voucher.
+        //
+        // Each suggested code is a rung nobody has taken, checked against the
+        // same file. That check is worth making rather than eyeballing: the
+        // obvious next rung for QRIS income, 4010113001, is already spent on
+        // "Penjualan Online Sendiri" — 401011.3 is their online rung, .3002
+        // being the marketplaces — so QRIS goes to 401011.4 instead. Proposing
+        // a code that already means something else is the one mistake here
+        // that would post real money into somebody else's account and still
+        // balance.
+        //
+        // All three are suggestions on the Account Map screen and nothing more.
+        // Unmapped, the day refuses and names the key.
         key(
             "revenue_cash",
             "Sales — cash",
@@ -466,7 +476,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "revenue_qris",
             "Sales — QRIS",
-            "4010113001 Penjualan QRIS (proposed; the client's chart has none)",
+            "4010114001 Penjualan QRIS (proposed; the client's chart has none)",
             false,
             "Sales posting",
         ),
