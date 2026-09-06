@@ -519,6 +519,12 @@ async fn the_general_ledger_opens_where_the_previous_window_closed(pool: PgPool)
     for (day, amount) in [(1_u32, 1_000_i64), (2, 2_000)] {
         let mut intent = bill(amount);
         intent.posting_date = september(day);
+        // Two bills and not one bill posted twice. `bill()` names INV-1, and
+        // from migration 0140 a document posts once for each step it has — so
+        // the second of these would be refused as the duplicate it looks like.
+        // Which is the right refusal: what this test wants is two movements in
+        // one account, and two movements come from two documents.
+        intent.source_id = Some(format!("INV-{day}"));
         let mut tx = pool
             .begin()
             .await
