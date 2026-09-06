@@ -405,27 +405,36 @@ async fn take_for_move(
 /// Recorded anyway, because it is the difference between a giro we can still
 /// tear up and one we cannot, and that is the question somebody asks the
 /// afternoon a supplier's account turns out to be wrong.
-pub async fn giro_deliver(pool: &PgPool, giro_id: Uuid, actor: &str) -> Result<GiroRow, AppError> {
-    let mut tx = pool.begin().await?;
-    take_for_move(&mut tx, giro_id, GiroState::Delivered).await?;
-    sqlx::query("UPDATE giro SET status='DELIVERED' WHERE giro_id=$1")
-        .bind(giro_id)
-        .execute(&mut *tx)
-        .await?;
-    let _ = actor;
-    tx.commit().await?;
-    giro_read(pool, giro_id).await
+///
+/// # Why this takes no actor
+///
+/// `settled_by` on the row is for settlement — the act that posts — and the two
+/// intermediate moves post nothing, so there is nothing on them for anybody to
+/// sign. Who made them is answered by the audit log, which `http::audit`
+/// records for every write with the actor the session resolved. A column here
+/// would be a second, thinner copy of that: one that only knows about giros,
+/// and one somebody would have to remember to write.
+pub async fn giro_deliver(pool: &PgPool, giro_id: Uuid) -> Result<GiroRow, AppError> {
+    move_to(pool, giro_id, GiroState::Delivered).await
 }
 
 /// The date arrived and the bank has not taken it. Also no posting.
-pub async fn giro_mark_due(pool: &PgPool, giro_id: Uuid, actor: &str) -> Result<GiroRow, AppError> {
+///
+/// A state a report derives and a person confirms, and it exists so "overdue"
+/// is a thing the board can say without inventing a fourth status for it.
+pub async fn giro_mark_due(pool: &PgPool, giro_id: Uuid) -> Result<GiroRow, AppError> {
+    move_to(pool, giro_id, GiroState::Due).await
+}
+
+/// The two moves that change a status and nothing else.
+async fn move_to(pool: &PgPool, giro_id: Uuid, to: GiroState) -> Result<GiroRow, AppError> {
     let mut tx = pool.begin().await?;
-    take_for_move(&mut tx, giro_id, GiroState::Due).await?;
-    sqlx::query("UPDATE giro SET status='DUE' WHERE giro_id=$1")
+    take_for_move(&mut tx, giro_id, to).await?;
+    sqlx::query("UPDATE giro SET status=$2 WHERE giro_id=$1")
         .bind(giro_id)
+        .bind(to.as_str())
         .execute(&mut *tx)
         .await?;
-    let _ = actor;
     tx.commit().await?;
     giro_read(pool, giro_id).await
 }

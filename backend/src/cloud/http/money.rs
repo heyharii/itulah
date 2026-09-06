@@ -339,22 +339,20 @@ pub async fn giro(
 /// Handed over. No posting; it is where the paper is.
 pub async fn deliver_giro(
     State(state): State<AppState>,
-    Extension(principal): Extension<Principal>,
     Path(giro_id): Path<Uuid>,
 ) -> Result<Json<GiroRow>, AppError> {
     Ok(Json(
-        infrastructure::giro_deliver(&state.db, giro_id, &principal.username).await?,
+        infrastructure::giro_deliver(&state.db, giro_id).await?,
     ))
 }
 
 /// The date arrived and the bank has not taken it. Also no posting.
 pub async fn mark_giro_due(
     State(state): State<AppState>,
-    Extension(principal): Extension<Principal>,
     Path(giro_id): Path<Uuid>,
 ) -> Result<Json<GiroRow>, AppError> {
     Ok(Json(
-        infrastructure::giro_mark_due(&state.db, giro_id, &principal.username).await?,
+        infrastructure::giro_mark_due(&state.db, giro_id).await?,
     ))
 }
 
