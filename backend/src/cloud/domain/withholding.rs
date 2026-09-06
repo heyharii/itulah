@@ -40,8 +40,16 @@ pub struct WithholdingCategory {
     /// Basis points of the taxable base. 200 = 2%.
     pub rate_bp: i64,
     /// The meaning the credit posts to. Two, because PPh 23 is creditable
-    /// against the vendor's annual liability and PPh 4(2) is final — the
-    /// client's own accountant keeps them apart, and so does their chart.
+    /// against the vendor's annual liability and PPh 4(2) is final, and a
+    /// creditable tax sitting in the same account as a final one is claimed
+    /// back a year later by somebody reading the balance.
+    ///
+    /// The client's chart keeps only one of the two: `2012101002 Hutang Pajak
+    /// PPH Pasal 23 (withold)` exists and nothing under `20121 HUTANG PAJAK`
+    /// answers to PPh 4(2). `pph_final_payable` therefore has no account to be
+    /// seeded to, and a rent payment refuses until the client opens one. That
+    /// refusal is the point: the alternative is posting a final tax where a
+    /// creditable one is expected, which nothing downstream would catch.
     pub payable_key: &'static str,
     /// Whether the tax is final for the vendor.
     pub is_final: bool,

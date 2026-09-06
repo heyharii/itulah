@@ -424,6 +424,98 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Loans & Financing",
         ),
+        // lane-G: the rest of the payables loop.
+        //
+        // Every code below was read out of the client's own chart
+        // (`Laporan_Master_Account1.csv`) and every one of them has the same
+        // fourteen location leaves — HO and C001..C013 — that `inventory` and
+        // `trade_payable` do. None is invented and none is borrowed from a
+        // meaning that was already spoken for.
+        //
+        // The one this lane exists for. 0052 said the client's chart had no
+        // goods-received-not-invoiced account and refused to post a delivery on
+        // those grounds; the account was there all along, beside the ordinary
+        // supplier payable, and nothing had ever posted to it. A delivery
+        // credits it and the bill that answers the delivery clears it, so the
+        // balance on it at a month end is exactly what the warehouse holds and
+        // nobody has been invoiced for.
+        key(
+            "supplier_suspend",
+            "Supplier payable — goods received, not invoiced",
+            "2012001002 Hutang Supplier Barang Dagang - Suspend",
+            false,
+            "Payables",
+        ),
+        // Where a bill that disagrees with the order puts the difference.
+        //
+        // The expectation is the SAME account `purchase_discount` names, and
+        // that is not an oversight: the client keeps one signed account for
+        // both, `8010110003 Potongan Pembelian`, and there is no variance
+        // account anywhere in the 7,538 rows to point at instead. Two keys
+        // rather than one all the same, because they are two different facts —
+        // a discount is agreed and a variance is discovered — and a client who
+        // opens a variance account later remaps this one key instead of
+        // waiting for a release.
+        key(
+            "purchase_price_variance",
+            "Purchase price variance",
+            "8010110003 Potongan Pembelian",
+            false,
+            "Payables",
+        ),
+        // Money paid to a supplier before there is a bill to owe them for.
+        //
+        // Distinct from `advance`, which is the travelling advance a person
+        // draws (`1011303001 Advanced - Travelling`), and distinct again from
+        // anything owed by a store manager. Three different debts to three
+        // different kinds of counterparty, and the client's chart keeps them on
+        // three different accounts, so this system does too.
+        key(
+            "advance_purchase",
+            "Advance to a supplier",
+            "1011303002 Advanced - Purchase",
+            false,
+            "Payables",
+        ),
+        // The bank's own charge on a transfer, when it comes out of the same
+        // movement rather than being debited separately.
+        key(
+            "bank_admin_fee",
+            "Bank charge on a transfer",
+            "6010310004 Biaya Bank",
+            false,
+            "Cash & Bank",
+        ),
+        // Income tax kept back from a supplier and owed to the tax office.
+        // Creditable: the vendor claims it against their annual liability with
+        // the certificate this system's figure appears on.
+        key(
+            "pph23_payable",
+            "PPh 23 withheld",
+            "2012101002 Hutang Pajak PPH Pasal 23 (withold)",
+            false,
+            "Payables",
+        ),
+        // The final-tax half of the same act, and the one honest gap in this
+        // list: the client's chart has no PPh 4(2) leaf. `20121 HUTANG PAJAK`
+        // holds PPh 21, PPh 23, output VAT, land-and-building tax and PPh 25,
+        // and nothing for the final tax on rent of land and buildings.
+        //
+        // So the expectation below names the heading rather than a leaf, and it
+        // is a suggestion in the way `asset_disposal_result`'s is. Left
+        // deliberately unseeded: pointing it at the PPh 23 account would put a
+        // final tax in a creditable one, where somebody would claim it back a
+        // year later. Unmapped, a rent payment refuses and names this key,
+        // which is the whole point — the Account Map screen lists it as unset
+        // from the day this ships rather than somebody discovering it while
+        // trying to pay a landlord.
+        key(
+            "pph_final_payable",
+            "PPh 4(2) withheld — final",
+            "2012101* Hutang Pajak (the chart keeps no PPh 4(2) leaf; open one)",
+            false,
+            "Payables",
+        ),
     ]
 }
 

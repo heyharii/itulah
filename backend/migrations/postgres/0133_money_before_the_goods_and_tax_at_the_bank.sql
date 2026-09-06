@@ -286,8 +286,15 @@ ALTER TABLE supplier_payment
     -- WHICH tax was kept back, said the way this system says every account:
     -- a meaning, resolved through `account_map` at posting time. PPh 23 is
     -- creditable against the vendor's annual liability and PPh 4(2) is final,
-    -- and the client's chart keeps them apart, so the payment has to remember
-    -- which of the two it withheld.
+    -- so the payment has to remember which of the two it withheld — a
+    -- creditable tax sitting in a final one's account is claimed back a year
+    -- later by somebody reading the balance.
+    --
+    -- The client's chart has an account for the first and none for the second:
+    -- `2012101002 Hutang Pajak PPH Pasal 23 (withold)` exists, and nothing
+    -- under `20121 HUTANG PAJAK` answers to PPh 4(2). So `pph_final_payable`
+    -- ships unmapped and a rent payment refuses until the client opens the
+    -- account, which is better than posting a final tax into a creditable one.
     ADD COLUMN withholding_key text
         CHECK (withholding_key IS NULL OR withholding_key IN
             ('pph23_payable', 'pph_final_payable')),
