@@ -594,7 +594,19 @@ async fn a_rule_proposes_and_only_a_person_makes_it_money(pool: PgPool) {
     // The number that says whether the rule list is doing anything, reported
     // rather than left to be inferred from a shorter list than expected.
     assert_eq!(outcome.unrecognised, 1);
-    assert_eq!(outcome.proposals[0].semantic_key, "bank_admin_fee");
+    // The rule proposes a CATEGORY now (0157), not a key of its own. The key
+    // it resolves through is still `bank_admin_fee` and the account below is
+    // still Biaya Bank — what changed is that the meaning is declared in one
+    // place instead of two.
+    assert_eq!(
+        outcome.proposals[0].category_code.as_deref(),
+        Some("ops_bank_charges")
+    );
+    assert_eq!(
+        outcome.proposals[0].semantic_key, None,
+        "the direct key is the fallback for a narration no category covers; a seeded rule has a \
+         category, so carrying a key beside it would be the disagreement 0157 removed"
+    );
 
     // Nothing has been posted. That is the whole design: a rule that posted
     // would invent journal entries out of text matching, and the first time a
@@ -650,13 +662,19 @@ async fn the_greedier_rule_does_not_swallow_the_one_below_it(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("evaluate: {error}"));
     assert_eq!(outcome.proposed, 2);
-    let keys: Vec<&str> = outcome
+    let categories: Vec<&str> = outcome
         .proposals
         .iter()
-        .map(|proposal| proposal.semantic_key.as_str())
+        .filter_map(|proposal| proposal.category_code.as_deref())
         .collect();
-    assert!(keys.contains(&"tax_on_interest"), "{keys:?}");
-    assert!(keys.contains(&"interest_income"), "{keys:?}");
+    assert!(
+        categories.contains(&"finance_tax_on_interest"),
+        "{categories:?}"
+    );
+    assert!(
+        categories.contains(&"income_bank_interest"),
+        "{categories:?}"
+    );
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]

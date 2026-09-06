@@ -5,7 +5,20 @@ export type BankRuleProposalRow = { proposal_id: string, line_id: string, rule_i
  * The pattern that recognised it, so the screen can say why without
  * fetching the rule.
  */
-rule_pattern: string, semantic_key: string, qualifier: string, site_id: string, account_code: string | null, account_name: string | null, status: string, cash_document_id: string | null, cash_document_number: string | null, 
+rule_pattern: string, 
+/**
+ * What the rule said this line means. Frozen when the proposal was made,
+ * so a rule repointed afterwards cannot silently repoint a proposal a
+ * person has already read.
+ */
+category_code: string | null, category_name: string | null, 
+/**
+ * The sentence a person will get if they accept it and may not. Present
+ * on the proposal rather than discovered on acceptance, because a screen
+ * that offers Accept beside a proposal that cannot be accepted is a screen
+ * that lies.
+ */
+category_refusal: string | null, semantic_key: string | null, qualifier: string, site_id: string, account_code: string | null, account_name: string | null, status: string, cash_document_id: string | null, cash_document_number: string | null, 
 /**
  * The line itself, because a proposal read on its own is unreadable: the
  * narration IS the evidence a person is judging.

@@ -21,6 +21,7 @@ mod place;
 mod sales;
 mod supplier;
 mod sync;
+mod transaction_category;
 mod voucher;
 
 pub use allotment::*;
@@ -46,4 +47,5 @@ pub use place::*;
 pub use sales::*;
 pub use supplier::*;
 pub use sync::*;
+pub use transaction_category::*;
 pub use voucher::*;

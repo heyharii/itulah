@@ -26,9 +26,34 @@
 //! A pattern that Postgres cannot compile is refused when the rule is written,
 //! not when it is applied: an invalid pattern discovered during evaluation
 //! would abort the whole run and leave a screen unable to say which rule did it.
+//!
+//! # A rule proposes a CATEGORY, and the category knows the account
+//!
+//! This module first carried a `semantic_key` of its own, because when it was
+//! written there was nowhere else for a rule to point. There is now
+//! (`transaction_category`, 0155), and meaning declared in two places is
+//! meaning that can disagree: repoint the category the day PPh on jasa giro
+//! moves, and a rule still holding its own key goes on proposing the old
+//! account — recognising the right line and being wrong about what it means,
+//! which is the worse of the two failures because the proposal still looks
+//! reasonable.
+//!
+//! So the category is what a rule names, and the key stays as the fallback for
+//! a narration no category covers yet. Where both are present the category
+//! wins, in the query — `COALESCE(c.semantic_key, r.semantic_key)` — rather
+//! than by a precedence rule somebody has to remember.
+//!
+//! Accepting is then not this module's judgement at all: it hands the line and
+//! the category to `bank_line_categorise`, which is the same door a person
+//! choosing a category by hand goes through. That matters more than saving the
+//! code. It means a rule that proposes a category nobody may choose — somebody
+//! writes one for the monthly payroll transfer so that it stops showing as
+//! unrecognised — is refused on acceptance with the sentence naming the payroll
+//! run, instead of quietly booking a salary expense for the second time.
 
 use super::banking::{bank_line_to_document, OtherSide};
 use super::cash::{cash_document_read, CashDocumentRow};
+use super::transaction_categories::{bank_line_categorise, CategoriseBankLineRequest};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{recognise, BankLine, NarrationRule, RuleDirection, RuleMatch};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
@@ -48,7 +73,18 @@ pub struct BankRuleRow {
     pub pattern: String,
     /// `IN`, `OUT` or `ANY`, as the bank reports it.
     pub direction: String,
-    pub semantic_key: String,
+    /// What this rule says the line means, in the words a person uses.
+    pub category_code: Option<String>,
+    pub category_name: Option<String>,
+    /// True when the category this rule proposes is one a person may not
+    /// choose from a bank line. Not forbidden — recognising the payroll
+    /// transfer so it stops looking unrecognised is a reasonable thing to want
+    /// — but the rule then only ever produces refusals, and that is worth
+    /// seeing beside it rather than discovering by accepting one.
+    pub category_refuses: bool,
+    /// A meaning named directly, for a narration no category covers yet.
+    /// Ignored when `category_code` is set.
+    pub semantic_key: Option<String>,
     pub qualifier: String,
     pub site_id: String,
     /// What that meaning resolves to at that location today, so a screen can
@@ -76,7 +112,11 @@ pub struct RecordBankRuleRequest {
     pub match_kind: String,
     pub pattern: String,
     pub direction: Option<String>,
-    pub semantic_key: String,
+    /// What the line means. Preferred, and one of this and `semantic_key` has
+    /// to be given.
+    pub category_code: Option<String>,
+    /// A meaning named directly, for the narration no category covers yet.
+    pub semantic_key: Option<String>,
     #[serde(default)]
     pub qualifier: String,
     pub site_id: Option<String>,
@@ -85,7 +125,13 @@ pub struct RecordBankRuleRequest {
     pub note: Option<String>,
 }
 
+/// The category wins where both are present, and it wins in the query rather
+/// than in a branch somebody could forget: everything downstream — the account
+/// shown beside the rule, the key the fallback path posts through — reads the
+/// same COALESCE.
 const RULE_COLUMNS: &str = "r.rule_id, r.priority, r.match_kind, r.pattern, r.direction,
+     r.category_code, c.display_name AS category_name,
+     COALESCE(NOT c.bank_postable, false) AS category_refuses,
      r.semantic_key, r.qualifier, r.site_id, r.party, r.active, r.note,
      r.created_by, r.created_at,
      m.account_code, a.name AS account_name,
@@ -98,9 +144,10 @@ const RULE_COLUMNS: &str = "r.rule_id, r.priority, r.match_kind, r.pattern, r.di
 /// nobody has mapped yet is exactly the rule somebody needs to see on the
 /// screen, and hiding it would hide the thing that has to be fixed.
 const RULE_FROM: &str = "FROM bank_rule r
-     LEFT JOIN account_map m ON m.semantic_key = r.semantic_key
+     LEFT JOIN transaction_category c ON c.code = r.category_code
+     LEFT JOIN account_map m ON m.semantic_key = COALESCE(c.semantic_key, r.semantic_key)
                             AND m.site_id = r.site_id
-                            AND m.qualifier = r.qualifier
+                            AND m.qualifier = COALESCE(c.qualifier, r.qualifier)
      LEFT JOIN ledger_account a ON a.account_code = m.account_code";
 
 fn to_rule(row: &sqlx::postgres::PgRow) -> Result<BankRuleRow, AppError> {
@@ -110,6 +157,9 @@ fn to_rule(row: &sqlx::postgres::PgRow) -> Result<BankRuleRow, AppError> {
         match_kind: row.try_get("match_kind")?,
         pattern: row.try_get("pattern")?,
         direction: row.try_get("direction")?,
+        category_code: row.try_get("category_code")?,
+        category_name: row.try_get("category_name")?,
+        category_refuses: row.try_get("category_refuses")?,
         semantic_key: row.try_get("semantic_key")?,
         qualifier: row.try_get("qualifier")?,
         site_id: row.try_get("site_id")?,
@@ -159,7 +209,8 @@ struct CheckedRule {
     match_kind: String,
     pattern: String,
     direction: String,
-    semantic_key: String,
+    category_code: Option<String>,
+    semantic_key: Option<String>,
     qualifier: String,
     site_id: String,
     party: Option<String>,
@@ -195,11 +246,52 @@ async fn check_rule(
             "'{direction}' is not a direction; expected IN, OUT or ANY"
         )));
     }
-    let semantic_key = request.semantic_key.trim().to_string();
-    if semantic_key.is_empty() {
-        return Err(AppError::Validation(
-            "a rule says where the other side of the line goes; it needs a meaning".into(),
-        ));
+    // A category, a bare meaning, or a refusal. Never both — a rule carrying
+    // two answers is a rule that will be read two ways.
+    let category_code = request
+        .category_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase);
+    let semantic_key = request
+        .semantic_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    match (&category_code, &semantic_key) {
+        (None, None) => {
+            return Err(AppError::Validation(
+                "a rule says what the line means; give it a category, or — for a narration no \
+                 category covers yet — a meaning of its own"
+                    .into(),
+            ))
+        }
+        (Some(_), Some(_)) => {
+            return Err(AppError::Validation(
+                "a rule names a category or a meaning, never both; the category already knows \
+                 which meaning it resolves through, and a second answer beside it is one that \
+                 can disagree"
+                    .into(),
+            ))
+        }
+        _ => {}
+    }
+    // Checked before the rule is written rather than left to the foreign key,
+    // so the refusal names the category instead of arriving as a 23503.
+    if let Some(code) = &category_code {
+        let found = sqlx::query("SELECT active FROM transaction_category WHERE code = $1")
+            .bind(code)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::Validation(format!("no category '{code}'")))?;
+        if !found.try_get::<bool, _>("active")? {
+            return Err(AppError::Validation(format!(
+                "category '{code}' has been retired; a rule proposing it would propose something \
+                 nobody may accept"
+            )));
+        }
     }
     let site_id = request
         .site_id
@@ -233,6 +325,7 @@ async fn check_rule(
         match_kind,
         pattern,
         direction,
+        category_code,
         semantic_key,
         qualifier: request.qualifier.trim().to_string(),
         site_id,
@@ -256,16 +349,17 @@ pub async fn bank_rule_record(
     let rule_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO bank_rule
-           (rule_id, priority, match_kind, pattern, direction, semantic_key, qualifier,
-            site_id, party, active, note, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+           (rule_id, priority, match_kind, pattern, direction, category_code, semantic_key,
+            qualifier, site_id, party, active, note, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(rule_id)
     .bind(checked.priority)
     .bind(&checked.match_kind)
     .bind(&checked.pattern)
     .bind(&checked.direction)
-    .bind(&checked.semantic_key)
+    .bind(checked.category_code.as_deref())
+    .bind(checked.semantic_key.as_deref())
     .bind(&checked.qualifier)
     .bind(&checked.site_id)
     .bind(checked.party.as_deref())
@@ -286,9 +380,10 @@ pub async fn bank_rule_update(
     let checked = check_rule(pool, request).await?;
     let done = sqlx::query(
         "UPDATE bank_rule
-            SET priority=$2, match_kind=$3, pattern=$4, direction=$5, semantic_key=$6,
-                qualifier=$7, site_id=$8, party=$9, active=$10, note=$11,
-                updated_by=$12, updated_at=now()
+            SET priority=$2, match_kind=$3, pattern=$4, direction=$5,
+                category_code=$6, semantic_key=$7,
+                qualifier=$8, site_id=$9, party=$10, active=$11, note=$12,
+                updated_by=$13, updated_at=now()
           WHERE rule_id=$1",
     )
     .bind(rule_id)
@@ -296,7 +391,8 @@ pub async fn bank_rule_update(
     .bind(&checked.match_kind)
     .bind(&checked.pattern)
     .bind(&checked.direction)
-    .bind(&checked.semantic_key)
+    .bind(checked.category_code.as_deref())
+    .bind(checked.semantic_key.as_deref())
     .bind(&checked.qualifier)
     .bind(&checked.site_id)
     .bind(checked.party.as_deref())
@@ -348,7 +444,17 @@ pub struct BankRuleProposalRow {
     /// The pattern that recognised it, so the screen can say why without
     /// fetching the rule.
     pub rule_pattern: String,
-    pub semantic_key: String,
+    /// What the rule said this line means. Frozen when the proposal was made,
+    /// so a rule repointed afterwards cannot silently repoint a proposal a
+    /// person has already read.
+    pub category_code: Option<String>,
+    pub category_name: Option<String>,
+    /// The sentence a person will get if they accept it and may not. Present
+    /// on the proposal rather than discovered on acceptance, because a screen
+    /// that offers Accept beside a proposal that cannot be accepted is a screen
+    /// that lies.
+    pub category_refusal: Option<String>,
+    pub semantic_key: Option<String>,
     pub qualifier: String,
     pub site_id: String,
     pub account_code: Option<String>,
@@ -374,6 +480,7 @@ pub struct BankRuleProposalRow {
 }
 
 const PROPOSAL_COLUMNS: &str = "p.proposal_id, p.line_id, p.rule_id, r.pattern AS rule_pattern,
+     p.category_code, c.display_name AS category_name, c.refusal AS category_refusal,
      p.semantic_key, p.qualifier, p.site_id, p.status, p.cash_document_id,
      d.number AS cash_document_number,
      l.value_date, l.description, l.reference, l.debit_minor, l.credit_minor,
@@ -386,9 +493,10 @@ const PROPOSAL_FROM: &str = "FROM bank_rule_proposal p
      JOIN bank_statement_line l ON l.line_id = p.line_id
      JOIN bank_statement s ON s.statement_id = l.statement_id
      LEFT JOIN cash_document d ON d.document_id = p.cash_document_id
-     LEFT JOIN account_map m ON m.semantic_key = p.semantic_key
+     LEFT JOIN transaction_category c ON c.code = p.category_code
+     LEFT JOIN account_map m ON m.semantic_key = COALESCE(c.semantic_key, p.semantic_key)
                             AND m.site_id = p.site_id
-                            AND m.qualifier = p.qualifier
+                            AND m.qualifier = COALESCE(c.qualifier, p.qualifier)
      LEFT JOIN ledger_account a ON a.account_code = m.account_code";
 
 fn to_proposal(row: &sqlx::postgres::PgRow) -> Result<BankRuleProposalRow, AppError> {
@@ -397,6 +505,9 @@ fn to_proposal(row: &sqlx::postgres::PgRow) -> Result<BankRuleProposalRow, AppEr
         line_id: row.try_get("line_id")?,
         rule_id: row.try_get("rule_id")?,
         rule_pattern: row.try_get("rule_pattern")?,
+        category_code: row.try_get("category_code")?,
+        category_name: row.try_get("category_name")?,
+        category_refusal: row.try_get("category_refusal")?,
         semantic_key: row.try_get("semantic_key")?,
         qualifier: row.try_get("qualifier")?,
         site_id: row.try_get("site_id")?,
@@ -479,7 +590,7 @@ pub async fn bank_rule_evaluate(
         "SELECT l.line_id, l.value_date, l.description, l.reference,
                 l.debit_minor, l.credit_minor,
                 r.rule_id, r.priority, r.direction, r.match_kind, r.pattern,
-                r.semantic_key, r.qualifier, r.site_id,
+                r.category_code, r.semantic_key, r.qualifier, r.site_id,
                 CASE WHEN r.match_kind = 'REGEX'
                      THEN (l.description ~* r.pattern)
                      ELSE false END AS regex_hit
@@ -498,10 +609,19 @@ pub async fn bank_rule_evaluate(
 
     // Grouped by line, in a map that keeps the order the ids sort in, so two
     // runs over the same statement do the same thing in the same order.
+    /// What each rule would propose, keyed by the rule's id. Copied out of the
+    /// row here so that the write below quotes what the rule said at THIS
+    /// moment, rather than reading it again through the rule.
+    struct Proposes {
+        category_code: Option<String>,
+        semantic_key: Option<String>,
+        qualifier: String,
+        site_id: String,
+    }
     struct Open {
         line: BankLine,
         rules: Vec<NarrationRule>,
-        proposal: BTreeMap<String, (String, String, String)>,
+        proposal: BTreeMap<String, Proposes>,
     }
     let mut open: BTreeMap<Uuid, Open> = BTreeMap::new();
     for row in &rows {
@@ -548,11 +668,12 @@ pub async fn bank_rule_evaluate(
         });
         entry.proposal.insert(
             rule_id.to_string(),
-            (
-                row.try_get("semantic_key")?,
-                row.try_get("qualifier")?,
-                row.try_get("site_id")?,
-            ),
+            Proposes {
+                category_code: row.try_get("category_code")?,
+                semantic_key: row.try_get("semantic_key")?,
+                qualifier: row.try_get("qualifier")?,
+                site_id: row.try_get("site_id")?,
+            },
         );
     }
 
@@ -565,7 +686,7 @@ pub async fn bank_rule_evaluate(
             unrecognised += 1;
             continue;
         };
-        let Some((semantic_key, qualifier, site_id)) = candidate.proposal.get(&hit.rule_id) else {
+        let Some(proposes) = candidate.proposal.get(&hit.rule_id) else {
             unrecognised += 1;
             continue;
         };
@@ -579,16 +700,18 @@ pub async fn bank_rule_evaluate(
         // rather than one and an opaque 23505.
         let done = sqlx::query(
             "INSERT INTO bank_rule_proposal
-               (proposal_id, line_id, rule_id, semantic_key, qualifier, site_id, reason)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)
+               (proposal_id, line_id, rule_id, category_code, semantic_key, qualifier,
+                site_id, reason)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
              ON CONFLICT (line_id) WHERE status = 'PROPOSED' DO NOTHING",
         )
         .bind(proposal_id)
         .bind(line_id)
         .bind(rule_id)
-        .bind(semantic_key)
-        .bind(qualifier)
-        .bind(site_id)
+        .bind(proposes.category_code.as_deref())
+        .bind(proposes.semantic_key.as_deref())
+        .bind(&proposes.qualifier)
+        .bind(&proposes.site_id)
         .bind(&hit.reason)
         .execute(pool)
         .await?
@@ -613,11 +736,73 @@ pub async fn bank_rule_evaluate(
 
 /// A person agrees. This is where money is booked, and the only place a rule
 /// leads to a posting.
+///
+/// # Why the category path is a different function and not a branch
+///
+/// A proposal carrying a category is handed to `bank_line_categorise`, which is
+/// the door a person choosing a category by hand goes through. That is what
+/// makes a rule unable to do anything a person could not: the direction check,
+/// the refusal for a category that belongs to somebody else's document, the
+/// party and reference a category insists on — all of them apply, because they
+/// are on the other side of one door rather than duplicated behind two.
+///
+/// A rule for the monthly payroll transfer is the case worth naming. Somebody
+/// will write one, because a line that keeps showing as unrecognised is
+/// annoying. It proposes `payroll_salary_operations`, a person presses Accept,
+/// and the refusal says the salary was recognised when the run was sealed and
+/// they should find the payment. Without this, the same press would book the
+/// expense a second time.
 pub async fn bank_proposal_accept(
     pool: &PgPool,
     proposal_id: Uuid,
     actor: &str,
 ) -> Result<CashDocumentRow, AppError> {
+    let opening = sqlx::query(
+        "SELECT p.line_id, p.status, p.category_code, p.reason, r.pattern, r.party
+           FROM bank_rule_proposal p
+           JOIN bank_rule r USING (rule_id)
+          WHERE p.proposal_id = $1",
+    )
+    .bind(proposal_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("proposal".into()))?;
+    let status: String = opening.try_get("status")?;
+    if status != "PROPOSED" {
+        return Err(AppError::Conflict(format!(
+            "this proposal is already {}",
+            status.to_lowercase()
+        )));
+    }
+    if let Some(category_code) = opening.try_get::<Option<String>, _>("category_code")? {
+        let line_id: Uuid = opening.try_get("line_id")?;
+        let pattern: String = opening.try_get("pattern")?;
+        let party: Option<String> = opening.try_get("party")?;
+        let reason: Option<String> = opening.try_get("reason")?;
+        return bank_line_categorise(
+            pool,
+            line_id,
+            &CategoriseBankLineRequest {
+                category_code,
+                // The category's own qualifier. A rule cannot answer "which
+                // bank" for a line it has never seen, so a rule proposing a
+                // category that asks is a rule whose proposals refuse — which
+                // is visible on the rule as `category_refuses` is.
+                qualifier: None,
+                party_name: party,
+                reference: None,
+                memo: reason.unwrap_or_else(|| format!("recognised by the rule for {pattern}")),
+                // Marking the proposal accepted happens inside, in the same
+                // transaction as the document. Two calls would leave a document
+                // posted and a proposal still open if the second one failed.
+                proposal_id: Some(proposal_id),
+            },
+            actor,
+        )
+        .await;
+    }
+
+    // ── the fallback: a rule that names a meaning directly ──────────────
     let mut tx = pool.begin().await?;
     let row = sqlx::query(
         "SELECT p.line_id, p.status, p.semantic_key, p.qualifier, p.site_id, p.reason,
@@ -641,7 +826,16 @@ pub async fn bank_proposal_accept(
         )));
     }
     let line_id: Uuid = row.try_get("line_id")?;
-    let semantic_key: String = row.try_get("semantic_key")?;
+    // Not null on this path: the schema insists a proposal names a category or
+    // a meaning, and the category was None a few lines above.
+    let semantic_key: String = row
+        .try_get::<Option<String>, _>("semantic_key")?
+        .ok_or_else(|| {
+            AppError::Conflict(
+            "this proposal names neither a category nor a meaning; there is nothing to book it as"
+                .into(),
+        )
+        })?;
     let qualifier: String = row.try_get("qualifier")?;
     let site_id: String = row.try_get("site_id")?;
     let pattern: String = row.try_get("pattern")?;

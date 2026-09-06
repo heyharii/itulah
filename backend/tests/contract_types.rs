@@ -545,6 +545,23 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("GiroBoard: {e}"));
     inventory_backend::cloud::postgres::SettleGiroRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("SettleGiroRequest: {e}"));
+
+    // lane-N: the words a person explains money in, and the three doors out of
+    // one bank statement line.
+    //
+    // `BankLineOptions` is exported as one root rather than three lists a page
+    // assembles, because the ORDER of the three is the design: matches, then
+    // documents to create, then categories. A browser type that let a page pick
+    // the blocks up separately would be a type that let it show them in any
+    // order, and the fastest of the three is the one that double-counts.
+    inventory_backend::cloud::postgres::TransactionCategoryRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TransactionCategoryRow: {e}"));
+    inventory_backend::cloud::postgres::RecordTransactionCategoryRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordTransactionCategoryRequest: {e}"));
+    inventory_backend::cloud::postgres::BankLineOptions::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankLineOptions: {e}"));
+    inventory_backend::cloud::postgres::CategoriseBankLineRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CategoriseBankLineRequest: {e}"));
     // Where the money is. Driven off `account_map`, so a meaning nobody has
     // mapped produces no row — which is the honest answer and a visible one.
     inventory_backend::cloud::postgres::MoneyOverview::export_all(&config)
