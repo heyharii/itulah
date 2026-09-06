@@ -117,6 +117,10 @@ fn methods_for(pattern: PaymentPattern) -> Vec<String> {
 ///
 /// Counted over posted bills and posted payments, the way `payables` counts
 /// them, so this screen and the ageing cannot disagree about who is owed what.
+/// The cast on `outstanding_minor` below is load-bearing. `SUM(bigint)` is
+/// `numeric` in Postgres, so without it the whole expression comes back numeric
+/// and decoding it as an `i64` fails inside the driver — which reaches a person
+/// as a flat database failure naming neither the column nor the reason.
 async fn open_bills(
     pool: &PgPool,
     supplier_id: Option<&str>,
@@ -124,11 +128,11 @@ async fn open_bills(
 ) -> Result<Vec<PaymentObligation>, AppError> {
     let rows = sqlx::query(
         "SELECT i.invoice_id, i.invoice_number, i.site_id, i.due_date, i.total_minor,
-                i.total_minor - COALESCE((
+                (i.total_minor - COALESCE((
                     SELECT SUM(al.amount_minor)
                       FROM supplier_payment_allocation al
                       JOIN supplier_payment p USING (payment_id)
-                     WHERE al.invoice_id = i.invoice_id AND p.status = 'POSTED'), 0)
+                     WHERE al.invoice_id = i.invoice_id AND p.status = 'POSTED'), 0))::bigint
                     AS outstanding_minor,
                 GREATEST(0, CURRENT_DATE - i.due_date)::int AS days_overdue
            FROM supplier_invoice i
@@ -224,11 +228,7 @@ pub async fn payment_context_resolve(
 }
 
 /// One bill, or one bill paid on paper.
-async fn bill_context(
-    pool: &PgPool,
-    kind: &str,
-    id: &str,
-) -> Result<PaymentContext, AppError> {
+async fn bill_context(pool: &PgPool, kind: &str, id: &str) -> Result<PaymentContext, AppError> {
     let invoice_id = Uuid::parse_str(id)
         .map_err(|_| AppError::Validation(format!("'{id}' is not a bill's id")))?;
     let row = sqlx::query(
@@ -251,8 +251,8 @@ async fn bill_context(
         ..PaymentSourceShape::paying(obligations.len())
     };
     let pattern = payment_pattern_for(shape);
-    let recipients = payment_destination_list(pool, Some("SUPPLIER"), Some(&supplier_id), false, 50)
-        .await?;
+    let recipients =
+        payment_destination_list(pool, Some("SUPPLIER"), Some(&supplier_id), false, 50).await?;
 
     let mut notes = Vec::new();
     if obligations.is_empty() {
@@ -412,15 +412,14 @@ async fn batch_context(pool: &PgPool, id: &str) -> Result<PaymentContext, AppErr
 /// become twenty ordinary PAY documents, and no payroll payment engine is
 /// built, because there is nothing for one to do that the batch does not.
 async fn payroll_context(pool: &PgPool, id: &str) -> Result<PaymentContext, AppError> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::bigint FROM payroll_slip WHERE run_id::text = $1",
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten()
-    .unwrap_or(0);
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM payroll_slip WHERE run_id::text = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(0);
 
     let shape = PaymentSourceShape {
         recipients: (count.max(2)) as usize,

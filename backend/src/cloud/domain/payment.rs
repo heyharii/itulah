@@ -332,7 +332,10 @@ mod tests {
             obligations: 9,
             ..shape()
         };
-        assert_eq!(payment_pattern_for(settlement), PaymentPattern::ReceiveMoney);
+        assert_eq!(
+            payment_pattern_for(settlement),
+            PaymentPattern::ReceiveMoney
+        );
         assert_eq!(PaymentPattern::ReceiveMoney.primitive(), "RECEIVE");
         assert!(PaymentPattern::ReceiveMoney.allocates());
     }
@@ -390,7 +393,10 @@ mod tests {
             UnverifiedDestinationPolicy::Skip,
             UnverifiedDestinationPolicy::Hold,
         ] {
-            assert_eq!(UnverifiedDestinationPolicy::parse(policy.as_str()), Some(policy));
+            assert_eq!(
+                UnverifiedDestinationPolicy::parse(policy.as_str()),
+                Some(policy)
+            );
         }
         assert_eq!(UnverifiedDestinationPolicy::parse("MAYBE"), None);
     }

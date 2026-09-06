@@ -205,8 +205,9 @@ pub async fn payment_destination_read(
     pool: &PgPool,
     destination_id: Uuid,
 ) -> Result<PaymentDestinationRow, AppError> {
-    let sql =
-        format!("SELECT {DESTINATION_COLUMNS} FROM payment_destination d WHERE d.destination_id = $1");
+    let sql = format!(
+        "SELECT {DESTINATION_COLUMNS} FROM payment_destination d WHERE d.destination_id = $1"
+    );
     let row = sqlx::query(&sql)
         .bind(destination_id)
         .fetch_optional(pool)
@@ -263,10 +264,7 @@ pub async fn payment_destination_create(
         .filter(|value| !value.is_empty())
         .map(str::to_ascii_uppercase)
         .unwrap_or_else(|| default_owner(&party_type).to_string());
-    if !matches!(
-        owner_domain.as_str(),
-        "SUPPLIER_MASTER" | "HR" | "FINANCE"
-    ) {
+    if !matches!(owner_domain.as_str(), "SUPPLIER_MASTER" | "HR" | "FINANCE") {
         return Err(AppError::Validation(format!(
             "'{owner_domain}' does not own anything; expected SUPPLIER_MASTER, HR or FINANCE"
         )));

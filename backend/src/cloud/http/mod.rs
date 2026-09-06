@@ -32,6 +32,7 @@ pub mod member;
 pub mod notifications;
 pub mod overtime;
 pub mod pay;
+pub mod payments_lane;
 pub mod performance;
 pub mod reports;
 pub mod roster;
@@ -66,7 +67,7 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
 
 pub fn router(state: AppState) -> Router {
     let frontend = state.config.frontend_dir.clone();
-    Router::new()
+    let router = Router::new()
         .merge(crate::cloud::media::router())
         .route("/api/v1/health", get(health))
         .route("/api/v1/inventory/pools", get(pools))
@@ -1011,7 +1012,11 @@ pub fn router(state: AppState) -> Router {
                 )),
         )
         .route("/api/v1/audit", get(audit::list))
-        .route("/metrics", get(metrics))
+        .route("/metrics", get(metrics));
+    // Destinations, batches, the payment context and the allocation surface,
+    // added in one call rather than as twenty more lines here.
+    let router = payments_lane::lane_m_routes(router);
+    router
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->
         // body limit -> auth -> handler, so even a 401 carries CORS headers

@@ -253,14 +253,15 @@ pub async fn payment_batch_create(
     request: &CreatePaymentBatchRequest,
     actor: &str,
 ) -> Result<PaymentBatchDetail, AppError> {
-    let policy = UnverifiedDestinationPolicy::parse(&request.unverified_policy).ok_or_else(|| {
-        AppError::Validation(format!(
+    let policy =
+        UnverifiedDestinationPolicy::parse(&request.unverified_policy).ok_or_else(|| {
+            AppError::Validation(format!(
             "'{}' is not a policy for an unverified destination; it is SKIP — pay the rest and \
              say why this one was passed over — or HOLD, which executes nothing until it is \
              fixed",
             request.unverified_policy
         ))
-    })?;
+        })?;
     let policy_reason = request.unverified_policy_reason.trim();
     if policy_reason.is_empty() {
         return Err(AppError::Validation(
@@ -610,7 +611,14 @@ pub async fn payment_batch_execute_item(
     actor: &str,
 ) -> Result<PaymentBatchDetail, AppError> {
     let mut tx = pool.begin().await?;
-    execute_one(&mut tx, batch_id, item_id, request.bank_reference.as_deref(), actor).await?;
+    execute_one(
+        &mut tx,
+        batch_id,
+        item_id,
+        request.bank_reference.as_deref(),
+        actor,
+    )
+    .await?;
     restate_batch_status(&mut tx, batch_id).await?;
     tx.commit().await?;
     payment_batch_read(pool, batch_id).await
@@ -718,7 +726,8 @@ async fn lock_runnable_batch(
     tx: &mut Transaction<'_, Postgres>,
     batch_id: Uuid,
 ) -> Result<(sqlx::postgres::PgRow, UnverifiedDestinationPolicy), AppError> {
-    let sql = format!("SELECT {BATCH_COLUMNS} FROM payment_batch b WHERE b.batch_id = $1 FOR UPDATE");
+    let sql =
+        format!("SELECT {BATCH_COLUMNS} FROM payment_batch b WHERE b.batch_id = $1 FOR UPDATE");
     let row = sqlx::query(&sql)
         .bind(batch_id)
         .fetch_optional(&mut **tx)
@@ -755,7 +764,9 @@ async fn lock_runnable_batch(
     }
     let policy_text: String = row.try_get("unverified_policy")?;
     let policy = UnverifiedDestinationPolicy::parse(&policy_text).ok_or_else(|| {
-        AppError::Validation(format!("'{policy_text}' is not a policy this run understands"))
+        AppError::Validation(format!(
+            "'{policy_text}' is not a policy this run understands"
+        ))
     })?;
     Ok((row, policy))
 }
@@ -846,13 +857,11 @@ async fn execute_one(
                 "held at line {line_number}: {why}. This batch was set up to hold rather than \
                  skip, so nothing further will be paid until it is settled"
             );
-            sqlx::query(
-                "UPDATE payment_batch SET status='HELD', held_reason=$2 WHERE batch_id=$1",
-            )
-            .bind(batch_id)
-            .bind(&detail)
-            .execute(&mut **tx)
-            .await?;
+            sqlx::query("UPDATE payment_batch SET status='HELD', held_reason=$2 WHERE batch_id=$1")
+                .bind(batch_id)
+                .bind(&detail)
+                .execute(&mut **tx)
+                .await?;
             record_event(
                 tx,
                 batch_id,
