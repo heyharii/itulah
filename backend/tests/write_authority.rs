@@ -154,6 +154,33 @@ const MATRIX: &[Authority] = &[
                  that no longer adds up to the total it explains",
     },
     Authority {
+        table: "journal_entry",
+        writers: &["src/cloud/postgres/poster.rs"],
+        reason: "the ledger has one door. Every other module posts THROUGH it, \
+                 inside its own transaction, so a bill and the journal that \
+                 records it either both exist or neither does — and so there is \
+                 one place that decides what a valid entry is. A second writer \
+                 would be a second set of those rules, agreeing until the day it \
+                 did not, and it would be invisible: a wrong entry that balances \
+                 is the mistake that survives a year. The invariants that make \
+                 these books worth reading all sit behind this file — balanced \
+                 in total (0051), balanced at every location (0120), never into \
+                 a closed month (0048), never against a heading, and one entry \
+                 per document per step (0140). None of them is optional and none \
+                 is checked anywhere else",
+    },
+    Authority {
+        table: "journal_line",
+        writers: &["src/cloud/postgres/poster.rs"],
+        reason: "as journal_entry, and it is the half that matters more. A \
+                 header is a claim about lines; the lines are the ledger. \
+                 `counter_site_id` in particular is written only by the \
+                 balancer in `domain::interunit` — a line that named a \
+                 counterparty by hand would put a figure in the inter-unit \
+                 check that no document caused, and that check is the one place \
+                 in these books where two people are asked to agree",
+    },
+    Authority {
         table: "member",
         writers: &["src/cloud/postgres/member.rs"],
         reason: "one file owns identity. `membership.rs` next door reads this \

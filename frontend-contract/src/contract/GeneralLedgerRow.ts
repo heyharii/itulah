@@ -3,7 +3,14 @@
 /**
  * One movement in an account's own ledger.
  */
-export type GeneralLedgerRow = { entry_id: string, entry_number: string, posting_date: string, source_kind: string, source_id: string | null, site_id: string, memo: string | null, debit_minor: number, credit_minor: number, 
+export type GeneralLedgerRow = { entry_id: string, entry_number: string, posting_date: string, source_kind: string, source_id: string | null, site_id: string, 
+/**
+ * Who the movement was with, when it was with anybody. This is the whole
+ * point of reading an affiliate account: the balance is meaningless until
+ * it is split by counterparty, and 0122 gives each pair its own leaf so
+ * that a mapped ledger is already split — this says so on the row.
+ */
+counter_site_id: string | null, memo: string | null, debit_minor: number, credit_minor: number, 
 /**
  * The balance after this line. Computed by a window function on every
  * read, so it cannot disagree with the lines above it.
