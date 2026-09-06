@@ -36,6 +36,7 @@
 use super::ledger::resolve_account;
 use super::payables::AgingBuckets;
 use super::poster::{post, PostingIntent, PostingLine, Posted};
+use super::sales_posting::{RetenderOutcome, RetenderRequest};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     parse_settlement_report, suggest_tender_decisions, BatchApproval, ReceiptTender,
@@ -131,6 +132,21 @@ pub struct TenderDecisionRow {
     pub note: Option<String>,
     pub decided_by: String,
     pub decided_at: DateTime<Utc>,
+}
+
+/// An answer, and what recording it did to the books.
+///
+/// Only RETENDER carries anything: it is the one decision of the five that
+/// moves money, and the screen has to be able to say so. The other four record
+/// what the shop found and change nothing, which is 0071's argument — agreeing
+/// that two records describe one payment records no new fact.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TenderDecisionOutcome {
+    pub decision: TenderDecisionRow,
+    /// What `sales_posting::retender_tender` did — the row it moved, and the
+    /// reclassifying entry when the day was already posted.
+    pub retender: Option<RetenderOutcome>,
 }
 
 /// A reconciliation with both lists and every answer given so far.
@@ -650,19 +666,23 @@ pub async fn tender_recon_suggest(
 
 /// The retender a RETENDER decision hands on.
 ///
-/// # The seam, and why it is empty
+/// # Why this module does not write the journal
 ///
 /// A card rung on the wrong EDC leaves the books owing the money to the wrong
-/// acquirer. Putting that right is a journal — credit one receivable, debit the
-/// other — and that journal belongs to the lane that raised the receivable in
-/// the first place, posting under its own `RETENDER` source kind. Writing a
-/// second version of it here would be a second rule about the same event, which
-/// is the failure this whole module exists to prevent.
+/// acquirer. Putting that right is a journal — debit the receivable that should
+/// have had it, credit the one that did — and that journal belongs to whoever
+/// raised the receivable in the first place. `sales_posting::retender_tender`
+/// is it: it moves the tender row in whichever population it lives in, writes
+/// the reclassification under `RETENDER` when the day is already posted, and
+/// leaves a row in `sale_tender_retender` either way. Writing a second version
+/// here would be a second rule about one event, which is the failure this whole
+/// module exists to prevent.
 ///
-/// So the decision is recorded, the fact travels, and [`Self::on_retender`] is
-/// where the call goes the day that lane lands. It is called already — from
-/// `tender_recon_decide`, on every RETENDER — so the seam is live and the
-/// change is one function body rather than a new call site somebody has to find.
+/// So the shop says what happened and this carries the fact one function along.
+/// What it adds is the reason — a reconciliation's own words, naming the two
+/// acquirers and the evening it was decided — because `retender_tender` demands
+/// one and "the acquirer's own file will not explain it" is exactly right about
+/// a correction made on a counter at nine in the evening.
 #[derive(Clone, Debug)]
 pub struct AcquirerRetender {
     pub sale_id: Uuid,
@@ -671,24 +691,63 @@ pub struct AcquirerRetender {
     pub business_date: NaiveDate,
     pub from_acquirer: String,
     pub to_acquirer: String,
-    pub amount_minor: i64,
     pub decided_by: String,
+    pub note: Option<String>,
 }
 
 impl AcquirerRetender {
-    /// Hand the retender to whoever owns the receivable.
+    /// Hand the retender to the module that owns the receivable.
     ///
-    /// Deliberately does nothing yet. The decision is already durable in
-    /// `tender_reconciliation_decision`, so nothing is lost by the wait: when
-    /// the posting arrives, the retenders recorded before it can be replayed
-    /// from that table, which they could not be if this had swallowed them.
-    pub fn on_retender(&self) {
-        // Lane A's retender posting goes here:
-        //
-        //     retender::post(tx, self, actor)
-        //
-        // Nothing else in this module should grow a journal for it — see the
-        // note on the type.
+    /// The tender is named to `retender_tender` by its surrogate id, which is
+    /// what a retender is performed on; a reconciliation knows it by `(sale_id,
+    /// tender_seq)`, so the id is read back here. A receipt this
+    /// reconciliation is showing but `edge_sale_tender` no longer holds is a
+    /// contradiction the foreign key already forbids, so a miss is a genuine
+    /// NotFound rather than a case to paper over.
+    ///
+    /// The method does not move. A retender between acquirers is a card that
+    /// stayed a card and went through a different machine; changing CARD to
+    /// QRIS as well would be two corrections wearing one decision's clothes,
+    /// and the till screen has its own route for that.
+    async fn hand_on(&self, pool: &PgPool) -> Result<RetenderOutcome, AppError> {
+        let row = sqlx::query(
+            "SELECT t.tender_id, t.method, t.card_kind
+               FROM edge_sale_tender t
+              WHERE t.sale_id = $1 AND t.tender_seq = $2",
+        )
+        .bind(self.sale_id)
+        .bind(self.tender_seq)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFound(format!("tender {} of sale {}", self.tender_seq, self.sale_id))
+        })?;
+        let tender_id: Uuid = row.try_get("tender_id")?;
+        let method: String = row.try_get("method")?;
+        let card_kind: Option<String> = row.try_get("card_kind")?;
+
+        let reason = match self.note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            Some(note) => format!(
+                "{} reconciliation {}: the receipt says {} and {} approved it — {note}",
+                self.site_id, self.business_date, self.from_acquirer, self.to_acquirer
+            ),
+            None => format!(
+                "{} reconciliation {}: the receipt says {} and {} approved it",
+                self.site_id, self.business_date, self.from_acquirer, self.to_acquirer
+            ),
+        };
+        super::sales_posting::retender_tender(
+            pool,
+            tender_id,
+            &RetenderRequest {
+                to_method: method,
+                to_acquirer: self.to_acquirer.clone(),
+                to_card_kind: card_kind,
+                reason,
+            },
+            &self.decided_by,
+        )
+        .await
     }
 }
 
@@ -698,7 +757,7 @@ pub async fn tender_recon_decide(
     recon_id: Uuid,
     request: &RecordTenderDecisionRequest,
     actor: &str,
-) -> Result<TenderDecisionRow, AppError> {
+) -> Result<TenderDecisionOutcome, AppError> {
     let (site_id, business_date, _, status) = recon_scope(pool, recon_id).await?;
     if status != "OPEN" {
         return Err(AppError::Conflict(
@@ -740,6 +799,42 @@ pub async fn tender_recon_decide(
         ));
     }
 
+    // The move happens before the answer is recorded, and that order is the
+    // point. `retender_tender` refuses a move that changes nothing and a
+    // receivable whose acquirer has no account mapped, and either refusal has
+    // to reach the person deciding rather than land behind a row that already
+    // claims the money was moved. A decision saying RETENDER with no retender
+    // behind it is the one state nobody could explain afterwards.
+    let mut retender = None;
+    if decision == "RETENDER" {
+        let (Some(sale_id), Some(tender_seq), Some(from), Some(to)) = (
+            request.sale_id,
+            request.tender_seq,
+            from_acquirer.as_deref(),
+            to_acquirer.as_deref(),
+        ) else {
+            return Err(AppError::Validation(
+                "a retender moves one receipt's money; name the sale and which of its \
+                 payments, and the two acquirers"
+                    .into(),
+            ));
+        };
+        retender = Some(
+            AcquirerRetender {
+                sale_id,
+                tender_seq,
+                site_id: site_id.clone(),
+                business_date,
+                from_acquirer: from.to_string(),
+                to_acquirer: to.to_string(),
+                decided_by: actor.to_string(),
+                note: request.note.clone(),
+            }
+            .hand_on(pool)
+            .await?,
+        );
+    }
+
     let decision_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO tender_reconciliation_decision
@@ -760,36 +855,6 @@ pub async fn tender_recon_decide(
     .execute(pool)
     .await?;
 
-    if decision == "RETENDER" {
-        if let (Some(sale_id), Some(tender_seq), Some(from), Some(to)) = (
-            request.sale_id,
-            request.tender_seq,
-            from_acquirer.as_deref(),
-            to_acquirer.as_deref(),
-        ) {
-            let amount: i64 = sqlx::query(
-                "SELECT amount_minor FROM edge_sale_tender
-                  WHERE sale_id = $1 AND tender_seq = $2",
-            )
-            .bind(sale_id)
-            .bind(tender_seq)
-            .fetch_one(pool)
-            .await?
-            .try_get("amount_minor")?;
-            AcquirerRetender {
-                sale_id,
-                tender_seq,
-                site_id: site_id.clone(),
-                business_date,
-                from_acquirer: from.to_string(),
-                to_acquirer: to.to_string(),
-                amount_minor: amount,
-                decided_by: actor.to_string(),
-            }
-            .on_retender();
-        }
-    }
-
     let row = sqlx::query(
         "SELECT decision_id, recon_id, sale_id, tender_seq, batch_line_id, decision,
                 from_acquirer, to_acquirer, note, decided_by, decided_at
@@ -798,18 +863,21 @@ pub async fn tender_recon_decide(
     .bind(decision_id)
     .fetch_one(pool)
     .await?;
-    Ok(TenderDecisionRow {
-        decision_id: row.try_get("decision_id")?,
-        recon_id: row.try_get("recon_id")?,
-        sale_id: row.try_get("sale_id")?,
-        tender_seq: row.try_get("tender_seq")?,
-        batch_line_id: row.try_get("batch_line_id")?,
-        decision: row.try_get("decision")?,
-        from_acquirer: row.try_get("from_acquirer")?,
-        to_acquirer: row.try_get("to_acquirer")?,
-        note: row.try_get("note")?,
-        decided_by: row.try_get("decided_by")?,
-        decided_at: row.try_get("decided_at")?,
+    Ok(TenderDecisionOutcome {
+        decision: TenderDecisionRow {
+            decision_id: row.try_get("decision_id")?,
+            recon_id: row.try_get("recon_id")?,
+            sale_id: row.try_get("sale_id")?,
+            tender_seq: row.try_get("tender_seq")?,
+            batch_line_id: row.try_get("batch_line_id")?,
+            decision: row.try_get("decision")?,
+            from_acquirer: row.try_get("from_acquirer")?,
+            to_acquirer: row.try_get("to_acquirer")?,
+            note: row.try_get("note")?,
+            decided_by: row.try_get("decided_by")?,
+            decided_at: row.try_get("decided_at")?,
+        },
+        retender,
     })
 }
 
@@ -1050,17 +1118,22 @@ const fn receivable_key(tender_kind: &str) -> &'static str {
     }
 }
 
-/// Where the acquirer's cut lands.
+/// Where the acquirer's cut lands: `card_fee`, whatever the tender was.
 ///
-/// QRIS has its own key rather than sharing `card_fee`. The two are different
-/// costs with different rates and different people arguing about them, and a
-/// single account would make "what did QRIS cost us this quarter" a question
-/// with no answer.
-const fn fee_key(tender_kind: &str) -> &'static str {
-    match tender_kind.as_bytes() {
-        b"QRIS" => "qris_fee",
-        _ => "card_fee",
-    }
+/// An earlier draft gave QRIS its own key, on the argument that a QRIS fee and
+/// a card fee are different costs with different rates. They are — but the
+/// client's chart keeps exactly one account for both, `6010110002 Biaya Credit
+/// Card`, and there is no free code beside it that means "QRIS fee". Inventing
+/// one would put a leaf in their books that their own accountant did not ask
+/// for, which is the mistake lane-A caught itself making when a code it had
+/// proposed as free turned out to be `Penjualan Online Sendiri`.
+///
+/// Nothing is lost. Every fee line is qualified by the acquirer, so "what did
+/// QRIS cost us this quarter" is a filter on the qualifier — the same way the
+/// one receivable account answers "what does BCA owe us". The day the client
+/// opens a QRIS fee account, this becomes a mapping and not a code change.
+const fn fee_key(_tender_kind: &str) -> &'static str {
+    "card_fee"
 }
 
 /// Key a settlement, or the shape of one, before anybody stands behind it.
@@ -1377,6 +1450,56 @@ pub async fn acq_settlement_upload_report(
     })
 }
 
+/// Close the Payment Ledger items this settlement discharges.
+///
+/// TODO(lane-P): replace the body with a call to `payment_ledger::ple_settle`
+/// for each receivable below, once Lane P merges. One settle per (shop,
+/// receivable) the entry credited, shaped:
+///
+/// ```text
+///   account_key  = receivable_key(tender_kind)  (card_receivable_debit | ..._credit | qris_receivable)
+///   qualifier    = settlement.acquirer
+///   site         = site_id
+///   party_type   = ACQUIRER
+///   party        = settlement.acquirer
+///   voucher_kind = "ACQ_SETTLEMENT"
+///   voucher_id   = settlement_id
+///   side         = RECEIVABLE
+///   amount       = gross_minor        (what the receivable was, not the net)
+/// ```
+///
+/// `amount` is gross and not net, which is the one thing easy to get wrong
+/// here. The item was opened at what the customer paid; the MDR is a cost we
+/// bore, not a discount the acquirer negotiated off a debt. Settling at net
+/// would leave every item short by its own fee and an ageing built from open
+/// items would slowly fill with residues nothing can ever close.
+///
+/// The mirror of `sales_posting_open_receivables`, which opens these items when
+/// the day's takings post — same key, same qualifier, same party — so the pair
+/// is one item's life rather than two modules' guesses about the same debt.
+///
+/// It takes the transaction that wrote the journal because the two have to be
+/// one act, for the reason lane-A's opener gives: a discharged receivable with
+/// its item still open is a debt the ledger chases and the books do not carry.
+///
+/// Until then this is a no-op that still walks the same rows, so the day it is
+/// filled in the only question is what to write — not which receivables, in
+/// what order, with which arguments.
+#[allow(unused_variables)]
+async fn acq_settlement_settle_ledger_items(
+    tx: &mut Transaction<'_, Postgres>,
+    settlement_id: Uuid,
+    acquirer: &str,
+    discharged: &[(String, String, i64)],
+    actor: &str,
+) -> Result<(), AppError> {
+    for (site_id, tender_kind, gross_minor) in discharged {
+        // payment_ledger::ple_settle(tx, &PaymentLedgerSettle { .. }, actor).await?;
+        let _ = (receivable_key(tender_kind), site_id, acquirer, gross_minor);
+    }
+    Ok(())
+}
+
 /// Stand behind the reading, and post it.
 ///
 /// The entry, in the client's own terms:
@@ -1439,6 +1562,10 @@ pub async fn acq_settlement_curate(
 
     let mut gross = 0i64;
     let mut fees = 0i64;
+    // What each shop's receivable is being cleared of, kept for the Payment
+    // Ledger below. Gathered here rather than re-queried: the posting and the
+    // items have to describe the same rows or they describe different debts.
+    let mut discharged: Vec<(String, String, i64)> = Vec::with_capacity(lines.len());
     let mut posting_lines = vec![PostingLine::debit(bank_key, "dc", settlement.net_minor)
         .with_qualifier(&bank_qualifier)];
     for row in &lines {
@@ -1448,6 +1575,7 @@ pub async fn acq_settlement_curate(
         let mdr: i64 = row.try_get("mdr_minor")?;
         gross += amount;
         fees += mdr;
+        discharged.push((site_id.clone(), tender_kind.clone(), amount));
         if mdr > 0 {
             posting_lines.push(
                 PostingLine::debit(fee_key(&tender_kind), &site_id, mdr)
@@ -1513,6 +1641,17 @@ pub async fn acq_settlement_curate(
             "this settlement was curated while you were curating it".into(),
         ));
     }
+    // The acquirers' items, closed by the same act that discharged the ledger
+    // balance. A no-op until Lane P lands; in this transaction so the two can
+    // never disagree.
+    acq_settlement_settle_ledger_items(
+        &mut tx,
+        settlement_id,
+        &settlement.acquirer,
+        &discharged,
+        actor,
+    )
+    .await?;
     refresh_expected_net(&mut tx, settlement_id).await?;
     tx.commit().await?;
     acq_settlement_row(pool, settlement_id).await
@@ -1669,10 +1808,21 @@ pub async fn acq_settlement_explain(
             .filter(|site| !site.is_empty())
             .unwrap_or("dc")
             .to_string();
+        // Two meanings the client's chart already has. A FEE is the acquirer
+        // charging more than its report stated, which is the same cost as MDR
+        // and belongs in the same account. A CHARGEBACK is a sale the issuer
+        // reversed, and `sales_return` is `4010214001 Retur Penjualan` — what
+        // the client calls exactly that.
+        //
+        // The chargeback entry does not unwind the VAT or the stock, and that
+        // is deliberate rather than forgotten: the goods do not come back in a
+        // chargeback, and a residual small enough to be settled this way is not
+        // a return to be restated. A dispute large enough to matter is a credit
+        // note, which has its own document and its own source kind.
         let key = if kind == "FEE" {
             "card_fee"
         } else {
-            "chargeback_receivable"
+            "sales_return"
         };
         // A positive difference is money we expected and did not get, so the
         // cost is a debit and the bank is short by the same. A negative one is
