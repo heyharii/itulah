@@ -62,18 +62,41 @@ COMMENT ON COLUMN journal_entry.purpose IS
 -- depreciation run over four months, an asset moved twice — is now a group of
 -- rows that the unique index would refuse.
 --
--- They are named rather than excluded. An index built "for new rows only"
--- needs a discriminator column that exists for no other reason, and it leaves
--- two shapes of database in the world: one where the guarantee holds over
+-- They are named rather than excluded. An index built "for new rows only" needs
+-- a discriminator column that exists for no other reason, and it leaves two
+-- shapes of database in the world: one where the guarantee holds over
 -- everything and one where it holds over a suffix, with nothing in the schema
 -- to say which is which. Naming the clashes instead gives every database the
 -- same index over every row, and the name is honest about what it is:
 -- LEGACY_JV_00000123 says this entry's step was never recorded, and here is the
 -- entry number so you can go and look.
 --
--- This is not rewriting history. `purpose` did not exist a second ago; MAIN is
--- a default this migration invented for rows that never had a value at all, and
--- for these rows the default is the one thing that is certainly wrong.
+-- # Disabling the append-only trigger, which deserves an argument
+--
+-- The journal is append-only. `protect_journal` refuses every UPDATE and DELETE
+-- on `journal_entry`, and that rule is why anybody can trust these books. 0083
+-- is the only migration that has ever turned it off, and it made its case in
+-- writing. This is the second, and the case is narrower.
+--
+-- It changes no accounting fact and no fact of provenance either. Not one
+-- debit, credit, account, date, amount, entry number, source kind or source id
+-- moves. The only column written is one that did not exist a statement ago:
+-- MAIN is a default this migration invented for rows that never had a value at
+-- all, and for these particular rows the invented default is the one value that
+-- is certainly wrong — it claims two entries are the same step, which is
+-- exactly the thing the index is being built to forbid.
+--
+-- Bounded so it cannot reach anything else: only rows that carry a source, only
+-- kinds the index covers, and only rows that actually have a twin. A re-run
+-- finds no twins, because the first run gave every one of them a different
+-- name, so this is a no-op the second time.
+--
+-- All of it inside this migration's transaction: if the UPDATE fails, the
+-- trigger is not left disabled, because the ALTER that disabled it rolls back
+-- with everything else.
+
+ALTER TABLE journal_entry DISABLE TRIGGER journal_entry_append_only;
+
 UPDATE journal_entry e
    SET purpose = 'LEGACY_' || replace(e.entry_number, '-', '_')
  WHERE e.source_id IS NOT NULL
@@ -84,6 +107,8 @@ UPDATE journal_entry e
            AND o.source_id   = e.source_id
            AND o.purpose     = e.purpose
            AND o.entry_id   <> e.entry_id);
+
+ALTER TABLE journal_entry ENABLE TRIGGER journal_entry_append_only;
 
 -- ---------------------------------------------------------------------------
 -- The key
