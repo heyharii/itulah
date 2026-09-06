@@ -291,6 +291,8 @@ pub struct GiroQuery {
     pub bank: Option<String>,
     /// `OUT` we wrote it, `IN` somebody gave us one.
     pub direction: Option<String>,
+    /// What "overdue by" is counted from. Today when absent.
+    pub as_of: Option<NaiveDate>,
     pub limit: Option<i64>,
 }
 
@@ -304,6 +306,7 @@ pub async fn giros(
             query.status.as_deref(),
             query.bank.as_deref(),
             query.direction.as_deref(),
+            query.as_of,
             limit_of(query.limit),
         )
         .await?,

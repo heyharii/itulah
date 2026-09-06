@@ -21,8 +21,8 @@
 
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    week_of, Authorization, DayKind, EmployeeId, Minutes, OvertimeError, OvertimeId,
-    OvertimeOrder, OvertimeOrderWire, OvertimePolicy, OvertimeState, PlaceId,
+    week_of, Authorization, DayKind, EmployeeId, Minutes, OvertimeError, OvertimeId, OvertimeOrder,
+    OvertimeOrderWire, OvertimePolicy, OvertimeState, PlaceId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
@@ -158,7 +158,14 @@ fn build_state(
 /// The inverse of [`build_state`].
 fn split_state(
     state: &OvertimeState,
-) -> Result<(&'static str, Option<serde_json::Value>, Option<serde_json::Value>), AppError> {
+) -> Result<
+    (
+        &'static str,
+        Option<serde_json::Value>,
+        Option<serde_json::Value>,
+    ),
+    AppError,
+> {
     Ok(match state {
         OvertimeState::AwaitingConsent => ("AWAITING_CONSENT", None, None),
         OvertimeState::Agreed { consent } => (
@@ -199,8 +206,8 @@ fn decode(row: &sqlx::postgres::PgRow) -> Result<OvertimeRecord, AppError> {
         )?,
     });
 
-    let wire: OvertimeOrderWire =
-        serde_json::from_value(wire).map_err(|error| corrupt("overtime order", error.to_string()))?;
+    let wire: OvertimeOrderWire = serde_json::from_value(wire)
+        .map_err(|error| corrupt("overtime order", error.to_string()))?;
     Ok(OvertimeRecord {
         // Both authority gates again. This is the line that keeps a
         // supervisor's key from becoming the worker's answer by way of the
@@ -337,10 +344,7 @@ pub async fn issue_overtime_order(
 /// change the instruction, only what became of it. The `state =
 /// 'AWAITING_CONSENT'` guard makes the update a no-op against a row somebody
 /// else answered first, which the caller reads back as a conflict.
-pub async fn answer_overtime_order(
-    pool: &PgPool,
-    order: &OvertimeOrder,
-) -> Result<(), AppError> {
+pub async fn answer_overtime_order(pool: &PgPool, order: &OvertimeOrder) -> Result<(), AppError> {
     let (state, consent, withdrawal) = split_state(order.state())?;
     let updated = sqlx::query(
         "UPDATE overtime_order

@@ -100,7 +100,8 @@ impl MinuteOfDay {
             .split_once(':')
             .ok_or(AttendanceError::UnreadableClockTime)?;
         Self::try_from_hm(
-            hour.parse().map_err(|_| AttendanceError::UnreadableClockTime)?,
+            hour.parse()
+                .map_err(|_| AttendanceError::UnreadableClockTime)?,
             minute
                 .parse()
                 .map_err(|_| AttendanceError::UnreadableClockTime)?,
@@ -253,8 +254,11 @@ impl AttendanceMonth {
             .split_once('-')
             .ok_or(AttendanceError::UnreadablePeriod)?;
         Self::try_new(
-            year.parse().map_err(|_| AttendanceError::UnreadablePeriod)?,
-            month.parse().map_err(|_| AttendanceError::UnreadablePeriod)?,
+            year.parse()
+                .map_err(|_| AttendanceError::UnreadablePeriod)?,
+            month
+                .parse()
+                .map_err(|_| AttendanceError::UnreadablePeriod)?,
         )
     }
 }

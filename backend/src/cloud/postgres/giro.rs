@@ -61,6 +61,11 @@ pub struct GiroRow {
     /// Days past due, negative while it is still ahead. Derived on read rather
     /// than stored, because it changes every midnight and a stored copy would
     /// be wrong for exactly as long as nobody looked.
+    ///
+    /// Measured against the day the board was drawn for, not against the
+    /// server's clock. Those are the same number on the ordinary day and not on
+    /// the interesting one: a board asked for last Friday would otherwise list
+    /// a giro as overdue and print "-3 days" beside it.
     pub days_overdue: i64,
     pub supplier_payment_id: Option<Uuid>,
     pub payment_number: Option<String>,
@@ -79,18 +84,22 @@ pub struct GiroRow {
     pub settled_by: Option<String>,
 }
 
+/// `$1` is always the day being asked about, and NULL means today. Every query
+/// below binds it first for that reason: `days_overdue` has to agree with the
+/// list the row came out of, and a column that read the clock while the query
+/// filtered on a date would disagree with it by exactly the amount that matters.
 const GIRO_COLUMNS: &str = "g.giro_id, g.direction, g.number, g.bank, g.site_id,
      g.amount_minor, g.currency, g.issue_date, g.due_date, g.status,
-     (CURRENT_DATE - g.due_date)::bigint AS days_overdue,
+     (COALESCE($1::date, CURRENT_DATE) - g.due_date)::bigint AS days_overdue,
      g.supplier_payment_id, g.cash_document_id,
      g.issue_entry_id, g.clearing_entry_id, g.cleared_line_id, g.cleared_on,
      g.rejected_reason, g.rejected_on, g.recorded_by, g.recorded_at, g.settled_by,
      p.payment_number,
      d.number AS cash_document_number,
      COALESCE(d.party_name, (
-         SELECT s.name FROM supplier_payment_allocation al
+         SELECT COALESCE(i.supplier_name, i.supplier_id)
+           FROM supplier_payment_allocation al
            JOIN supplier_invoice i USING (invoice_id)
-           LEFT JOIN supplier s ON s.id = i.supplier_id
           WHERE al.payment_id = g.supplier_payment_id
           ORDER BY al.amount_minor DESC LIMIT 1)) AS party_name";
 
@@ -133,17 +142,19 @@ pub async fn giro_list(
     status: Option<&str>,
     bank: Option<&str>,
     direction: Option<&str>,
+    as_of: Option<NaiveDate>,
     limit: i64,
 ) -> Result<Vec<GiroRow>, AppError> {
     let sql = format!(
         "SELECT {GIRO_COLUMNS} {GIRO_FROM}
-          WHERE ($1::text IS NULL OR g.status = $1)
-            AND ($2::text IS NULL OR g.bank = $2)
-            AND ($3::text IS NULL OR g.direction = $3)
+          WHERE ($2::text IS NULL OR g.status = $2)
+            AND ($3::text IS NULL OR g.bank = $3)
+            AND ($4::text IS NULL OR g.direction = $4)
           ORDER BY g.due_date, g.number
-          LIMIT $4"
+          LIMIT $5"
     );
     let rows = sqlx::query(&sql)
+        .bind(as_of)
         .bind(status)
         .bind(bank)
         .bind(direction)
@@ -154,8 +165,9 @@ pub async fn giro_list(
 }
 
 pub async fn giro_read(pool: &PgPool, giro_id: Uuid) -> Result<GiroRow, AppError> {
-    let sql = format!("SELECT {GIRO_COLUMNS} {GIRO_FROM} WHERE g.giro_id = $1");
+    let sql = format!("SELECT {GIRO_COLUMNS} {GIRO_FROM} WHERE g.giro_id = $2");
     let row = sqlx::query(&sql)
+        .bind(Option::<NaiveDate>::None)
         .bind(giro_id)
         .fetch_optional(pool)
         .await?

@@ -389,11 +389,7 @@ impl AttendancePeriod {
     /// Passing *some* real period in place of the right one fails here rather
     /// than passing, which is what makes "load it, never accept it" a rule the
     /// kernel can partly hold up on its own.
-    pub fn require_covers(
-        &self,
-        place: &PlaceId,
-        date: NaiveDate,
-    ) -> Result<(), AttendanceError> {
+    pub fn require_covers(&self, place: &PlaceId, date: NaiveDate) -> Result<(), AttendanceError> {
         if &self.place != place {
             return Err(AttendanceError::PeriodIdentityMismatch);
         }

@@ -189,7 +189,12 @@ async fn staff_at(
         Some(json!({ "employee_code": code })),
     )
     .await;
-    assert_eq!(registered.status, StatusCode::OK, "register: {:?}", registered.body);
+    assert_eq!(
+        registered.status,
+        StatusCode::OK,
+        "register: {:?}",
+        registered.body
+    );
     let employee_id = registered.body["employee_id"]
         .as_str()
         .unwrap_or_else(|| panic!("employee_id: {:?}", registered.body))
@@ -221,7 +226,12 @@ async fn staff_at(
         })),
     )
     .await;
-    assert_eq!(assigned.status, StatusCode::OK, "assign: {:?}", assigned.body);
+    assert_eq!(
+        assigned.status,
+        StatusCode::OK,
+        "assign: {:?}",
+        assigned.body
+    );
     employee_id
 }
 
@@ -248,7 +258,12 @@ async fn login_for(
         })),
     )
     .await;
-    assert_eq!(created.status, StatusCode::OK, "create user: {:?}", created.body);
+    assert_eq!(
+        created.status,
+        StatusCode::OK,
+        "create user: {:?}",
+        created.body
+    );
     let linked = send(
         app.clone(),
         "POST",
@@ -278,7 +293,12 @@ async fn publish_2026(app: &axum::Router, cookies: &str, csrf: &str) {
         })),
     )
     .await;
-    assert_eq!(published.status, StatusCode::OK, "publish: {:?}", published.body);
+    assert_eq!(
+        published.status,
+        StatusCode::OK,
+        "publish: {:?}",
+        published.body
+    );
 }
 
 /// Annual leave, sick leave, and the policy a balance folds under.
@@ -325,7 +345,12 @@ async fn ratify_leave(app: &axum::Router, cookies: &str, csrf: &str) {
         })),
     )
     .await;
-    assert_eq!(ratified.status, StatusCode::OK, "policy: {:?}", ratified.body);
+    assert_eq!(
+        ratified.status,
+        StatusCode::OK,
+        "policy: {:?}",
+        ratified.body
+    );
 }
 
 /// Put this year's entitlement into somebody's balance.
@@ -544,7 +569,12 @@ async fn a_regional_day_is_a_holiday_only_where_it_is_observed(pool: PgPool) {
         })),
     )
     .await;
-    assert_eq!(nowhere.status, StatusCode::BAD_REQUEST, "{:?}", nowhere.body);
+    assert_eq!(
+        nowhere.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        nowhere.body
+    );
 }
 
 // ── leave ────────────────────────────────────────────────────────────────
@@ -563,9 +593,27 @@ async fn an_approval_deducts_exactly_the_days_it_charged(pool: PgPool) {
     ratify_leave(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &siti,
+        "siti",
+        "CASHIER",
+        CASHIER_PASSWORD,
+    )
+    .await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &rina,
+        "rina",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
 
     let allocated = allocate(&app, &cookies, &csrf, &siti, 12).await;
     assert_eq!(centidays(&allocated, "CUTI_TAHUNAN"), 1200);
@@ -615,7 +663,12 @@ async fn an_approval_deducts_exactly_the_days_it_charged(pool: PgPool) {
         Some(json!({ "reason": "toko cukup orang" })),
     )
     .await;
-    assert_eq!(approved.status, StatusCode::OK, "approve: {:?}", approved.body);
+    assert_eq!(
+        approved.status,
+        StatusCode::OK,
+        "approve: {:?}",
+        approved.body
+    );
     assert_eq!(approved.body["state"], "APPROVED");
     assert_eq!(approved.body["decided_by"], "rina");
     // The deduction is named on the request. This is the pairing that a crash
@@ -660,9 +713,27 @@ async fn a_sick_day_is_approved_and_deducts_from_nothing(pool: PgPool) {
     ratify_leave(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &siti,
+        "siti",
+        "CASHIER",
+        CASHIER_PASSWORD,
+    )
+    .await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &rina,
+        "rina",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
     allocate(&app, &cookies, &csrf, &siti, 12).await;
 
     let (hers, her_csrf) = sign_in(&app, "siti", CASHIER_PASSWORD).await;
@@ -682,7 +753,12 @@ async fn a_sick_day_is_approved_and_deducts_from_nothing(pool: PgPool) {
         })),
     )
     .await;
-    assert_eq!(without.status, StatusCode::BAD_REQUEST, "{:?}", without.body);
+    assert_eq!(
+        without.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        without.body
+    );
 
     let filed = send(
         app.clone(),
@@ -710,7 +786,12 @@ async fn a_sick_day_is_approved_and_deducts_from_nothing(pool: PgPool) {
         Some(json!({ "reason": "surat dokter diterima" })),
     )
     .await;
-    assert_eq!(approved.status, StatusCode::OK, "approve: {:?}", approved.body);
+    assert_eq!(
+        approved.status,
+        StatusCode::OK,
+        "approve: {:?}",
+        approved.body
+    );
     assert_eq!(approved.body["state"], "APPROVED");
     // Approved, and nothing deducted. `null` here is the correct outcome and
     // not a missing field.
@@ -724,7 +805,11 @@ async fn a_sick_day_is_approved_and_deducts_from_nothing(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(centidays(&after.body, "CUTI_TAHUNAN"), 1200, "the twelve are untouched");
+    assert_eq!(
+        centidays(&after.body, "CUTI_TAHUNAN"),
+        1200,
+        "the twelve are untouched"
+    );
     // And sick leave does not appear as a balance at all: asking how many are
     // left is a malformed question, not one whose answer is zero.
     assert!(
@@ -755,11 +840,29 @@ async fn a_manager_cannot_decide_another_shops_leave(pool: PgPool) {
 
     // Somebody at store-03, and a manager at store-07.
     let budi = staff_at(&app, &cookies, &csrf, "K0301", "store-03").await;
-    login_for(&app, &cookies, &csrf, &budi, "budi", "CASHIER", CASHIER_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &budi,
+        "budi",
+        "CASHIER",
+        CASHIER_PASSWORD,
+    )
+    .await;
     allocate(&app, &cookies, &csrf, &budi, 12).await;
 
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &rina,
+        "rina",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
 
     let (his, his_csrf) = sign_in(&app, "budi", CASHIER_PASSWORD).await;
     let filed = send(
@@ -790,7 +893,12 @@ async fn a_manager_cannot_decide_another_shops_leave(pool: PgPool) {
     )
     .await;
     assert_eq!(queue.status, StatusCode::OK, "queue: {:?}", queue.body);
-    assert_eq!(queue.body.as_array().map(Vec::len), Some(0), "{:?}", queue.body);
+    assert_eq!(
+        queue.body.as_array().map(Vec::len),
+        Some(0),
+        "{:?}",
+        queue.body
+    );
 
     // And refused when she reaches for it by id anyway. Hiding a row is a
     // convenience; this is the control.
@@ -830,9 +938,27 @@ async fn asking_for_more_days_than_are_left_leaves_the_request_pending(pool: PgP
     ratify_leave(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &siti,
+        "siti",
+        "CASHIER",
+        CASHIER_PASSWORD,
+    )
+    .await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &rina,
+        "rina",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
     allocate(&app, &cookies, &csrf, &siti, 1).await;
 
     let (hers, her_csrf) = sign_in(&app, "siti", CASHIER_PASSWORD).await;
@@ -899,9 +1025,27 @@ async fn only_the_person_who_asked_may_withdraw(pool: PgPool) {
     ratify_leave(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &siti,
+        "siti",
+        "CASHIER",
+        CASHIER_PASSWORD,
+    )
+    .await;
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &rina,
+        "rina",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
     allocate(&app, &cookies, &csrf, &siti, 12).await;
 
     let (hers, her_csrf) = sign_in(&app, "siti", CASHIER_PASSWORD).await;
@@ -973,7 +1117,16 @@ async fn no_route_can_spend_a_balance(pool: PgPool) {
     ratify_leave(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &siti,
+        "siti",
+        "CASHIER",
+        CASHIER_PASSWORD,
+    )
+    .await;
     allocate(&app, &cookies, &csrf, &siti, 12).await;
 
     let spent = send(
@@ -994,7 +1147,16 @@ async fn no_route_can_spend_a_balance(pool: PgPool) {
 
     // Granting days is head office's, and a shop manager cannot hand them out.
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
-    login_for(&app, &cookies, &csrf, &rina, "rina", "SUPERVISOR", SUPERVISOR_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &rina,
+        "rina",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
     let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
     let refused = send(
         app.clone(),
@@ -1025,7 +1187,16 @@ async fn leave_in_a_year_with_no_calendar_is_refused(pool: PgPool) {
     ratify_leave(&app, &cookies, &csrf).await;
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
-    login_for(&app, &cookies, &csrf, &siti, "siti", "CASHIER", CASHIER_PASSWORD).await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &siti,
+        "siti",
+        "CASHIER",
+        CASHIER_PASSWORD,
+    )
+    .await;
     allocate(&app, &cookies, &csrf, &siti, 12).await;
 
     let (hers, her_csrf) = sign_in(&app, "siti", CASHIER_PASSWORD).await;

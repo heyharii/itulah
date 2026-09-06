@@ -46,9 +46,12 @@ impl PtkpStatus {
     }
 
     pub fn parse(raw: &str) -> Result<Self, PayError> {
-        let (prefix, count) = raw.trim().split_once('/').ok_or_else(|| PayError::UnknownPtkp {
-            value: raw.to_owned(),
-        })?;
+        let (prefix, count) = raw
+            .trim()
+            .split_once('/')
+            .ok_or_else(|| PayError::UnknownPtkp {
+                value: raw.to_owned(),
+            })?;
         let married = match prefix.to_uppercase().as_str() {
             "TK" => false,
             "K" => true,

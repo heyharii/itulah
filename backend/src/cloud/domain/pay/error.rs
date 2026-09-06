@@ -17,9 +17,7 @@ pub enum PayError {
     DuplicateAllowance { code: String },
     #[error("the pay agreement does not fit an integer")]
     PayOverflow,
-    #[error(
-        "a pay record effective {effective_from} cannot be filed behind the latest, {latest}"
-    )]
+    #[error("a pay record effective {effective_from} cannot be filed behind the latest, {latest}")]
     PayNotForward {
         effective_from: NaiveDate,
         latest: NaiveDate,
