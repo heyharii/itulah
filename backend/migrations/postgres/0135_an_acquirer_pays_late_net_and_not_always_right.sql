@@ -72,7 +72,11 @@
 -- had it and we did not. This is a document of our own, curated by a person,
 -- and `source_id` is its `settlement_id`.
 
-ALTER TABLE journal_entry DROP CONSTRAINT journal_entry_source_kind_check;
+-- `IF EXISTS` because several lanes recreate this same constraint by name and
+-- none of them knows which will land first. Whichever runs last wins, and the
+-- list below is byte-identical to 0107's for exactly that reason: two lanes
+-- widening one CHECK must not narrow it past each other.
+ALTER TABLE journal_entry DROP CONSTRAINT IF EXISTS journal_entry_source_kind_check;
 ALTER TABLE journal_entry ADD CONSTRAINT journal_entry_source_kind_check
     CHECK (source_kind IN (
         -- everything 0096 allowed
