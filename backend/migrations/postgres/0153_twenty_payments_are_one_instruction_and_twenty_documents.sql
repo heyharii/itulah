@@ -70,6 +70,16 @@ CREATE TABLE payment_batch (
     from_qualifier  text NOT NULL DEFAULT '',
     site_id         text NOT NULL REFERENCES site(id),
 
+    -- What the money answers, on the other side of every entry this batch
+    -- produces: `trade_payable` for a supplier run, a payroll payable for a
+    -- payroll run, or an account code a person chose for a batch that answers
+    -- no recorded obligation. Either a meaning or a code, never both, never
+    -- neither — the same choice `cash_document` models on each of its sides,
+    -- and stated once per batch because a batch is one instruction.
+    counter_key     text,
+    counter_qualifier text NOT NULL DEFAULT '',
+    counter_account_code text,
+
     method          text NOT NULL CHECK (method IN ('BANK_TRANSFER', 'CASH', 'GIRO')),
     doc_date        date NOT NULL,
     currency        char(3) NOT NULL DEFAULT 'IDR',
@@ -107,6 +117,8 @@ CREATE TABLE payment_batch (
     CHECK ((cancelled_by IS NULL) = (cancelled_at IS NULL)),
     CHECK ((status = 'CANCELLED') = (cancelled_at IS NOT NULL)),
     CHECK (status <> 'HELD' OR btrim(COALESCE(held_reason, '')) <> ''),
+    CHECK ((counter_key IS NULL) <> (counter_account_code IS NULL)),
+    CHECK (counter_key IS NOT NULL OR counter_qualifier = ''),
     -- Nothing may be executed out of a batch nobody authorised. The item's own
     -- trigger enforces the other half.
     CHECK (status IN ('DRAFT', 'CANCELLED') OR authorised_at IS NOT NULL)
