@@ -572,6 +572,8 @@ async fn a_bill_debits_inventory_gross_and_credits_the_discount(pool: PgPool) {
             note: None,
             kind: None,
             lines: None,
+            matching: None,
+            withholding_code: None,
         },
         ACTOR,
     )
@@ -643,6 +645,8 @@ async fn the_balance_sheet_balances_once_the_result_is_counted(pool: PgPool) {
             note: None,
             kind: None,
             lines: None,
+            matching: None,
+            withholding_code: None,
         },
         ACTOR,
     )

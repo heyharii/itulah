@@ -190,7 +190,13 @@ pub fn match_bill_to_deliveries(lines: &[MatchLine], tolerance: MatchTolerance) 
 mod tests {
     use super::*;
 
-    fn line(number: i32, billed_qty: i64, billed_price: i64, accepted: i64, ordered: i64) -> MatchLine {
+    fn line(
+        number: i32,
+        billed_qty: i64,
+        billed_price: i64,
+        accepted: i64,
+        ordered: i64,
+    ) -> MatchLine {
         MatchLine {
             line_number: number,
             billed_quantity: billed_qty,
@@ -202,8 +208,10 @@ mod tests {
 
     #[test]
     fn a_bill_that_says_what_arrived_at_the_agreed_price_is_clean() {
-        let outcome =
-            match_bill_to_deliveries(&[line(1, 120, 85_000, 120, 85_000)], MatchTolerance::default());
+        let outcome = match_bill_to_deliveries(
+            &[line(1, 120, 85_000, 120, 85_000)],
+            MatchTolerance::default(),
+        );
         assert!(outcome.is_clean());
         assert_eq!(outcome.variance_minor(), 0);
         assert_eq!(outcome.billed_value_minor, 10_200_000);
@@ -211,8 +219,10 @@ mod tests {
 
     #[test]
     fn billing_for_more_than_arrived_is_a_fault_nobody_may_accept() {
-        let outcome =
-            match_bill_to_deliveries(&[line(1, 130, 85_000, 120, 85_000)], MatchTolerance::default());
+        let outcome = match_bill_to_deliveries(
+            &[line(1, 130, 85_000, 120, 85_000)],
+            MatchTolerance::default(),
+        );
         assert_eq!(
             outcome.faults,
             vec![LineFault::OverBilled {
@@ -228,29 +238,37 @@ mod tests {
     fn a_rounding_passes_and_leaves_a_variance() {
         // Eight rupiah a piece on 120 pieces: inside both limits, and still a
         // variance that has to land somewhere.
-        let outcome =
-            match_bill_to_deliveries(&[line(1, 120, 85_008, 120, 85_000)], MatchTolerance::default());
+        let outcome = match_bill_to_deliveries(
+            &[line(1, 120, 85_008, 120, 85_000)],
+            MatchTolerance::default(),
+        );
         assert!(outcome.is_clean());
         assert_eq!(outcome.variance_minor(), 960);
     }
 
     #[test]
     fn a_real_price_rise_is_refused_until_somebody_accepts_it() {
-        let outcome =
-            match_bill_to_deliveries(&[line(1, 120, 93_500, 120, 85_000)], MatchTolerance::default());
+        let outcome = match_bill_to_deliveries(
+            &[line(1, 120, 93_500, 120, 85_000)],
+            MatchTolerance::default(),
+        );
         assert_eq!(outcome.faults.len(), 1);
         assert!(outcome.is_acceptable(), "a price is a decision, not a fact");
         assert_eq!(outcome.variance_minor(), 1_020_000);
         match outcome.faults[0] {
-            LineFault::PriceOutsideTolerance { difference_bp, .. } => assert_eq!(difference_bp, 1_000),
+            LineFault::PriceOutsideTolerance { difference_bp, .. } => {
+                assert_eq!(difference_bp, 1_000)
+            }
             other => panic!("expected a price fault, got {other:?}"),
         }
     }
 
     #[test]
     fn cheaper_than_agreed_is_a_credit_and_still_a_disagreement() {
-        let outcome =
-            match_bill_to_deliveries(&[line(1, 10, 60_000, 10, 85_000)], MatchTolerance::default());
+        let outcome = match_bill_to_deliveries(
+            &[line(1, 10, 60_000, 10, 85_000)],
+            MatchTolerance::default(),
+        );
         assert!(outcome.variance_minor() < 0);
         assert_eq!(outcome.variance_minor(), -250_000);
         assert_eq!(outcome.faults.len(), 1);
@@ -260,7 +278,8 @@ mod tests {
     fn a_free_line_that_is_billed_for_is_the_largest_difference_there_is() {
         assert_eq!(price_difference_bp(0, 0), 0);
         assert_eq!(price_difference_bp(1, 0), i64::MAX);
-        let outcome = match_bill_to_deliveries(&[line(1, 5, 12_000, 5, 0)], MatchTolerance::default());
+        let outcome =
+            match_bill_to_deliveries(&[line(1, 5, 12_000, 5, 0)], MatchTolerance::default());
         assert_eq!(outcome.faults.len(), 1);
     }
 
@@ -268,7 +287,8 @@ mod tests {
     fn a_tiny_absolute_difference_passes_even_on_a_cheap_line() {
         // 40 rupiah on a 2,000-rupiah sock is two per cent — outside the
         // relative limit and well inside the absolute one.
-        let outcome = match_bill_to_deliveries(&[line(1, 10, 2_040, 10, 2_000)], MatchTolerance::default());
+        let outcome =
+            match_bill_to_deliveries(&[line(1, 10, 2_040, 10, 2_000)], MatchTolerance::default());
         assert!(outcome.is_clean(), "faults: {:?}", outcome.faults);
     }
 }

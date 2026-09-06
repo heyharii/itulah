@@ -32,6 +32,7 @@ pub mod member;
 pub mod notifications;
 pub mod overtime;
 pub mod pay;
+pub mod payables_flow;
 pub mod performance;
 pub mod reports;
 pub mod roster;
@@ -66,7 +67,11 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
 
 pub fn router(state: AppState) -> Router {
     let frontend = state.config.frontend_dir.clone();
-    Router::new()
+    // The rest of the payables loop — valuing a delivery, matching a bill to
+    // it, credit notes, supplier advances, withholding — adds its routes in
+    // one call rather than twenty lines here. Several sessions edit this
+    // function in a week, and a call is the smallest hunk that can conflict.
+    payables_flow::lane_g_routes(Router::new())
         .merge(crate::cloud::media::router())
         .route("/api/v1/health", get(health))
         .route("/api/v1/inventory/pools", get(pools))

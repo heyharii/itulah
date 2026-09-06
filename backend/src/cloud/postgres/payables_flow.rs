@@ -698,7 +698,9 @@ pub async fn bill_match(
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| {
-            AppError::Validation(format!("line {number} names a delivery line that does not exist"))
+            AppError::Validation(format!(
+                "line {number} names a delivery line that does not exist"
+            ))
         })?;
         let receipt_id: Uuid = row.try_get("receipt_id")?;
         if !request.receipt_ids.contains(&receipt_id) {
@@ -724,7 +726,11 @@ pub async fn bill_match(
             unit_price_bp: bp,
             ..MatchTolerance::default()
         },
-        Some(_) => return Err(AppError::Validation("a tolerance cannot be negative".into())),
+        Some(_) => {
+            return Err(AppError::Validation(
+                "a tolerance cannot be negative".into(),
+            ))
+        }
         None => MatchTolerance::default(),
     };
     let outcome = match_bill_to_deliveries(
@@ -880,7 +886,11 @@ pub async fn merchandise_debit_lines(
     let suspend_value: i64 = row.try_get("suspend_value")?;
 
     if receipts == 0 {
-        return Ok(vec![PostingLine::debit("inventory", site_id, subtotal_minor)]);
+        return Ok(vec![PostingLine::debit(
+            "inventory",
+            site_id,
+            subtotal_minor,
+        )]);
     }
     if valued != receipts {
         return Err(AppError::Conflict(
@@ -899,13 +909,16 @@ pub async fn merchandise_debit_lines(
         )));
     }
 
-    let mut lines = vec![
-        PostingLine::debit(SUSPEND, site_id, suspend_value).for_supplier(supplier_id)
-    ];
+    let mut lines =
+        vec![PostingLine::debit(SUSPEND, site_id, suspend_value).for_supplier(supplier_id)];
     if price_variance_minor > 0 {
         lines.push(PostingLine::debit(VARIANCE, site_id, price_variance_minor));
     } else if price_variance_minor < 0 {
-        lines.push(PostingLine::credit(VARIANCE, site_id, -price_variance_minor));
+        lines.push(PostingLine::credit(
+            VARIANCE,
+            site_id,
+            -price_variance_minor,
+        ));
     }
     Ok(lines)
 }
@@ -1095,27 +1108,26 @@ pub async fn credit_note_create(
     // knows — the goods came out of inventory — and on an expense note only the
     // person holding the paper does, exactly as when the bill was keyed.
     let account = request.credit_account_code.as_deref().map(str::trim);
-    let account = match (kind.as_str(), account) {
-        ("MERCHANDISE", Some(code)) if !code.is_empty() => {
-            return Err(AppError::Validation(format!(
+    let account =
+        match (kind.as_str(), account) {
+            ("MERCHANDISE", Some(code)) if !code.is_empty() => {
+                return Err(AppError::Validation(format!(
                 "bill {} is for goods, so a credit note against it goes back to inventory by rule; \
                  naming {code} would be choosing where stock lives",
                 bill.try_get::<String, _>("invoice_number")?
             )))
-        }
-        ("MERCHANDISE", _) => None,
-        (_, Some(code)) if !code.is_empty() => {
-            super::ledger::assert_postable(pool, code, super::ledger::Intent::Post).await?;
-            Some(code.to_string())
-        }
-        _ => {
-            return Err(AppError::Validation(
+            }
+            ("MERCHANDISE", _) => None,
+            (_, Some(code)) if !code.is_empty() => {
+                super::ledger::assert_postable(pool, code, super::ledger::Intent::Post).await?;
+                Some(code.to_string())
+            }
+            _ => return Err(AppError::Validation(
                 "say which account the credit goes back to; on an expense bill only the person \
                  holding the paper knows"
                     .into(),
-            ))
-        }
-    };
+            )),
+        };
 
     let credit_note_id = Uuid::new_v4();
     let number: i64 = sqlx::query("SELECT nextval('supplier_credit_note_number_seq') AS n")
@@ -1497,14 +1509,13 @@ pub async fn supplier_advance_issue(
             MONEY_KEYS.join(", ")
         )));
     }
-    let supplier_id: String = sqlx::query(
-        "SELECT supplier_id FROM purchase_order WHERE purchase_order_id = $1",
-    )
-    .bind(request.purchase_order_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("purchase order".into()))?
-    .try_get("supplier_id")?;
+    let supplier_id: String =
+        sqlx::query("SELECT supplier_id FROM purchase_order WHERE purchase_order_id = $1")
+            .bind(request.purchase_order_id)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("purchase order".into()))?
+            .try_get("supplier_id")?;
 
     let qualifier = request.account_qualifier.trim();
     // Checked here as well as by the composite foreign key, for the reason
@@ -1824,7 +1835,10 @@ pub async fn payment_withhold(
             _ => key = Some(category.payable_key.to_string()),
         }
         withheld_total += withheld;
-        explanation.push(format!("{invoice_number}: {withheld} at {}", category.label));
+        explanation.push(format!(
+            "{invoice_number}: {withheld} at {}",
+            category.label
+        ));
     }
 
     if withheld_total >= total_minor {
@@ -1844,7 +1858,11 @@ pub async fn payment_withhold(
     )
     .bind(payment_id)
     .bind(withheld_total)
-    .bind(if withheld_total > 0 { key.clone() } else { None })
+    .bind(if withheld_total > 0 {
+        key.clone()
+    } else {
+        None
+    })
     .bind(request.bank_charge_minor)
     .bind(actor)
     .execute(pool)
