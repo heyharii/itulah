@@ -102,6 +102,12 @@ macro_rules! check {
 fn built_in_checks() -> Vec<CloseCheck> {
     vec![
         check!(
+            "integrity.equations",
+            "Every integrity equation balances",
+            true,
+            check_integrity_equations
+        ),
+        check!(
             "journal.balanced",
             "Every entry balances, in total and at each location",
             true,
@@ -229,6 +235,108 @@ pub async fn period_checklist(
 // ---------------------------------------------------------------------------
 // The checks
 // ---------------------------------------------------------------------------
+
+/// The ten equations, asked of the integrity engine rather than re-derived.
+///
+/// This checklist is about READINESS — is anything still in draft, has
+/// depreciation run, has the bank been imported. Whether the books balance is a
+/// different question with a different owner: `postgres::integrity` holds the
+/// ten equations, each an `IntegrityCheck` with its own tolerance and its own
+/// four-state verdict, and a month-end that recomputed any of them would be a
+/// second opinion drifting away from the first.
+///
+/// So this is one slot in the checklist that delegates, and the mapping from
+/// their four states to ours is the whole of it:
+///
+/// | `integrity::CheckState` | here |
+/// |---|---|
+/// | `Balanced`  | `Pass` |
+/// | `Pending`   | `Pending` — the equation could not be evaluated |
+/// | `Exception` | `Fail`, with the offending scope as a pointer |
+/// | `Blocked`   | `Blocked` — refuses the close whatever `critical` says |
+///
+/// # Why this is Pending today
+///
+/// The engine lands on its own branch. Calling `integrity_registry()` from a
+/// branch where `postgres::integrity` does not exist would not compile, and
+/// answering `Pass` in its absence would be exactly the green tick for an
+/// unrun control that `CheckOutcome::Pending` exists to refuse. So the slot is
+/// held open, critical, and Pending — which means **a month cannot close until
+/// the engine is wired in**, and that is the correct behaviour rather than a
+/// gap.
+///
+/// # Wiring it in, when the branches meet
+///
+/// Nothing in this file changes. The engine's own start-up registers a check
+/// under the same key and [`period_close_register`] replaces this placeholder
+/// with it:
+///
+/// ```ignore
+/// use crate::cloud::domain::{CheckOutcome, CheckPointer, CheckState};
+/// use crate::cloud::postgres::{
+///     integrity_registry, period_close_register, CloseCheck,
+/// };
+///
+/// async fn equations(pool: &PgPool, period: ClosePeriod) -> Result<CheckOutcome, AppError> {
+///     // The last day of the month, because an equation asked `as_of` today
+///     // would answer a question about today.
+///     let as_of = NaiveDate::from_ymd_opt(period.year, period.month, period.last_day())
+///         .ok_or_else(|| AppError::Validation("not a month".into()))?;
+///     let mut failed = Vec::new();
+///     let mut blocked = Vec::new();
+///     let mut waiting = Vec::new();
+///     for check in integrity_registry() {
+///         let result = check.evaluate(pool, as_of).await?;
+///         match result.state {
+///             CheckState::Balanced => {}
+///             CheckState::Pending => waiting.push(check.key().to_string()),
+///             CheckState::Exception => failed.push(CheckPointer::new(
+///                 "integrity_check",
+///                 check.key(),
+///                 check.title(),
+///             )),
+///             CheckState::Blocked => blocked.push(check.key().to_string()),
+///         }
+///     }
+///     if !blocked.is_empty() {
+///         return Ok(CheckOutcome::blocked(format!(
+///             "the books do not add up: {}",
+///             blocked.join(", ")
+///         )));
+///     }
+///     if !waiting.is_empty() {
+///         return Ok(CheckOutcome::pending(format!(
+///             "could not be evaluated: {}",
+///             waiting.join(", ")
+///         )));
+///     }
+///     let count = i64::try_from(failed.len()).unwrap_or(i64::MAX);
+///     failed.truncate(POINTER_CAP as usize);
+///     Ok(CheckOutcome::from_exceptions(count, failed))
+/// }
+///
+/// period_close_register(CloseCheck {
+///     key: "integrity.equations",
+///     title: "Every integrity equation balances",
+///     critical: true,
+///     evaluate: |pool, period| Box::pin(equations(pool, period)),
+/// });
+/// ```
+///
+/// The `Blocked` arm is the reason [`crate::cloud::domain::CheckOutcome`] has a
+/// fourth variant at all: an unfooted trial balance is not an exception
+/// somebody may weigh, and a `critical: false` on this slot must not become a
+/// way to seal a month over one.
+async fn check_integrity_equations(
+    _pool: &PgPool,
+    _period: ClosePeriod,
+) -> Result<CheckOutcome, AppError> {
+    Ok(CheckOutcome::pending(
+        "the integrity engine is not on this build: nothing has registered a check under \
+         integrity.equations, so integrity_registry() has not been asked whether the ten \
+         equations balance",
+    ))
+}
 
 /// Every entry balances, and balances at each location.
 ///

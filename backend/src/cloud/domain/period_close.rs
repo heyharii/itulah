@@ -142,6 +142,22 @@ pub enum CheckOutcome {
     Pending {
         reason: String,
     },
+    /// The check found the ground it stands on to be unsound, and no verdict
+    /// about this month is worth anything until that is fixed.
+    ///
+    /// The one outcome that does not care whether anybody called the check
+    /// critical. `Fail` says "this month has an exception in it"; `Blocked`
+    /// says "the arithmetic underneath every other answer does not hold" — a
+    /// trial balance that does not foot, a control account that disagrees with
+    /// its sub-ledger. Weighing that against a `critical` flag would be
+    /// offering somebody the option to seal a month on books that are not
+    /// books, and the integrity engine's fourth state exists precisely because
+    /// that option should not be on the screen.
+    ///
+    /// It is the state `integrity::CheckState::Blocked` maps onto.
+    Blocked {
+        reason: String,
+    },
 }
 
 impl CheckOutcome {
@@ -152,6 +168,12 @@ impl CheckOutcome {
 
     pub fn pending(reason: impl Into<String>) -> Self {
         Self::Pending {
+            reason: reason.into(),
+        }
+    }
+
+    pub fn blocked(reason: impl Into<String>) -> Self {
+        Self::Blocked {
             reason: reason.into(),
         }
     }
@@ -190,8 +212,15 @@ impl CheckResult {
     /// A critical check blocks when it fails and blocks when it could not be
     /// evaluated. See the module header: a pass nobody ran is worse than a
     /// refusal, because it leaves a green tick in the record.
+    ///
+    /// `Blocked` stops the close whatever `critical` says. That is the one
+    /// asymmetry in this function and it is deliberate: `critical` is a
+    /// judgement somebody made about how much a particular exception matters,
+    /// and `Blocked` is the report that the books themselves do not add up.
+    /// There is no judgement to make about the second.
     pub fn blocks(&self) -> bool {
-        self.critical && !self.outcome.is_pass()
+        matches!(self.outcome, CheckOutcome::Blocked { .. })
+            || (self.critical && !self.outcome.is_pass())
     }
 }
 
@@ -283,10 +312,7 @@ mod tests {
                 result(
                     "documents.drafts",
                     true,
-                    CheckOutcome::failed(
-                        2,
-                        vec![CheckPointer::new("bill", "b1", "INV-1")],
-                    ),
+                    CheckOutcome::failed(2, vec![CheckPointer::new("bill", "b1", "INV-1")]),
                 ),
             ],
         );
@@ -346,6 +372,23 @@ mod tests {
             )],
         );
         assert!(verdict.may_close);
+    }
+
+    #[test]
+    fn blocked_refuses_the_close_even_when_nobody_called_it_critical() {
+        let verdict = close_verdict(
+            september(),
+            vec![result(
+                "integrity.equations",
+                false,
+                CheckOutcome::blocked("the trial balance does not foot"),
+            )],
+        );
+        assert!(
+            !verdict.may_close,
+            "books that do not add up are not a matter of opinion"
+        );
+        assert_eq!(verdict.blocked_by, vec!["integrity.equations".to_string()]);
     }
 
     #[test]
