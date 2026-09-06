@@ -59,8 +59,18 @@
 -- Recreated whole from 0096's list plus every kind the finance lanes now write.
 -- A CHECK cannot be added to; it can only be replaced, and replacing it with a
 -- short list would silently outlaw the entries the other lanes post.
+--
+-- The list below is character-for-character the same SET as 0107's, which
+-- recreates this constraint for the takings lane. Two migrations replacing one
+-- constraint is fine as long as they agree; they were checked against each
+-- other rather than each written from memory, and whichever runs last wins with
+-- the same answer.
+--
+-- `IF EXISTS` because this constraint has now been dropped and recreated by
+-- more than one migration, and a bare DROP would make the ORDER they run in
+-- matter.
 
-ALTER TABLE journal_entry DROP CONSTRAINT journal_entry_source_kind_check;
+ALTER TABLE journal_entry DROP CONSTRAINT IF EXISTS journal_entry_source_kind_check;
 ALTER TABLE journal_entry ADD CONSTRAINT journal_entry_source_kind_check
     CHECK (source_kind IN (
         -- 0051, 0083, 0095, 0096
