@@ -466,7 +466,10 @@ fn the_money_meanings_and_the_predicate_are_one_list() {
         "giro_outstanding",
         "",
     ] {
-        assert!(!holds_money(key), "{key} is not in the list and claims to be");
+        assert!(
+            !holds_money(key),
+            "{key} is not in the list and claims to be"
+        );
     }
     // `giro_outstanding` in particular: an issued giro is a liability, not
     // money. If it ever held money, moving a payable onto it would read as a

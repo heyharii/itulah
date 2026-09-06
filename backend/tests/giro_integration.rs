@@ -696,3 +696,26 @@ async fn an_ignored_proposal_stops_being_proposed(pool: PgPool) {
         "an ignored proposal cannot then be accepted"
     );
 }
+
+/// A payment body written before giros existed still parses.
+///
+/// Not pedantry: `frontend-hub` and the seed scripts post this shape, and two
+/// new fields on a request type is exactly the change that silently turns every
+/// existing caller into a 422. Serde leaves a missing `Option` as `None`, and
+/// this is the assertion that says so out loud rather than trusting it.
+#[test]
+fn a_payment_body_without_the_giro_fields_still_parses() {
+    let body = serde_json::json!({
+        "site_id": "dc",
+        "payment_date": "2026-09-05",
+        "method": "TRANSFER",
+        "account_key": "bank_giro",
+        "account_qualifier": "BCA",
+        "allocations": [],
+    });
+    let parsed: RecordPaymentRequest =
+        serde_json::from_value(body).unwrap_or_else(|error| panic!("parse: {error}"));
+    assert_eq!(parsed.giro_number, None);
+    assert_eq!(parsed.giro_due_date, None);
+    assert_eq!(parsed.total_minor, None);
+}
