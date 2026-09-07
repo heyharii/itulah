@@ -41,6 +41,7 @@ pub mod overtime;
 pub mod pay;
 pub mod payables_flow;
 pub mod payment_ledger;
+pub mod payments_lane;
 pub mod performance;
 pub mod reports;
 pub mod roster;
@@ -1070,6 +1071,9 @@ pub fn router(state: AppState) -> Router {
     // lane-N: the words a person explains money in, and the three doors out of
     // a bank statement line. Gathered for the same reason.
     let router = categories::lane_n_routes(router);
+    // lane-M: destinations, batches, the payment context and the allocation
+    // surface, added in one call rather than as twenty more lines here.
+    let router = payments_lane::lane_m_routes(router);
     router
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->
