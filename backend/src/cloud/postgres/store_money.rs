@@ -56,10 +56,12 @@ const HEAD_OFFICE_SITE_ID: &str = "dc";
 /// Post an entry, naming which step of a document is posting.
 ///
 /// A thin wrapper over `poster::post`, kept because this lane has fifteen call
-/// sites and one of them is the only two-step document in it: the store deposit
-/// posts `OUT` when the bag leaves the shop and `IN` when the bank agrees it
-/// arrived. Every other rule here passes `None`, which the poster reads as
-/// `MAIN`. Migration 0140 is what makes the pair `(source, purpose)` unique.
+/// sites and two of them are documents that post at more than one moment: the
+/// store deposit posts `OUT` when the bag leaves the shop and `IN` when the
+/// bank agrees it arrived, and a cashier's shift posts `FLOAT` when the drawer
+/// opens and `VARIANCE` when it is counted. Every other rule here passes
+/// `None`, which the poster reads as `MAIN`. Migration 0140 is what makes the
+/// triple `(source_kind, source_id, purpose)` unique.
 async fn lane_b_post(
     tx: &mut Transaction<'_, Postgres>,
     intent: &PostingIntent,
@@ -185,20 +187,32 @@ async fn lane_b_ple_settle(
 
 /// What one control account has open, for one site.
 ///
-/// Lane P's `ple_outstanding`, narrowed to the two arguments this lane's
-/// callers have. It is one side of the equation this lane exists to make
-/// checkable: `Sum of open funds = payment ledger outstanding = the general
-/// ledger balance of Piutang Kepala Toko`.
+/// One side of the equation this lane exists to make checkable: `Sum of open
+/// funds = payment ledger outstanding = the general ledger balance of Piutang
+/// Kepala Toko`.
+///
+/// Read off the ledger's own `outstanding_minor` rather than through Lane P's
+/// `ple_outstanding`, and the difference is a date. That door answers as at a
+/// day, defaulting to today, and a settlement recorded with a value date later
+/// than today is correctly not counted by it — which is right for an ageing
+/// report and wrong for this equation, whose other two readings (the fund table
+/// and the account balance) carry no date bound either. Three readings of the
+/// same money have to be asked the same question.
 pub async fn store_ledger_outstanding(
     pool: &PgPool,
     account_key: &str,
     site_id: Option<&str>,
 ) -> Result<i64, AppError> {
-    Ok(
-        super::payment_ledger::ple_outstanding(pool, account_key, site_id, None, None)
-            .await?
-            .outstanding_minor,
+    let row = sqlx::query(
+        "SELECT COALESCE(SUM(outstanding_minor), 0)::bigint AS outstanding
+           FROM payment_ledger_entry
+          WHERE account_key = $1 AND ($2::text IS NULL OR site_id = $2)",
     )
+    .bind(account_key.trim().to_ascii_lowercase())
+    .bind(site_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.try_get("outstanding")?)
 }
 
 // ---------------------------------------------------------------------------
@@ -547,7 +561,10 @@ pub async fn cash_shift_post_float(
         ],
     };
     let mut tx = pool.begin().await?;
-    let posted = lane_b_post(&mut tx, &intent, None, actor).await?;
+    // A shift is the second two-step document in this lane, not the deposit
+    // alone: the float goes out when the drawer opens and the variance is
+    // booked when it is counted, and both carry the shift as their source.
+    let posted = lane_b_post(&mut tx, &intent, Some("FLOAT"), actor).await?;
     sqlx::query("UPDATE cash_shift SET float_out_entry_id = $2 WHERE shift_id = $1")
         .bind(shift_id)
         .bind(posted.entry_id)
@@ -662,7 +679,8 @@ pub async fn cash_shift_approve_variance(
         )),
         lines,
     };
-    let posted = lane_b_post(&mut tx, &intent, None, actor).await?;
+    // The shift's other step. See the float above.
+    let posted = lane_b_post(&mut tx, &intent, Some("VARIANCE"), actor).await?;
     sqlx::query(
         "UPDATE cash_shift
             SET approved_by = $2, approved_at = now(), variance_entry_id = $3
@@ -1967,9 +1985,22 @@ pub async fn fund_settlement_record(
         )),
         lines,
     };
-    let posted = lane_b_post(&mut tx, &intent, None, actor).await?;
-
+    // A fund is sent once and accounted for many times — a bill here, a wage
+    // there — and every one of those entries carries the fund as its source. So
+    // each settlement names itself; keyed on the fund alone, 0140 would read the
+    // second receipt as a repeat of the first.
     let settlement_id = Uuid::new_v4();
+    let posted = lane_b_post(
+        &mut tx,
+        &intent,
+        Some(&format!(
+            "SETTLED_{}",
+            settlement_id.simple().to_string().to_uppercase()
+        )),
+        actor,
+    )
+    .await?;
+
     sqlx::query(
         "INSERT INTO fund_settlement
              (settlement_id, fund_id, allocation_id, kind, reference_id, expense_key,

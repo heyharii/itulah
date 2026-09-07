@@ -68,7 +68,7 @@ async fn seed_chart(pool: &PgPool) {
     }
 
     // (rung, leaf, name, which location's books the leaf belongs to).
-    let accounts: [(&str, &str, &str, &str); 11] = [
+    let accounts: [(&str, &str, &str, &str); 13] = [
         ("1011001001", "101100100101", "Cash On Hand C001", SITE),
         (
             "1011101001",
@@ -103,6 +103,22 @@ async fn seed_chart(pool: &PgPool) {
             "8010110002",
             "801011000201",
             "Selisih pembulatan C001",
+            SITE,
+        ),
+        // The two sides of what head office and the shop owe each other. A
+        // settlement puts money in head office's bank against a debt carried in
+        // the shop's books, which is an inter-unit entry — so the balancer adds
+        // the affiliate legs and they need somewhere to land.
+        (
+            "1021401",
+            "102140100200",
+            "Piutang Affiliasi Pembiayaan CIKUPA - HO",
+            HQ,
+        ),
+        (
+            "2012301",
+            "201230100101",
+            "Hutang Affiliasi Pembiayaan HEAD OFFICE - C001",
             SITE,
         ),
     ];
@@ -177,6 +193,25 @@ async fn map_everything(pool: &PgPool) {
     map(pool, "card_fee", HQ, "BCA", "601011000201").await;
     map(pool, "sales_return", SITE, "BCA", "401021400101").await;
     map(pool, "bank_giro", HQ, "BCA", "101100200100").await;
+    // What the balancer needs to book the two halves of an inter-unit entry.
+    // Qualified by the other unit, which is how one account per pair is kept
+    // apart from one account per counterparty.
+    map(
+        pool,
+        "affiliate_receivable",
+        HQ,
+        &format!("PEMBIAYAAN:{SITE}"),
+        "102140100200",
+    )
+    .await;
+    map(
+        pool,
+        "affiliate_payable",
+        SITE,
+        &format!("PEMBIAYAAN:{HQ}"),
+        "201230100101",
+    )
+    .await;
 }
 
 async fn open_september(pool: &PgPool) {
@@ -512,10 +547,15 @@ async fn a_curated_settlement_posts_balanced_with_the_fee(pool: PgPool) {
             .unwrap_or_else(|e| panic!("{e}")),
         "ACQ_SETTLEMENT"
     );
+    // Five, not the three this rule writes. Head office's bank takes money that
+    // discharges a debt carried in the shop's books, so the entry is inter-unit
+    // and the balancer adds the pair of affiliate legs that leaves each of them
+    // balanced on its own. Asserting three here would be asserting that a
+    // settlement leaves two sets of books that cannot be published.
     assert_eq!(
         row.try_get::<i64, _>("lines")
             .unwrap_or_else(|e| panic!("{e}")),
-        3
+        5
     );
     assert_eq!(
         row.try_get::<i64, _>("d").unwrap_or_else(|e| panic!("{e}")),

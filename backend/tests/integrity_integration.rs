@@ -167,6 +167,72 @@ fn verbs(result: &IntegrityResultRow) -> Vec<String> {
 // Equation 1: the General Ledger
 // ---------------------------------------------------------------------------
 
+/// An entry that balances in total and at neither of the two locations it
+/// touches, written straight into the journal.
+///
+/// Not through `poster::post`, and that is the point. Lane D's balancer adds the
+/// affiliate legs that bring each unit back to zero, and 0120's deferred
+/// constraint trigger refuses the row if anything gets past it — so from that
+/// lane onwards this state cannot be reached through any door the application
+/// offers. What it can still be is inherited: rows written before 0120, a
+/// restore from an older dump, a hand-edit by somebody with a psql prompt.
+///
+/// That is exactly the population equation one exists for, so the fixture
+/// disables the trigger for the length of its own transaction and puts the row
+/// in the way those rows got there. An equation that could only be tested
+/// against states the current schema forbids would be an equation nobody could
+/// prove still works.
+async fn an_entry_wrong_at_both_ends(pool: &PgPool, amount: i64) {
+    // Three transactions, not one. The trigger is deferred, so a transaction
+    // that has already written a line has pending events on the table and
+    // Postgres refuses to ALTER it. Each test gets its own database, so
+    // standing it down between them reaches nothing else.
+    sqlx::query("ALTER TABLE journal_line DISABLE TRIGGER journal_line_balances_per_site")
+        .execute(pool)
+        .await
+        .expect("stand the trigger down");
+    let mut tx = pool.begin().await.expect("begin");
+    let entry_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO journal_entry
+           (entry_id, entry_number, posting_date, source_kind, source_id,
+            rule_version, total_minor, currency, memo, posted_by)
+         VALUES ($1,'JV-90000001',$2,'TRANSFER','TRF-1','test/1',$3,'IDR',
+                 'Stock to the shop, and nobody said who now owes whom','ana')",
+    )
+    .bind(entry_id)
+    .bind(september(4))
+    .bind(amount)
+    .execute(&mut *tx)
+    .await
+    .expect("header");
+    for (line, site, code, debit, credit) in [
+        (1, "store-01", "101120100101", amount, 0),
+        (2, "dc", "101120100100", 0, amount),
+    ] {
+        sqlx::query(
+            "INSERT INTO journal_line
+               (line_id, entry_id, line_number, account_code, site_id, debit_minor, credit_minor)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(entry_id)
+        .bind(line as i32)
+        .bind(code)
+        .bind(site)
+        .bind(debit)
+        .bind(credit)
+        .execute(&mut *tx)
+        .await
+        .expect("line");
+    }
+    tx.commit().await.expect("commit");
+    sqlx::query("ALTER TABLE journal_line ENABLE TRIGGER journal_line_balances_per_site")
+        .execute(pool)
+        .await
+        .expect("stand the trigger back up");
+}
+
 /// Value moved between two locations and only one of them recorded it.
 ///
 /// The entry balances — the poster would refuse it otherwise — and neither
@@ -180,27 +246,7 @@ fn verbs(result: &IntegrityResultRow) -> Vec<String> {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_real_imbalance_on_the_general_ledger_blocks_rather_than_queues(pool: PgPool) {
     seed(&pool).await;
-    let mut tx = pool.begin().await.expect("begin");
-    cloud::post(
-        &mut tx,
-        &PostingIntent {
-            posting_date: september(4),
-            source_kind: "TRANSFER".into(),
-            source_id: Some("TRF-1".into()),
-            rule_version: "test/1".into(),
-            currency: "IDR".into(),
-            memo: Some("Stock to the shop, and nobody said who now owes whom".into()),
-            lines: vec![
-                PostingLine::debit("inventory", "store-01", 8_600_000),
-                PostingLine::credit("inventory", "dc", 8_600_000),
-            ],
-        },
-        None,
-        ACTOR,
-    )
-    .await
-    .expect("post");
-    tx.commit().await.expect("commit");
+    an_entry_wrong_at_both_ends(&pool, 8_600_000).await;
 
     let run = run(&pool).await;
     let gl = answer(&run, "gl.debits_equal_credits");
@@ -578,27 +624,7 @@ async fn a_person_closing_an_exception_has_to_say_why(pool: PgPool) {
 async fn a_shop_is_never_shown_head_office_work(pool: PgPool) {
     seed(&pool).await;
     import_statement(&pool, &[(10, 4_150_000, "Transfer masuk")]).await;
-    let mut tx = pool.begin().await.expect("begin");
-    cloud::post(
-        &mut tx,
-        &PostingIntent {
-            posting_date: september(4),
-            source_kind: "TRANSFER".into(),
-            source_id: Some("TRF-1".into()),
-            rule_version: "test/1".into(),
-            currency: "IDR".into(),
-            memo: None,
-            lines: vec![
-                PostingLine::debit("inventory", "store-01", 8_600_000),
-                PostingLine::credit("inventory", "dc", 8_600_000),
-            ],
-        },
-        None,
-        ACTOR,
-    )
-    .await
-    .expect("post");
-    tx.commit().await.expect("commit");
+    an_entry_wrong_at_both_ends(&pool, 8_600_000).await;
     run(&pool).await;
 
     let head_office = cloud::attention_list(&pool, 50).await.expect("HO feed");

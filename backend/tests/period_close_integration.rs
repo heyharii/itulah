@@ -745,27 +745,32 @@ async fn a_document_table_that_lands_later_is_shut_out_of_a_sealed_month(pool: P
     open_september(&pool).await;
 
     // A sister lane's table, with a status vocabulary this migration has never
-    // seen and a date column of its own.
+    // seen and a date column of its own. Invented rather than borrowed from a
+    // real lane: `store_deposit` and `remittance_order` were the obvious
+    // stand-ins while lane B was unmerged, and now that it is merged its
+    // migrations create both — a stand-in has to be a name nobody owns or the
+    // test stops testing the lock and starts testing the merge order.
     sqlx::query(
-        "CREATE TABLE store_deposit (
-             deposit_id uuid PRIMARY KEY,
-             deposit_date date NOT NULL,
+        "CREATE TABLE later_lane_document (
+             document_id uuid PRIMARY KEY,
+             document_date date NOT NULL,
              status text NOT NULL DEFAULT 'PREPARED',
              journal_entry_id uuid REFERENCES journal_entry(entry_id))",
     )
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("stand-in table: {error}"));
-    let note: String =
-        sqlx::query_scalar("SELECT attach_entry_link_period_lock('store_deposit', 'deposit_date')")
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("attach: {error}"));
+    let note: String = sqlx::query_scalar(
+        "SELECT attach_entry_link_period_lock('later_lane_document', 'document_date')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("attach: {error}"));
     assert!(note.contains("locked on"), "{note}");
 
     // A table nobody has merged says so instead of failing the migration.
     let absent: String = sqlx::query_scalar(
-        "SELECT attach_entry_link_period_lock('remittance_order', 'order_date')",
+        "SELECT attach_entry_link_period_lock('a_table_no_lane_owns', 'its_date')",
     )
     .fetch_one(&pool)
     .await
@@ -783,7 +788,7 @@ async fn a_document_table_that_lands_later_is_shut_out_of_a_sealed_month(pool: P
     // ledger. Both halves matter: a lock that refused everything would pass a
     // test that only tried the refusal.
     sqlx::query(
-        "INSERT INTO store_deposit (deposit_id, deposit_date, status, journal_entry_id)
+        "INSERT INTO later_lane_document (document_id, document_date, status, journal_entry_id)
          SELECT gen_random_uuid(), DATE '2026-09-14', 'CONFIRMED', entry_id
            FROM journal_entry LIMIT 1",
     )
@@ -791,7 +796,7 @@ async fn a_document_table_that_lands_later_is_shut_out_of_a_sealed_month(pool: P
     .await
     .unwrap_or_else(|error| panic!("confirm while open: {error}"));
     sqlx::query(
-        "INSERT INTO store_deposit (deposit_id, deposit_date, status)
+        "INSERT INTO later_lane_document (document_id, document_date, status)
          VALUES (gen_random_uuid(), DATE '2026-09-14', 'PREPARED')",
     )
     .execute(&pool)
@@ -805,7 +810,7 @@ async fn a_document_table_that_lands_later_is_shut_out_of_a_sealed_month(pool: P
     // Still editable in a sealed month, as long as it stays out of the ledger.
     // A document with no entry is not in the books, and refusing a typo
     // correction would be a rule about paperwork rather than about the ledger.
-    sqlx::query("UPDATE store_deposit SET status='CANCELLED' WHERE journal_entry_id IS NULL")
+    sqlx::query("UPDATE later_lane_document SET status='CANCELLED' WHERE journal_entry_id IS NULL")
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("edit a deposit in a closed month: {error}"));
@@ -813,7 +818,7 @@ async fn a_document_table_that_lands_later_is_shut_out_of_a_sealed_month(pool: P
     // The transition into the books is what is refused, and the status word
     // does not appear anywhere in the rule that refuses it.
     let linked = sqlx::query(
-        "UPDATE store_deposit
+        "UPDATE later_lane_document
             SET status='CONFIRMED',
                 journal_entry_id = (SELECT entry_id FROM journal_entry LIMIT 1)
           WHERE journal_entry_id IS NULL",
@@ -833,7 +838,7 @@ async fn a_document_table_that_lands_later_is_shut_out_of_a_sealed_month(pool: P
     // An INSERT that arrives already linked — the shape a sync or a batch job
     // uses — is refused by the same trigger.
     let arrived = sqlx::query(
-        "INSERT INTO store_deposit (deposit_id, deposit_date, status, journal_entry_id)
+        "INSERT INTO later_lane_document (document_id, document_date, status, journal_entry_id)
          SELECT gen_random_uuid(), DATE '2026-09-14', 'CONFIRMED', entry_id
            FROM journal_entry LIMIT 1",
     )

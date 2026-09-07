@@ -48,10 +48,22 @@ async fn chart(pool: &PgPool) {
         ("1011005", "KAS DALAM PERJALANAN", Some("10110")),
         ("10111", "PIUTANG USAHA", Some("101")),
         ("1011102", "PIUTANG LAIN-LAIN", Some("10111")),
+        // What the two units owe each other, asset side. A shop banking its
+        // takings and a shop paying head office's supplier both move money
+        // across the boundary, so the balancer books the pair of affiliate legs
+        // that leaves each set of books balanced on its own.
+        ("102", "AKTIVA TIDAK LANCAR", None),
+        ("10214", "PIUTANG  AFFILIASI ANTAR UNIT", Some("102")),
+        ("1021401", "PIUTANG  AFFILIASI PEMBIAYAAN", Some("10214")),
+        ("1021402", "PIUTANG  AFFILIASI ATAS BARANG", Some("10214")),
         ("2", "LIABILITIES", None),
         ("201", "HUTANG JANGKA PENDEK", Some("2")),
         ("20120", "HUTANG DAGANG", Some("201")),
         ("2012001", "HUTANG SUPPLIER", Some("20120")),
+        // And the liability side of the same pair, at the shop.
+        ("20123", "HUTANG LAIN-LAIN", Some("201")),
+        ("2012301", "HUTANG AFFILIASI PEMBIAYAAN", Some("20123")),
+        ("2012302", "HUTANG AFFILIASI ATAS BARANG", Some("20123")),
         ("20122", "BIAYA YANG MASIH HARUS DIBAYAR", Some("201")),
         ("2012201", "BIAYA YMHD", Some("20122")),
         ("6", "BIAYA OPERASIONAL", None),
@@ -107,6 +119,30 @@ async fn chart(pool: &PgPool) {
             SHOP,
         ),
         ("801011000807", "Selisih Kas C007", "8010110008", SHOP),
+        (
+            "102140100207",
+            "Piutang Affiliasi Pembiayaan C007 - HO",
+            "1021401",
+            "dc",
+        ),
+        (
+            "201230100107",
+            "Hutang Affiliasi Pembiayaan HEAD OFFICE - C007",
+            "2012301",
+            SHOP,
+        ),
+        (
+            "102140200207",
+            "Piutang Affiliasi Atas Barang C007 - HO",
+            "1021402",
+            "dc",
+        ),
+        (
+            "201230200107",
+            "Hutang Affiliasi Atas Barang HEAD OFFICE - C007",
+            "2012302",
+            SHOP,
+        ),
         ("101100200100", "Cash In Bank Giro HO", "1011002001", "dc"),
         (
             "201200100100",
@@ -137,6 +173,28 @@ async fn chart(pool: &PgPool) {
         ("cash_variance", "801011000807", SHOP, ""),
         ("bank_giro", "101100200100", "dc", BANK),
         ("trade_payable", "201200100100", "dc", ""),
+        // Qualified by the unit on the other side, which is how one account per
+        // pair stays separate from one account per counterparty. BARANG rather
+        // than PEMBIAYAAN because a shop's banking answers what it owes for
+        // stock — the balancer's own reading of STORE_DEPOSIT and REMITTANCE.
+        // Two families, because the balancer picks one from the source kind:
+        // BARANG for a shop's banking and its remittances — money that answers
+        // what it owes for stock — and PEMBIAYAAN for everything else, which is
+        // the column head office reconciles by hand.
+        (
+            "affiliate_receivable",
+            "102140200207",
+            "dc",
+            "BARANG:store-07",
+        ),
+        ("affiliate_payable", "201230200107", SHOP, "BARANG:dc"),
+        (
+            "affiliate_receivable",
+            "102140100207",
+            "dc",
+            "PEMBIAYAAN:store-07",
+        ),
+        ("affiliate_payable", "201230100107", SHOP, "PEMBIAYAAN:dc"),
     ] {
         cloud::set_account_mapping(
             pool,
@@ -805,7 +863,7 @@ async fn a_handover_moves_the_balance_to_the_new_person(pool: PgPool) {
 async fn open_against(pool: &PgPool, party_id: &str) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COALESCE(SUM(outstanding_minor), 0)::bigint
-           FROM payment_ledger_as_of(CURRENT_DATE)
+           FROM payment_ledger_entry
           WHERE account_key = 'store_manager_receivable' AND party_id = $1",
     )
     .bind(party_id)

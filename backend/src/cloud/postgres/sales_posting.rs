@@ -1102,8 +1102,31 @@ pub async fn sales_posting_post(
     };
 
     let mut tx = pool.begin().await?;
-    // One step: a day is generated, posted once, and corrected by reversal.
-    let posted = post(&mut tx, &intent, None, actor).await?;
+    // Which attempt this is. A day is not a document that posts once: the only
+    // correction path this ledger has is to reverse a posted day, generate it
+    // again over the same `posting_id`, and post the new figures — so one
+    // document legitimately carries several entries and 0140 would read the
+    // second as a repeat of the first.
+    //
+    // Counted rather than stored, because the entries ARE the record and a
+    // column would be a second one to keep in step. Two callers racing both
+    // read the same count and both name the same attempt; the unique index
+    // refuses the loser, which is the guarantee — the count is only the name.
+    let attempt: i64 = sqlx::query(
+        "SELECT COUNT(*)::bigint AS n FROM journal_entry
+          WHERE source_kind = 'SALE_DAY' AND source_id = $1",
+    )
+    .bind(posting_id.to_string())
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("n")?;
+    let posted = post(
+        &mut tx,
+        &intent,
+        Some(&format!("ATTEMPT_{}", attempt + 1)),
+        actor,
+    )
+    .await?;
     // What the acquirers now owe, as items rather than as a balance. A no-op
     // until Lane P lands, in the transaction that wrote the journal so the two
     // can never disagree.
