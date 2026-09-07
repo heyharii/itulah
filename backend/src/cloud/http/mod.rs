@@ -37,6 +37,7 @@ pub mod leave;
 pub mod member;
 pub mod money;
 pub mod notifications;
+pub mod opening;
 pub mod overtime;
 pub mod pay;
 pub mod payables_flow;
@@ -1121,6 +1122,9 @@ pub fn router(state: AppState) -> Router {
     // lane-M: destinations, batches, the payment context and the allocation
     // surface, added in one call rather than as twenty more lines here.
     let router = payments_lane::lane_m_routes(router);
+    // lane-L: the cutover. Four routes, added the same way, and gathered
+    // because they are one act — the beginning of every balance in the books.
+    let router = opening::lane_l_routes(router);
     router
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->

@@ -208,7 +208,19 @@ CREATE TABLE opening_subledger_line (
     voucher_kind  text NOT NULL CHECK (btrim(voucher_kind) <> ''),
     voucher_id    text NOT NULL CHECK (btrim(voucher_id) <> ''),
     amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
+    -- The day the client's own document was raised, which is what the balance
+    -- is aged from and is NOT the cutover date. Every open item at a cutover is
+    -- older than the cutover — that is what makes it open — and a good half of
+    -- them are already overdue. `ple_open` refuses a due date before the
+    -- posting date, quite rightly, so an item posted as at the cutover with its
+    -- real due date on it would be refused for being what it is. Carrying the
+    -- invoice date across is the honest answer and it is also the useful one:
+    -- the aged payables report on the morning after the cutover then shows the
+    -- same buckets the client's own report showed the night before.
+    document_date date NOT NULL,
     due_date      date,
+    CHECK (document_date <= cutover_date),
+    CHECK (due_date IS NULL OR due_date >= document_date),
 
     payment_ledger_entry_id uuid REFERENCES payment_ledger_entry(entry_id),
     imported_at   timestamptz NOT NULL DEFAULT now(),

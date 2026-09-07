@@ -252,6 +252,18 @@ pub mod actions {
     /// that has already been reported, so it is the one key in finance that
     /// exists mainly to be withheld.
     pub const FINANCE_PERIOD_REOPEN: &str = "finance.period.reopen";
+    /// Import a cutover: the opening trial balance, the opening stock and its
+    /// costs, and the open items carried over from the client's old system.
+    ///
+    /// Its own key rather than a mode of [`FINANCE_JOURNAL_MANUAL`], and it is
+    /// the one this file would most like to see withheld from everybody until
+    /// the day it is used. A cutover is the only act in the system that writes
+    /// the beginning of every balance at once, and the FIFO queue in particular
+    /// is priced exactly once — after the first sale on the first morning there
+    /// is no second chance at it, because the layers are already being consumed.
+    /// It is also, unusually, an act with no document of ours behind it: what
+    /// it asserts happened, happened in somebody else's software.
+    pub const FINANCE_OPENING_IMPORT: &str = "finance.opening.import";
 
     /// The keys that may move the employment state machine.
     pub const EMPLOYMENT_CHANGING: &[&str] = &[EMPLOYMENT_CHANGE];
