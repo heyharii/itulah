@@ -108,6 +108,11 @@ const KERNELS: &[&str] = &[
     // give the same answer when it is re-run to explain a posting somebody is
     // querying, months after the correction landed.
     "src/cloud/domain/costing.rs",
+    // The store cash arithmetic: the cashier equation, fund accountability,
+    // the remittance projection and the approval limit. Here for the same
+    // reason as the other two — a drawer that gave two answers depending on
+    // when it was asked would be worse than one that gave none.
+    "src/cloud/domain/store_cash.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the

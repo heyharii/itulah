@@ -4371,6 +4371,14 @@ impl EdgeInventory for SqliteEdge {
             return Ok(response);
         }
         let report = crate::edge::till::open_shift(&tx, &request)?;
+        // The centre gets a copy of every shift, in the same transaction that
+        // wrote it. Behind the idempotency guard, so a replayed request returns
+        // the stored report above without enqueuing the shift a second time.
+        crate::edge::till::enqueue_shift_fact(
+            &tx,
+            &report.shift_id,
+            &self.node.site_id.to_string(),
+        )?;
         Self::save_idempotent(
             &tx,
             &request.idempotency_key,
@@ -4418,6 +4426,7 @@ impl EdgeInventory for SqliteEdge {
             return Ok(response);
         }
         let report = crate::edge::till::record_cash_movement(&tx, shift_id, &request)?;
+        crate::edge::till::enqueue_shift_fact(&tx, shift_id, &self.node.site_id.to_string())?;
         Self::save_idempotent(
             &tx,
             &request.idempotency_key,
@@ -4448,6 +4457,7 @@ impl EdgeInventory for SqliteEdge {
             return Ok(response);
         }
         let report = crate::edge::till::close_shift(&tx, shift_id, &request)?;
+        crate::edge::till::enqueue_shift_fact(&tx, shift_id, &self.node.site_id.to_string())?;
         Self::save_idempotent(
             &tx,
             &request.idempotency_key,

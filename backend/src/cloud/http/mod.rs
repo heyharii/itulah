@@ -46,6 +46,7 @@ pub mod roster;
 // lane-A
 pub mod sales_posting;
 pub mod stock_ledger;
+pub mod store_money;
 pub mod suppliers;
 pub mod sync_generation;
 pub mod vocabulary;
@@ -1053,6 +1054,11 @@ pub fn router(state: AppState) -> Router {
                 )),
         )
         .route("/api/v1/audit", get(audit::list))
+        // Store money: the drawer, the deposit, the remittance order, the
+        // manager's float, the receipt. One line rather than thirty, because
+        // several lanes are editing this file at once and a shared route table
+        // is a merge somebody resolves by hand at the wrong hour.
+        .merge(store_money::lane_b_routes(Router::new()))
         .route("/metrics", get(metrics));
     // lane-C: cash documents, bank rules and giros, gathered in their own
     // module. One call rather than twenty routes spliced into the chain above,

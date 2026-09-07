@@ -25,6 +25,7 @@ mod sales;
 mod settlement_report;
 // lane-A
 pub mod sales_posting;
+mod store_cash;
 mod supplier;
 mod sync;
 mod tender_recon;
@@ -59,6 +60,7 @@ pub use payment_ledger::*;
 pub use place::*;
 pub use sales::*;
 pub use settlement_report::*;
+pub use store_cash::*;
 pub use supplier::*;
 pub use sync::*;
 pub use tender_recon::*;

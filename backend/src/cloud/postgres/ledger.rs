@@ -716,6 +716,121 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Payables",
         ),
+        // ── lane-B — the store cash chain ────────────────────────────────
+        //
+        // Two of these are PROPOSED: the client's chart has no account for
+        // either, and both are named as proposals on the Account Map screen so
+        // nobody maps them to something approximate by accident.
+        //
+        // `cash_in_transit` is the one that matters. Without it a shop's
+        // banking is credited on the day the bag leaves and debited on the day
+        // the bank posts it, and in between the money is in no account and no
+        // report. `1011005` is the next free rung of `10110 KAS & SETARA KAS`,
+        // after CASH ON HAND, CASH IN BANK GIRO, CASH IN BANK TABUNGAN and TIME
+        // DEPOSIT — exactly where a treasurer would look for it.
+        key(
+            "cash_in_transit",
+            "Cash in transit",
+            "1011005001 Kas Dalam Perjalanan (proposed — the client has none)",
+            false,
+            "Cash & Bank",
+        ),
+        // The drawer's difference, once somebody has accepted it. The next free
+        // leaf under the rung that already holds `8010110002 Selisih
+        // pembulatan` and `8010110006 Kehilangan Barang atau Selisih Stock
+        // Opname`, because a till shortfall is the same species of number as a
+        // stock one and the client already keeps that species there.
+        key(
+            "cash_variance",
+            "Cash over and short",
+            "8010110008 Selisih Kas (proposed — the client has none)",
+            false,
+            "Cash & Bank",
+        ),
+        // `store_manager_receivable` — what a store manager is HOLDING for the
+        // company, which is not what an employee OWES it — belongs to this lane
+        // as much as to the Payment Ledger, and lane P declares it above under
+        // Receivables. One key, one meaning, one declaration: a meaning
+        // declared twice fails `every_meaning_is_declared_once`.
+        // Wages owed and not yet handed over. What a manager paying an employee
+        // out of a fund DEBITS — never a second salary expense, which was
+        // already recognised when payroll was finalised.
+        key(
+            "payroll_payable",
+            "Wages payable",
+            "2012201001 Biaya Gaji dan Upah YMHD",
+            false,
+            "Payables",
+        ),
+        // What a shop may spend petty cash or an operating fund on. Nine, and
+        // the ninth is a catch-all on purpose: a category list with no bottom
+        // means a real receipt eventually has nowhere to go, and the shop pays
+        // for it out of the drawer instead — which is the exact behaviour this
+        // lane exists to end.
+        key(
+            "expense_electricity",
+            "Electricity",
+            "6010310006 Biaya Pemakaian Listrik",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_water",
+            "Water",
+            "6010310007 Biaya Pemakaian Air Bersih (PDAM)",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_telephone",
+            "Telephone and internet",
+            "6010310005 Biaya Telephone, Facsimile, Modem",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_household",
+            "Household",
+            "6010310003 Biaya Rumah Tangga",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_stationery",
+            "Stationery and printing",
+            "6010310002 Alat Tulis Kantor & Barang Cetakan",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_repairs",
+            "Repairs and maintenance",
+            "6010410004 BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_transport",
+            "Local transport",
+            "6010310009 Biaya Lokal Transport",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_cleaning",
+            "Cleaning",
+            "6010310001 Biaya Kebersihan (Cleaning)",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_misc",
+            "Miscellaneous",
+            "6010310099 Miscellaneous Expences",
+            false,
+            "Store cash",
+        ),
+        // ── end lane-B ───────────────────────────────────────────────────
     ]
 }
 
