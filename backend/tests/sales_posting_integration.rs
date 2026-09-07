@@ -947,3 +947,213 @@ async fn a_cash_refund(pool: &PgPool, amount_minor: i64) {
     .await
     .unwrap_or_else(|error| panic!("refund: {error}"));
 }
+
+// ---------------------------------------------------------------------------
+// What the acquirers owe, in the ledger and in the books
+// ---------------------------------------------------------------------------
+
+/// A date the whole story is certainly behind, whenever this is run.
+///
+/// `ple_delink` dates a cancellation `CURRENT_DATE` rather than the reversal's
+/// own posting date, so an "as at" read taken earlier would see the ledger's
+/// cancellation and not the entry that caused it, and report a difference that
+/// is only the gap between two dates.
+fn after_everything() -> NaiveDate {
+    day().max(Utc::now().date_naive())
+}
+
+/// Every control account in the report, having first insisted they all agree.
+async fn agreed_receivables(
+    pool: &PgPool,
+) -> Vec<inventory_backend::cloud::postgres::PaymentLedgerIntegrityRow> {
+    let integrity = cloud::payment_ledger_integrity(pool, Some(after_everything()), None)
+        .await
+        .unwrap_or_else(|error| panic!("integrity: {error}"));
+    assert!(
+        integrity.agrees,
+        "the Payment Ledger and the books disagree: {:?}",
+        integrity
+            .rows
+            .iter()
+            .map(|row| (
+                row.account_key.clone(),
+                row.qualifier.clone(),
+                row.ledger_outstanding_minor,
+                row.gl_balance_minor
+            ))
+            .collect::<Vec<_>>()
+    );
+    integrity.rows
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_posted_day_owes_by_acquirer_exactly_what_the_books_owe(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    an_ordinary_tuesday(&pool).await;
+
+    let document = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("generate: {error}"));
+    cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+
+    // One item per acquirer the day owed, and each agrees with the account it
+    // was posted to. Cash and the voucher are not here on purpose: a till
+    // drawer is not a debt and a gift card is owed to somebody who may never
+    // come back, so neither has a party to be owed by.
+    let rows = agreed_receivables(&pool).await;
+    let owed: Vec<(String, String, i64)> = rows
+        .iter()
+        .map(|row| {
+            (
+                row.account_key.clone(),
+                row.qualifier.clone(),
+                row.ledger_outstanding_minor,
+            )
+        })
+        .collect();
+    assert_eq!(
+        owed,
+        vec![
+            (
+                "card_receivable_credit".to_string(),
+                "VISA".to_string(),
+                3_330_000
+            ),
+            (
+                "card_receivable_debit".to_string(),
+                "BCA".to_string(),
+                2_220_000
+            ),
+            ("qris_receivable".to_string(), "GOPAY".to_string(), 555_000),
+        ]
+    );
+    for row in &rows {
+        assert_eq!(row.side, "RECEIVABLE");
+        assert_eq!(row.gl_balance_minor, row.ledger_outstanding_minor);
+        assert_eq!(row.open_items, 1);
+    }
+
+    // Reversing the day takes the receivables out of the books, and the items
+    // stop counting in the same act.
+    cloud::sales_posting_reverse(
+        &pool,
+        document.posting.posting_id,
+        &cloud::ReverseSalesPostingRequest {
+            reason: "the QRIS provider was wrong".into(),
+            posting_date: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("reverse: {error}"));
+
+    for row in agreed_receivables(&pool).await {
+        assert_eq!(
+            row.ledger_outstanding_minor, 0,
+            "{} {} is still open after the day was reversed",
+            row.account_key, row.qualifier
+        );
+        assert_eq!(row.gl_balance_minor, 0);
+        assert_eq!(row.open_items, 0);
+    }
+
+    // And posting it again raises them afresh rather than handing back the
+    // cancelled ones, which is what the attempt in the voucher is for.
+    let fresh = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("regenerate: {error}"));
+    cloud::sales_posting_post(&pool, fresh.posting.posting_id, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("repost: {error}"));
+    let reposted = agreed_receivables(&pool).await;
+    let open: i64 = reposted.iter().map(|row| row.open_items).sum();
+    assert_eq!(open, 3, "the corrected day is owed once, not not at all");
+    let total: i64 = reposted
+        .iter()
+        .map(|row| row.ledger_outstanding_minor)
+        .sum();
+    assert_eq!(total, 3_330_000 + 2_220_000 + 555_000);
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_retender_moves_the_debt_to_the_acquirer_that_took_it(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    let tender_id = synced_sale(
+        &pool,
+        midday(),
+        2_220_000,
+        0,
+        0,
+        "CARD",
+        Some("BCA"),
+        Some("DEBIT"),
+    )
+    .await;
+    let document = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("generate: {error}"));
+    cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+
+    // It was rung on the wrong terminal: VISA took it, not BCA.
+    cloud::retender_tender(
+        &pool,
+        tender_id,
+        &cloud::RetenderRequest {
+            to_method: "CARD".into(),
+            to_acquirer: "VISA".into(),
+            to_card_kind: Some("CREDIT".into()),
+            reason: "settled on the VISA terminal, not the BCA one".into(),
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("retender: {error}"));
+
+    // One debt, moved. Not two debts, which is what opening without settling
+    // would have left: an evening's takings owed by two banks at once.
+    let rows = agreed_receivables(&pool).await;
+    let open: i64 = rows.iter().map(|row| row.open_items).sum();
+    assert_eq!(open, 1, "{rows:#?}");
+    let outstanding: Vec<(String, i64)> = rows
+        .iter()
+        .map(|row| (row.qualifier.clone(), row.ledger_outstanding_minor))
+        .collect();
+    assert_eq!(
+        outstanding,
+        vec![("VISA".to_string(), 2_220_000), ("BCA".to_string(), 0)]
+    );
+    for row in &rows {
+        assert_eq!(row.gl_balance_minor, row.ledger_outstanding_minor);
+        assert_eq!(row.difference_minor, 0);
+    }
+
+    // And the item VISA now owes says which correction raised it.
+    let items = cloud::ple_open_items(
+        &pool,
+        &cloud::PaymentLedgerFilter {
+            party_id: Some("VISA".into()),
+            open_only: true,
+            as_of: Some(after_everything()),
+            limit: 10,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("open items: {error}"));
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].voucher_kind, "RETENDER");
+    assert_eq!(items[0].account_key, "card_receivable_credit");
+    assert_eq!(
+        items[0].posting_date,
+        day(),
+        "the debt is as old as the sale"
+    );
+}

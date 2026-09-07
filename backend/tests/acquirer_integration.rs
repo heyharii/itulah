@@ -805,18 +805,10 @@ async fn a_pasted_report_is_read_and_kept_verbatim(pool: PgPool) {
     assert_eq!(kept, raw, "the evidence was normalised on the way in");
 }
 
-#[sqlx::test(migrations = "./migrations/postgres")]
-async fn ageing_buckets_come_from_the_journal(pool: PgPool) {
-    seed_chart(&pool).await;
-    map_everything(&pool).await;
-    open_september(&pool).await;
-
-    // Seeded through the poster, not by writing journal lines by hand: the
-    // ageing is only worth anything if it reads what a real day of takings
-    // leaves behind, and a hand-written line would agree with itself.
-    card_sale(&pool, 1_000_000, "BCA").await;
+/// A posted day of card takings, and the id of the document that posted it.
+async fn a_posted_day(pool: &PgPool) -> Uuid {
     let generated = cloud::sales_posting_generate(
-        &pool,
+        pool,
         &cloud::GenerateSalesPostingRequest {
             site_id: SITE.into(),
             business_date: day(),
@@ -825,61 +817,31 @@ async fn ageing_buckets_come_from_the_journal(pool: PgPool) {
     )
     .await
     .unwrap_or_else(|error| panic!("generate: {error}"));
-    cloud::sales_posting_post(&pool, generated.posting.posting_id, ACTOR)
+    cloud::sales_posting_post(pool, generated.posting.posting_id, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
+    generated.posting.posting_id
+}
 
-    // Forty days later. The debt is real, it is BCA's, and it belongs to the
-    // shop that made the sale.
-    let aged = cloud::acq_receivable_aging(&pool, date(2026, 10, 25), None, None)
-        .await
-        .unwrap_or_else(|error| panic!("ageing: {error}"));
-    // One row, and one million — not one row per bank sharing the leaf. The
-    // client keeps a single `Piutang Debit Card` for every acquirer, so BCA and
-    // MANDIRI both resolve to `101110100201` and a query grouped by qualifier
-    // would report this one sale twice.
-    assert_eq!(aged.rows.len(), 1, "{aged:#?}");
-    let row = &aged.rows[0];
-    assert_eq!(
-        row.acquirers,
-        vec!["BCA".to_string(), "MANDIRI".to_string()]
-    );
-    // Unnamed, because the ledger cannot say which of the two owes it.
-    assert_eq!(row.acquirer, "");
-    assert_eq!(row.site_id, SITE);
-    assert_eq!(row.semantic_key, "card_receivable_debit");
-    assert_eq!(row.buckets.days_31_60_minor, 1_000_000);
-    assert_eq!(row.buckets.not_due_minor, 0);
-    assert_eq!(row.buckets.total_minor, 1_000_000);
-    assert_eq!(aged.total.total_minor, 1_000_000);
-
-    // On the day itself it is not due, and the same figure lands in a different
-    // bucket — which is the only thing an ageing has to get right.
-    let fresh = cloud::acq_receivable_aging(&pool, day(), Some("BCA"), Some(SITE))
-        .await
-        .unwrap_or_else(|error| panic!("ageing: {error}"));
-    assert_eq!(fresh.total.not_due_minor, 1_000_000);
-    assert_eq!(fresh.total.days_31_60_minor, 0);
-
-    // And once BCA has paid, the acquirer drops off the report entirely rather
-    // than sitting at zero forever.
+/// Curate a BCA settlement for one shop's debit-card takings.
+async fn settle_bca(pool: &PgPool, gross: i64, mdr: i64) -> Uuid {
     let settlement_id = cloud::acq_settlement_create(
-        &pool,
+        pool,
         &cloud::CreateAcquirerSettlementRequest {
             acquirer: "BCA".into(),
             settlement_date: date(2026, 9, 16),
             business_from: day(),
             business_to: day(),
-            gross_minor: 1_000_000,
-            mdr_minor: 15_000,
+            gross_minor: gross,
+            mdr_minor: mdr,
             lines: vec![cloud::AcquirerSettlementLineInput {
                 sale_id: None,
                 tender_seq: None,
                 site_id: SITE.into(),
                 tender_kind: "CARD_DEBIT".into(),
                 auth_code: Some("AUTH-1".into()),
-                amount_minor: 1_000_000,
-                mdr_minor: 15_000,
+                amount_minor: gross,
+                mdr_minor: mdr,
             }],
         },
         ACTOR,
@@ -887,13 +849,173 @@ async fn ageing_buckets_come_from_the_journal(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("create: {error}"))
     .settlement_id;
-    cloud::acq_settlement_curate(&pool, settlement_id, &curate(), ACTOR)
+    cloud::acq_settlement_curate(pool, settlement_id, &curate(), ACTOR)
         .await
         .unwrap_or_else(|error| panic!("curate: {error}"));
+    settlement_id
+}
 
+/// What the integrity report says about one acquirer's receivable, having
+/// first insisted that every control account in it agrees.
+async fn receivable_control(
+    pool: &PgPool,
+    acquirer: &str,
+) -> inventory_backend::cloud::postgres::PaymentLedgerIntegrityRow {
+    let as_of = date(2026, 10, 25).max(Utc::now().date_naive());
+    let integrity = cloud::payment_ledger_integrity(pool, Some(as_of), None)
+        .await
+        .unwrap_or_else(|error| panic!("integrity: {error}"));
+    assert!(
+        integrity.agrees,
+        "the Payment Ledger and the books disagree: {:?}",
+        integrity
+            .rows
+            .iter()
+            .map(|row| (
+                row.account_key.clone(),
+                row.qualifier.clone(),
+                row.ledger_outstanding_minor,
+                row.gl_balance_minor
+            ))
+            .collect::<Vec<_>>()
+    );
+    integrity
+        .rows
+        .into_iter()
+        .find(|row| row.qualifier == acquirer)
+        .unwrap_or_else(|| panic!("no {acquirer} row in the integrity report"))
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn what_the_acquirer_owes_reads_the_same_in_the_ledger_and_in_the_books(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+
+    // One evening's debit-card takings. The shop has the money on a slip; the
+    // bank has it until Wednesday.
+    card_sale(&pool, 1_000_000, "BCA").await;
+    a_posted_day(&pool).await;
+
+    let owed = receivable_control(&pool, "BCA").await;
+    assert_eq!(owed.account_code.as_deref(), Some("101110100201"));
+    assert_eq!(owed.side, "RECEIVABLE");
+    assert_eq!(owed.ledger_outstanding_minor, 1_000_000);
+    assert_eq!(owed.gl_balance_minor, 1_000_000);
+    assert_eq!(owed.open_items, 1);
+
+    // The settlement arrives, fifteen thousand light. The item closes at what
+    // the customer paid and the fee is a cost, not a discount off a debt.
+    settle_bca(&pool, 1_000_000, 15_000).await;
+
+    let settled = receivable_control(&pool, "BCA").await;
+    assert_eq!(
+        settled.ledger_outstanding_minor, 0,
+        "the acquirer paid, so nobody is chasing anything"
+    );
+    assert_eq!(settled.gl_balance_minor, 0);
+    assert_eq!(settled.open_items, 0);
+    assert_eq!(
+        balance(&pool, "601011000201").await.0,
+        15_000,
+        "the MDR is its own expense line and not a smaller receivable"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_settlement_that_covers_one_evening_leaves_the_other_owed(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    card_sale(&pool, 1_000_000, "BCA").await;
+    card_sale(&pool, 600_000, "BCA").await;
+    a_posted_day(&pool).await;
+
+    // BCA pays for part of the day and no more.
+    settle_bca(&pool, 1_000_000, 15_000).await;
+
+    let part_paid = receivable_control(&pool, "BCA").await;
+    assert_eq!(
+        part_paid.ledger_outstanding_minor, 600_000,
+        "what BCA has not paid is what BCA still owes"
+    );
+    assert_eq!(part_paid.gl_balance_minor, 600_000);
+    assert_eq!(part_paid.difference_minor, 0);
+    assert_eq!(part_paid.open_items, 1);
+
+    // And it is still one item, part settled, rather than a second debt.
+    let items = cloud::ple_open_items(
+        &pool,
+        &cloud::PaymentLedgerFilter {
+            account_key: Some("card_receivable_debit".into()),
+            open_only: true,
+            as_of: Some(date(2026, 10, 25)),
+            limit: 50,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("open items: {error}"));
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].party_id, "BCA");
+    assert_eq!(items[0].amount_minor, 1_600_000);
+    assert_eq!(items[0].settled_minor, 1_000_000);
+    assert_eq!(items[0].outstanding_minor, 600_000);
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn ageing_splits_by_acquirer_even_when_they_share_one_account(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+
+    // Two banks, one leaf. The client's chart keeps a single `Piutang Debit
+    // Card` for every acquirer, which is exactly the case the old journal-based
+    // ageing could not split — and, before that, the case it double-counted.
+    card_sale(&pool, 1_000_000, "BCA").await;
+    card_sale(&pool, 400_000, "MANDIRI").await;
+    a_posted_day(&pool).await;
+
+    // Forty days later. The debts are real, they are two different banks', and
+    // they come to what was sold and not to twice it.
+    let aged = cloud::acq_receivable_aging(&pool, date(2026, 10, 25), None, None)
+        .await
+        .unwrap_or_else(|error| panic!("ageing: {error}"));
+    assert_eq!(aged.rows.len(), 2, "{aged:#?}");
+    assert_eq!(
+        aged.total.total_minor, 1_400_000,
+        "one sale each, not each sale twice"
+    );
+    for row in &aged.rows {
+        assert_eq!(row.site_id, SITE);
+        assert_eq!(row.semantic_key, "card_receivable_debit");
+        assert_eq!(row.account_code.as_deref(), Some("101110100201"));
+        assert_eq!(row.buckets.days_31_60_minor, row.buckets.total_minor);
+        assert_eq!(row.buckets.not_due_minor, 0);
+    }
+    let named: Vec<(&str, i64)> = aged
+        .rows
+        .iter()
+        .map(|row| (row.acquirer.as_str(), row.buckets.total_minor))
+        .collect();
+    assert_eq!(named, vec![("BCA", 1_000_000), ("MANDIRI", 400_000)]);
+
+    // On the day itself neither is due, and asking for one bank answers about
+    // that bank rather than about the leaf they share.
+    let fresh = cloud::acq_receivable_aging(&pool, day(), Some("BCA"), Some(SITE))
+        .await
+        .unwrap_or_else(|error| panic!("ageing: {error}"));
+    assert_eq!(fresh.rows.len(), 1);
+    assert_eq!(fresh.rows[0].acquirer, "BCA");
+    assert_eq!(fresh.total.not_due_minor, 1_000_000);
+    assert_eq!(fresh.total.days_31_60_minor, 0);
+
+    // Once BCA has paid, BCA drops off the report and MANDIRI does not.
+    settle_bca(&pool, 1_000_000, 15_000).await;
     let settled = cloud::acq_receivable_aging(&pool, date(2026, 10, 25), None, None)
         .await
         .unwrap_or_else(|error| panic!("ageing: {error}"));
-    assert!(settled.rows.is_empty(), "{settled:#?}");
-    assert_eq!(settled.total.total_minor, 0);
+    assert_eq!(settled.rows.len(), 1, "{settled:#?}");
+    assert_eq!(settled.rows[0].acquirer, "MANDIRI");
+    assert_eq!(settled.total.total_minor, 400_000);
 }

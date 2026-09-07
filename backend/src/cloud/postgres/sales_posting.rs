@@ -48,6 +48,7 @@
 //! gross margin would be confidently wrong. Revenue and VAT are recorded; the
 //! cost half waits for inventory valuation. See `domain::sales_posting`.
 
+use super::payment_ledger;
 use super::poster::{post, reverse, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::sales_posting::{
@@ -948,56 +949,50 @@ const RECEIVABLE_KEYS: &[&str] = &[
     "qris_receivable",
 ];
 
+/// What a day's takings are filed under in the Payment Ledger.
+const DAY_VOUCHER_KIND: &str = "SALE_DAY";
+/// What moving one tender to another acquirer is filed under.
+const RETENDER_VOUCHER_KIND: &str = "RETENDER";
+
+/// How a day's takings are named in the Payment Ledger.
+///
+/// The posting id AND the attempt, because a day is not a document that posts
+/// once: the only correction path this ledger has is to reverse a posted day,
+/// generate it again over the same `posting_id` and post the new figures, so
+/// one document legitimately carries several entries. 0140 named the entries
+/// `ATTEMPT_n` for exactly that reason and this uses the same name, so an item
+/// belongs to the entry that raised it rather than to a document that has
+/// raised two. Without it a re-posted day would find its first attempt's item
+/// sitting there cancelled, get it handed back by `ple_open`'s idempotence, and
+/// leave the books carrying a receivable the ledger had stopped following.
+fn day_voucher(posting_id: Uuid, purpose: &str) -> String {
+    format!("{posting_id}/{purpose}")
+}
+
 /// Open one Payment Ledger item per acquirer receivable this day created.
 ///
-/// TODO(lane-P): still a no-op with the Payment Ledger merged, and deliberately
-/// so — see the note under the shape below. One open item per line, shaped:
+/// One item per line whose meaning is somebody's debt, named by the acquirer
+/// the line was qualified by. It takes the transaction that wrote the journal
+/// because the two have to be one act: a ledger saying BCA owes 2,220,000 with
+/// no open item behind it is a figure nobody can chase, and an open item with
+/// no journal line behind it is a debt the books do not carry.
 ///
-/// ```text
-///   account_key  = line.semantic_key   (card_receivable_debit | ..._credit | qris_receivable)
-///   qualifier    = line.qualifier      (the acquirer)
-///   site         = site_id
-///   party_type   = ACQUIRER
-///   party        = line.qualifier
-///   voucher_kind = "SALE_DAY"
-///   voucher_id   = posting_id
-///   side         = RECEIVABLE
-///   amount       = line.debit_minor
-/// ```
+/// The mirror is `acquirer::acq_settlement_settle_ledger_items`, which closes
+/// these when the acquirer pays — same key, same qualifier, same party — so the
+/// pair is one item's life rather than two modules' guesses about one debt.
 ///
-/// It takes the transaction that wrote the journal because the two have to be
-/// one act: a ledger saying BCA owes 2,220,000 with no open item behind it is
-/// a figure nobody can chase, and an open item with no journal line behind it
-/// is a debt the books do not carry. Neither is a state worth being able to
-/// reach, so they commit together or not at all.
-///
-/// # Why this is still empty now that Lane P is here
-///
-/// Because its mirror is. The item opened here is closed by
-/// `acquirer::acq_settlement_settle_ledger_items`, and that one cannot be
-/// written yet: `ple_settle` takes explicit `(entry_id, amount)` allocations and
-/// the only way to find those ids inside the caller's transaction is a
-/// transaction-scoped open-items query, which Lane P does not ship —
-/// `ple_open_items` takes a `&PgPool`, so calling it from inside this
-/// transaction would read on a second connection that cannot see what this one
-/// has just written, and would race `ple_settle`'s own `FOR UPDATE`.
-///
-/// Opening without closing is worse than doing neither. `payment_ledger_integrity`
-/// reads FROM the ledger, so an empty ledger agrees with the books; a ledger
-/// full of card receivables nothing ever settles disagrees on every acquirer,
-/// for ever. So the pair lands together or not at all.
-///
-/// The other call site Lane P will need is `retender_tender`: moving a settled
-/// card from one acquirer to another has to CLOSE the open item against the
-/// acquirer that never took it and open one against the acquirer that did.
-/// That is a close/open pair rather than an open, so it is left for Lane P to
-/// shape rather than guessed at here — the reclassifying journal entry it
-/// writes today is already correct on the general ledger side.
-#[allow(unused_variables)]
+/// A card line whose acquirer nobody recorded opens nothing and says so in the
+/// log. There is no party to open an item against, and inventing one would put
+/// a balance on an ageing report that names nobody; the books still carry the
+/// receivable, and `payment_ledger_integrity` is where the two part company
+/// visibly rather than quietly.
 async fn sales_posting_open_receivables(
     tx: &mut Transaction<'_, Postgres>,
     posting_id: Uuid,
+    purpose: &str,
     site_id: &str,
+    business_date: NaiveDate,
+    journal_entry_id: Uuid,
     sides: &[LedgerSide],
     actor: &str,
 ) -> Result<(), AppError> {
@@ -1005,8 +1000,40 @@ async fn sales_posting_open_receivables(
         .iter()
         .filter(|side| side.debit_minor > 0 && RECEIVABLE_KEYS.contains(&side.semantic_key))
     {
-        // payment_ledger::ple_open(tx, &PaymentLedgerOpen { .. }, actor).await?;
-        let _ = (side.semantic_key, side.qualifier.as_str(), side.debit_minor);
+        if side.qualifier.is_empty() {
+            tracing::warn!(
+                site = %site_id,
+                day = %business_date,
+                key = side.semantic_key,
+                "a card line with no acquirer on it: posted to the books, and no open item \
+                 raised because there is nobody to raise it against"
+            );
+            continue;
+        }
+        payment_ledger::ple_open(
+            tx,
+            &payment_ledger::PaymentLedgerItem {
+                account_key: side.semantic_key.to_string(),
+                qualifier: side.qualifier.clone(),
+                site_id: site_id.to_string(),
+                party_type: payment_ledger::PaymentLedgerPartyType::Acquirer,
+                party_id: side.qualifier.clone(),
+                party_name: Some(side.qualifier.clone()),
+                voucher_kind: DAY_VOUCHER_KIND.to_string(),
+                voucher_id: day_voucher(posting_id, purpose),
+                journal_entry_id,
+                side: payment_ledger::PaymentLedgerSide::Receivable,
+                amount_minor: side.debit_minor,
+                currency: "IDR".to_string(),
+                // Acquirers pay on their own terms and nothing here records
+                // them, so it ages from the day it was earned rather than from
+                // a date nobody agreed.
+                due_date: None,
+                posting_date: business_date,
+            },
+            actor,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -1120,20 +1147,17 @@ pub async fn sales_posting_post(
     .fetch_one(&mut *tx)
     .await?
     .try_get("n")?;
-    let posted = post(
-        &mut tx,
-        &intent,
-        Some(&format!("ATTEMPT_{}", attempt + 1)),
-        actor,
-    )
-    .await?;
-    // What the acquirers now owe, as items rather than as a balance. A no-op
-    // until Lane P lands, in the transaction that wrote the journal so the two
-    // can never disagree.
+    let purpose = format!("ATTEMPT_{}", attempt + 1);
+    let posted = post(&mut tx, &intent, Some(&purpose), actor).await?;
+    // What the acquirers now owe, as items rather than as a balance, in the
+    // transaction that wrote the journal so the two can never disagree.
     sales_posting_open_receivables(
         &mut tx,
         posting_id,
+        &purpose,
         &existing.posting.site_id,
+        existing.posting.business_date,
+        posted.entry_id,
         &built.sides,
         actor,
     )
@@ -1200,6 +1224,25 @@ pub async fn sales_posting_reverse(
         request
             .posting_date
             .unwrap_or(existing.posting.business_date),
+        reason,
+        actor,
+    )
+    .await?;
+    // The items that attempt raised stop counting, in the same transaction as
+    // the entry that takes them out of the books. Which attempt is read off the
+    // entry being reversed rather than counted afresh: a day reversed, posted
+    // again and reversed again must take out the second attempt's receivables
+    // and leave the first's alone, and the entry is the only thing that knows
+    // which is which.
+    let purpose: String = sqlx::query("SELECT purpose FROM journal_entry WHERE entry_id = $1")
+        .bind(entry_id)
+        .fetch_one(&mut *tx)
+        .await?
+        .try_get("purpose")?;
+    payment_ledger::ple_delink(
+        &mut tx,
+        DAY_VOUCHER_KIND,
+        &day_voucher(posting_id, &purpose),
         reason,
         actor,
     )
@@ -1438,6 +1481,61 @@ pub async fn retender_tender(
             ],
         };
         let posted = post(&mut tx, &intent, Some(&purpose), actor).await?;
+        // The open item moves with the money, and it moves as one act. The
+        // entry above debits the receivable that should have had it and credits
+        // the one that did; settling the acquirer who never took it and opening
+        // an item against the acquirer who did is the same pair of legs said in
+        // the ledger's own words. Opening without settling would leave one
+        // evening's card takings owed by two banks at once.
+        if RECEIVABLE_KEYS.contains(&from_key) && !from_qualifier.is_empty() {
+            payment_ledger::ple_settle_claim(
+                &mut tx,
+                &payment_ledger::PaymentLedgerClaim {
+                    account_key: from_key,
+                    qualifier: &from_qualifier,
+                    site_id: &found.site_id,
+                    party_type: payment_ledger::PaymentLedgerPartyType::Acquirer,
+                    party_id: &from_qualifier,
+                    // Whatever of that acquirer's is still open, oldest first.
+                    // A tender is moved days after the evening it was rung and
+                    // the day it came from may already be part settled.
+                    voucher_kind: None,
+                    voucher_id: None,
+                },
+                RETENDER_VOUCHER_KIND,
+                &retender_id.to_string(),
+                posted.entry_id,
+                found.business_date,
+                found.amount_minor,
+                actor,
+            )
+            .await?;
+        }
+        if RECEIVABLE_KEYS.contains(&to_key) && !to_qualifier.is_empty() {
+            payment_ledger::ple_open(
+                &mut tx,
+                &payment_ledger::PaymentLedgerItem {
+                    account_key: to_key.to_string(),
+                    qualifier: to_qualifier.clone(),
+                    site_id: found.site_id.clone(),
+                    party_type: payment_ledger::PaymentLedgerPartyType::Acquirer,
+                    party_id: to_qualifier.clone(),
+                    party_name: Some(to_qualifier.clone()),
+                    voucher_kind: RETENDER_VOUCHER_KIND.to_string(),
+                    voucher_id: retender_id.to_string(),
+                    journal_entry_id: posted.entry_id,
+                    side: payment_ledger::PaymentLedgerSide::Receivable,
+                    amount_minor: found.amount_minor,
+                    currency: "IDR".to_string(),
+                    due_date: None,
+                    // The evening it was rung, not the day somebody noticed.
+                    // The debt is as old as the sale.
+                    posting_date: found.business_date,
+                },
+                actor,
+            )
+            .await?;
+        }
         journal_entry_id = Some(posted.entry_id);
         entry_number = Some(posted.entry_number);
     }

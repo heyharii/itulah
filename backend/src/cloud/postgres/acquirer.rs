@@ -39,12 +39,13 @@ use super::poster::{post, Posted, PostingIntent, PostingLine};
 use super::sales_posting::{RetenderOutcome, RetenderRequest};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    parse_settlement_report, suggest_tender_decisions, BatchApproval, ReceiptTender,
+    parse_settlement_report, suggest_tender_decisions, AgingTotals, BatchApproval, ReceiptTender,
     TenderSuggestions,
 };
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// The business day is UTC+7, so an evening's takings are dated by the shop's
@@ -1560,59 +1561,66 @@ pub async fn acq_settlement_upload_report(
 
 /// Close the Payment Ledger items this settlement discharges.
 ///
-/// TODO(lane-P): still a no-op with the Payment Ledger merged, and deliberately
-/// so — see the note under the shape below. One settle per (shop, receivable)
-/// the entry credited, shaped:
+/// One settle per (shop, receivable) the entry credited, against the acquirer
+/// whose money it was. The mirror of `sales_posting`'s opener — same key, same
+/// qualifier, same party — so the pair is one item's life rather than two
+/// modules' guesses about the same debt.
 ///
-/// ```text
-///   account_key  = receivable_key(tender_kind)  (card_receivable_debit | ..._credit | qris_receivable)
-///   qualifier    = settlement.acquirer
-///   site         = site_id
-///   party_type   = ACQUIRER
-///   party        = settlement.acquirer
-///   voucher_kind = "ACQ_SETTLEMENT"
-///   voucher_id   = settlement_id
-///   side         = RECEIVABLE
-///   amount       = gross_minor        (what the receivable was, not the net)
-/// ```
+/// # Gross and not net, which is the one thing easy to get wrong here
 ///
-/// `amount` is gross and not net, which is the one thing easy to get wrong
-/// here. The item was opened at what the customer paid; the MDR is a cost we
-/// bore, not a discount the acquirer negotiated off a debt. Settling at net
-/// would leave every item short by its own fee and an ageing built from open
-/// items would slowly fill with residues nothing can ever close.
+/// The item was opened at what the customer paid. The MDR is a cost we bore,
+/// not a discount the acquirer negotiated off a debt, and the entry beside this
+/// says so: it credits the receivable for the gross and debits `card_fee` for
+/// the fee. Settling at net would leave every item short by its own fee, and an
+/// ageing built from open items would slowly fill with residues nothing can
+/// ever close.
 ///
-/// The mirror of `sales_posting_open_receivables`, which opens these items when
-/// the day's takings post — same key, same qualifier, same party — so the pair
-/// is one item's life rather than two modules' guesses about the same debt.
+/// # Which days it answers
+///
+/// Whatever that acquirer still has open at that shop, oldest first. A
+/// settlement file names its own date range and not the ledger's items, and an
+/// acquirer pays several evenings in one transfer — so the choice is between
+/// oldest first and refusing to allocate at all. Oldest first is what a person
+/// reconciling by hand does, and it is the only order in which an ageing report
+/// means anything afterwards.
+///
+/// A settlement for more than the ledger holds open is refused rather than
+/// spread thin: `ple_settle_claim` says so, naming both numbers. The usual
+/// cause is a day the shop has not posted yet, and posting it is the fix.
 ///
 /// It takes the transaction that wrote the journal because the two have to be
-/// one act, for the reason lane-A's opener gives: a discharged receivable with
-/// its item still open is a debt the ledger chases and the books do not carry.
-///
-/// # Why this is still empty now that Lane P is here
-///
-/// `ple_settle` names the items it settles by `entry_id`, and this function has
-/// a shop, an acquirer and an amount. Finding the ids means asking the ledger
-/// which items are open for that party inside this transaction, and Lane P's
-/// `ple_open_items` takes a `&PgPool` — a second connection, which cannot see
-/// what this transaction has written and would race `ple_settle`'s `FOR UPDATE`.
-/// Adding a transaction-scoped query and choosing how a settlement is spread
-/// across several days' takings is Lane P's design to make, not this one's.
-///
-/// So this and `sales_posting_open_receivables` stay empty together. Half a pair
-/// would leave `payment_ledger_integrity` permanently red rather than silent.
-#[allow(unused_variables)]
+/// one act: a discharged receivable with its item still open is a debt the
+/// ledger chases and the books do not carry.
 async fn acq_settlement_settle_ledger_items(
     tx: &mut Transaction<'_, Postgres>,
     settlement_id: Uuid,
     acquirer: &str,
+    settlement_date: NaiveDate,
+    journal_entry_id: Uuid,
     discharged: &[(String, String, i64)],
     actor: &str,
 ) -> Result<(), AppError> {
     for (site_id, tender_kind, gross_minor) in discharged {
-        // payment_ledger::ple_settle(tx, &PaymentLedgerSettle { .. }, actor).await?;
-        let _ = (receivable_key(tender_kind), site_id, acquirer, gross_minor);
+        crate::cloud::postgres::payment_ledger::ple_settle_claim(
+            tx,
+            &crate::cloud::postgres::payment_ledger::PaymentLedgerClaim {
+                account_key: receivable_key(tender_kind),
+                qualifier: acquirer,
+                site_id,
+                party_type:
+                    crate::cloud::postgres::payment_ledger::PaymentLedgerPartyType::Acquirer,
+                party_id: acquirer,
+                voucher_kind: None,
+                voucher_id: None,
+            },
+            "ACQ_SETTLEMENT",
+            &settlement_id.to_string(),
+            journal_entry_id,
+            settlement_date,
+            *gross_minor,
+            actor,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -1763,12 +1771,13 @@ pub async fn acq_settlement_curate(
         ));
     }
     // The acquirers' items, closed by the same act that discharged the ledger
-    // balance. A no-op until Lane P lands; in this transaction so the two can
-    // never disagree.
+    // balance, in this transaction so the two can never disagree.
     acq_settlement_settle_ledger_items(
         &mut tx,
         settlement_id,
         &settlement.acquirer,
+        intent.posting_date,
+        posted.entry_id,
         &discharged,
         actor,
     )
@@ -2076,19 +2085,20 @@ async fn settlement_bank_qualifier(
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AcquirerAgingRow {
-    /// The acquirer, when the ledger can name one: exactly one qualifier is
-    /// mapped to this account at this shop. Empty when several share it — see
-    /// [`AcquirerAgingRow::acquirers`], and the note on `acq_receivable_aging`.
+    /// The acquirer. Always named, because the Payment Ledger carries the
+    /// qualifier and the party on the item itself.
     pub acquirer: String,
-    /// Every acquirer mapped to this account at this shop. One name in the
-    /// ordinary case; several when the client's chart keeps one leaf for all of
-    /// them, which is exactly what `1011101002 Piutang Debit Card` is.
-    pub acquirers: Vec<String>,
     pub site_id: String,
     /// Which receivable: `card_receivable_debit`, `card_receivable_credit` or
     /// `qris_receivable`.
     pub semantic_key: String,
-    pub account_code: String,
+    /// The client account this meaning and this acquirer resolve to at this
+    /// shop. `None` when the map points nowhere yet — which is a finding in
+    /// itself and not a reason to hide the balance.
+    pub account_code: Option<String>,
+    /// How many days the oldest thing in this row has been owed. Negative when
+    /// nothing here has fallen due.
+    pub oldest_days: i32,
     pub buckets: AgingBuckets,
 }
 
@@ -2108,132 +2118,128 @@ const RECEIVABLE_KEYS: [&str; 3] = [
 
 /// What is still owed on cards at each shop, by how long it has been owed.
 ///
-/// Computed from the journal and not from a settlement table, which is the
-/// whole point: the receivable is raised by whatever posts the day's sales and
-/// discharged by the curation above, and an ageing built from either one alone
-/// would be blind to the other. Reading the ledger means this is right on the
-/// day a sale posts, without a line changing here.
+/// # Why this reads the Payment Ledger and no longer reads the journal
 ///
-/// The join is `account_map` — semantic key and qualifier to a client account,
-/// per shop — because that is the only place a meaning becomes a code. An
-/// acquirer with no mapping simply has no row, which is the honest answer:
-/// nothing has been posted for it.
+/// It used to sum `journal_line`, and it could not split by acquirer, because a
+/// journal line records the account a posting resolved TO and not the meaning
+/// and qualifier it resolved FROM. Where each acquirer has its own leaf the two
+/// are the same thing; where they share one — and the client's chart does
+/// exactly that, a single `Piutang Debit Card` for every bank — the ledger
+/// genuinely could not tell BCA's balance from MANDIRI's, and no query over it
+/// could.
 ///
-/// # Why a row is not always one acquirer
+/// The first version grouped by qualifier anyway and reported the same
+/// 1,000,000 twice, once against each bank sharing the leaf: two million owed
+/// on one sale, from a query that looked right. The version after it counted
+/// each line once and listed everyone who shared the leaf, which was honest and
+/// still could not answer the question somebody opens this report to ask.
 ///
-/// `journal_line` records the account a posting resolved to, not the meaning
-/// and qualifier it resolved FROM. Where each acquirer has its own leaf, the
-/// two are the same thing and every row names one acquirer. Where they share a
-/// leaf — and the client's chart does exactly that, one `Piutang Debit Card`
-/// for every bank — the ledger genuinely cannot tell BCA's balance from
-/// MANDIRI's, and no query over it can.
+/// The Payment Ledger answers it. An item carries its qualifier and its party
+/// as columns, so BCA's open days and MANDIRI's are different rows however many
+/// of them the chart puts on one account. The workaround is gone with the
+/// query it worked around.
 ///
-/// So the grouping is by ACCOUNT and the qualifiers that reach it are listed.
-/// The first version grouped by qualifier instead, and reported the same
-/// 1,000,000 twice, once against each bank that shared the leaf: a total of
-/// two million owed on one sale, from a query that looked right. Counting each
-/// line once and admitting the split is unavailable is the honest answer, and
-/// the fix is in the chart or in a qualifier on `journal_line` — not here.
-///
-/// `acquirer` therefore filters on whether that acquirer is mapped to the
-/// account, not on the row's own name; asking for BCA at a shared leaf returns
-/// the shared balance, labelled with everyone who shares it.
+/// The one thing this now depends on is that a day's takings open items when
+/// they post — `sales_posting_open_receivables` — which is the same condition
+/// as "the settlement above can close them". A shop whose days were posted
+/// before that pair existed shows nothing here and its balance still sits in
+/// the books, and `payment_ledger_integrity` is where those two facts meet.
 pub async fn acq_receivable_aging(
     pool: &PgPool,
     as_of: NaiveDate,
     acquirer: Option<&str>,
     site_id: Option<&str>,
 ) -> Result<AcquirerReceivableAging, AppError> {
-    let rows = sqlx::query(
-        // `leaf` collapses the map to one row per account before anything is
-        // joined to the journal. That collapse is the whole correction: joining
-        // `account_map` straight onto `journal_line` multiplies every line by
-        // the number of acquirers mapped to its account.
-        "WITH leaf AS (
-             SELECT m.site_id, m.semantic_key, m.account_code,
-                    ARRAY_AGG(DISTINCT m.qualifier ORDER BY m.qualifier) AS acquirers
-               FROM account_map m
-              WHERE m.semantic_key = ANY($2)
-                AND m.qualifier <> ''
-                AND ($4::text IS NULL OR m.site_id = $4)
-              GROUP BY m.site_id, m.semantic_key, m.account_code
-         ),
-         wanted AS (
-             SELECT * FROM leaf
-              WHERE $3::text IS NULL OR UPPER($3) = ANY(acquirers)
-         ),
-         receivable AS (
-             SELECT w.site_id, w.semantic_key, w.account_code, w.acquirers,
-                    ($1::date - e.posting_date)::int AS age_days,
-                    (l.debit_minor - l.credit_minor)::bigint AS balance_minor
-               FROM wanted w
-               JOIN journal_line l
-                 ON l.account_code = w.account_code AND l.site_id = w.site_id
-               JOIN journal_entry e ON e.entry_id = l.entry_id
-              WHERE e.posting_date <= $1
-         )
-         SELECT site_id, semantic_key, account_code, acquirers,
-                SUM(balance_minor) FILTER (WHERE age_days <= 0)::bigint AS not_due,
-                SUM(balance_minor) FILTER (WHERE age_days BETWEEN 1 AND 30)::bigint AS d1_30,
-                SUM(balance_minor) FILTER (WHERE age_days BETWEEN 31 AND 60)::bigint AS d31_60,
-                SUM(balance_minor) FILTER (WHERE age_days BETWEEN 61 AND 90)::bigint AS d61_90,
-                SUM(balance_minor) FILTER (WHERE age_days > 90)::bigint AS d90_plus,
-                SUM(balance_minor)::bigint AS total
-           FROM receivable
-          GROUP BY site_id, semantic_key, account_code, acquirers
-         HAVING SUM(balance_minor) <> 0
-          ORDER BY site_id, semantic_key, account_code",
+    let wanted = acquirer
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_uppercase);
+    let items = crate::cloud::postgres::payment_ledger::ple_open_items(
+        pool,
+        &crate::cloud::postgres::payment_ledger::PaymentLedgerFilter {
+            site_id: site_id.map(str::to_string),
+            party_type: Some(
+                crate::cloud::postgres::payment_ledger::PaymentLedgerPartyType::Acquirer,
+            ),
+            party_id: wanted.clone(),
+            side: Some(crate::cloud::postgres::payment_ledger::PaymentLedgerSide::Receivable),
+            open_only: true,
+            as_of: Some(as_of),
+            limit: 100_000,
+            ..Default::default()
+        },
     )
-    .bind(as_of)
-    .bind(&RECEIVABLE_KEYS[..])
-    .bind(acquirer)
-    .bind(site_id)
-    .fetch_all(pool)
     .await?;
 
-    let mut total = AgingBuckets::default();
-    let mut out = Vec::with_capacity(rows.len());
-    for row in &rows {
-        // A FILTER over no rows is NULL, and an empty bucket and a missing one
-        // are the same thing to whoever reads the report. Zero, not a gap.
-        let buckets = AgingBuckets {
-            not_due_minor: row
-                .try_get::<Option<i64>, _>("not_due")?
-                .unwrap_or_default(),
-            days_1_30_minor: row.try_get::<Option<i64>, _>("d1_30")?.unwrap_or_default(),
-            days_31_60_minor: row.try_get::<Option<i64>, _>("d31_60")?.unwrap_or_default(),
-            days_61_90_minor: row.try_get::<Option<i64>, _>("d61_90")?.unwrap_or_default(),
-            days_over_90_minor: row
-                .try_get::<Option<i64>, _>("d90_plus")?
-                .unwrap_or_default(),
-            total_minor: row.try_get::<Option<i64>, _>("total")?.unwrap_or_default(),
-        };
-        total.not_due_minor += buckets.not_due_minor;
-        total.days_1_30_minor += buckets.days_1_30_minor;
-        total.days_31_60_minor += buckets.days_31_60_minor;
-        total.days_61_90_minor += buckets.days_61_90_minor;
-        total.days_over_90_minor += buckets.days_over_90_minor;
-        total.total_minor += buckets.total_minor;
-        let acquirers: Vec<String> = row.try_get("acquirers")?;
-        out.push(AcquirerAgingRow {
-            // Named only when the ledger can name it. A leaf two banks share
-            // labelled with either one would be a figure somebody chases the
-            // wrong bank for.
-            acquirer: match acquirers.as_slice() {
-                [only] => only.clone(),
-                _ => String::new(),
-            },
-            acquirers,
-            site_id: row.try_get("site_id")?,
-            semantic_key: row.try_get("semantic_key")?,
-            account_code: row.try_get("account_code")?,
-            buckets,
-        });
+    // Which client account each meaning and acquirer lands on, so a row can say
+    // where in the books it is. One query rather than one per row, and a LEFT
+    // JOIN in spirit: a balance whose meaning nobody has mapped is still a
+    // balance, and saying so beats leaving it out.
+    let mapped = sqlx::query(
+        "SELECT semantic_key, qualifier, site_id, account_code FROM account_map
+          WHERE semantic_key = ANY($1)",
+    )
+    .bind(&RECEIVABLE_KEYS[..])
+    .fetch_all(pool)
+    .await?;
+    let mut codes: BTreeMap<(String, String, String), String> = BTreeMap::new();
+    for row in &mapped {
+        codes.insert(
+            (
+                row.try_get("semantic_key")?,
+                row.try_get("qualifier")?,
+                row.try_get("site_id")?,
+            ),
+            row.try_get("account_code")?,
+        );
     }
+
+    let mut grouped: BTreeMap<(String, String, String), AgingTotals> = BTreeMap::new();
+    let mut total = AgingTotals::default();
+    for item in &items {
+        if !RECEIVABLE_KEYS.contains(&item.account_key.as_str()) {
+            continue;
+        }
+        let key = (
+            item.site_id.clone(),
+            item.account_key.clone(),
+            item.party_id.clone(),
+        );
+        let age = i64::from(item.age_days);
+        grouped
+            .entry(key)
+            .or_default()
+            .add(age, item.outstanding_minor);
+        total.add(age, item.outstanding_minor);
+    }
+
+    let buckets_of = |totals: &AgingTotals| AgingBuckets {
+        not_due_minor: totals.current_minor,
+        days_1_30_minor: totals.days_1_30_minor,
+        days_31_60_minor: totals.days_31_60_minor,
+        days_61_90_minor: totals.days_61_90_minor,
+        days_over_90_minor: totals.over_90_minor,
+        total_minor: totals.total_minor,
+    };
+    let rows = grouped
+        .iter()
+        .filter(|(_, totals)| totals.total_minor != 0)
+        .map(|((site, key, party), totals)| AcquirerAgingRow {
+            acquirer: party.clone(),
+            site_id: site.clone(),
+            semantic_key: key.clone(),
+            account_code: codes
+                .get(&(key.clone(), party.clone(), site.clone()))
+                .cloned(),
+            oldest_days: totals.oldest_days.unwrap_or(0) as i32,
+            buckets: buckets_of(totals),
+        })
+        .collect();
+
     Ok(AcquirerReceivableAging {
         as_of,
-        rows: out,
-        total,
+        rows,
+        total: buckets_of(&total),
     })
 }
 
