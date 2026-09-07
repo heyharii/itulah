@@ -958,3 +958,133 @@ fn the_store_manager_key_points_at_piutang_kepala_toko() {
         "the location is the narrowing, not a qualifier"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The lookup a posting rule uses, which is not the one a screen uses
+// ---------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_rule_can_see_the_item_it_raised_a_moment_ago(pool: PgPool) {
+    books(&pool).await;
+
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin: {error}"));
+    let posted = cloud::post(
+        &mut tx,
+        &intent(
+            "SUPPLIER_INVOICE",
+            "INV-9",
+            1,
+            vec![
+                PostingLine::debit("inventory", SITE, 5_000_000),
+                PostingLine::credit("trade_payable", SITE, 5_000_000).for_supplier("SUP01"),
+            ],
+        ),
+        None,
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("post: {error}"));
+    let entry_id = cloud::ple_open(
+        &mut tx,
+        &payable("INV-9", posted.entry_id, 5_000_000, 30),
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("open: {error}"));
+
+    // The reader an ageing report uses is on another connection, and from
+    // there this item does not exist yet. That is correct of it and useless to
+    // a rule that is halfway through writing the document.
+    let outside = cloud::ple_open_items(
+        &pool,
+        &cloud::PaymentLedgerFilter {
+            voucher_kind: Some("SUPPLIER_INVOICE".into()),
+            voucher_id: Some("INV-9".into()),
+            open_only: true,
+            limit: 10,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("outside: {error}"));
+    assert!(
+        outside.is_empty(),
+        "a second connection cannot see an uncommitted transaction, and should not"
+    );
+
+    // The transaction-scoped one can, and it narrows to the bill the settling
+    // document names rather than to whatever is oldest.
+    let claim = cloud::PaymentLedgerClaim {
+        account_key: "trade_payable",
+        qualifier: "",
+        site_id: SITE,
+        party_type: PaymentLedgerPartyType::Supplier,
+        party_id: "SUP01",
+        voucher_kind: Some("SUPPLIER_INVOICE"),
+        voucher_id: Some("INV-9"),
+    };
+    let inside = cloud::ple_find_open(&mut tx, &claim)
+        .await
+        .unwrap_or_else(|error| panic!("inside: {error}"));
+    assert_eq!(inside.len(), 1);
+    assert_eq!(inside[0].entry_id, entry_id);
+    assert_eq!(inside[0].outstanding_minor, 5_000_000);
+
+    // A different bill of the same supplier on the same account is a different
+    // debt, which is the whole point of carrying the voucher on the claim.
+    let elsewhere = cloud::ple_find_open(
+        &mut tx,
+        &cloud::PaymentLedgerClaim {
+            voucher_id: Some("INV-NOT-THIS-ONE"),
+            ..claim
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("elsewhere: {error}"));
+    assert!(elsewhere.is_empty());
+
+    // And settling through the claim answers that bill and nothing else.
+    let settled = cloud::ple_settle_claim(
+        &mut tx,
+        &claim,
+        "PAYMENT",
+        "PV-9",
+        posted.entry_id,
+        september(20),
+        2_000_000,
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("settle: {error}"))
+    .unwrap_or_else(|| panic!("an open bill should have been settled"));
+    assert_eq!(settled.applied_minor, 2_000_000);
+    assert_eq!(settled.outstanding_minor, 3_000_000);
+
+    // More than is open is refused, naming both numbers and the bill.
+    let refusal = cloud::ple_settle_claim(
+        &mut tx,
+        &claim,
+        "PAYMENT",
+        "PV-10",
+        posted.entry_id,
+        september(20),
+        9_000_000,
+        ACTOR,
+    )
+    .await;
+    let message = match refusal {
+        Ok(_) => panic!("settled a debt nobody had raised"),
+        Err(error) => as_shown_to_a_person(&error),
+    };
+    assert!(
+        message.contains("3000000") && message.contains("INV-9"),
+        "the refusal should name what is open and which bill, said: {message}"
+    );
+
+    tx.rollback()
+        .await
+        .unwrap_or_else(|error| panic!("rollback: {error}"));
+}
