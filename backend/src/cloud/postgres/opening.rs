@@ -103,8 +103,7 @@ use super::stock_ledger::{cost_layer_create, NewCostLayer};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     opening_site_totals, parse_csv, parse_opening_amount, price_opening_stock, reconcile_opening,
-    CsvRow, OpeningAmount, OpeningPriceBasis, OpeningReconciliation, OpeningSiteTotal,
-    OpeningStockFacts,
+    CsvRow, OpeningAmount, OpeningReconciliation, OpeningSiteTotal, OpeningStockFacts,
 };
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -1317,6 +1316,8 @@ pub struct OpeningCutoverReport {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OpeningUnmapped {
     pub site_id: String,
+    /// The client's account code, or — for an open item, which names its
+    /// control account by meaning — the semantic key that resolved to nothing.
     pub account_code: String,
     pub amount_minor: i64,
     pub why: String,
@@ -1394,6 +1395,38 @@ pub async fn opening_cutover_report(
             account_code: code,
             amount_minor: debit - credit,
             why,
+        });
+    }
+
+    // A control account whose meaning resolves to nothing. The equations
+    // already show it as a difference — an open balance against a general
+    // ledger of zero — but a difference does not say "there is no account", and
+    // that is a mapping to go and set rather than a figure to go and find.
+    let unmapped_controls = sqlx::query(
+        "SELECT i.site_id, i.account_key, i.qualifier, i.ledger_outstanding_minor
+           FROM payment_ledger_integrity($1, NULL) i
+          WHERE i.account_code IS NULL
+          ORDER BY i.account_key, i.site_id",
+    )
+    .bind(cutover_date)
+    .fetch_all(&mut *tx)
+    .await?;
+    for row in &unmapped_controls {
+        let key: String = row.try_get("account_key")?;
+        let qualifier: String = row.try_get("qualifier")?;
+        unmapped.push(OpeningUnmapped {
+            site_id: row.try_get("site_id")?,
+            account_code: key.clone(),
+            amount_minor: row.try_get("ledger_outstanding_minor")?,
+            why: format!(
+                "no account is mapped for '{key}'{} at this place, so the open items against \
+                 it have no line in the books to be compared with; set it on the Account Map",
+                if qualifier.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({qualifier})")
+                }
+            ),
         });
     }
 
@@ -1487,14 +1520,4 @@ pub async fn opening_cutover_report(
         payable_minor: open.try_get("payable")?,
         receivable_minor: open.try_get("receivable")?,
     })
-}
-
-/// The three bases, for a screen that wants to label a fallback without
-/// knowing the strings.
-pub const fn opening_price_bases() -> [OpeningPriceBasis; 3] {
-    [
-        OpeningPriceBasis::LastPurchase,
-        OpeningPriceBasis::SystemAverage,
-        OpeningPriceBasis::StatedFallback,
-    ]
 }
