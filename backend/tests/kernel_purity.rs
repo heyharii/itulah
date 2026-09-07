@@ -45,6 +45,13 @@ use std::path::{Path, PathBuf};
 /// clock — and a document keyed on the 30th of September would then be numbered
 /// KK-26-10 by whoever approved it after midnight, which is a slip filed in the
 /// wrong month with a number the September file will never account for.
+///
+/// `transaction_category` is the one most likely to be lost the other way. It
+/// decides whether a category may explain a line, and the obvious "improvement"
+/// is to have it look the category up itself — at which point the same category
+/// and the same line can give two answers depending on what the account map
+/// happened to say at that moment, and the refusal a person saw is not the
+/// refusal that was enforced. Every fact arrives as a `CategoryFacts`.
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
@@ -76,6 +83,7 @@ const KERNELS: &[&str] = &[
     "src/cloud/domain/settlement_report.rs",
     "src/cloud/domain/cash_document.rs",
     "src/cloud/domain/giro.rs",
+    "src/cloud/domain/transaction_category.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
@@ -182,4 +190,45 @@ fn the_kernels_still_expose_the_functions_they_exist_for() {
             "{name} has an async door; a pure kernel has nothing to await"
         );
     }
+}
+
+/// The one kernel above whose door is found by name rather than by position.
+///
+/// `KERNELS[0]` and `KERNELS[1]` are read by index and that is a bomb with two
+/// sessions working this file: whoever inserts a kernel at the front reassigns
+/// somebody else's assertions without touching a line of them, and the failure
+/// reads as "the depreciation door changed" over a diff that added a module.
+/// So this one looks itself up, and the lookup is the point as much as the
+/// assertion is.
+#[test]
+fn the_category_kernel_decides_and_does_not_look_anything_up() {
+    let path = KERNELS
+        .iter()
+        .find(|relative| relative.ends_with("transaction_category.rs"))
+        .unwrap_or_else(|| {
+            panic!("the category kernel has left KERNELS; it decides what a person may post")
+        });
+    let source = std::fs::read_to_string(repository().join(path))
+        .unwrap_or_else(|error| panic!("read: {error}"));
+
+    for door in [
+        "pub fn offered_for_line(",
+        "pub fn refuse_from_bank_line(",
+        "pub fn missing_before_posting(",
+    ] {
+        assert!(
+            source.contains(door),
+            "the category kernel is missing `{door}`; the decision would then be made in a \
+             query, where it cannot be checked without a database"
+        );
+    }
+    assert!(
+        !source.contains("pub async fn"),
+        "the category kernel has an async door; a pure kernel has nothing to await"
+    );
+    assert!(
+        source.contains("pub const DOOR_ORDER"),
+        "the order of match, create and categorise is a rule about accounting and lives here, \
+         not in whichever screen happens to render it"
+    );
 }

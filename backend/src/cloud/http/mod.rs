@@ -20,6 +20,7 @@ pub mod audit;
 pub mod auth;
 pub mod basket;
 pub mod catalogue;
+pub mod categories;
 pub mod chat;
 pub mod colours;
 pub mod customer;
@@ -1038,6 +1039,9 @@ pub fn router(state: AppState) -> Router {
     // because they are one subject and because four lanes editing one
     // four-hundred-line builder is four conflicts in the same hunk.
     let router = money::lane_c_routes(router);
+    // lane-N: the words a person explains money in, and the three doors out of
+    // a bank statement line. Gathered for the same reason.
+    let router = categories::lane_n_routes(router);
     router
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->

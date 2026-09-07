@@ -27,6 +27,7 @@ pub mod sales_posting;
 mod supplier;
 mod sync;
 mod tender_recon;
+mod transaction_category;
 mod voucher;
 
 pub use allotment::*;
@@ -56,4 +57,5 @@ pub use settlement_report::*;
 pub use supplier::*;
 pub use sync::*;
 pub use tender_recon::*;
+pub use transaction_category::*;
 pub use voucher::*;

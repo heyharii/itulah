@@ -12,7 +12,24 @@ match_kind: string, pattern: string,
 /**
  * `IN`, `OUT` or `ANY`, as the bank reports it.
  */
-direction: string, semantic_key: string, qualifier: string, site_id: string, 
+direction: string, 
+/**
+ * What this rule says the line means, in the words a person uses.
+ */
+category_code: string | null, category_name: string | null, 
+/**
+ * True when the category this rule proposes is one a person may not
+ * choose from a bank line. Not forbidden — recognising the payroll
+ * transfer so it stops looking unrecognised is a reasonable thing to want
+ * — but the rule then only ever produces refusals, and that is worth
+ * seeing beside it rather than discovering by accepting one.
+ */
+category_refuses: boolean, 
+/**
+ * A meaning named directly, for a narration no category covers yet.
+ * Ignored when `category_code` is set.
+ */
+semantic_key: string | null, qualifier: string, site_id: string, 
 /**
  * What that meaning resolves to at that location today, so a screen can
  * show the account without a second round trip. Read through the map on
