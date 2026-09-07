@@ -309,6 +309,48 @@ fn sheet(csv: &str, columns: &[&str]) -> Result<Vec<CsvRow>, AppError> {
     Ok(rows)
 }
 
+/// Refuse a cutover dated inside a month somebody has already signed off.
+///
+/// The guarantee is elsewhere and in two places — 0051's trigger on the journal
+/// entry, and 0158's lock on the evidence row's journal link — and both are
+/// `RAISE EXCEPTION`, which reaches a caller as SQLSTATE P0001 and reads
+/// "database operation failed" anywhere the HTTP layer is not there to
+/// translate it. This is the explanation, checked first so the sentence names
+/// the month, exactly as `poster::check_balanced` sits in front of the deferred
+/// balance trigger.
+///
+/// `FOR SHARE`, inside the caller's transaction, so a close running at the same
+/// moment either waits for this or makes this wait for it.
+async fn assert_cutover_month_open(
+    tx: &mut Transaction<'_, Postgres>,
+    cutover_date: NaiveDate,
+) -> Result<(), AppError> {
+    use chrono::Datelike;
+    let status: Option<String> =
+        sqlx::query("SELECT status FROM fiscal_period WHERE year = $1 AND month = $2 FOR SHARE")
+            .bind(cutover_date.year() as i16)
+            .bind(cutover_date.month() as i16)
+            .fetch_optional(&mut **tx)
+            .await?
+            .map(|row| row.get("status"));
+
+    match status.as_deref() {
+        Some("CLOSED") => Err(AppError::Conflict(format!(
+            "the cutover is dated {cutover_date}, which falls inside accounting period {}, and \
+             that period is closed. A closed month is never rewritten — least of all to put a \
+             beginning into it, which would move every balance in the books after somebody had \
+             already signed for them",
+            cutover_date.format("%Y-%m")
+        ))),
+        Some(_) => Ok(()),
+        None => Err(AppError::Conflict(format!(
+            "no accounting period exists for {}; open it before importing a cutover dated \
+             {cutover_date}",
+            cutover_date.format("%Y-%m")
+        ))),
+    }
+}
+
 /// Refuse every site the file names that this system does not keep, at once.
 ///
 /// All of them together rather than the first: a cutover file is prepared by
@@ -564,6 +606,8 @@ pub async fn opening_import_balances(
     }
 
     let mut tx = pool.begin().await?;
+
+    assert_cutover_month_open(&mut tx, request.cutover_date).await?;
 
     let sites: Vec<String> = totals.iter().map(|total| total.site_id.clone()).collect();
     assert_sites_exist(&mut tx, &sites).await?;
