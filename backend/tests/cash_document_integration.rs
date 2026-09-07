@@ -625,9 +625,22 @@ async fn a_transfer_between_our_own_banks_settles_nothing(pool: PgPool) {
     assert_eq!(read.party_kind, "OTHER");
     assert_eq!(read.supplier_id, None);
 
-    // Two ledger entries, one journal entry, no supplier anywhere on it. When
-    // Lane P lands, the Payment Ledger table joins this assertion by name; the
-    // shape of the claim does not change.
+    // The Payment Ledger, by name, holds nothing at all: not an item and not
+    // an allocation. This is the assertion the whole module is written around.
+    for table in ["payment_ledger_entry", "payment_ledger_settlement"] {
+        let rows: i64 = sqlx::query(&format!("SELECT COUNT(*)::bigint AS n FROM {table}"))
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("count {table}: {error}"))
+            .try_get("n")
+            .unwrap_or_else(|error| panic!("read: {error}"));
+        assert_eq!(
+            rows, 0,
+            "a transfer between our own banks put a row in {table}"
+        );
+    }
+
+    // Two ledger entries, one journal entry, no supplier anywhere on it.
     let supplier_lines: i64 = sqlx::query(
         "SELECT COUNT(*)::bigint AS n FROM journal_line l
            JOIN journal_entry e USING (entry_id)
@@ -694,4 +707,180 @@ async fn the_slip_carries_the_letterhead_the_title_and_the_amount_in_words(pool:
     // Never filled by the system. Printing a name against "diperiksa" would be
     // the system claiming somebody checked what they have not seen.
     assert_eq!(slip.checked_by, None);
+}
+
+/// A posted bill and the payable it raised, in one transaction, the way
+/// `post_bill` writes them.
+///
+/// It stands in for the real thing rather than calling it: this module's chart
+/// has no inventory and no supplier tables, and what these two tests are about
+/// is the cash document, not how the debt got there.
+async fn a_bill_still_open(pool: &PgPool, amount: i64) {
+    use inventory_backend::cloud::postgres::{
+        PaymentLedgerItem, PaymentLedgerPartyType, PaymentLedgerSide, PostingIntent, PostingLine,
+    };
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin: {error}"));
+    let posted = cloud::post(
+        &mut tx,
+        &PostingIntent {
+            posting_date: september(1),
+            source_kind: "SUPPLIER_INVOICE".into(),
+            source_id: Some("INV-88".into()),
+            rule_version: "supplier_invoice/1".into(),
+            currency: "IDR".into(),
+            memo: Some("Faktur pemasok".into()),
+            lines: vec![
+                PostingLine::debit("bank_admin_fee", "dc", amount),
+                PostingLine::credit("trade_payable", "dc", amount).for_supplier("SUP01"),
+            ],
+        },
+        None,
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("post bill: {error}"));
+    cloud::ple_open(
+        &mut tx,
+        &PaymentLedgerItem {
+            account_key: "trade_payable".into(),
+            qualifier: String::new(),
+            site_id: "dc".into(),
+            party_type: PaymentLedgerPartyType::Supplier,
+            party_id: "SUP01".into(),
+            party_name: Some("PT Sumber Jaya".into()),
+            voucher_kind: "SUPPLIER_INVOICE".into(),
+            voucher_id: "INV-88".into(),
+            journal_entry_id: posted.entry_id,
+            side: PaymentLedgerSide::Payable,
+            amount_minor: amount,
+            currency: "IDR".into(),
+            due_date: Some(september(30)),
+            posting_date: september(1),
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("open: {error}"));
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit: {error}"));
+}
+
+/// A slip that takes money out of the bank and puts it against the payable.
+///
+/// Keyed before the bill exists, which is why `cash_draft_from` allows it: its
+/// refusal is about a supplier who has bills open on Payables at the moment
+/// somebody keys the slip, and it is checked then rather than at posting.
+fn a_supplier_slip(amount: i64) -> RecordCashDocumentRequest {
+    RecordCashDocumentRequest {
+        party_kind: Some("SUPPLIER".into()),
+        supplier_id: Some("SUP01".into()),
+        party_name: "PT Sumber Jaya".into(),
+        ..document(
+            meaning("bank_giro", "BCA"),
+            meaning("trade_payable", ""),
+            amount,
+            9,
+        )
+    }
+}
+
+/// What the report says about the trade payable, having first insisted that
+/// every control account in it agrees.
+async fn payable_control(
+    pool: &PgPool,
+) -> inventory_backend::cloud::postgres::PaymentLedgerIntegrityRow {
+    let as_of = september(30).max(chrono::Utc::now().date_naive());
+    let integrity = cloud::payment_ledger_integrity(pool, Some(as_of), None)
+        .await
+        .unwrap_or_else(|error| panic!("integrity: {error}"));
+    assert!(
+        integrity.agrees,
+        "the Payment Ledger and the books disagree: {:?}",
+        integrity
+            .rows
+            .iter()
+            .map(|row| (row.account_key.clone(), row.difference_minor))
+            .collect::<Vec<_>>()
+    );
+    integrity
+        .rows
+        .into_iter()
+        .find(|row| row.account_key == "trade_payable")
+        .unwrap_or_else(|| panic!("no trade payable row in the integrity report"))
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_slip_that_lands_on_the_payable_closes_the_item_it_landed_on(pool: PgPool) {
+    seed(&pool).await;
+    let keyed = cloud::cash_document_record(&pool, &a_supplier_slip(8_500_000), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("record: {error}"));
+
+    a_bill_still_open(&pool, 8_500_000).await;
+    let owed = payable_control(&pool).await;
+    assert_eq!(owed.ledger_outstanding_minor, 8_500_000);
+    assert_eq!(owed.gl_balance_minor, 8_500_000);
+
+    cloud::cash_document_approve(&pool, keyed.document_id, CHECKER)
+        .await
+        .unwrap_or_else(|error| panic!("approve: {error}"));
+    cloud::cash_document_post(&pool, keyed.document_id, None, CHECKER)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+
+    // The entry debited `trade_payable`, so the item it debited is answered by
+    // the same amount. Both readings of the same money, and they agree.
+    let settled = payable_control(&pool).await;
+    assert_eq!(settled.ledger_outstanding_minor, 0);
+    assert_eq!(settled.gl_balance_minor, 0);
+    assert_eq!(settled.open_items, 0);
+
+    // And the settlement names the slip, which is how somebody looking at the
+    // bill finds out what answered it.
+    let history = cloud::payment_ledger_settlements(&pool, "SUPPLIER_INVOICE", "INV-88")
+        .await
+        .unwrap_or_else(|error| panic!("settlements: {error}"));
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].against_voucher_kind, "CASH_DOC");
+    assert_eq!(history[0].against_voucher_id, keyed.document_id.to_string());
+    assert_eq!(history[0].amount_minor, 8_500_000);
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_slip_for_part_of_a_debt_leaves_the_rest_on_both_sides(pool: PgPool) {
+    seed(&pool).await;
+    let keyed = cloud::cash_document_record(&pool, &a_supplier_slip(3_000_000), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("record: {error}"));
+    a_bill_still_open(&pool, 8_500_000).await;
+    cloud::cash_document_approve(&pool, keyed.document_id, CHECKER)
+        .await
+        .unwrap_or_else(|error| panic!("approve: {error}"));
+    cloud::cash_document_post(&pool, keyed.document_id, None, CHECKER)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+
+    let part_paid = payable_control(&pool).await;
+    assert_eq!(part_paid.ledger_outstanding_minor, 5_500_000);
+    assert_eq!(part_paid.gl_balance_minor, 5_500_000);
+    assert_eq!(part_paid.difference_minor, 0);
+    assert_eq!(part_paid.open_items, 1);
+
+    // Reversing the slip puts the whole debt back, on both sides at once.
+    cloud::cash_document_reverse(
+        &pool,
+        keyed.document_id,
+        Some(september(20)),
+        "paid the wrong supplier",
+        CHECKER,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("reverse: {error}"));
+    let reversed = payable_control(&pool).await;
+    assert_eq!(reversed.ledger_outstanding_minor, 8_500_000);
+    assert_eq!(reversed.gl_balance_minor, 8_500_000);
 }

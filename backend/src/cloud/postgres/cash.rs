@@ -797,12 +797,30 @@ pub(super) async fn cash_document_post_in(
         document_id,
         &party_kind,
         supplier_id.as_deref(),
+        // The side money went TO, which is the side the entry debited. A
+        // document only settles a debt when that is where it landed.
+        row.try_get::<Option<String>, _>("to_key")?.as_deref(),
+        &row.try_get::<String, _>("to_qualifier")?,
+        &row.try_get::<String, _>("to_site")?,
         amount,
+        intent.posting_date,
+        posted.entry_id,
+        actor,
     )
     .await?;
 
     Ok(posted)
 }
+
+/// The two meanings a cash document can land on that are somebody's debt.
+///
+/// Every other side of every other cash document moves money and owes nobody
+/// anything: a transfer between two of our own banks, a deposit, a bank charge,
+/// an expense paid on the spot. Money moving is not, on its own, a reason to be
+/// in the Payment Ledger — 0143 has the argument — so the list is short on
+/// purpose and everything not on it reaches the ledger and leaves without a
+/// word.
+const SETTLEABLE_KEYS: [&str; 2] = ["trade_payable", "non_merchandise_payable"];
 
 /// Tell the Payment Ledger that this document answered a debt, when it did.
 ///
@@ -819,41 +837,70 @@ pub(super) async fn cash_document_post_in(
 ///
 /// So the call is here, on the one path where a document does settle something,
 /// and the shape of the refusal is the point: everything else reaches this and
-/// leaves without a word. A `Transfer` posted through
-/// [`cash_document_post_in`] calls this and this does nothing, which is the
-/// behaviour `cash_document_integration` asserts on.
+/// leaves without a word. A `Transfer` posted through [`cash_document_post_in`]
+/// calls this and this does nothing, which is the behaviour
+/// `cash_document_integration` asserts on.
 ///
-/// Lane P is building the ledger itself. The signature is fixed now so the two
-/// halves cannot drift while they are apart.
+/// # What makes a document a settlement
 ///
-/// With the Payment Ledger merged this is still a no-op, and for the reason the
-/// body gives rather than for want of a call: a supplier document that reaches
-/// here has no open bills, so there is nothing to allocate against. What it
-/// should write instead is an advance — money out ahead of a bill — and that is
-/// `ple_open` against `advance_purchase`, which is a rule about when a payment
-/// becomes an asset rather than a settlement. Lane P's, not this lane's.
+/// Two things, together, and neither alone. The party has to be a supplier, and
+/// the side the money went TO has to be one of the payable meanings — because
+/// that side is what the entry beside this DEBITED. A supplier document that
+/// paid an expense account debits the expense and answers no debt; settling an
+/// item for it would take a balance out of the sub-ledger that the books still
+/// carry, which is the disagreement `payment_ledger_integrity` exists to
+/// report. So the ledger moves exactly when, and by exactly what, the control
+/// account moved.
 ///
-/// Shape, when it is written: `against_voucher_kind = "CASH_DOC"`,
-/// `against_voucher_id = document_id`, allocations against the open items of
-/// (account_key, site, qualifier, party).
+/// The document names no bill, unlike everything in `payables_flow`, so what it
+/// answers is the supplier's open items oldest first. That is the honest
+/// reading of a slip that says only "PT Sinar Jaya, 5,000,000": somebody
+/// paying a named invoice keys it on Payables, where the allocation is the
+/// document. `cash_draft_from` says so in its own refusal.
+#[allow(clippy::too_many_arguments)]
 async fn cash_document_settle_payment_ledger(
-    _tx: &mut Transaction<'_, Postgres>,
-    _document_id: Uuid,
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
     party_kind: &str,
     supplier_id: Option<&str>,
-    _amount_minor: i64,
+    to_key: Option<&str>,
+    to_qualifier: &str,
+    to_site: &str,
+    amount_minor: i64,
+    posting_date: NaiveDate,
+    journal_entry_id: Uuid,
+    actor: &str,
 ) -> Result<(), AppError> {
     // A document that names no party settles no debt. This is the whole of the
-    // rule today, and it is deliberately stated rather than left implied: when
-    // Lane P lands, the body below is what runs, and everything above it has
-    // already been decided not to.
-    if party_kind != "SUPPLIER" || supplier_id.is_none() {
+    // rule for four documents out of five, and it is deliberately stated rather
+    // than left implied.
+    let (Some(supplier_id), "SUPPLIER") = (supplier_id, party_kind) else {
         return Ok(());
-    }
-    // A supplier document that reaches here has NO open bills — `cash_draft_from`
-    // refuses one that does and sends it to Payables. So there is nothing open
-    // to allocate against, and the entry Lane P will write is the one that
-    // records an advance: money out ahead of a bill.
+    };
+    let Some(key) = to_key.filter(|key| SETTLEABLE_KEYS.contains(key)) else {
+        return Ok(());
+    };
+    super::payment_ledger::ple_settle_claim(
+        tx,
+        &super::payment_ledger::PaymentLedgerClaim {
+            account_key: key,
+            qualifier: to_qualifier,
+            site_id: to_site,
+            party_type: super::payment_ledger::PaymentLedgerPartyType::Supplier,
+            party_id: supplier_id,
+            // No bill: see the note above. A slip that names one is keyed on
+            // Payables, where the allocation is part of the document.
+            voucher_kind: None,
+            voucher_id: None,
+        },
+        "CASH_DOC",
+        &document_id.to_string(),
+        journal_entry_id,
+        posting_date,
+        amount_minor,
+        actor,
+    )
+    .await?;
     Ok(())
 }
 
@@ -917,6 +964,17 @@ pub async fn cash_document_reverse(
     .bind(document_id)
     .bind(mirror.entry_id)
     .execute(&mut *tx)
+    .await?;
+    // The mirror credits back whatever this document debited, so a payable it
+    // had answered is open again. Nothing happens for the four documents in
+    // five that settled nothing — there is no allocation to take out.
+    super::payment_ledger::ple_delink(
+        &mut tx,
+        "CASH_DOC",
+        &document_id.to_string(),
+        &format!("cash document {label} was reversed: {reason}"),
+        actor,
+    )
     .await?;
     tx.commit().await?;
     cash_document_read(pool, document_id).await
