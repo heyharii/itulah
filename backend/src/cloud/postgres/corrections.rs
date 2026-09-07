@@ -246,7 +246,10 @@ const SELECT_CORRECTION: &str = "
       LEFT JOIN journal_line l ON l.line_id = c.source_line_id
       LEFT JOIN journal_entry e ON e.entry_id = c.journal_entry_id";
 
-pub async fn correction(pool: &PgPool, correction_id: Uuid) -> Result<CorrectionDocument, AppError> {
+pub async fn correction(
+    pool: &PgPool,
+    correction_id: Uuid,
+) -> Result<CorrectionDocument, AppError> {
     let row = sqlx::query(&format!("{SELECT_CORRECTION} WHERE c.correction_id = $1"))
         .bind(correction_id)
         .fetch_optional(pool)
@@ -404,8 +407,13 @@ pub async fn reclass_create(
     // Both sides, before either is stored. The target is resolved here purely
     // to check it — the posting resolves it again, and must, because the map
     // may legitimately move between drafting and posting.
-    let target_account =
-        resolve_account(&mut *tx, target_key, &target_site, &request.target_qualifier).await?;
+    let target_account = resolve_account(
+        &mut *tx,
+        target_key,
+        &target_site,
+        &request.target_qualifier,
+    )
+    .await?;
     let money = money_account_codes(&mut tx).await?;
     refuse_if_money(&money, &source_account, "source")?;
     refuse_if_money(&money, &target_account, "target")?;
@@ -528,10 +536,12 @@ pub async fn adjustment_create(
     // OTHER adjustment's chosen meaning rides in `balance_key`, which carries
     // the same thing for a write-off: "the account the person named".
     if kind == "OTHER" {
-        sqlx::query("UPDATE correction_document SET note = COALESCE(note,'') WHERE correction_id=$1")
-            .bind(correction_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE correction_document SET note = COALESCE(note,'') WHERE correction_id=$1",
+        )
+        .bind(correction_id)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
 

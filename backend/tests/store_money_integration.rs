@@ -979,8 +979,7 @@ async fn a_remittance_order_posts_nothing_when_it_is_created(pool: PgPool) {
         .unwrap_or_else(|error| panic!("count: {error}"));
     assert_eq!(entries_before, entries_after, "an order posted a journal");
 
-    let ledger_items: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM payment_ledger_entry")
+    let ledger_items: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM payment_ledger_entry")
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|error| panic!("count: {error}"));

@@ -135,9 +135,7 @@ async fn lane_b_ple_open(
             voucher_id: item.voucher_id.clone(),
             journal_entry_id: item.journal_entry_id,
             side: match item.side {
-                StoreLedgerSide::Receivable => {
-                    super::payment_ledger::PaymentLedgerSide::Receivable
-                }
+                StoreLedgerSide::Receivable => super::payment_ledger::PaymentLedgerSide::Receivable,
             },
             amount_minor: item.amount_minor,
             currency: item.currency.clone(),

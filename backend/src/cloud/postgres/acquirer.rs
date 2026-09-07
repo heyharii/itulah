@@ -1997,7 +1997,11 @@ pub async fn acq_settlement_explain(
             )),
             lines: vec![charge, bank],
         };
-        Some(post(&mut tx, &intent, Some(&purpose), actor).await?.entry_id)
+        Some(
+            post(&mut tx, &intent, Some(&purpose), actor)
+                .await?
+                .entry_id,
+        )
     } else {
         None
     };

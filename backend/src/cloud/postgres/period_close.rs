@@ -51,7 +51,9 @@
 //! the modules instead of the modules owning their own controls.
 
 use crate::cloud::application::AppError;
-use crate::cloud::domain::{close_verdict, CheckOutcome, CheckPointer, CloseCheckResult, ClosePeriod};
+use crate::cloud::domain::{
+    close_verdict, CheckOutcome, CheckPointer, CloseCheckResult, ClosePeriod,
+};
 use chrono::{Datelike, NaiveDate, Utc};
 use serde::Serialize;
 use serde_json::Value;
