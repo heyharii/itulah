@@ -133,6 +133,7 @@ fn to_account(code: &str, debit: i64, credit: i64) -> PostingLine {
         debit_minor: debit,
         credit_minor: credit,
         supplier_id: None,
+        counter_site_id: None,
         memo: None,
     }
 }
@@ -186,6 +187,7 @@ async fn bill(pool: &PgPool, voucher: &str, amount: i64, due: u32) -> Uuid {
                 PostingLine::credit("trade_payable", SITE, amount).for_supplier("SUP01"),
             ],
         ),
+        None,
         ACTOR,
     )
     .await
@@ -285,6 +287,7 @@ async fn a_receivable_agrees_with_its_control_account_the_same_way(pool: PgPool)
                 to_account("401011000100", 0, 4_250_000),
             ],
         ),
+        None,
         ACTOR,
     )
     .await
@@ -351,6 +354,7 @@ async fn a_partial_settlement_leaves_the_rest_open(pool: PgPool) {
                 PostingLine::debit("trade_payable", SITE, 3_600_000).for_supplier("SUP01"),
             ],
         ),
+        None,
         ACTOR,
     )
     .await
@@ -431,6 +435,7 @@ async fn settling_more_than_is_open_is_refused_and_says_by_how_much(pool: PgPool
                 PostingLine::debit("trade_payable", SITE, 9_000_000).for_supplier("SUP01"),
             ],
         ),
+        None,
         ACTOR,
     )
     .await
@@ -582,6 +587,7 @@ async fn reversing_a_payment_opens_again_what_it_had_closed(pool: PgPool) {
                 PostingLine::debit("trade_payable", SITE, 8_600_000).for_supplier("SUP01"),
             ],
         ),
+        None,
         ACTOR,
     )
     .await
@@ -662,6 +668,7 @@ async fn each_balance_lands_in_the_bucket_its_age_puts_it_in(pool: PgPool) {
                 PostingLine::credit("trade_payable", SITE, 4_000_000).for_supplier("SUP02"),
             ],
         ),
+        None,
         ACTOR,
     )
     .await
@@ -731,6 +738,7 @@ async fn opening_the_same_balance_twice_opens_it_once(pool: PgPool) {
                 PostingLine::credit("trade_payable", SITE, 8_600_000).for_supplier("SUP01"),
             ],
         ),
+        None,
         ACTOR,
     )
     .await
@@ -803,6 +811,7 @@ async fn money_moving_is_not_enough_to_open_a_balance(pool: PgPool) {
                 PostingLine::credit("cash", SITE, 12_000_000),
             ],
         ),
+        None,
         ACTOR,
     )
     .await
@@ -852,6 +861,7 @@ async fn a_store_manager_holding_head_office_money_is_a_receivable(pool: PgPool)
                 PostingLine::credit("cash", SITE, 5_000_000),
             ],
         ),
+        None,
         ACTOR,
     )
     .await
