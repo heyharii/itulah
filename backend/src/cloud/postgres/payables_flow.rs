@@ -27,6 +27,10 @@
 //! figure changes in `receipt_post` and the difference goes where a price
 //! variance already goes; no table and no rule below has to move.
 
+use super::payment_ledger::{
+    ple_delink, ple_open, ple_settle_claim, PaymentLedgerClaim, PaymentLedgerItem,
+    PaymentLedgerPartyType, PaymentLedgerSide,
+};
 use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::three_way::{
@@ -49,74 +53,157 @@ const ADVANCE: &str = "advance_purchase";
 const BANK_CHARGE: &str = "bank_admin_fee";
 
 // ---------------------------------------------------------------------------
-// Two lanes this one has to meet, and does not build
+// The two ledgers this one has to meet
 // ---------------------------------------------------------------------------
 //
-// Both are being written in parallel by somebody else, and both would be
-// half-built and wrong if this lane guessed at them. So each is one function
-// here, called at the exact point it belongs, taking exactly the arguments its
-// owner asked for, and returning `Ok(())`. When the lane lands, its author
-// replaces one body and every call site is already correct and already in a
-// transaction that will roll the whole document back if the call fails.
+// Both were written in parallel by somebody else, and both would have been
+// half-built and wrong if this lane had guessed at them. So each is one
+// function here, called at the exact point it belongs, taking exactly the
+// arguments its owner asked for. The Payment Ledger has since landed and the
+// three below are its own calls; the Stock Ledger's is still a stub with its
+// reason under it.
 //
 // Deliberately not traits, not events and not a table: a hook that had a shape
-// of its own would be a shape the real lane then has to agree with.
+// of its own would be a shape the real ledger then has to agree with.
 
-/// Open or settle one line of the payment ledger.
+/// What a bill's payable is filed under in the Payment Ledger.
+const BILL_VOUCHER: &str = "SUPPLIER_INVOICE";
+
+/// The claim a document makes on one bill's payable.
 ///
-/// TODO(lane-P): body. The Payment Ledger tracks what is owed to and by each
-/// party, per account, so that "what do we owe this supplier" is a query
-/// against one place rather than a sum over bills minus a sum over payments
-/// minus a sum over credit notes minus a sum over advances.
+/// Every settling document in this lane — a payment, a credit note, an advance
+/// being set against a bill — answers a NAMED invoice, so the claim always
+/// carries one. That is the argument the old hook could not: it had a party and
+/// an amount, and any allocation it chose on its own would have been oldest
+/// first, quietly settling a different bill from the one the document says it
+/// settles.
+fn against_bill<'a>(
+    account_key: &'a str,
+    site_id: &'a str,
+    supplier_id: &'a str,
+    bill: &'a str,
+) -> PaymentLedgerClaim<'a> {
+    PaymentLedgerClaim {
+        account_key,
+        qualifier: "",
+        site_id,
+        party_type: PaymentLedgerPartyType::Supplier,
+        party_id: supplier_id,
+        voucher_kind: Some(BILL_VOUCHER),
+        voucher_id: Some(bill),
+    }
+}
+
+/// Which payable a document of this kind credited.
 ///
-/// # Why this is still empty now that Lane P is here
+/// One place, because four call sites were each spelling the same conditional
+/// and a fifth would have spelled it slightly differently.
+pub(super) const fn payable_key(kind_is_expense: bool) -> &'static str {
+    if kind_is_expense {
+        "non_merchandise_payable"
+    } else {
+        "trade_payable"
+    }
+}
+
+/// Open the payable a posted bill raised.
 ///
-/// The `CREDIT` half is one `ple_open` call and nothing else. The `DEBIT` half
-/// is not: `ple_settle` names the items it settles by `entry_id`, and this
-/// signature carries a party and an amount but not the bill being answered —
-/// while every caller of the `DEBIT` half (a payment, a credit note, an advance)
-/// answers a NAMED invoice. Any allocation this function chose on its own would
-/// be oldest-first, which quietly settles a different bill from the one the
-/// document says it settles. Carrying the invoice would mean widening this
-/// signature, which is the seam being redesigned rather than wired.
+/// The `CREDIT` half of the hook this replaces, plus the two things `ple_open`
+/// needs and that signature could not carry: the date the entry was posted on,
+/// and who posted it. The item's posting date is the ENTRY's, not the bill's,
+/// because `payment_ledger_integrity` winds both sides back to the same day and
+/// a ledger dated differently from its own journal entry would disagree with
+/// the books between the two dates.
 ///
-/// And opening without settling is worse than neither: `payment_ledger_integrity`
-/// reads FROM the ledger, so an empty ledger agrees with the books and a ledger
-/// of payables nothing ever closes disagrees on every control account.
-///
-/// The field shape, as its author specified it:
-///
-/// * `account_key`      — the meaning, e.g. `trade_payable`
-/// * `qualifier`        — narrowing, empty when the meaning needs none
-/// * `site_id`          — the location the item belongs to
-/// * `party_type`       — `SUPPLIER` throughout this lane
-/// * `party_id`         — the supplier
-/// * `voucher_kind`     — the `source_kind` of the entry that caused it
-/// * `voucher_id`       — that document's id
-/// * `side`             — `CREDIT` opens a payable, `DEBIT` settles one
-/// * `amount_minor`     — always positive; the side carries the direction
-/// * `due_date`         — the bill's, and `None` on a document that has none
-/// * `journal_entry_id` — the entry this item was raised by
-///
-/// A bill paid by a store manager out of their own pocket settles against
-/// `store_manager_receivable` rather than a bank account. That is lane-P's
-/// rule and not this lane's: the argument this module passes is what the
-/// document says, and lane-P decides what the settlement faces.
+/// One accommodation, stated because it is one. `ple_open` refuses an item that
+/// falls due before it was posted, which is right for a document somebody is
+/// keying today and wrong for a bill keyed a fortnight after its terms ran out
+/// — an ordinary thing here. Such a bill is opened as due on the day it entered
+/// the books: the closest true sentence the constraint allows, and it ages from
+/// that day rather than from a date the ledger never knew it was open on.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn lane_p_payable_item(
-    _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    _account_key: &str,
-    _qualifier: &str,
-    _site_id: &str,
-    _party_type: &str,
-    _party_id: &str,
-    _voucher_kind: &str,
-    _voucher_id: Uuid,
-    _side: &str,
-    _amount_minor: i64,
-    _due_date: Option<NaiveDate>,
-    _journal_entry_id: Uuid,
+pub(super) async fn payable_opened(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account_key: &str,
+    site_id: &str,
+    supplier_id: &str,
+    supplier_name: Option<&str>,
+    voucher_id: Uuid,
+    amount_minor: i64,
+    due_date: Option<NaiveDate>,
+    posting_date: NaiveDate,
+    journal_entry_id: Uuid,
+    actor: &str,
 ) -> Result<(), AppError> {
+    // A bill for nothing raises no debt. It cannot post either — the poster
+    // refuses an entry with no amount — but saying so here keeps the ledger's
+    // own refusal for the case it is about.
+    if amount_minor <= 0 {
+        return Ok(());
+    }
+    ple_open(
+        tx,
+        &PaymentLedgerItem {
+            account_key: account_key.to_string(),
+            qualifier: String::new(),
+            site_id: site_id.to_string(),
+            party_type: PaymentLedgerPartyType::Supplier,
+            party_id: supplier_id.to_string(),
+            party_name: supplier_name.map(str::to_string),
+            voucher_kind: BILL_VOUCHER.to_string(),
+            voucher_id: voucher_id.to_string(),
+            journal_entry_id,
+            side: PaymentLedgerSide::Payable,
+            amount_minor,
+            currency: "IDR".to_string(),
+            due_date: due_date.map(|due| due.max(posting_date)),
+            posting_date,
+        },
+        actor,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Put a settling document against one named bill's payable.
+///
+/// The `DEBIT` half, and the reason the pair had to be redesigned rather than
+/// wired: this carries the bill. A payment allocates per invoice, a credit note
+/// is written against one, and an advance is set against one — so in every case
+/// the document already knows which debt it answers, and the ledger is told
+/// rather than left to guess.
+///
+/// A bill the ledger holds nothing open for settles nothing and says so by
+/// doing nothing: either it is already answered, or it was posted before this
+/// ledger followed it. Settling more than is open is refused, because a
+/// document that answers a debt nobody raised is the difference
+/// `payment_ledger_integrity` would otherwise report for ever.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn payable_settled(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account_key: &str,
+    site_id: &str,
+    supplier_id: &str,
+    bill_id: Uuid,
+    against_voucher_kind: &str,
+    against_voucher_id: Uuid,
+    amount_minor: i64,
+    posting_date: NaiveDate,
+    journal_entry_id: Uuid,
+    actor: &str,
+) -> Result<(), AppError> {
+    let bill = bill_id.to_string();
+    ple_settle_claim(
+        tx,
+        &against_bill(account_key, site_id, supplier_id, &bill),
+        against_voucher_kind,
+        &against_voucher_id.to_string(),
+        journal_entry_id,
+        posting_date,
+        amount_minor,
+        actor,
+    )
+    .await?;
     Ok(())
 }
 
@@ -1264,23 +1351,18 @@ pub async fn credit_note_post(
     .execute(&mut *tx)
     .await?;
     // Part of what the bill opened is answered without any money moving.
-    lane_p_payable_item(
+    payable_settled(
         &mut tx,
-        if expense {
-            "non_merchandise_payable"
-        } else {
-            "trade_payable"
-        },
-        "",
+        payable_key(expense),
         &note.site_id,
-        "SUPPLIER",
         &note.supplier_id,
+        note.invoice_id,
         "CREDIT_NOTE",
         credit_note_id,
-        "DEBIT",
         note.total_minor,
-        None,
+        intent.posting_date,
         posted.entry_id,
+        actor,
     )
     .await?;
     tx.commit().await?;
@@ -1364,6 +1446,18 @@ pub async fn credit_note_refund(
     .bind(&key)
     .bind(qualifier)
     .execute(&mut *tx)
+    .await?;
+    // The money came back, so the debt this note had answered is a debt again.
+    // The entry above credits the payable; delinking the note's allocation is
+    // the same fact on the ledger side, and the two commit together or the
+    // ageing would show a bill somebody paid twice.
+    ple_delink(
+        &mut tx,
+        "CREDIT_NOTE",
+        &credit_note_id.to_string(),
+        &format!("{} was refunded in cash", note.credit_number),
+        actor,
+    )
     .await?;
     tx.commit().await?;
 
@@ -1715,23 +1809,18 @@ pub async fn supplier_advance_apply(
     // Money that left the bank weeks ago answers part of a debt that exists
     // today. The item settles against the bill, not against the bank: the bank
     // was answered when the advance was posted.
-    lane_p_payable_item(
+    payable_settled(
         &mut tx,
-        if kind == "EXPENSE" {
-            "non_merchandise_payable"
-        } else {
-            "trade_payable"
-        },
-        "",
+        payable_key(kind == "EXPENSE"),
         &advance.site_id,
-        "SUPPLIER",
         &advance.supplier_id,
+        request.invoice_id,
         "SUPPLIER_ADVANCE",
         advance_id,
-        "DEBIT",
         request.amount_minor,
-        None,
+        intent.posting_date,
         posted.entry_id,
+        actor,
     )
     .await?;
     tx.commit().await?;

@@ -1083,3 +1083,297 @@ async fn a_withholding_this_system_cannot_compute_is_refused_when_the_bill_is_ke
         "the refusal should list what it does know, said: {message}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The equation: what the sub-ledger says is owed, and what the books say
+// ---------------------------------------------------------------------------
+
+/// A date the whole story is certainly behind, whenever this is run.
+///
+/// `ple_delink` dates a cancellation `CURRENT_DATE` rather than the reversal's
+/// own posting date — its own doc says so — so an "as at" read taken before
+/// today would see the ledger's cancellation and not the journal entry that
+/// caused it, and report a difference that is only the gap between two dates.
+/// Asking as at the later of the story's end and today removes the calendar
+/// from the assertion without weakening it.
+fn after_everything() -> NaiveDate {
+    september(30).max(chrono::Utc::now().date_naive())
+}
+
+/// The one row `payment_ledger_integrity` has to say about the trade payable.
+async fn payable_control(
+    pool: &PgPool,
+) -> inventory_backend::cloud::postgres::PaymentLedgerIntegrityRow {
+    let integrity = cloud::payment_ledger_integrity(pool, Some(after_everything()), None)
+        .await
+        .unwrap_or_else(|error| panic!("integrity: {error}"));
+    assert!(
+        integrity.agrees,
+        "the Payment Ledger and the books disagree: {:?}",
+        integrity
+            .rows
+            .iter()
+            .map(|row| (
+                row.account_key.clone(),
+                row.ledger_outstanding_minor,
+                row.gl_balance_minor,
+                row.difference_minor
+            ))
+            .collect::<Vec<_>>()
+    );
+    integrity
+        .rows
+        .into_iter()
+        .find(|row| row.account_key == "trade_payable")
+        .unwrap_or_else(|| panic!("no trade payable row in the integrity report"))
+}
+
+/// A bill of 10,200,000, matched to a delivery of 120 shirts and posted.
+async fn a_posted_bill(pool: &PgPool) -> Uuid {
+    seed_origin(pool).await;
+    let (_, po_line) = order(pool, "PO-0001", 120, 85_000).await;
+    let (receipt, receipt_line) = delivery(pool, "GRN-dc-000001", po_line, 120).await;
+    cloud::receipt_post(pool, receipt, None, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("value: {error}"));
+    let bill = draft_bill(pool, "INV-4471", 10_200_000, 0).await;
+    cloud::bill_match(
+        pool,
+        bill.invoice_id,
+        &cloud::BillMatchRequest {
+            receipt_ids: vec![receipt],
+            lines: vec![cloud::BillMatchLine {
+                receipt_line_id: receipt_line,
+                description: "Kemeja Pria".into(),
+                quantity: 120,
+                unit_price_minor: 85_000,
+                tax_minor: 0,
+            }],
+            accept_variance: false,
+            tolerance_bp: None,
+        },
+        CHECKER,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("match: {error}"));
+    cloud::post_bill(pool, bill.invoice_id, None, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post bill: {error}"));
+    bill.invoice_id
+}
+
+/// Record and post a transfer against one bill.
+async fn pay(pool: &PgPool, invoice_id: Uuid, amount_minor: i64) {
+    let payment = cloud::record_payment(
+        pool,
+        &cloud::RecordPaymentRequest {
+            site_id: "dc".into(),
+            payment_date: september(20),
+            method: "TRANSFER".into(),
+            account_key: "bank_savings".into(),
+            account_qualifier: "BCA".into(),
+            total_minor: None,
+            reference: None,
+            note: None,
+            giro_number: None,
+            giro_due_date: None,
+            allocations: vec![cloud::AllocateToBill {
+                invoice_id,
+                amount_minor,
+            }],
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("record payment: {error}"));
+    cloud::post_payment(pool, payment.payment_id, None, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post payment: {error}"));
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn every_way_a_bill_can_be_answered_leaves_the_ledger_agreeing_with_the_books(pool: PgPool) {
+    seed_books(&pool).await;
+    let invoice_id = a_posted_bill(&pool).await;
+
+    // A posted bill is a debt somebody has to follow, and it is the same debt
+    // read two ways.
+    let opened = payable_control(&pool).await;
+    assert_eq!(opened.account_code.as_deref(), Some("201200100100"));
+    assert_eq!(opened.ledger_outstanding_minor, 10_200_000);
+    assert_eq!(opened.gl_balance_minor, 10_200_000);
+    assert_eq!(opened.open_items, 1);
+
+    // Ten shirts go back. No money moves and the debt falls all the same.
+    let note = cloud::credit_note_create(
+        &pool,
+        &cloud::CreditNoteRequest {
+            invoice_id,
+            credit_date: september(10),
+            reason: "RETURN".into(),
+            subtotal_minor: 850_000,
+            tax_minor: 0,
+            their_number: Some("CN-77".into()),
+            credit_account_code: None,
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("credit note: {error}"));
+    cloud::credit_note_post(&pool, note.credit_note_id, None, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post note: {error}"));
+    let credited = payable_control(&pool).await;
+    assert_eq!(credited.ledger_outstanding_minor, 9_350_000);
+    assert_eq!(credited.gl_balance_minor, 9_350_000);
+
+    // Money that left the bank weeks ago answers part of what is left.
+    let (purchase_order, _) = order(&pool, "PO-0002", 1, 1).await;
+    let advance = cloud::supplier_advance_issue(
+        &pool,
+        &cloud::SupplierAdvanceRequest {
+            purchase_order_id: purchase_order,
+            site_id: "dc".into(),
+            advance_date: september(1),
+            amount_minor: 4_000_000,
+            account_key: "bank_savings".into(),
+            account_qualifier: "BCA".into(),
+            reference: Some("TRF-9001".into()),
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("issue: {error}"));
+    cloud::supplier_advance_post(&pool, advance.advance_id, None, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post advance: {error}"));
+    // An advance sitting in `advance_purchase` opens nothing: it is money we
+    // are owed goods for, not a balance a counterparty settles.
+    assert_eq!(
+        payable_control(&pool).await.ledger_outstanding_minor,
+        9_350_000
+    );
+    cloud::supplier_advance_apply(
+        &pool,
+        advance.advance_id,
+        &cloud::SupplierAdvanceApplyRequest {
+            invoice_id,
+            amount_minor: 4_000_000,
+            posting_date: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("apply: {error}"));
+    let after_advance = payable_control(&pool).await;
+    assert_eq!(after_advance.ledger_outstanding_minor, 5_350_000);
+    assert_eq!(after_advance.gl_balance_minor, 5_350_000);
+
+    // And the transfer that finishes it.
+    pay(&pool, invoice_id, 5_350_000).await;
+    let closed = payable_control(&pool).await;
+    assert_eq!(closed.ledger_outstanding_minor, 0);
+    assert_eq!(closed.gl_balance_minor, 0);
+    assert_eq!(
+        closed.open_items, 0,
+        "a bill answered four different ways is one bill nobody chases"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_part_paid_bill_leaves_the_remainder_on_both_sides(pool: PgPool) {
+    seed_books(&pool).await;
+    let invoice_id = a_posted_bill(&pool).await;
+
+    pay(&pool, invoice_id, 3_000_000).await;
+
+    let part_paid = payable_control(&pool).await;
+    assert_eq!(
+        part_paid.ledger_outstanding_minor, 7_200_000,
+        "what is left of the bill is what is left of the item"
+    );
+    assert_eq!(part_paid.gl_balance_minor, 7_200_000);
+    assert_eq!(part_paid.difference_minor, 0);
+    assert_eq!(
+        part_paid.open_items, 1,
+        "a part-paid bill is still one thing to chase, not none and not two"
+    );
+
+    // The item names the bill it came from, which is the question a general
+    // ledger balance of 7,200,000 cannot answer.
+    let items = cloud::ple_open_items(
+        &pool,
+        &cloud::PaymentLedgerFilter {
+            account_key: Some("trade_payable".into()),
+            open_only: true,
+            // The transfer is dated after today, and an "as at today" read
+            // would correctly not have seen it yet.
+            as_of: Some(after_everything()),
+            limit: 50,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("open items: {error}"));
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].voucher_kind, "SUPPLIER_INVOICE");
+    assert_eq!(items[0].voucher_id, invoice_id.to_string());
+    assert_eq!(items[0].party_id, SUPPLIER);
+    assert_eq!(items[0].amount_minor, 10_200_000);
+    assert_eq!(items[0].settled_minor, 3_000_000);
+    assert_eq!(items[0].outstanding_minor, 7_200_000);
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_refunded_credit_note_puts_the_debt_back_on_both_sides(pool: PgPool) {
+    seed_books(&pool).await;
+    let invoice_id = a_posted_bill(&pool).await;
+    let note = cloud::credit_note_create(
+        &pool,
+        &cloud::CreditNoteRequest {
+            invoice_id,
+            credit_date: september(10),
+            reason: "RETURN".into(),
+            subtotal_minor: 850_000,
+            tax_minor: 0,
+            their_number: Some("CN-77".into()),
+            credit_account_code: None,
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("credit note: {error}"));
+    cloud::credit_note_post(&pool, note.credit_note_id, None, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post note: {error}"));
+    assert_eq!(
+        payable_control(&pool).await.ledger_outstanding_minor,
+        9_350_000
+    );
+
+    // The supplier sends the money back instead of letting the next bill
+    // absorb it, so the debt the note had answered is a debt again.
+    cloud::credit_note_refund(
+        &pool,
+        note.credit_note_id,
+        &cloud::CreditNoteRefundRequest {
+            refund_date: september(25),
+            account_key: "bank_savings".into(),
+            account_qualifier: "BCA".into(),
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("refund: {error}"));
+
+    let refunded = payable_control(&pool).await;
+    assert_eq!(
+        refunded.ledger_outstanding_minor, 10_200_000,
+        "the whole bill is owed again"
+    );
+    assert_eq!(refunded.gl_balance_minor, 10_200_000);
+    assert_eq!(refunded.difference_minor, 0);
+}

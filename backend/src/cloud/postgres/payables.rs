@@ -821,23 +821,18 @@ pub async fn post_bill(
     // A posted bill is a debt to a named supplier, due on a named date. In the
     // same transaction as the entry that raised it: a payable item without its
     // journal entry is a figure nobody can trace.
-    super::payables_flow::lane_p_payable_item(
+    super::payables_flow::payable_opened(
         &mut tx,
-        if expense {
-            "non_merchandise_payable"
-        } else {
-            "trade_payable"
-        },
-        "",
+        super::payables_flow::payable_key(expense),
         &existing.site_id,
-        "SUPPLIER",
         &existing.supplier_id,
-        "SUPPLIER_INVOICE",
+        existing.supplier_name.as_deref(),
         invoice_id,
-        "CREDIT",
         existing.total_minor,
         existing.due_date,
+        intent.posting_date,
         posted.entry_id,
+        actor,
     )
     .await?;
     tx.commit().await?;

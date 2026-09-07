@@ -660,23 +660,20 @@ pub async fn post_payment(
     // receives less, and a settlement of the net would leave every service
     // vendor permanently in arrears by the tax.
     for allocation in &existing.allocations {
-        super::payables_flow::lane_p_payable_item(
+        super::payables_flow::payable_settled(
             &mut tx,
-            if allocation.kind == "EXPENSE" {
-                "non_merchandise_payable"
-            } else {
-                "trade_payable"
-            },
-            "",
-            &existing.site_id,
-            "SUPPLIER",
+            super::payables_flow::payable_key(allocation.kind == "EXPENSE"),
+            // At the BILL's location, exactly as the debit line above is, and
+            // for the same reason: that is where the bill opened the item.
+            &allocation.site_id,
             &allocation.supplier_id,
+            allocation.invoice_id,
             "PAYMENT",
             payment_id,
-            "DEBIT",
             allocation.amount_minor,
-            None,
+            intent.posting_date,
             posted.entry_id,
+            actor,
         )
         .await?;
     }
