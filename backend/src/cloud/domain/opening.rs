@@ -282,6 +282,149 @@ pub fn require_columns(rows: &[CsvRow], required: &[&str]) -> Result<(), CsvRefu
 }
 
 // ---------------------------------------------------------------------------
+// Reading a figure a person typed
+// ---------------------------------------------------------------------------
+
+/// Why a cell that should hold money does not.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AmountRefusal {
+    /// Something that is not a number at all.
+    NotANumber { value: String },
+    /// A fraction of a rupiah. This ledger keeps whole rupiah everywhere, so a
+    /// figure with real decimals cannot be carried across without somebody
+    /// deciding how to round it — and that decision is not this parser's.
+    HasFraction { value: String },
+    /// Digits grouped in a way that is not thousands, so which separator is the
+    /// decimal point is genuinely ambiguous.
+    AmbiguousGrouping { value: String },
+    /// A figure too large for the ledger's own arithmetic.
+    TooLarge { value: String },
+}
+
+impl AmountRefusal {
+    pub fn message(&self) -> String {
+        match self {
+            Self::NotANumber { value } => {
+                format!("`{value}` is not an amount")
+            }
+            Self::HasFraction { value } => format!(
+                "`{value}` has a fraction of a rupiah in it. This ledger keeps whole rupiah \
+                 throughout, so rounding it is a decision somebody has to make on the sheet \
+                 rather than one this import will make quietly on their behalf"
+            ),
+            Self::AmbiguousGrouping { value } => format!(
+                "`{value}` groups its digits in a way that is not thousands, so there is no \
+                 telling whether the separator is a thousands mark or a decimal point. Write \
+                 it as plain digits"
+            ),
+            Self::TooLarge { value } => {
+                format!("`{value}` is larger than this ledger can hold")
+            }
+        }
+    }
+}
+
+/// Read money out of a cell, in whichever of the two conventions it was written.
+///
+/// This is more careful than a `parse::<i64>()` for a reason worth stating. The
+/// client's reports come out of Seventhsoft in Indonesian convention —
+/// `1.250.000` — and a spreadsheet that has been round-tripped through an
+/// English locale writes the same figure `1,250,000`. Both are seven-digit
+/// numbers, and both are a completely different number if the separator is read
+/// as a decimal point. An opening balance that is out by a factor of a thousand
+/// on one line still balances if the same line was misread on both sides, and
+/// nobody finds it until a year later.
+///
+/// So: the LAST separator decides. Three digits behind it and it is a thousands
+/// mark; anything else and it is a decimal point, which is then required to be
+/// zero — `1.250.000,-` and `1,250,000.00` both mean the same whole rupiah, and
+/// `1250000.50` is refused rather than rounded. Every remaining group must be
+/// exactly three digits, so a figure that is grouped like neither convention is
+/// refused instead of being silently concatenated.
+///
+/// An empty cell is zero. A trial balance writes one of its two money columns
+/// empty on every single row, and making the caller special-case that would put
+/// the same `unwrap_or(0)` at four call sites.
+pub fn parse_opening_amount(raw: &str) -> Result<i64, AmountRefusal> {
+    let refuse = |kind: fn(String) -> AmountRefusal| kind(raw.trim().to_string());
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(0);
+    }
+
+    // Accountants write a negative in brackets, and a trial balance exported
+    // out of anything will have some.
+    let (body, negative) = match trimmed.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+        Some(inner) => (inner.trim(), true),
+        None => match trimmed.strip_prefix('-') {
+            Some(inner) => (inner.trim(), true),
+            None => (trimmed.strip_prefix('+').unwrap_or(trimmed).trim(), false),
+        },
+    };
+    let body: String = body
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '\u{a0}')
+        .collect();
+    // `-` on its own is how a nil is written on an Indonesian ledger, and it is
+    // written a great deal.
+    if body.is_empty() || body == "-" {
+        return Ok(0);
+    }
+
+    let mut digits = String::new();
+    let mut groups: Vec<String> = vec![String::new()];
+    for character in body.chars() {
+        match character {
+            '0'..='9' => {
+                let last = groups.len() - 1;
+                groups[last].push(character);
+            }
+            '.' | ',' => groups.push(String::new()),
+            '-' if groups.len() > 1 && groups.last().is_some_and(String::is_empty) => {
+                // The `,-` that ends an Indonesian figure: a decimal point with
+                // a dash where the zeroes would be.
+                let last = groups.len() - 1;
+                groups[last].push('0');
+            }
+            _ => return Err(refuse(|value| AmountRefusal::NotANumber { value })),
+        }
+    }
+
+    // With separators present, the last group decides what they were. Three
+    // digits and every separator was a thousands mark; anything else and the
+    // last one was a decimal point.
+    if groups.len() > 1 {
+        let last = groups.last().cloned().unwrap_or_default();
+        if last.len() != 3 {
+            if !last.chars().all(|c| c == '0') {
+                return Err(refuse(|value| AmountRefusal::HasFraction { value }));
+            }
+            groups.pop();
+        }
+    }
+    if groups.is_empty() || groups.iter().any(String::is_empty) {
+        return Err(refuse(|value| AmountRefusal::NotANumber { value }));
+    }
+    if groups.len() > 1 {
+        if groups[0].len() > 3 {
+            return Err(refuse(|value| AmountRefusal::AmbiguousGrouping { value }));
+        }
+        if groups[1..].iter().any(|group| group.len() != 3) {
+            return Err(refuse(|value| AmountRefusal::AmbiguousGrouping { value }));
+        }
+    }
+    for group in &groups {
+        digits.push_str(group);
+    }
+
+    let magnitude: i64 = digits
+        .parse()
+        .map_err(|_| refuse(|value| AmountRefusal::TooLarge { value }))?;
+    Ok(if negative { -magnitude } else { magnitude })
+}
+
+// ---------------------------------------------------------------------------
 // Agreeing the totals
 // ---------------------------------------------------------------------------
 
@@ -640,6 +783,75 @@ mod tests {
                 column: "quantity".to_string()
             }
         );
+    }
+
+    #[test]
+    fn the_same_figure_in_two_conventions_is_the_same_figure() {
+        for written in [
+            "1250000",
+            "1.250.000",
+            "1,250,000",
+            "1.250.000,-",
+            "1,250,000.00",
+        ] {
+            assert_eq!(
+                parse_opening_amount(written),
+                Ok(1_250_000),
+                "{written} is one and a quarter million rupiah however it is punctuated"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_cell_and_a_dash_are_both_nil() {
+        assert_eq!(parse_opening_amount(""), Ok(0));
+        assert_eq!(parse_opening_amount("   "), Ok(0));
+        assert_eq!(parse_opening_amount("-"), Ok(0));
+        assert_eq!(parse_opening_amount("0"), Ok(0));
+    }
+
+    #[test]
+    fn a_bracketed_figure_is_negative_and_so_is_a_signed_one() {
+        assert_eq!(parse_opening_amount("(1.250.000)"), Ok(-1_250_000));
+        assert_eq!(parse_opening_amount("-1,250,000"), Ok(-1_250_000));
+        assert_eq!(parse_opening_amount("+750"), Ok(750));
+    }
+
+    #[test]
+    fn a_real_fraction_is_refused_rather_than_rounded() {
+        assert_eq!(
+            parse_opening_amount("1250000.50"),
+            Err(AmountRefusal::HasFraction {
+                value: "1250000.50".to_string()
+            }),
+            "half a rupiah is a decision for whoever prepared the sheet, not for this parser"
+        );
+    }
+
+    #[test]
+    fn digits_grouped_like_neither_convention_are_refused_and_not_concatenated() {
+        // The failure this parser exists for: `12.50` read as 1,250 is a
+        // hundredfold error that still balances if both sides carry it.
+        assert!(matches!(
+            parse_opening_amount("1.25.000"),
+            Err(AmountRefusal::AmbiguousGrouping { .. })
+        ));
+        assert!(matches!(
+            parse_opening_amount("12345.678.9"),
+            Err(AmountRefusal::HasFraction { .. } | AmountRefusal::AmbiguousGrouping { .. })
+        ));
+    }
+
+    #[test]
+    fn something_that_is_not_a_number_says_so_and_quotes_itself() {
+        let refusal = parse_opening_amount("n/a").expect_err("not a number");
+        assert_eq!(
+            refusal,
+            AmountRefusal::NotANumber {
+                value: "n/a".to_string()
+            }
+        );
+        assert!(refusal.message().contains("n/a"));
     }
 
     #[test]
