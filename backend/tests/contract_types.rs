@@ -482,6 +482,40 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::cloud::postgres::AllocateToBill::export_all(&config)
         .unwrap_or_else(|e| panic!("AllocateToBill: {e}"));
 
+    // The rest of the payables loop. `BillMatchRequest` and `BillMatchLine`
+    // arrive on their own through `RecordBillRequest::export_all` above, so
+    // they are not repeated here; everything else has to be asked for.
+    //
+    // `ReceiptAwaitingPosting` is the queue screen and `ThreeWayReport` the
+    // exception report, and the two are different questions: the first is what
+    // finance still has to do, the second is what the books and the warehouse
+    // disagree about. `PaymentDeductions` is what a payment will actually move,
+    // which a person has to be able to see before it posts rather than after.
+    inventory_backend::cloud::postgres::ReceiptPosting::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReceiptPosting: {e}"));
+    inventory_backend::cloud::postgres::ReceiptAwaitingPosting::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReceiptAwaitingPosting: {e}"));
+    inventory_backend::cloud::postgres::BillMatch::export_all(&config)
+        .unwrap_or_else(|e| panic!("BillMatch: {e}"));
+    inventory_backend::cloud::postgres::ThreeWayReport::export_all(&config)
+        .unwrap_or_else(|e| panic!("ThreeWayReport: {e}"));
+    inventory_backend::cloud::postgres::CreditNote::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreditNote: {e}"));
+    inventory_backend::cloud::postgres::CreditNoteRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreditNoteRequest: {e}"));
+    inventory_backend::cloud::postgres::CreditNoteRefundRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreditNoteRefundRequest: {e}"));
+    inventory_backend::cloud::postgres::SupplierAdvance::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierAdvance: {e}"));
+    inventory_backend::cloud::postgres::SupplierAdvanceRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierAdvanceRequest: {e}"));
+    inventory_backend::cloud::postgres::SupplierAdvanceApplyRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierAdvanceApplyRequest: {e}"));
+    inventory_backend::cloud::postgres::PaymentDeductions::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentDeductions: {e}"));
+    inventory_backend::cloud::postgres::PaymentWithholdRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentWithholdRequest: {e}"));
+
     // Payables ageing. `AgingBuckets` is one shape used twice — per supplier
     // and for the footer — so the total does not have to invent a supplier id.
     inventory_backend::cloud::postgres::PayablesAging::export_all(&config)

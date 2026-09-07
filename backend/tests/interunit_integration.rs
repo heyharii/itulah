@@ -515,6 +515,8 @@ async fn a_cost_may_sit_where_it_belongs_and_the_shop_still_balances(pool: PgPoo
                 amount_minor: 1_000_000,
                 memo: Some("listrik September".into()),
             }]),
+            matching: None,
+            withholding_code: None,
         },
         ACTOR,
     )

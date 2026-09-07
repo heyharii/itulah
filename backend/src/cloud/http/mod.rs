@@ -37,6 +37,7 @@ pub mod money;
 pub mod notifications;
 pub mod overtime;
 pub mod pay;
+pub mod payables_flow;
 pub mod payment_ledger;
 pub mod performance;
 pub mod reports;
@@ -75,13 +76,17 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
 
 pub fn router(state: AppState) -> Router {
     let frontend = state.config.frontend_dir.clone();
-    // Inter-unit, in its own file. The one figure in these books that two
-    // people have to agree about, and the only one read from both sides.
+    // Three lanes hand their routes in as one call each rather than twenty
+    // lines here — several sessions edit this function in a week, and a call
+    // is the smallest hunk that can conflict.
     //
-    // Lane S adds the generation handshake and the receiver's integrity
-    // alerts. Both wrap rather than chain so the routes they own stay in one
-    // file instead of being threaded through this table.
-    let router = sync_generation::lane_s_routes(interunit::lane_d_routes(Router::new()))
+    // Inter-unit is the one figure in these books that two people have to
+    // agree about; Lane S owns the generation handshake and the receiver's
+    // integrity alerts; Lane G the rest of the payables loop — valuing a
+    // delivery, matching a bill to it, credit notes, advances, withholding.
+    let router = payables_flow::lane_g_routes(sync_generation::lane_s_routes(
+        interunit::lane_d_routes(Router::new()),
+    ))
         .merge(crate::cloud::media::router())
         .route("/api/v1/health", get(health))
         .route("/api/v1/inventory/pools", get(pools))

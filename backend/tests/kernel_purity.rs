@@ -93,6 +93,15 @@ const KERNELS: &[&str] = &[
     // would put a SQL round trip inside the decision that stops a shop's day
     // of sales from being discarded.
     "src/cloud/domain/sync_generation.rs",
+    // Order against delivery against bill. A tolerance that could read the
+    // clock would accept a price on Tuesday and refuse the same one on
+    // Wednesday, with nothing failing and nobody able to say why.
+    "src/cloud/domain/three_way.rs",
+    // The sharpest case on this list. This arithmetic decides a figure that is
+    // remitted to a tax authority under a supplier's name and quoted on the
+    // certificate they file with. A number that came out differently depending
+    // on when it was computed would be indefensible to the person holding it.
+    "src/cloud/domain/withholding.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the

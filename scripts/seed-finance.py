@@ -82,6 +82,30 @@ PLAIN: dict[str, str] = {
     # leaf named for it; 8030112001 Current Tax Inc/Exp PPH Pasal 25 is the
     # income-tax expense the client does keep, and Finance can repoint it.
     "tax_on_interest": "8030112001",
+    # lane-G: the rest of the payables loop. Each of these has the same
+    # fourteen location leaves the meanings above have — HO and C001..C013 —
+    # so each is seeded per site exactly as `inventory` is.
+    #
+    # `supplier_suspend` is the one that changes a balance sheet: a delivery
+    # credits it and the bill that answers the delivery clears it, so what the
+    # warehouse holds and nobody has invoiced is a figure rather than a report.
+    "supplier_suspend": "2012001002",
+    # The same account `purchase_discount` points at. The client keeps one
+    # signed account for an agreed reduction and a discovered difference, and
+    # there is no variance account in their chart to point at instead.
+    "purchase_price_variance": "8010110003",
+    # Not `advance` (1011303001), which is a person's travelling advance, and
+    # not anything owed by a store manager. A supplier advance, its own debt to
+    # its own kind of counterparty, on its own account.
+    "advance_purchase": "1011303002",
+    "bank_admin_fee": "6010310004",
+    "pph23_payable": "2012101002",
+    # `pph_final_payable` is deliberately absent. The client's chart has no
+    # PPh 4(2) leaf under 20121 — only PPh 21, PPh 23, output VAT, PBB and
+    # PPh 25 — and seeding it to the PPh 23 account would put a final tax in a
+    # creditable one, where somebody would claim it back a year later. It shows
+    # as an unset key on the Account map screen until the client opens the
+    # account, and a rent payment refuses until then and says so.
 }
 
 # The seven asset categories the register offers, and what each one means in

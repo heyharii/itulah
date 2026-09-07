@@ -554,9 +554,27 @@ pub async fn post_payment(
     } else {
         existing.account_key.as_str()
     };
-    lines.push(
-        PostingLine::credit(credit_key, &existing.site_id, existing.total_minor)
-            .with_qualifier(&existing.account_qualifier),
+    // What actually left, which is not always what was settled. A payment may
+    // keep back the supplier's income tax and may carry the bank's own charge
+    // for the transfer, and both of those sit between the debt and the money
+    // line. `payables_flow` owns that arithmetic because it owns the columns
+    // 0133 added; with neither present it returns exactly the single credit
+    // this used to push, so every payment recorded before 0133 posts the same
+    // entry it always did.
+    //
+    // It is given `credit_key` rather than the payment's own account key, so a
+    // giro still credits the instrument rather than the bank. Withholding and a
+    // bank charge are about how much left, not about where from.
+    lines.extend(
+        super::payables_flow::payment_money_lines(
+            pool,
+            payment_id,
+            &existing.site_id,
+            credit_key,
+            &existing.account_qualifier,
+            existing.total_minor,
+        )
+        .await?,
     );
 
     let settled = existing
@@ -633,6 +651,34 @@ pub async fn post_payment(
                 );
             }
         }
+    }
+
+    // One settlement per bill, not one per payment: a transfer answering four
+    // invoices closes four debts, and a ledger that recorded it as one figure
+    // could not say which. The full allocation is settled even when tax was
+    // withheld from it — the vendor is credited with what was billed and
+    // receives less, and a settlement of the net would leave every service
+    // vendor permanently in arrears by the tax.
+    for allocation in &existing.allocations {
+        super::payables_flow::lane_p_payable_item(
+            &mut tx,
+            if allocation.kind == "EXPENSE" {
+                "non_merchandise_payable"
+            } else {
+                "trade_payable"
+            },
+            "",
+            &existing.site_id,
+            "SUPPLIER",
+            &allocation.supplier_id,
+            "PAYMENT",
+            payment_id,
+            "DEBIT",
+            allocation.amount_minor,
+            None,
+            posted.entry_id,
+        )
+        .await?;
     }
     tx.commit().await?;
 

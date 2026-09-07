@@ -29,7 +29,9 @@ mod sync;
 mod tender_recon;
 mod transaction_category;
 mod sync_generation;
+pub mod three_way;
 mod voucher;
+pub mod withholding;
 
 pub use allotment::*;
 pub use attendance::*;
