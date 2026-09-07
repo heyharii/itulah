@@ -120,6 +120,15 @@ const KERNELS: &[&str] = &[
     // one bill depending on what had been posted since.
     "src/cloud/domain/payment.rs",
     "src/cloud/domain/period_close.rs",
+    // lane-L: reading a cutover sheet, agreeing its totals, and deciding what
+    // a piece of opening stock is worth. Pure for the reason the whole lane
+    // exists: every import runs first as a rehearsal that posts nothing, and a
+    // rehearsal is only worth doing if it computes exactly what the real run
+    // will. A kernel that could read the database would let the two diverge
+    // between the rehearsal and the run, which is the one failure this lane
+    // has no second chance to catch — the opening stock is priced once, and
+    // after the first sale the queue has already started without a beginning.
+    "src/cloud/domain/opening.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
