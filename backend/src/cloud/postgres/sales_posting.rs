@@ -928,7 +928,7 @@ pub async fn sales_posting_generate_days(
 }
 
 // ---------------------------------------------------------------------------
-// The Payment Ledger side, which is not built yet
+// The Payment Ledger side
 // ---------------------------------------------------------------------------
 
 /// The meanings whose balance is somebody's debt rather than a total.

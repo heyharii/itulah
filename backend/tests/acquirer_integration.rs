@@ -1019,3 +1019,56 @@ async fn ageing_splits_by_acquirer_even_when_they_share_one_account(pool: PgPool
     assert_eq!(settled.rows[0].acquirer, "MANDIRI");
     assert_eq!(settled.total.total_minor, 400_000);
 }
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_exception_is_a_cost_and_not_a_smaller_debt(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    card_sale(&pool, 1_000_000, "BCA").await;
+    card_sale(&pool, 600_000, "BCA").await;
+    a_posted_day(&pool).await;
+
+    // BCA settles one evening's worth and the bank pays 40,000 less than even
+    // that settlement promised.
+    let settlement_id = settle_bca(&pool, 1_000_000, 15_000).await;
+    let line_id = bank_credit(&pool, 945_000).await;
+    let flagged = cloud::acq_settlement_match(
+        &pool,
+        settlement_id,
+        &cloud::MatchSettlementRequest {
+            bank_statement_line_id: line_id,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("match: {error}"));
+    assert_eq!(flagged.status, "EXCEPTION");
+    assert_eq!(flagged.difference_minor, Some(40_000));
+
+    cloud::acq_settlement_explain(
+        &pool,
+        settlement_id,
+        &cloud::ExplainSettlementRequest {
+            kind: "FEE".into(),
+            explanation: "an annual terminal charge the report did not state".into(),
+            site_id: Some(SITE.into()),
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("explain: {error}"));
+
+    // The shortfall went to the fee account and the bank, and touched no
+    // receivable. So what is still owed is the evening BCA has not paid for —
+    // not that evening less a charge somebody argued about afterwards.
+    let owed = receivable_control(&pool, "BCA").await;
+    assert_eq!(owed.ledger_outstanding_minor, 600_000);
+    assert_eq!(owed.gl_balance_minor, 600_000);
+    assert_eq!(owed.difference_minor, 0);
+    assert_eq!(
+        balance(&pool, "601011000201").await.0,
+        15_000 + 40_000,
+        "the stated MDR and the charge that was not stated, both costs"
+    );
+}
