@@ -47,6 +47,11 @@ PLAIN: dict[str, str] = {
     "rounding": "8010110002",
     "card_receivable_credit": "1011101001",
     "card_receivable_debit": "1011101002",
+    # lane-P: what a store manager is holding of head office's money. Distinct
+    # from 1011102001 PIUTANG PEGAWAI, which is what an employee personally
+    # owes — the two read almost the same and are not the same debt. The leaf
+    # per shop (101110200200 .. 101110200213) is picked by `leaves()` below.
+    "store_manager_receivable": "1011102002",
     "card_fee": "6010110002",
     "cogs": "5010110001",
     "stock_loss": "8010110006",

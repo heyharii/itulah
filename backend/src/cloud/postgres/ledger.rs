@@ -317,6 +317,27 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Receivables",
         ),
+        // lane-P
+        //
+        // Head office sends a store manager money for the shop to run on, and
+        // it is the manager's to account for until they spend it or bring it
+        // back. The client keeps an account for exactly that, and keeps it
+        // apart from staff loans: `1011102001 PIUTANG PEGAWAI` is what an
+        // employee personally owes, `1011102002 PIUTANG KEPALA TOKO` is what a
+        // manager is holding on the company's behalf. They read almost the
+        // same and they are not the same debt, so this key names the second and
+        // says so here rather than leaving somebody to pick from a list.
+        //
+        // Unqualified, because the location IS the narrowing: the client has a
+        // leaf per shop under this heading — `101110200200` at head office
+        // through `101110200213` — and `account_map` is already keyed by site.
+        key(
+            "store_manager_receivable",
+            "Store manager float",
+            "1011102002 PIUTANG KEPALA TOKO",
+            false,
+            "Receivables",
+        ),
         key(
             "affiliate_receivable",
             "Inter-unit receivable",

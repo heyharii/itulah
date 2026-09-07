@@ -466,6 +466,43 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::cloud::postgres::AgingBuckets::export_all(&config)
         .unwrap_or_else(|e| panic!("AgingBuckets: {e}"));
 
+    // lane-P — the Payment Ledger. Accounts Payable and Accounts Receivable are
+    // two readings of one table, which is why `PaymentLedgerEntry` carries a
+    // `side` rather than the browser knowing which screen it is on. Nothing
+    // here has a request type, and that is the shape rather than an omission:
+    // an open balance is opened by the posting rule that created the document,
+    // never by a screen, so the wire runs one way.
+    inventory_backend::cloud::postgres::PaymentLedgerEntry::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerEntry: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerSide::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerSide: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerPartyType::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerPartyType: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerAging::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerAging: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerAgingRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerAgingRow: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerPartyStatement::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerPartyStatement: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerSettlementRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerSettlementRow: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerSettled::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerSettled: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerRemainder::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerRemainder: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerDelinked::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerDelinked: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerOutstanding::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerOutstanding: {e}"));
+    // The equation. `agrees` is sent rather than left for the browser to work
+    // out, for the same reason `TrialBalance.balanced` is.
+    inventory_backend::cloud::postgres::PaymentLedgerIntegrity::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerIntegrity: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerIntegrityRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerIntegrityRow: {e}"));
+    inventory_backend::cloud::http::payment_ledger::PaymentLedgerView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerView: {e}"));
+
     // Fixed assets. `AssetRow.decision` is an Option on purpose: absent means
     // nobody has assessed the asset, which is an open control gap and must not
     // render the same as "assessed and expensed".
