@@ -282,12 +282,72 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             true,
             "Cash & Bank",
         ),
+        // lane-C: the instrument, not the bank.
+        //
+        // Qualified per bank because the client's chart keeps one leaf each —
+        // 2012002001 Outstanding Giro Bank BCA, 2012002002 Mandiri,
+        // 2012002003 BRI, 2012002004 BNI, 2012002005 DANAMON — and a giro is
+        // drawn on one of them. An unqualified mapping would put a BCA giro and
+        // a Mandiri giro in the same balance, and the board that answers "does
+        // this bank have enough in it for what we have written on it" would be
+        // answering about the wrong bank.
         key(
             "giro_outstanding",
             "Giro issued, not cleared",
             "2012002* Outstanding Giro",
             true,
             "Payables",
+        ),
+        // lane-C: a fixed deposit is money the company has and cannot spend
+        // today. It holds money — `MONEY_MEANINGS` says so — which is what
+        // makes moving cash into one a TRANSFER rather than a payment, and
+        // therefore what stops a slip headed BUKTI KAS KELUAR being printed
+        // over an entry that only moved money between two accounts we hold.
+        //
+        // 1011004001 TIME DEPOSIT BANK BCA, 1011004002 MANDIRI, 1011004003 BRI,
+        // 1011004004 BNI.
+        key(
+            "time_deposit",
+            "Time deposit",
+            "1011004* TIME DEPOSIT",
+            true,
+            "Cash & Bank",
+        ),
+        // lane-C: the three lines every bank statement carries every month,
+        // and the accounts the seeded bank rules propose.
+        //
+        // They are here rather than left to whoever books the statement,
+        // because a rule that proposes an account has to have one to propose;
+        // an unmapped key makes the proposal refusable with a message naming
+        // the key, which is the difference between a screen that explains
+        // itself and one that fails.
+        key(
+            "bank_admin_fee",
+            "Bank charges",
+            "6010310004 Biaya Bank HO",
+            false,
+            "Cash & Bank",
+        ),
+        key(
+            "interest_income",
+            "Bank interest received",
+            "8010110001 Pendapatan Bunga Bank",
+            false,
+            "Cash & Bank",
+        ),
+        // The client's chart has no leaf named for PPh final on interest, so
+        // this points at the income-tax expense they do keep. It is an expense
+        // and not a prepaid on purpose: PPh 4(2) on bank interest is FINAL —
+        // withheld at source and never recovered — and mapping it to
+        // `1011302006 Prepaid - Other Tax` would put an asset on the balance
+        // sheet for money that is gone. Finance can repoint it on the Account
+        // map screen the day they open a leaf of their own.
+        key(
+            "tax_on_interest",
+            "Tax withheld on bank interest",
+            "8030112001 Current Tax Inc/Exp PPH Pasal 25",
+            false,
+            "Cash & Bank",
         ),
         key(
             "rounding",

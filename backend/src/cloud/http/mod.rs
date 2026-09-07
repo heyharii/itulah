@@ -32,6 +32,7 @@ pub mod holiday;
 pub mod interunit;
 pub mod leave;
 pub mod member;
+pub mod money;
 pub mod notifications;
 pub mod overtime;
 pub mod pay;
@@ -74,7 +75,7 @@ pub fn router(state: AppState) -> Router {
     let frontend = state.config.frontend_dir.clone();
     // Inter-unit, in its own file. The one figure in these books that two
     // people have to agree about, and the only one read from both sides.
-    interunit::lane_d_routes(Router::new())
+    let router = interunit::lane_d_routes(Router::new())
         .merge(crate::cloud::media::router())
         .route("/api/v1/health", get(health))
         .route("/api/v1/inventory/pools", get(pools))
@@ -1031,7 +1032,13 @@ pub fn router(state: AppState) -> Router {
                 )),
         )
         .route("/api/v1/audit", get(audit::list))
-        .route("/metrics", get(metrics))
+        .route("/metrics", get(metrics));
+    // lane-C: cash documents, bank rules and giros, gathered in their own
+    // module. One call rather than twenty routes spliced into the chain above,
+    // because they are one subject and because four lanes editing one
+    // four-hundred-line builder is four conflicts in the same hunk.
+    let router = money::lane_c_routes(router);
+    router
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->
         // body limit -> auth -> handler, so even a 401 carries CORS headers

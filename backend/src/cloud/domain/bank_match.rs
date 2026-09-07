@@ -253,6 +253,150 @@ fn score(line: &BankLine, candidate: &Candidate, rules: &Ruleset) -> Option<Sugg
     })
 }
 
+// ---------------------------------------------------------------------------
+// Recognising a line nobody booked
+// ---------------------------------------------------------------------------
+//
+// Everything above answers "which of our entries is this bank line". This
+// answers the other question, about the lines where the answer is "none of
+// them": the monthly charge, the interest credited, the tax withheld on that
+// interest. Those are the same four narrations every month on every account,
+// and until now somebody chose the account for each of them by hand, every
+// time, with nothing remembering that they had.
+//
+// A rule PROPOSES and never posts. That is not caution, it is the design: a
+// rule that posted would invent journal entries out of text matching, and the
+// first time a bank reworded a narration it would invent them somewhere wrong,
+// indistinguishably from entries a person made. So this returns which rule
+// recognised a line and why, and a person decides what happens next.
+
+/// Which way the money went, as the BANK reports it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuleDirection {
+    /// A credit on the statement: money arriving.
+    In,
+    /// A debit on the statement: money leaving.
+    Out,
+    Any,
+}
+
+impl RuleDirection {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::In => "IN",
+            Self::Out => "OUT",
+            Self::Any => "ANY",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "IN" => Some(Self::In),
+            "OUT" => Some(Self::Out),
+            "ANY" => Some(Self::Any),
+            _ => None,
+        }
+    }
+
+    fn admits(self, outgoing: bool) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Out => outgoing,
+            Self::In => !outgoing,
+        }
+    }
+}
+
+/// How a rule recognises a narration.
+///
+/// `Regex` carries the verdict rather than the pattern, and that is deliberate.
+/// This crate has no regex engine, and writing one would mean a pattern that
+/// behaves one way on the screen that previews it and another in the query that
+/// applies it — two dialects for one field. Postgres has a POSIX engine, so the
+/// database answers that one question and hands the answer in, which is exactly
+/// the discipline every other input to this module follows: the kernel decides,
+/// on facts it was given.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RuleMatch {
+    Contains(String),
+    StartsWith(String),
+    Regex { pattern: String, matched: bool },
+}
+
+/// One rule, as far as recognising a line needs to know.
+#[derive(Clone, Debug)]
+pub struct NarrationRule {
+    pub rule_id: String,
+    /// Lowest first. `PAJAK BUNGA` has to be asked before `BUNGA`, because the
+    /// second matches the first's narration and they are different accounts.
+    pub priority: i32,
+    pub direction: RuleDirection,
+    pub matcher: RuleMatch,
+}
+
+/// Which rule recognised a line, and the sentence a person will read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuleHit {
+    pub rule_id: String,
+    pub reason: String,
+}
+
+/// The first rule that recognises this line, or nothing.
+///
+/// # Why first-match-wins and not best-match
+///
+/// A best match would need a score for text, and two rules tying would be
+/// resolved by whatever order the database returned them in — the exact failure
+/// [`suggest`] refuses to make when two candidates tie. Priority is a number
+/// somebody sets and can see, and a rule that is too greedy is fixed by moving
+/// it down rather than by arguing about weights.
+///
+/// Ties in priority are broken by rule id, so the same rules over the same line
+/// give the same answer whatever order they arrived in.
+pub fn recognise(line: &BankLine, rules: &[NarrationRule]) -> Option<RuleHit> {
+    let mut ordered: Vec<&NarrationRule> = rules.iter().collect();
+    ordered.sort_by(|a, b| {
+        a.priority
+            .cmp(&b.priority)
+            .then_with(|| a.rule_id.cmp(&b.rule_id))
+    });
+
+    let narration = normalise(&line.description);
+    for rule in ordered {
+        if !rule.direction.admits(line.outgoing) {
+            continue;
+        }
+        let hit = match &rule.matcher {
+            // The same normalisation the reference comparison above uses: case
+            // and punctuation folded away, because no two banks agree about
+            // either and a rule that only matched "BIAYA ADM." would miss
+            // "Biaya Adm" on the next statement.
+            RuleMatch::Contains(pattern) => {
+                let needle = normalise(pattern);
+                !needle.is_empty() && narration.contains(&needle)
+            }
+            RuleMatch::StartsWith(pattern) => {
+                let needle = normalise(pattern);
+                !needle.is_empty() && narration.starts_with(&needle)
+            }
+            RuleMatch::Regex { matched, .. } => *matched,
+        };
+        if !hit {
+            continue;
+        }
+        let reason = match &rule.matcher {
+            RuleMatch::Contains(pattern) => format!("the narration contains {pattern}"),
+            RuleMatch::StartsWith(pattern) => format!("the narration starts with {pattern}"),
+            RuleMatch::Regex { pattern, .. } => format!("the narration matches {pattern}"),
+        };
+        return Some(RuleHit {
+            rule_id: rule.rule_id.clone(),
+            reason,
+        });
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,5 +587,126 @@ mod tests {
             got[0].reasons,
             vec!["amount matches exactly", "1 day apart", "reference matches"]
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Recognising a line nobody booked
+    // -----------------------------------------------------------------------
+
+    fn narration(text: &str, outgoing: bool) -> BankLine {
+        BankLine {
+            line_id: "bank-1".into(),
+            day: 10,
+            amount_minor: 25_000,
+            outgoing,
+            reference: String::new(),
+            description: text.into(),
+        }
+    }
+
+    /// The three the migration seeds, in the order it seeds them.
+    fn seeded() -> Vec<NarrationRule> {
+        vec![
+            NarrationRule {
+                rule_id: "tax".into(),
+                priority: 10,
+                direction: RuleDirection::Out,
+                matcher: RuleMatch::Contains("PAJAK BUNGA".into()),
+            },
+            NarrationRule {
+                rule_id: "fee".into(),
+                priority: 20,
+                direction: RuleDirection::Out,
+                matcher: RuleMatch::Contains("BIAYA ADM".into()),
+            },
+            NarrationRule {
+                rule_id: "interest".into(),
+                priority: 30,
+                direction: RuleDirection::In,
+                matcher: RuleMatch::Contains("BUNGA".into()),
+            },
+        ]
+    }
+
+    #[test]
+    fn the_greedier_rule_sits_below_the_one_it_would_swallow() {
+        // "PAJAK BUNGA 20%" is matched by both the tax rule and the interest
+        // rule. Priority is the only thing that can separate them, and the tax
+        // rule is above it in the seed for exactly this line.
+        let hit = recognise(&narration("PAJAK BUNGA 20%", true), &seeded())
+            .expect("a withheld tax should be recognised");
+        assert_eq!(hit.rule_id, "tax");
+    }
+
+    #[test]
+    fn a_charge_and_a_credit_are_not_the_same_event() {
+        // Same word, opposite directions. Interest credited is income;
+        // "BUNGA" on the debit side is not, and the IN rule must not take it.
+        assert_eq!(
+            recognise(&narration("BUNGA BANK", false), &seeded()).map(|hit| hit.rule_id),
+            Some("interest".to_string())
+        );
+        assert_eq!(recognise(&narration("BUNGA BANK", true), &seeded()), None);
+    }
+
+    #[test]
+    fn case_and_punctuation_are_not_part_of_the_pattern() {
+        // No two banks write a narration the same way twice.
+        for text in ["BIAYA ADM", "Biaya Adm.", "biaya  adm bulanan", "BIAYA-ADM"] {
+            let hit = recognise(&narration(text, true), &seeded())
+                .unwrap_or_else(|| panic!("{text} should be recognised"));
+            assert_eq!(hit.rule_id, "fee", "{text}");
+        }
+    }
+
+    #[test]
+    fn the_order_rules_arrive_in_changes_nothing() {
+        let mut backwards = seeded();
+        backwards.reverse();
+        let line = narration("PAJAK BUNGA ATAS JASA GIRO", true);
+        assert_eq!(recognise(&line, &seeded()), recognise(&line, &backwards));
+    }
+
+    #[test]
+    fn a_line_nothing_recognises_proposes_nothing() {
+        assert_eq!(
+            recognise(&narration("TRSF E-BANKING DB PT SUMBER", true), &seeded()),
+            None
+        );
+    }
+
+    #[test]
+    fn a_regex_rule_is_told_the_answer_rather_than_working_it_out() {
+        let rules = vec![NarrationRule {
+            rule_id: "regex".into(),
+            priority: 1,
+            direction: RuleDirection::Any,
+            matcher: RuleMatch::Regex {
+                pattern: "^SETORAN [0-9]+$".into(),
+                matched: true,
+            },
+        }];
+        let hit =
+            recognise(&narration("SETORAN 4412", false), &rules).expect("Postgres said it matched");
+        assert!(
+            hit.reason.contains("^SETORAN [0-9]+$"),
+            "said: {}",
+            hit.reason
+        );
+
+        let refused = vec![NarrationRule {
+            matcher: RuleMatch::Regex {
+                pattern: "^SETORAN [0-9]+$".into(),
+                matched: false,
+            },
+            ..rules[0].clone()
+        }];
+        assert_eq!(recognise(&narration("SETORAN 4412", false), &refused), None);
+    }
+
+    #[test]
+    fn every_hit_says_why_in_words_a_person_can_check() {
+        let hit = recognise(&narration("BIAYA ADM BULANAN", true), &seeded()).expect("recognised");
+        assert_eq!(hit.reason, "the narration contains BIAYA ADM");
     }
 }

@@ -36,6 +36,15 @@
 use std::path::{Path, PathBuf};
 
 /// The modules that must stay pure.
+///
+/// The first two are asserted on by position further down; anything added
+/// after them is scanned but has no door of its own to check.
+///
+/// `cash_document` is the one whose purity is easiest to lose. Numbering a slip
+/// is exactly the sort of thing somebody would "simplify" by having it read the
+/// clock — and a document keyed on the 30th of September would then be numbered
+/// KK-26-10 by whoever approved it after midnight, which is a slip filed in the
+/// wrong month with a number the September file will never account for.
 const KERNELS: &[&str] = &[
     "src/cloud/domain/depreciation.rs",
     "src/cloud/domain/bank_match.rs",
@@ -65,6 +74,8 @@ const KERNELS: &[&str] = &[
     // bytes kept in `acquirer_settlement_report` reproduces exactly what the
     // curator saw — which is the only reason keeping them is worth anything.
     "src/cloud/domain/settlement_report.rs",
+    "src/cloud/domain/cash_document.rs",
+    "src/cloud/domain/giro.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
