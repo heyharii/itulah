@@ -1560,9 +1560,9 @@ pub async fn acq_settlement_upload_report(
 
 /// Close the Payment Ledger items this settlement discharges.
 ///
-/// TODO(lane-P): replace the body with a call to `payment_ledger::ple_settle`
-/// for each receivable below, once Lane P merges. One settle per (shop,
-/// receivable) the entry credited, shaped:
+/// TODO(lane-P): still a no-op with the Payment Ledger merged, and deliberately
+/// so — see the note under the shape below. One settle per (shop, receivable)
+/// the entry credited, shaped:
 ///
 /// ```text
 ///   account_key  = receivable_key(tender_kind)  (card_receivable_debit | ..._credit | qris_receivable)
@@ -1590,9 +1590,18 @@ pub async fn acq_settlement_upload_report(
 /// one act, for the reason lane-A's opener gives: a discharged receivable with
 /// its item still open is a debt the ledger chases and the books do not carry.
 ///
-/// Until then this is a no-op that still walks the same rows, so the day it is
-/// filled in the only question is what to write — not which receivables, in
-/// what order, with which arguments.
+/// # Why this is still empty now that Lane P is here
+///
+/// `ple_settle` names the items it settles by `entry_id`, and this function has
+/// a shop, an acquirer and an amount. Finding the ids means asking the ledger
+/// which items are open for that party inside this transaction, and Lane P's
+/// `ple_open_items` takes a `&PgPool` — a second connection, which cannot see
+/// what this transaction has written and would race `ple_settle`'s `FOR UPDATE`.
+/// Adding a transaction-scoped query and choosing how a settlement is spread
+/// across several days' takings is Lane P's design to make, not this one's.
+///
+/// So this and `sales_posting_open_receivables` stay empty together. Half a pair
+/// would leave `payment_ledger_integrity` permanently red rather than silent.
 #[allow(unused_variables)]
 async fn acq_settlement_settle_ledger_items(
     tx: &mut Transaction<'_, Postgres>,

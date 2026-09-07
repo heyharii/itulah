@@ -69,6 +69,21 @@ const BANK_CHARGE: &str = "bank_admin_fee";
 /// against one place rather than a sum over bills minus a sum over payments
 /// minus a sum over credit notes minus a sum over advances.
 ///
+/// # Why this is still empty now that Lane P is here
+///
+/// The `CREDIT` half is one `ple_open` call and nothing else. The `DEBIT` half
+/// is not: `ple_settle` names the items it settles by `entry_id`, and this
+/// signature carries a party and an amount but not the bill being answered —
+/// while every caller of the `DEBIT` half (a payment, a credit note, an advance)
+/// answers a NAMED invoice. Any allocation this function chose on its own would
+/// be oldest-first, which quietly settles a different bill from the one the
+/// document says it settles. Carrying the invoice would mean widening this
+/// signature, which is the seam being redesigned rather than wired.
+///
+/// And opening without settling is worse than neither: `payment_ledger_integrity`
+/// reads FROM the ledger, so an empty ledger agrees with the books and a ledger
+/// of payables nothing ever closes disagrees on every control account.
+///
 /// The field shape, as its author specified it:
 ///
 /// * `account_key`      — the meaning, e.g. `trade_payable`

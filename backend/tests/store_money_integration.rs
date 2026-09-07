@@ -804,8 +804,8 @@ async fn a_handover_moves_the_balance_to_the_new_person(pool: PgPool) {
 
 async fn open_against(pool: &PgPool, party_id: &str) -> i64 {
     sqlx::query_scalar::<_, i64>(
-        "SELECT COALESCE(SUM(amount_minor - settled_minor), 0)::bigint
-           FROM store_ledger_shim
+        "SELECT COALESCE(SUM(outstanding_minor), 0)::bigint
+           FROM payment_ledger_as_of(CURRENT_DATE)
           WHERE account_key = 'store_manager_receivable' AND party_id = $1",
     )
     .bind(party_id)
@@ -979,7 +979,8 @@ async fn a_remittance_order_posts_nothing_when_it_is_created(pool: PgPool) {
         .unwrap_or_else(|error| panic!("count: {error}"));
     assert_eq!(entries_before, entries_after, "an order posted a journal");
 
-    let ledger_items: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM store_ledger_shim")
+    let ledger_items: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM payment_ledger_entry")
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|error| panic!("count: {error}"));

@@ -74,10 +74,12 @@
 //! needing an instance per shop.
 
 use super::ledger::trial_balance;
+use super::period_close::CloseCheck;
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     classify, classify_foundation, classify_in_flight, classify_oldest, minor, ActionVerb,
-    Audience, CheckResult, CheckState, DetailRow, Details, Scope, SuggestedAction, Tolerance,
+    Audience, CheckOutcome, CheckPointer, CheckResult, CheckState, ClosePeriod, DetailRow, Details,
+    Scope, SuggestedAction, Tolerance,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -2284,6 +2286,68 @@ pub async fn attention_resolve(
         ));
     }
     to_attention(&row)
+}
+
+/// Hand the period close the answer to "do the ten equations balance?".
+///
+/// Lane F's checklist ships `integrity.equations` as a critical placeholder that
+/// answers Pending and says what it is waiting for — this engine. Registering
+/// here, under the same key, replaces that placeholder; `period_close.rs` needs
+/// no edit, which is the whole point of a registry keyed on a name.
+///
+/// The body is the adapter written out in that placeholder's doc comment.
+///
+/// **Call it at start-up, before anything asks for the checklist**, for the
+/// reason [`register_integrity_check`] gives: a checklist that depended on which
+/// request arrived first would be a close nobody could reproduce. It is
+/// idempotent — `period_close_register` replaces by key — so calling it twice is
+/// harmless, and a test that installs its own stand-in under this key still
+/// wins, because it registers later.
+pub fn integrity_install_close_check() {
+    /// The last day of the month, because an equation asked `as_of` today would
+    /// answer a question about today.
+    async fn equations(pool: &PgPool, period: ClosePeriod) -> Result<CheckOutcome, AppError> {
+        let as_of = NaiveDate::from_ymd_opt(period.year, period.month, period.last_day())
+            .ok_or_else(|| AppError::Validation("not a month".into()))?;
+        let mut failed = Vec::new();
+        let mut blocked = Vec::new();
+        let mut waiting = Vec::new();
+        for check in integrity_registry() {
+            let result = check.evaluate(pool, as_of).await?;
+            match result.state {
+                CheckState::Balanced => {}
+                CheckState::Pending => waiting.push(check.key().to_string()),
+                CheckState::Exception => failed.push(CheckPointer::new(
+                    "integrity_check",
+                    check.key(),
+                    check.title(),
+                )),
+                CheckState::Blocked => blocked.push(check.key().to_string()),
+            }
+        }
+        if !blocked.is_empty() {
+            return Ok(CheckOutcome::blocked(format!(
+                "the books do not add up: {}",
+                blocked.join(", ")
+            )));
+        }
+        if !waiting.is_empty() {
+            return Ok(CheckOutcome::pending(format!(
+                "could not be evaluated: {}",
+                waiting.join(", ")
+            )));
+        }
+        let count = i64::try_from(failed.len()).unwrap_or(i64::MAX);
+        failed.truncate(super::period_close::POINTER_CAP as usize);
+        Ok(CheckOutcome::from_exceptions(count, failed))
+    }
+
+    super::period_close::period_close_register(CloseCheck {
+        key: "integrity.equations",
+        title: "Every integrity equation balances",
+        critical: true,
+        evaluate: |pool, period| Box::pin(equations(pool, period)),
+    });
 }
 
 #[cfg(test)]

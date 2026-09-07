@@ -826,9 +826,16 @@ pub(super) async fn cash_document_post_in(
 /// Lane P is building the ledger itself. The signature is fixed now so the two
 /// halves cannot drift while they are apart.
 ///
-/// TODO(lane-P): call `payment_ledger::ple_settle` here once Lane P merges.
-/// Shape: `against_voucher_kind = "CASH_DOC"`, `against_voucher_id = document_id`,
-/// allocations against the open items of (account_key, site, qualifier, party).
+/// With the Payment Ledger merged this is still a no-op, and for the reason the
+/// body gives rather than for want of a call: a supplier document that reaches
+/// here has no open bills, so there is nothing to allocate against. What it
+/// should write instead is an advance — money out ahead of a bill — and that is
+/// `ple_open` against `advance_purchase`, which is a rule about when a payment
+/// becomes an asset rather than a settlement. Lane P's, not this lane's.
+///
+/// Shape, when it is written: `against_voucher_kind = "CASH_DOC"`,
+/// `against_voucher_id = document_id`, allocations against the open items of
+/// (account_key, site, qualifier, party).
 async fn cash_document_settle_payment_ledger(
     _tx: &mut Transaction<'_, Postgres>,
     _document_id: Uuid,

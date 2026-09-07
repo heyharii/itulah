@@ -65,7 +65,7 @@ use uuid::Uuid;
 ///
 /// A check that found four hundred draft bills reports four hundred and shows
 /// the first dozen. The count is the fact; the pointers are the way in.
-const POINTER_CAP: i64 = 12;
+pub(super) const POINTER_CAP: i64 = 12;
 
 /// How long an unmatched bank line may sit before it stops being timing.
 ///

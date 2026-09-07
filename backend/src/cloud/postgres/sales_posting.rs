@@ -950,8 +950,8 @@ const RECEIVABLE_KEYS: &[&str] = &[
 
 /// Open one Payment Ledger item per acquirer receivable this day created.
 ///
-/// TODO(lane-P): replace the body with a call to `payment_ledger::ple_open`
-/// for each line below, once Lane P merges. One open item per line, shaped:
+/// TODO(lane-P): still a no-op with the Payment Ledger merged, and deliberately
+/// so — see the note under the shape below. One open item per line, shaped:
 ///
 /// ```text
 ///   account_key  = line.semantic_key   (card_receivable_debit | ..._credit | qris_receivable)
@@ -971,9 +971,21 @@ const RECEIVABLE_KEYS: &[&str] = &[
 /// is a debt the books do not carry. Neither is a state worth being able to
 /// reach, so they commit together or not at all.
 ///
-/// Until then this is a no-op that still walks the same lines, so the day it
-/// is filled in the only question is what to write — not which lines, in what
-/// order, with which arguments.
+/// # Why this is still empty now that Lane P is here
+///
+/// Because its mirror is. The item opened here is closed by
+/// `acquirer::acq_settlement_settle_ledger_items`, and that one cannot be
+/// written yet: `ple_settle` takes explicit `(entry_id, amount)` allocations and
+/// the only way to find those ids inside the caller's transaction is a
+/// transaction-scoped open-items query, which Lane P does not ship —
+/// `ple_open_items` takes a `&PgPool`, so calling it from inside this
+/// transaction would read on a second connection that cannot see what this one
+/// has just written, and would race `ple_settle`'s own `FOR UPDATE`.
+///
+/// Opening without closing is worse than doing neither. `payment_ledger_integrity`
+/// reads FROM the ledger, so an empty ledger agrees with the books; a ledger
+/// full of card receivables nothing ever settles disagrees on every acquirer,
+/// for ever. So the pair lands together or not at all.
 ///
 /// The other call site Lane P will need is `retender_tender`: moving a settled
 /// card from one acquirer to another has to CLOSE the open item against the

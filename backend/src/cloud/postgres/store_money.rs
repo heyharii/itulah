@@ -108,54 +108,52 @@ pub struct StoreLedgerAllocation {
 
 /// Open a payment ledger item for money a custodian is now holding.
 ///
-/// TODO(lane-P): this is `ple_open(tx, &PaymentLedgerItem, actor)` from
-/// `postgres/payment_ledger.rs` (migrations 0143-0145), which is not merged
-/// into this worktree. The arguments already match: when it lands, the body
-/// becomes one call and `StoreLedgerItem` becomes `PaymentLedgerItem`.
+/// One call, which is what this was always going to be: `StoreLedgerItem` was
+/// written field for field against Lane P's `PaymentLedgerItem` so that the day
+/// the ledger landed the body became a conversion and a call, and no call site
+/// in this file moved. Migrations 0143-0145 own the table.
 ///
-/// Until then it records the item in `store_ledger_shim`, so the equation
-/// `Σ open funds = payment ledger outstanding = the GL balance of Piutang
-/// Kepala Toko` has three readings to compare rather than two. The shim table
-/// is created by 0113 and goes with this function.
+/// The entry id that comes back is the one this lane stores on the fund and the
+/// remittance line, and the one it later hands to [`lane_b_ple_settle`] — so a
+/// float opened here and answered there is one item's life rather than two
+/// records of the same money.
 async fn lane_b_ple_open(
     tx: &mut Transaction<'_, Postgres>,
     item: &StoreLedgerItem,
     actor: &str,
 ) -> Result<Uuid, AppError> {
-    let entry_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO store_ledger_shim
-             (shim_entry_id, account_key, qualifier, site_id, party_type, party_id,
-              party_name, voucher_kind, voucher_id, journal_entry_id, side,
-              amount_minor, settled_minor, currency, due_date, posting_date, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'RECEIVABLE',$11,0,$12,$13,$14,$15)",
+    super::payment_ledger::ple_open(
+        tx,
+        &super::payment_ledger::PaymentLedgerItem {
+            account_key: item.account_key.clone(),
+            qualifier: item.qualifier.clone(),
+            site_id: item.site_id.clone(),
+            party_type: super::payment_ledger::PaymentLedgerPartyType::parse(&item.party_type)?,
+            party_id: item.party_id.clone(),
+            party_name: item.party_name.clone(),
+            voucher_kind: item.voucher_kind.clone(),
+            voucher_id: item.voucher_id.clone(),
+            journal_entry_id: item.journal_entry_id,
+            side: match item.side {
+                StoreLedgerSide::Receivable => {
+                    super::payment_ledger::PaymentLedgerSide::Receivable
+                }
+            },
+            amount_minor: item.amount_minor,
+            currency: item.currency.clone(),
+            due_date: item.due_date,
+            posting_date: item.posting_date,
+        },
+        actor,
     )
-    .bind(entry_id)
-    .bind(item.account_key.trim().to_ascii_lowercase())
-    .bind(item.qualifier.trim())
-    .bind(&item.site_id)
-    .bind(&item.party_type)
-    .bind(item.party_id.trim())
-    .bind(item.party_name.as_deref())
-    .bind(item.voucher_kind.trim())
-    .bind(item.voucher_id.trim())
-    .bind(item.journal_entry_id)
-    .bind(item.amount_minor)
-    .bind(&item.currency)
-    .bind(item.due_date)
-    .bind(item.posting_date)
-    .bind(actor)
-    .execute(&mut **tx)
-    .await?;
-    Ok(entry_id)
+    .await
 }
 
 /// Put money against open items.
 ///
-/// TODO(lane-P): this is
-/// `ple_settle(tx, against_voucher_kind, against_voucher_id, journal_entry_id,
-/// posting_date, &[PaymentLedgerAllocation], actor)`. Same arguments, same
-/// order. See `lane_b_ple_open`.
+/// Lane P's `ple_settle`, argument for argument. What comes back is what
+/// actually landed: a retry of a settlement already recorded applies nothing and
+/// says zero rather than paying the same float back twice.
 async fn lane_b_ple_settle(
     tx: &mut Transaction<'_, Postgres>,
     against_voucher_kind: &str,
@@ -165,75 +163,44 @@ async fn lane_b_ple_settle(
     allocations: &[StoreLedgerAllocation],
     actor: &str,
 ) -> Result<i64, AppError> {
-    if allocations.is_empty() {
-        return Err(AppError::Validation(
-            "a settlement has to name at least one open item".into(),
-        ));
-    }
-    let mut applied = 0_i64;
-    for allocation in allocations {
-        // `LEAST` rather than a check-then-write: two settlements racing for
-        // the last of one item must not both believe there was room. The row
-        // is locked by the UPDATE, and the amount that actually landed comes
-        // back from RETURNING rather than being assumed.
-        let row = sqlx::query(
-            "UPDATE store_ledger_shim
-                SET settled_minor = settled_minor
-                                  + LEAST($2, amount_minor - settled_minor)
-              WHERE shim_entry_id = $1
-              RETURNING LEAST($2, amount_minor - settled_minor) AS applied",
+    let allocations: Vec<super::payment_ledger::PaymentLedgerAllocation> = allocations
+        .iter()
+        .map(
+            |allocation| super::payment_ledger::PaymentLedgerAllocation {
+                entry_id: allocation.entry_id,
+                amount_minor: allocation.amount_minor,
+            },
         )
-        .bind(allocation.entry_id)
-        .bind(allocation.amount_minor)
-        .fetch_optional(&mut **tx)
-        .await?;
-        let Some(row) = row else {
-            return Err(AppError::NotFound(format!(
-                "there is no open payment ledger item {}",
-                allocation.entry_id
-            )));
-        };
-        let landed: i64 = row.try_get("applied")?;
-        sqlx::query(
-            "INSERT INTO store_ledger_shim_allocation
-                 (shim_entry_id, against_voucher_kind, against_voucher_id,
-                  journal_entry_id, posting_date, amount_minor, created_by)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)
-             ON CONFLICT (shim_entry_id, against_voucher_kind, against_voucher_id)
-             DO NOTHING",
-        )
-        .bind(allocation.entry_id)
-        .bind(against_voucher_kind)
-        .bind(against_voucher_id)
-        .bind(journal_entry_id)
-        .bind(posting_date)
-        .bind(landed)
-        .bind(actor)
-        .execute(&mut **tx)
-        .await?;
-        applied += landed;
-    }
-    Ok(applied)
+        .collect();
+    let settled = super::payment_ledger::ple_settle(
+        tx,
+        against_voucher_kind,
+        against_voucher_id,
+        journal_entry_id,
+        posting_date,
+        &allocations,
+        actor,
+    )
+    .await?;
+    Ok(settled.applied_minor)
 }
 
 /// What one control account has open, for one site.
 ///
-/// TODO(lane-P): `ple_outstanding(pool, account_key, site, qualifier, as_of)`.
+/// Lane P's `ple_outstanding`, narrowed to the two arguments this lane's
+/// callers have. It is one side of the equation this lane exists to make
+/// checkable: `Sum of open funds = payment ledger outstanding = the general
+/// ledger balance of Piutang Kepala Toko`.
 pub async fn store_ledger_outstanding(
     pool: &PgPool,
     account_key: &str,
     site_id: Option<&str>,
 ) -> Result<i64, AppError> {
-    let row = sqlx::query(
-        "SELECT COALESCE(SUM(amount_minor - settled_minor), 0)::bigint AS outstanding
-           FROM store_ledger_shim
-          WHERE account_key = $1 AND ($2::text IS NULL OR site_id = $2)",
+    Ok(
+        super::payment_ledger::ple_outstanding(pool, account_key, site_id, None, None)
+            .await?
+            .outstanding_minor,
     )
-    .bind(account_key.trim().to_ascii_lowercase())
-    .bind(site_id)
-    .fetch_one(pool)
-    .await?;
-    Ok(row.try_get("outstanding")?)
 }
 
 // ---------------------------------------------------------------------------

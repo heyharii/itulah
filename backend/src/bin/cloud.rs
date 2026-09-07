@@ -43,6 +43,10 @@ async fn main() -> Result<(), AppError> {
     let bind_addr = config.bind_addr;
     let node_id = config.node_id.clone();
     let node_role = config.node_role.clone();
+    // Before anything can ask for the closing checklist. The engine answers
+    // Lane F's `integrity.equations` slot, which ships critical and Pending
+    // until something registers under that key.
+    postgres::integrity_install_close_check();
     let state = AppState::new(pool, config);
     tokio::spawn(run_auth_policy_refresh_agent(state.db.clone()));
     tokio::spawn(run_catalog_publisher(state.db.clone()));
