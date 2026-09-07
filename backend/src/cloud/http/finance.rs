@@ -13,15 +13,17 @@
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
+    domain::{actions, required_role_for_action, role_allows},
     postgres::{
-        self as infrastructure, AccountBalance, AcquisitionGap, AssessAssetRequest, AssetRow,
-        AssetSchedule, BalanceMatrix, BankStatementLineRow, BankStatementRow, BookBankLineRequest,
-        ConfirmMatchRequest, DepreciationRun, DisposeAssetRequest, FiscalPeriod, GeneralLedger,
-        ImportOutcome, ImportStatementRequest, JournalEntryDetail, JournalEntryRow, LedgerAccount,
-        LineSuggestions, MoneyOverview, PayablesAging, PostingIntent, PostingLine,
+        self as infrastructure, AccountBalance, AcquisitionGap, AdjustmentRequest,
+        AssessAssetRequest, AssetRow, AssetSchedule, BalanceMatrix, BankStatementLineRow,
+        BankStatementRow, BookBankLineRequest, ConfirmMatchRequest, CorrectionDocument,
+        DepreciationRun, DisposeAssetRequest, FiscalPeriod, GeneralLedger, ImportOutcome,
+        ImportStatementRequest, JournalEntryDetail, JournalEntryRow, LedgerAccount,
+        LineSuggestions, MoneyOverview, PayablesAging, PostingIntent, PostingLine, ReclassRequest,
         RecordBillRequest, RecordPaymentRequest, RegisterAssetRequest, SetAccountMappingRequest,
         Statement, SupplierBill, SupplierPayment, TransferAssetRequest, TrialBalance,
-        UnbilledReceipt,
+        UnbilledReceipt, WriteOffRequest,
     },
 };
 use axum::{
@@ -32,6 +34,28 @@ use chrono::{Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
+
+/// The gate every handler in this file opens before it does anything.
+///
+/// Copied rather than shared, exactly as `pay`, `roster`, `overtime` and
+/// `leave` each carry their own. One line, and the alternative — a `super::`
+/// helper — would make the four modules that already have it import a fifth.
+///
+/// This is the SECOND gate. `auth::require_auth` already answers a coarse
+/// question from the path alone: GET under `/api/v1/finance/` needs Supervisor,
+/// anything else needs Admin. What a path cannot say is that sealing a month
+/// and unsealing one are different acts, or that a shop's payables and the
+/// company's trial balance have different audiences. That is what the action
+/// key says, and it is why every handler asks again.
+fn require(principal: &Principal, action_key: &str) -> Result<(), AppError> {
+    if role_allows(required_role_for_action(action_key), principal.role) {
+        return Ok(());
+    }
+    Err(AppError::Forbidden(format!(
+        "{} may not {action_key}",
+        principal.username
+    )))
+}
 
 // ---------------------------------------------------------------------------
 // Chart of accounts
@@ -56,8 +80,10 @@ pub struct AccountQuery {
 /// somebody typed would have two loading states for one box.
 pub async fn accounts(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<AccountQuery>,
 ) -> Result<Json<Vec<LedgerAccount>>, AppError> {
+    require(&principal, actions::FINANCE_LEDGER_READ)?;
     let needle = query.q.as_deref().map(str::trim).unwrap_or("");
     if needle.is_empty() {
         Ok(Json(
@@ -96,9 +122,11 @@ pub struct BalanceQuery {
 
 pub async fn account_detail(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(code): Path<String>,
     Query(query): Query<BalanceQuery>,
 ) -> Result<Json<AccountDetail>, AppError> {
+    require(&principal, actions::FINANCE_LEDGER_READ)?;
     let (account, path) = infrastructure::account_with_path(&state.db, &code).await?;
     let balance =
         infrastructure::account_balance(&state.db, &code, query.site.as_deref(), query.as_of)
@@ -123,9 +151,11 @@ pub struct LedgerQuery {
 
 pub async fn account_ledger(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(code): Path<String>,
     Query(query): Query<LedgerQuery>,
 ) -> Result<Json<GeneralLedger>, AppError> {
+    require(&principal, actions::FINANCE_LEDGER_READ)?;
     let to = query.to.unwrap_or_else(|| Utc::now().date_naive());
     // A month, because that is the unit a ledger is read in and a default of
     // "everything" would make the first open of a busy account slow for no
@@ -149,8 +179,10 @@ pub async fn account_ledger(
 
 pub async fn trial_balance(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<BalanceQuery>,
 ) -> Result<Json<TrialBalance>, AppError> {
+    require(&principal, actions::FINANCE_LEDGER_READ)?;
     let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
     Ok(Json(
         infrastructure::trial_balance(&state.db, as_of, query.site.as_deref()).await?,
@@ -168,8 +200,10 @@ pub struct MapQuery {
 
 pub async fn account_map(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<MapQuery>,
 ) -> Result<Json<Value>, AppError> {
+    require(&principal, actions::FINANCE_LEDGER_READ)?;
     let mappings = infrastructure::account_mappings(&state.db, query.site.as_deref()).await?;
     // The locations the books are kept for, and the meanings the posting rules
     // will ask for. Sent with the map because the screen's only real question —
@@ -187,6 +221,7 @@ pub async fn set_account_map(
     Extension(principal): Extension<Principal>,
     Json(request): Json<SetAccountMappingRequest>,
 ) -> Result<Json<Value>, AppError> {
+    require(&principal, actions::FINANCE_MAP_SET)?;
     let mapping =
         infrastructure::set_account_mapping(&state.db, &request, &principal.username).await?;
     Ok(Json(json!(mapping)))
@@ -196,7 +231,11 @@ pub async fn set_account_map(
 // Periods
 // ---------------------------------------------------------------------------
 
-pub async fn periods(State(state): State<AppState>) -> Result<Json<Vec<FiscalPeriod>>, AppError> {
+pub async fn periods(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<Vec<FiscalPeriod>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(infrastructure::fiscal_periods(&state.db).await?))
 }
 
@@ -209,8 +248,10 @@ pub struct PeriodRequest {
 
 pub async fn open_period(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Json(request): Json<PeriodRequest>,
 ) -> Result<Json<Vec<FiscalPeriod>>, AppError> {
+    require(&principal, actions::FINANCE_PERIOD_OPEN)?;
     if !(1..=12).contains(&request.month) {
         return Err(AppError::Validation("month must be 1..12".into()));
     }
@@ -218,19 +259,115 @@ pub async fn open_period(
     Ok(Json(infrastructure::fiscal_periods(&state.db).await?))
 }
 
+/// A period named the way a person names one: `2026-09`.
+///
+/// A month has no surrogate key — its identity is the two numbers — so the
+/// path segment is the label, parsed here rather than split into two path
+/// parameters. `/periods/2026-09/reopen` is a URL somebody can read in a log.
+fn parse_period(raw: &str) -> Result<(i32, i32), AppError> {
+    let bad = || AppError::Validation(format!("{raw:?} is not a period; a period reads 2026-09"));
+    let (year, month) = raw.split_once('-').ok_or_else(bad)?;
+    let year: i32 = year.parse().map_err(|_| bad())?;
+    let month: i32 = month.parse().map_err(|_| bad())?;
+    if !(1..=12).contains(&month) {
+        return Err(bad());
+    }
+    Ok((year, month))
+}
+
+/// What a close would refuse on, without closing anything.
+///
+/// The same computation the close runs, exposed on its own so the screen can
+/// show the month's readiness while people are still working on it. It is the
+/// only honest way to build that screen: a checklist assembled separately from
+/// the one the close consults would eventually disagree with it, and the
+/// disagreement would be discovered on the last day of the month.
+pub async fn period_checklist(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(period): Path<String>,
+) -> Result<Json<crate::cloud::domain::CloseVerdict>, AppError> {
+    require(&principal, actions::FINANCE_PERIOD_CLOSE)?;
+    let (year, month) = parse_period(&period)?;
+    Ok(Json(
+        infrastructure::period_checklist(&state.db, year, month).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ClosePeriodRequest {
+    pub year: i32,
+    pub month: i32,
+    /// Optional on a close. A month that closes because everything passed
+    /// needs no explanation; the checklist snapshot is the explanation.
+    pub reason: Option<String>,
+}
+
+/// Seal a month, if its checklist lets you.
+///
+/// The refusal is a 409 carrying the keys that stood in the way, and the
+/// checklist that produced it is stored against the close that succeeds. Both
+/// halves matter: the first so somebody knows what to go and fix, the second so
+/// that in six months "was the bank reconciled when September closed?" has an
+/// answer that is not somebody's memory of a screen.
 pub async fn close_period(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Json(request): Json<PeriodRequest>,
-) -> Result<Json<Value>, AppError> {
-    let sealed =
-        infrastructure::close_period(&state.db, request.year, request.month, &principal.username)
-            .await?;
-    Ok(Json(json!({
-        "year": request.year,
-        "month": request.month,
-        "entries_sealed": sealed,
-    })))
+    Json(request): Json<ClosePeriodRequest>,
+) -> Result<Json<infrastructure::PeriodCloseOutcome>, AppError> {
+    require(&principal, actions::FINANCE_PERIOD_CLOSE)?;
+    Ok(Json(
+        infrastructure::period_close(
+            &state.db,
+            request.year,
+            request.month,
+            &principal.username,
+            request.reason.as_deref(),
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReopenRequest {
+    /// Required, and the route refuses without it. See the handler.
+    pub reason: String,
+}
+
+/// Unseal a month.
+///
+/// Two things guard it, and neither is redundant. The reason is mandatory
+/// because a reopen is the one act in finance that lets somebody write into a
+/// month that has already been reported, and the reason is the only record of
+/// why that was allowed. The key is `finance.period.reopen` and not
+/// `finance.period.close`, because whoever can undo their own close has not
+/// closed anything.
+pub async fn reopen_period(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(period): Path<String>,
+    Json(request): Json<ReopenRequest>,
+) -> Result<Json<Vec<FiscalPeriod>>, AppError> {
+    require(&principal, actions::FINANCE_PERIOD_REOPEN)?;
+    let (year, month) = parse_period(&period)?;
+    infrastructure::period_reopen(&state.db, year, month, &principal.username, &request.reason)
+        .await?;
+    Ok(Json(infrastructure::fiscal_periods(&state.db).await?))
+}
+
+/// Every close and reopen this month has had, newest first.
+pub async fn period_events(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(period): Path<String>,
+) -> Result<Json<Vec<infrastructure::PeriodEvent>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
+    let (year, month) = parse_period(&period)?;
+    Ok(Json(
+        infrastructure::period_events(&state.db, year, month).await?,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -252,8 +389,10 @@ pub struct JournalQuery {
 
 pub async fn journal(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<JournalQuery>,
 ) -> Result<Json<Vec<JournalEntryRow>>, AppError> {
+    require(&principal, actions::FINANCE_LEDGER_READ)?;
     Ok(Json(
         infrastructure::journal_register(
             &state.db,
@@ -269,8 +408,10 @@ pub async fn journal(
 
 pub async fn journal_entry(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(entry_id): Path<Uuid>,
 ) -> Result<Json<JournalEntryDetail>, AppError> {
+    require(&principal, actions::FINANCE_LEDGER_READ)?;
     Ok(Json(
         infrastructure::journal_entry(&state.db, entry_id).await?,
     ))
@@ -295,6 +436,7 @@ pub async fn post_manual_entry(
     Extension(principal): Extension<Principal>,
     Json(request): Json<ManualEntryRequest>,
 ) -> Result<Json<Value>, AppError> {
+    require(&principal, actions::FINANCE_JOURNAL_MANUAL)?;
     let intent = PostingIntent {
         posting_date: request.posting_date,
         source_kind: "MANUAL".into(),
@@ -327,6 +469,7 @@ pub async fn reverse_entry(
     Path(entry_id): Path<Uuid>,
     Json(request): Json<ReverseRequest>,
 ) -> Result<Json<Value>, AppError> {
+    require(&principal, actions::FINANCE_REVERSE)?;
     if request.reason.trim().is_empty() {
         return Err(AppError::Validation(
             "a reversal needs a reason; it is the only record of why".into(),
@@ -367,8 +510,10 @@ pub struct MatrixQuery {
 /// cash, banks, card receivables, inter-unit, inventory, assets, loans.
 pub async fn balances(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<MatrixQuery>,
 ) -> Result<Json<BalanceMatrix>, AppError> {
+    require(&principal, actions::FINANCE_LEDGER_READ)?;
     let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
     Ok(Json(
         infrastructure::balance_matrix(&state.db, query.family.trim(), as_of).await?,
@@ -386,8 +531,10 @@ pub struct StatementQuery {
 
 pub async fn statement(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<StatementQuery>,
 ) -> Result<Json<Statement>, AppError> {
+    require(&principal, actions::FINANCE_LEDGER_READ)?;
     let to = query.to.unwrap_or_else(|| Utc::now().date_naive());
     let kind = query.kind.unwrap_or_else(|| "BALANCE_SHEET".into());
     // A profit and loss with no start is the year so far, which is what
@@ -415,8 +562,10 @@ pub struct BillQuery {
 
 pub async fn bills(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<BillQuery>,
 ) -> Result<Json<Vec<SupplierBill>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(
         infrastructure::list_bills(
             &state.db,
@@ -442,8 +591,10 @@ pub async fn bills(
 /// lines settled it is `GET /payments?supplier=`.
 pub async fn bill(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(invoice_id): Path<Uuid>,
 ) -> Result<Json<SupplierBill>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(infrastructure::bill(&state.db, invoice_id).await?))
 }
 
@@ -452,6 +603,7 @@ pub async fn record_bill(
     Extension(principal): Extension<Principal>,
     Json(request): Json<RecordBillRequest>,
 ) -> Result<Json<SupplierBill>, AppError> {
+    require(&principal, actions::FINANCE_DOCUMENT_RECORD)?;
     Ok(Json(
         infrastructure::record_bill(&state.db, &request, &principal.username).await?,
     ))
@@ -468,6 +620,7 @@ pub async fn post_bill(
     Path(invoice_id): Path<Uuid>,
     Json(request): Json<PostBillRequest>,
 ) -> Result<Json<SupplierBill>, AppError> {
+    require(&principal, actions::FINANCE_POST)?;
     Ok(Json(
         infrastructure::post_bill(
             &state.db,
@@ -485,7 +638,9 @@ pub async fn post_bill(
 /// account — so it is reported as an operational exposure and labelled as one.
 pub async fn unbilled(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
 ) -> Result<Json<Vec<UnbilledReceipt>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(
         infrastructure::unbilled_receipts(&state.db, 200).await?,
     ))
@@ -509,8 +664,10 @@ pub struct AgingQuery {
 /// posts.
 pub async fn payables_aging(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<AgingQuery>,
 ) -> Result<Json<PayablesAging>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
     Ok(Json(
         infrastructure::payables_aging(&state.db, as_of, query.site.as_deref()).await?,
@@ -533,8 +690,10 @@ pub struct PaymentQuery {
 
 pub async fn payments(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<PaymentQuery>,
 ) -> Result<Json<Vec<SupplierPayment>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(
         infrastructure::list_payments(
             &state.db,
@@ -549,8 +708,10 @@ pub async fn payments(
 
 pub async fn payment(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(payment_id): Path<Uuid>,
 ) -> Result<Json<SupplierPayment>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(infrastructure::payment(&state.db, payment_id).await?))
 }
 
@@ -560,6 +721,7 @@ pub async fn record_payment(
     Extension(principal): Extension<Principal>,
     Json(request): Json<RecordPaymentRequest>,
 ) -> Result<Json<SupplierPayment>, AppError> {
+    require(&principal, actions::FINANCE_DOCUMENT_RECORD)?;
     Ok(Json(
         infrastructure::record_payment(&state.db, &request, &principal.username).await?,
     ))
@@ -579,6 +741,7 @@ pub async fn post_payment(
     Path(payment_id): Path<Uuid>,
     Json(request): Json<PostPaymentRequest>,
 ) -> Result<Json<SupplierPayment>, AppError> {
+    require(&principal, actions::FINANCE_POST)?;
     Ok(Json(
         infrastructure::post_payment(
             &state.db,
@@ -607,8 +770,10 @@ pub struct AssetQuery {
 
 pub async fn assets(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<AssetQuery>,
 ) -> Result<Json<Vec<AssetRow>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(
         infrastructure::list_assets(
             &state.db,
@@ -626,6 +791,7 @@ pub async fn register_asset(
     Extension(principal): Extension<Principal>,
     Json(request): Json<RegisterAssetRequest>,
 ) -> Result<Json<AssetRow>, AppError> {
+    require(&principal, actions::FINANCE_ASSET_MANAGE)?;
     Ok(Json(
         infrastructure::register_asset(&state.db, &request, &principal.username).await?,
     ))
@@ -637,6 +803,7 @@ pub async fn assess_asset(
     Path(asset_id): Path<Uuid>,
     Json(request): Json<AssessAssetRequest>,
 ) -> Result<Json<AssetRow>, AppError> {
+    require(&principal, actions::FINANCE_ASSET_MANAGE)?;
     Ok(Json(
         infrastructure::assess_asset(&state.db, asset_id, &request, &principal.username).await?,
     ))
@@ -655,6 +822,7 @@ pub async fn dispose_asset(
     Path(asset_id): Path<Uuid>,
     Json(request): Json<DisposeAssetRequest>,
 ) -> Result<Json<AssetRow>, AppError> {
+    require(&principal, actions::FINANCE_ASSET_MANAGE)?;
     Ok(Json(
         infrastructure::dispose_asset(&state.db, asset_id, &request, &principal.username).await?,
     ))
@@ -671,6 +839,7 @@ pub async fn transfer_asset(
     Path(asset_id): Path<Uuid>,
     Json(request): Json<TransferAssetRequest>,
 ) -> Result<Json<AssetRow>, AppError> {
+    require(&principal, actions::FINANCE_ASSET_MANAGE)?;
     Ok(Json(
         infrastructure::transfer_asset(&state.db, asset_id, &request, &principal.username).await?,
     ))
@@ -685,15 +854,19 @@ pub async fn transfer_asset(
 /// warns per row from `AssetRow.acquired_via` being null.
 pub async fn unbacked_assets(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
 ) -> Result<Json<AcquisitionGap>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(infrastructure::acquisition_gap(&state.db).await?))
 }
 
 /// What was charged against one asset, month by month, and what is left.
 pub async fn asset_schedule(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(asset_id): Path<Uuid>,
 ) -> Result<Json<AssetSchedule>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(
         infrastructure::asset_schedule(&state.db, asset_id).await?,
     ))
@@ -709,6 +882,7 @@ pub async fn run_depreciation(
     Extension(principal): Extension<Principal>,
     Json(request): Json<PeriodRequest>,
 ) -> Result<Json<DepreciationRun>, AppError> {
+    require(&principal, actions::FINANCE_ASSET_MANAGE)?;
     if !(1..=12).contains(&request.month) {
         return Err(AppError::Validation("month must be 1..12".into()));
     }
@@ -746,8 +920,10 @@ pub async fn run_depreciation(
 /// it gets fixed.
 pub async fn money(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<BalanceQuery>,
 ) -> Result<Json<MoneyOverview>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
     Ok(Json(
         infrastructure::money_overview(&state.db, as_of, query.site.as_deref()).await?,
@@ -760,7 +936,9 @@ pub async fn money(
 
 pub async fn bank_statements(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
 ) -> Result<Json<Vec<BankStatementRow>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(infrastructure::list_statements(&state.db).await?))
 }
 
@@ -769,6 +947,7 @@ pub async fn import_bank_statement(
     Extension(principal): Extension<Principal>,
     Json(request): Json<ImportStatementRequest>,
 ) -> Result<Json<ImportOutcome>, AppError> {
+    require(&principal, actions::FINANCE_BANK_RECONCILE)?;
     Ok(Json(
         infrastructure::import_statement(&state.db, &request, &principal.username).await?,
     ))
@@ -776,8 +955,10 @@ pub async fn import_bank_statement(
 
 pub async fn bank_statement_lines(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(statement_id): Path<Uuid>,
 ) -> Result<Json<Vec<BankStatementLineRow>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(
         infrastructure::statement_lines(&state.db, statement_id).await?,
     ))
@@ -786,8 +967,10 @@ pub async fn bank_statement_lines(
 /// Score every unmatched line against our own ledger.
 pub async fn bank_suggestions(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(statement_id): Path<Uuid>,
 ) -> Result<Json<Vec<LineSuggestions>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
     Ok(Json(
         infrastructure::suggest_matches(&state.db, statement_id).await?,
     ))
@@ -800,14 +983,17 @@ pub async fn confirm_bank_match(
     Path(line_id): Path<Uuid>,
     Json(request): Json<ConfirmMatchRequest>,
 ) -> Result<Json<Value>, AppError> {
+    require(&principal, actions::FINANCE_BANK_RECONCILE)?;
     infrastructure::confirm_match(&state.db, line_id, &request, &principal.username).await?;
     Ok(Json(json!({ "matched": true })))
 }
 
 pub async fn unmatch_bank_line(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(line_id): Path<Uuid>,
 ) -> Result<Json<Value>, AppError> {
+    require(&principal, actions::FINANCE_BANK_RECONCILE)?;
     infrastructure::unmatch(&state.db, line_id).await?;
     Ok(Json(json!({ "matched": false })))
 }
@@ -826,6 +1012,7 @@ pub async fn book_bank_line(
     Path(line_id): Path<Uuid>,
     Json(request): Json<BookBankLineRequest>,
 ) -> Result<Json<Value>, AppError> {
+    require(&principal, actions::FINANCE_POST)?;
     let booked =
         infrastructure::book_bank_line(&state.db, line_id, &request, &principal.username).await?;
     Ok(Json(json!({
@@ -835,4 +1022,168 @@ pub async fn book_bank_line(
         "total_minor": booked.total_minor,
         "matched": true,
     })))
+}
+
+// ---------------------------------------------------------------------------
+// Corrections
+// ---------------------------------------------------------------------------
+//
+// Three documents, one lifecycle, and the lifecycle is the point. A
+// reclassification, an adjustment and a write-off all go DRAFT → APPROVED →
+// POSTED, all carry a reason, all name two people, and all reverse. What they
+// replaced was a MANUAL journal entry with a memo, which recorded the debit and
+// the credit and none of that.
+//
+// The approve step is a separate route and a separate action key rather than a
+// flag on the create. Two keys is what lets the rule "not the person who drafted
+// it" be stated at all: `finance.post` and `finance.approve` map to the same
+// rung today and always will while the ladder has three, and the rule is
+// enforced on the actor, by the handler's caller and by a CHECK on the row.
+
+#[derive(Debug, Deserialize)]
+pub struct CorrectionQuery {
+    /// `RECLASS`, `ADJUSTMENT` or `WRITE_OFF`.
+    pub kind: Option<String>,
+    pub status: Option<String>,
+    pub site: Option<String>,
+    pub limit: Option<i64>,
+}
+
+pub async fn corrections(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<CorrectionQuery>,
+) -> Result<Json<Vec<CorrectionDocument>>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
+    Ok(Json(
+        infrastructure::correction_list(
+            &state.db,
+            query.kind.as_deref(),
+            query.status.as_deref(),
+            query.site.as_deref(),
+            query.limit.unwrap_or(200).clamp(1, 500),
+        )
+        .await?,
+    ))
+}
+
+pub async fn correction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(correction_id): Path<Uuid>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    require(&principal, actions::FINANCE_READ)?;
+    Ok(Json(
+        infrastructure::correction(&state.db, correction_id).await?,
+    ))
+}
+
+/// Draft a reclassification.
+///
+/// Refused if either side is money. That refusal is in the infrastructure
+/// rather than here because it reads `account_map` — the client's cash and bank
+/// codes are theirs to move, and a list of prefixes in Rust would stop being
+/// true the day Finance opened a second bank.
+pub async fn create_reclass(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<ReclassRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    require(&principal, actions::FINANCE_DOCUMENT_RECORD)?;
+    Ok(Json(
+        infrastructure::reclass_create(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+pub async fn create_adjustment(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<AdjustmentRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    require(&principal, actions::FINANCE_DOCUMENT_RECORD)?;
+    Ok(Json(
+        infrastructure::adjustment_create(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+pub async fn create_write_off(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<WriteOffRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    require(&principal, actions::FINANCE_DOCUMENT_RECORD)?;
+    Ok(Json(
+        infrastructure::write_off_create(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// Agree a correction somebody else drafted.
+///
+/// `finance.approve`, never `finance.post`. The two keys exist so that the
+/// second person is a different person, and the check that they are is made
+/// against `created_by` in the infrastructure and again by a CHECK on the row —
+/// a rule enforced in one place is a rule with one place to go wrong.
+pub async fn approve_correction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(correction_id): Path<Uuid>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    require(&principal, actions::FINANCE_APPROVE)?;
+    Ok(Json(
+        infrastructure::correction_approve(&state.db, correction_id, &principal.username).await?,
+    ))
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct PostCorrectionRequest {
+    /// Where in time the entry lands. Absent means the document's own date,
+    /// which is what it means nearly always; a period lock refuses either way.
+    pub posting_date: Option<NaiveDate>,
+}
+
+pub async fn post_correction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(correction_id): Path<Uuid>,
+    Json(request): Json<PostCorrectionRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    require(&principal, actions::FINANCE_POST)?;
+    Ok(Json(
+        infrastructure::correction_post(
+            &state.db,
+            correction_id,
+            request.posting_date,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReverseCorrectionRequest {
+    pub reason: String,
+    pub posting_date: Option<NaiveDate>,
+}
+
+/// Undo a posted correction, by posting its mirror.
+///
+/// Never by deleting anything. A correction that could be erased would make the
+/// document trail worth less than the memo it replaced.
+pub async fn reverse_correction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(correction_id): Path<Uuid>,
+    Json(request): Json<ReverseCorrectionRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    require(&principal, actions::FINANCE_REVERSE)?;
+    Ok(Json(
+        infrastructure::correction_reverse(
+            &state.db,
+            correction_id,
+            request.posting_date,
+            &request.reason,
+            &principal.username,
+        )
+        .await?,
+    ))
 }

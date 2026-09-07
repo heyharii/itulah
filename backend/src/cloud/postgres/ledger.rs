@@ -440,6 +440,31 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Inventory & COGS",
         ),
+        // Both write-off sides, and both on the client's one "income (expense)"
+        // leaf. The chart has no bad-debt expense account: what it has is
+        // `1011103 Cadangan Penghapusan Piutang Tak Tertagih`, a provision, and
+        // a heading at that. So rather than invent an account, two meanings
+        // share one leaf — which `account_map` allows, and which keeps the
+        // distinction where it is readable: a posting rule that says
+        // `bad_debt_expense` says what it did, whatever the balance it lands in
+        // is called.
+        //
+        // `asset_disposal_result` is already on this same leaf, so it is now
+        // three meanings on 8010110007. That is the client's filing, not ours.
+        key(
+            "bad_debt_expense",
+            "Receivable written off",
+            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            false,
+            "Corrections",
+        ),
+        key(
+            "other_income_expense",
+            "Other income and expense",
+            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            false,
+            "Corrections",
+        ),
         key(
             "prepaid_expense",
             "Prepaid expense",
@@ -677,15 +702,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Payables",
         ),
-        // The bank's own charge on a transfer, when it comes out of the same
-        // movement rather than being debited separately.
-        key(
-            "bank_admin_fee",
-            "Bank charge on a transfer",
-            "6010310004 Biaya Bank",
-            false,
-            "Cash & Bank",
-        ),
+        // `bank_admin_fee` — the bank's own charge on a transfer, when it comes
+        // out of the same movement rather than being debited separately — is
+        // the same meaning and the same account lane C declares above under
+        // Cash & Bank, so it is declared there and not again here.
         // Income tax kept back from a supplier and owed to the tax office.
         // Creditable: the vendor claims it against their annual liability with
         // the certificate this system's figure appears on.
@@ -1299,4 +1319,36 @@ pub async fn close_period(
     .fetch_one(pool)
     .await?;
     Ok(row.try_get("n")?)
+}
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::required_semantic_keys;
+    use std::collections::BTreeMap;
+
+    /// One meaning, declared once.
+    ///
+    /// Worth a test rather than a convention because several lanes add to this
+    /// list at the same time and two of them naming the same meaning is the
+    /// likeliest way it goes wrong. A duplicate would not fail anything: the
+    /// setup screen would show the row twice, an operator would map it twice,
+    /// and the second mapping would be the one nobody could find. Two meanings
+    /// pointing at ONE ACCOUNT is fine and deliberate — three do below — but
+    /// one key twice is a merge nobody finished.
+    #[test]
+    fn every_meaning_is_declared_exactly_once() {
+        let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+        for doc in required_semantic_keys() {
+            *seen.entry(doc.key.clone()).or_default() += 1;
+        }
+        let doubled: Vec<&String> = seen
+            .iter()
+            .filter(|(_, count)| **count > 1)
+            .map(|(key, _)| key)
+            .collect();
+        assert!(
+            doubled.is_empty(),
+            "declared more than once — two lanes probably added the same meaning: {doubled:?}"
+        );
+    }
 }

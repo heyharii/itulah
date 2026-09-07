@@ -119,6 +119,7 @@ const KERNELS: &[&str] = &[
     // frontend, and a rule that could read the database could answer twice for
     // one bill depending on what had been posted since.
     "src/cloud/domain/payment.rs",
+    "src/cloud/domain/period_close.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
