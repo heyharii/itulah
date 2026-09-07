@@ -44,6 +44,7 @@ pub mod reports;
 pub mod roster;
 // lane-A
 pub mod sales_posting;
+pub mod stock_ledger;
 pub mod suppliers;
 pub mod sync_generation;
 pub mod vocabulary;
@@ -749,6 +750,11 @@ pub fn router(state: AppState) -> Router {
         // lane-H routes: a shop's evening against its own EDC slip, and
         // head office settling what the acquirers owe.
         .merge(acquirer::lane_h_routes(Router::new()))
+        // What stock cost, which layers a posting took, and whether the stock
+        // ledger and the inventory account still agree. Merged rather than
+        // spelled out here because several sessions edit this file at once and
+        // one line collides less than four.
+        .merge(stock_ledger::lane_i_routes(Router::new()))
         // What "late" means. Readable by anybody signed in — a tolerance
         // kept from the people measured against it is a trap, not a rule —
         // and writable only at head office.
