@@ -113,6 +113,7 @@ const KERNELS: &[&str] = &[
     // reason as the other two — a drawer that gave two answers depending on
     // when it was asked would be worse than one that gave none.
     "src/cloud/domain/store_cash.rs",
+    "src/cloud/domain/integrity.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the
@@ -207,13 +208,23 @@ fn kernel(name: &str) -> &'static str {
 }
 
 /// A kernel that returned nothing observable would pass the scan above and be
-/// useless, so check the two doors are still there and still pure in shape.
+/// useless, so check the doors are still there and still pure in shape.
+///
+/// Every file is found by name, never by position. Several sessions add kernels
+/// to that list at once and they all add them in the same place, so an index
+/// here is a silent mis-assertion the moment somebody else's entry lands above
+/// this one: the read would succeed, against the wrong file, and the failure
+/// would be about a function nobody was asking after.
 #[test]
 fn the_kernels_still_expose_the_functions_they_exist_for() {
-    let depreciation = std::fs::read_to_string(repository().join(KERNELS[0]))
-        .unwrap_or_else(|error| panic!("read: {error}"));
-    let matching = std::fs::read_to_string(repository().join(KERNELS[1]))
-        .unwrap_or_else(|error| panic!("read: {error}"));
+    let read = |name: &str| {
+        std::fs::read_to_string(repository().join(kernel(name)))
+            .unwrap_or_else(|error| panic!("read {name}: {error}"))
+    };
+    let depreciation = read("depreciation.rs");
+    let matching = read("bank_match.rs");
+    let costing = read("costing.rs");
+    let integrity = read("integrity.rs");
 
     assert!(
         depreciation.contains("pub fn monthly_charge(basis: Basis) -> Outcome"),
@@ -223,17 +234,18 @@ fn the_kernels_still_expose_the_functions_they_exist_for() {
         matching.contains("pub fn suggest(") && matching.contains("pub fn resolve("),
         "the matcher scores one line and plans a whole statement, and both are public"
     );
-    // By name, not by position. Several sessions add kernels to that list at
-    // once and they all add them in the same place, so an index here is a
-    // silent mis-assertion the moment somebody else's entry lands above this
-    // one: the read would succeed, against the wrong file, and the failure
-    // would be about a function nobody was asking after.
-    let costing = std::fs::read_to_string(repository().join(kernel("costing.rs")))
-        .unwrap_or_else(|error| panic!("read: {error}"));
     assert!(
         costing.contains("pub fn consume_fifo(")
             && costing.contains("pub fn split_price_correction("),
         "the costing kernel takes basis off a queue and splits a late correction, and both are public"
+    );
+    // The integrity engine's whole job is to turn a comparison into one of four
+    // states. Both classifiers are doors: the ordinary one, and the stricter
+    // reading the two foundation equations get. A version of either that took a
+    // pool or a clock would be one the same night could answer two ways.
+    assert!(
+        integrity.contains("pub fn classify(") && integrity.contains("pub fn classify_foundation("),
+        "the integrity kernel reads a difference two ways, and both are public"
     );
     // No `&mut self`, no `&PgPool`, no `async`: the signatures themselves say
     // these are functions of their arguments.
@@ -241,6 +253,7 @@ fn the_kernels_still_expose_the_functions_they_exist_for() {
         ("depreciation", &depreciation),
         ("bank_match", &matching),
         ("costing", &costing),
+        ("integrity", &integrity),
     ] {
         assert!(
             !source.contains("pub async fn"),
@@ -249,23 +262,11 @@ fn the_kernels_still_expose_the_functions_they_exist_for() {
     }
 }
 
-/// The one kernel above whose door is found by name rather than by position.
-///
-/// `KERNELS[0]` and `KERNELS[1]` are read by index and that is a bomb with two
-/// sessions working this file: whoever inserts a kernel at the front reassigns
-/// somebody else's assertions without touching a line of them, and the failure
-/// reads as "the depreciation door changed" over a diff that added a module.
-/// So this one looks itself up, and the lookup is the point as much as the
-/// assertion is.
+/// The category kernel, which gets a test of its own because what it decides is
+/// what a person may post.
 #[test]
 fn the_category_kernel_decides_and_does_not_look_anything_up() {
-    let path = KERNELS
-        .iter()
-        .find(|relative| relative.ends_with("transaction_category.rs"))
-        .unwrap_or_else(|| {
-            panic!("the category kernel has left KERNELS; it decides what a person may post")
-        });
-    let source = std::fs::read_to_string(repository().join(path))
+    let source = std::fs::read_to_string(repository().join(kernel("transaction_category.rs")))
         .unwrap_or_else(|error| panic!("read: {error}"));
 
     for door in [

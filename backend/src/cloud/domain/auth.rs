@@ -93,6 +93,19 @@ pub fn required_role(method: &str, path: &str) -> Role {
         if method.eq_ignore_ascii_case("GET") {
             return Role::Supervisor;
         }
+        // Clearing an item off the attention queue is the one write on this
+        // surface that is not an accounting act. It posts nothing: it says "I
+        // have dealt with this" and records who and why. A shop manager whose
+        // shift or count is in the queue is exactly the person who deals with
+        // it, and requiring ADMIN would mean every such item waited for head
+        // office — which is how a queue nobody can clear becomes a queue
+        // nobody reads.
+        //
+        // Deliberately only `/resolve`. Starting a run stays ADMIN with the
+        // rest of the surface.
+        if path.starts_with("/api/v1/finance/attention/") && path.ends_with("/resolve") {
+            return Role::Supervisor;
+        }
         return Role::Admin;
     }
     if method.eq_ignore_ascii_case("GET") {
