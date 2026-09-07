@@ -29,31 +29,43 @@ const CUTOVER: &str = "2026-08-31";
 
 /// A chart shaped like the client's: the ladder, then the postable leaves.
 ///
-/// The rungs are not decoration. The client's codes ARE the tree and a balance
-/// rolls up by prefix, so a seed of leaves hanging off the roots would pass
-/// tests a real chart fails. Every code below is one this client actually
-/// keeps — `101120100100 Persediaan Barang Dagangan HO` and the rest come
-/// straight off their own master account report.
+/// The rungs are not decoration. The client's codes ARE the tree, a balance
+/// rolls up by prefix, and a seed of leaves hanging off the roots would pass
+/// tests a real chart fails. Every code and every name below is copied from
+/// their own master account report, five rungs and a twelve-digit leaf per
+/// place, double spaces in the names and all.
 async fn seed_chart(pool: &PgPool) {
-    let ladder: [(&str, &str, Option<&str>); 18] = [
+    let ladder: [(&str, &str, Option<&str>); 26] = [
         ("1", "ASSET", None),
         ("101", "CURRENT ASSET", Some("1")),
         ("10110", "KAS & SETARA KAS", Some("101")),
         ("1011001", "CASH ON HAND", Some("10110")),
         ("1011001001", "CASH ON HAND", Some("1011001")),
+        ("10111", "PIUTANG", Some("101")),
+        ("1011101", "PIUTANG DAGANG", Some("10111")),
+        ("1011101001", "Piutang kartu Kredit", Some("1011101")),
         ("10112", "INVENTORY", Some("101")),
         ("1011201", "Persediaan Barang Dagang", Some("10112")),
-        ("10111", "PIUTANG USAHA", Some("101")),
-        ("1011102", "PIUTANG KARTU KREDIT", Some("10111")),
+        ("1011201001", "Persediaan Barang Dagangan", Some("1011201")),
         ("2", "LIABILITIES", None),
         ("201", "HUTANG JANGKA PENDEK", Some("2")),
         ("20120", "HUTANG DAGANG", Some("201")),
         ("2012001", "HUTANG SUPPLIER", Some("20120")),
-        ("3", "EQUITY", None),
+        (
+            "2012001001",
+            "Hutang Suppliers  Barang Dagangan",
+            Some("2012001"),
+        ),
+        ("3", "MODAL", None),
         ("301", "MODAL", Some("3")),
-        ("30101", "LABA DITAHAN", Some("301")),
+        ("30130", "MODAL", Some("301")),
+        ("3013001", "MODAL", Some("30130")),
+        ("3013001002", "Laba (Rugi) Ditahan", Some("3013001")),
         ("5", "BIAYA / BEBAN POKOK", None),
         ("501", "HARGA POKOK PEMBELIAN", Some("5")),
+        ("50101", "HARGA POKOK PEMBELIAN", Some("501")),
+        ("5010110", "HARGA POKOK PEMBELIAN", Some("50101")),
+        ("5010110001", "Harga Pokok Pembelian", Some("5010110")),
     ];
     for (code, name, parent) in ladder {
         sqlx::query(
@@ -67,30 +79,47 @@ async fn seed_chart(pool: &PgPool) {
         .await
         .unwrap_or_else(|error| panic!("{code}: {error}"));
     }
+    // The leaves. `00` is head office and `01` is the client's C001, which is
+    // this system's `store-01` — the suffix IS the place, which is why an
+    // opening balance can name a client code and a place in the same row.
     for (code, name, parent, site) in [
-        ("101100100100", "Cash on Hand HO", "1011001001", "dc"),
+        (
+            "101110100100",
+            "Piutang Kartu Kredit HO",
+            "1011101001",
+            "dc",
+        ),
         (
             "101120100100",
             "Persediaan Barang Dagangan  HO",
-            "1011201",
+            "1011201001",
             "dc",
         ),
         (
             "101120100101",
             "Persediaan Barang Dagangan  C001",
-            "1011201",
+            "1011201001",
             "store-01",
         ),
         (
             "201200100100",
             "Hutang Suppliers  Barang Dagangan HO",
-            "2012001",
+            "2012001001",
             "dc",
         ),
-        ("101110200100", "Piutang Kartu Kredit HO", "1011102", "dc"),
-        ("301010000100", "Laba Ditahan HO", "30101", "dc"),
-        ("301010000101", "Laba Ditahan C001", "30101", "store-01"),
-        ("501011000100", "Harga Pokok Pembelian HO", "501", "dc"),
+        ("301300100200", "Laba (Rugi) Ditahan HO", "3013001002", "dc"),
+        (
+            "301300100201",
+            "Laba (Rugi) Ditahan C001",
+            "3013001002",
+            "store-01",
+        ),
+        (
+            "501011000100",
+            "Harga Pokok Pembelian HO",
+            "5010110001",
+            "dc",
+        ),
     ] {
         sqlx::query(
             "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
@@ -104,11 +133,15 @@ async fn seed_chart(pool: &PgPool) {
         .await
         .unwrap_or_else(|error| panic!("{code}: {error}"));
     }
-    // A retired account, so "the chart cannot take a posting" can be shown for
-    // a reason other than a typo — which is the reason that survives a year.
+    // One retired account, so "the chart cannot take a posting" can be shown
+    // for a reason other than a typo — which is the reason that survives a
+    // year, because a mapping made while an account was live goes on resolving
+    // after Finance quietly retires it. The code is the client's own; whether
+    // THIS one is retired in their chart is not something the report says, and
+    // a chart of 7,528 accounts has some that are.
     sqlx::query(
         "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id, is_active)
-         VALUES ('101100100199','Cash on Hand HO (ditutup)','1011001001',false,'dc',false)",
+         VALUES ('101100100100','Cash on Hand HO','1011001001',false,'dc',false)",
     )
     .execute(pool)
     .await
@@ -157,7 +190,7 @@ async fn a_world(pool: &PgPool) {
     map(pool, "inventory", "dc", "", "101120100100").await;
     map(pool, "inventory", "store-01", "", "101120100101").await;
     map(pool, "trade_payable", "dc", "", "201200100100").await;
-    map(pool, "card_receivable_debit", "dc", "BCA", "101110200100").await;
+    map(pool, "card_receivable_debit", "dc", "BCA", "101110100100").await;
     map(pool, "cogs", "dc", "", "501011000100").await;
 }
 
@@ -178,9 +211,9 @@ fn request(csv: &str, commit: bool) -> OpeningImportRequest {
 const BALANCES: &str = "site_id,account_code,debit,credit,document_no,memo
 dc,101120100100,15.000.000,,TB-2026-08,Persediaan per 31 Agustus
 dc,201200100100,,9.000.000,TB-2026-08,Hutang dagang
-dc,301010000100,,6.000.000,TB-2026-08,Laba ditahan
+dc,301300100200,,6.000.000,TB-2026-08,Laba ditahan
 store-01,101120100101,4.000.000,,TB-2026-08,Persediaan toko
-store-01,301010000101,,4.000.000,TB-2026-08,Laba ditahan toko
+store-01,301300100201,,4.000.000,TB-2026-08,Laba ditahan toko
 ";
 
 /// What one account has on it, straight from the lines.
@@ -269,7 +302,7 @@ async fn a_trial_balance_that_does_not_agree_is_refused_and_the_difference_is_na
     let out_by_a_million = "site_id,account_code,debit,credit,document_no
 dc,101120100100,15.000.000,,TB-2026-08
 dc,201200100100,,9.000.000,TB-2026-08
-dc,301010000100,,5.000.000,TB-2026-08
+dc,301300100200,,5.000.000,TB-2026-08
 ";
     let error = cloud::opening_import_balances(&pool, &request(out_by_a_million, true), ACTOR)
         .await
@@ -293,7 +326,7 @@ async fn one_place_being_out_does_not_hide_behind_another_being_over(pool: PgPoo
 dc,101120100100,15.000.000,,TB-2026-08
 dc,201200100100,,14.000.000,TB-2026-08
 store-01,101120100101,4.000.000,,TB-2026-08
-store-01,301010000101,,5.000.000,TB-2026-08
+store-01,301300100201,,5.000.000,TB-2026-08
 ";
     let error = cloud::opening_import_balances(&pool, &request(crossed, true), ACTOR)
         .await
@@ -312,8 +345,8 @@ async fn an_account_the_chart_cannot_take_is_named_and_never_dropped(pool: PgPoo
     let three_faults = "site_id,account_code,debit,credit,document_no
 dc,999999999999,1.000.000,,TB-2026-08
 dc,1011201,2.000.000,,TB-2026-08
-dc,101100100199,3.000.000,,TB-2026-08
-dc,301010000100,,6.000.000,TB-2026-08
+dc,101100100100,3.000.000,,TB-2026-08
+dc,301300100200,,6.000.000,TB-2026-08
 ";
     let error = cloud::opening_import_balances(&pool, &request(three_faults, true), ACTOR)
         .await
@@ -322,7 +355,7 @@ dc,301010000100,,6.000.000,TB-2026-08
     assert!(message.contains("999999999999"), "the typo: {message}");
     assert!(message.contains("1011201"), "the heading: {message}");
     assert!(
-        message.contains("101100100199"),
+        message.contains("101100100100"),
         "the retired one: {message}"
     );
     assert!(
