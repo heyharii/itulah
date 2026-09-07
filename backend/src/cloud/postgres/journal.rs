@@ -50,6 +50,12 @@ pub struct JournalLineView {
     pub debit_minor: i64,
     pub credit_minor: i64,
     pub supplier_id: Option<String>,
+    /// Which asset this line is about, when it is about one. The second
+    /// sub-ledger dimension, beside the supplier.
+    pub asset_id: Option<Uuid>,
+    /// `AST-000123`, so a drill-down reads as a sentence rather than as a
+    /// UUID somebody has to look up.
+    pub asset_number: Option<String>,
     pub memo: Option<String>,
 }
 
@@ -178,8 +184,11 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
 
     let lines = sqlx::query(
         "SELECT l.line_number, l.account_code, a.name AS account_name, l.site_id,
-                l.counter_site_id, l.debit_minor, l.credit_minor, l.supplier_id, l.memo
-           FROM journal_line l JOIN ledger_account a ON a.account_code = l.account_code
+                l.counter_site_id, l.debit_minor, l.credit_minor, l.supplier_id,
+                l.asset_id, f.asset_number, l.memo
+           FROM journal_line l
+           JOIN ledger_account a ON a.account_code = l.account_code
+           LEFT JOIN fixed_asset f ON f.asset_id = l.asset_id
           WHERE l.entry_id = $1 ORDER BY l.line_number",
     )
     .bind(entry_id)
@@ -200,6 +209,8 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
                     debit_minor: row.try_get("debit_minor")?,
                     credit_minor: row.try_get("credit_minor")?,
                     supplier_id: row.try_get("supplier_id")?,
+                    asset_id: row.try_get("asset_id")?,
+                    asset_number: row.try_get("asset_number")?,
                     memo: row.try_get("memo")?,
                 })
             })

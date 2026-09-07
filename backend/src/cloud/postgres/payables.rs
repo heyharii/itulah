@@ -35,6 +35,7 @@
 //! frozen by a trigger: the journal that quotes them cannot move, so neither can
 //! they.
 
+use super::assets::{asset_drafts_for_bill, ASSET_ACCOUNT_FAMILY};
 use super::ledger::{assert_postable, Intent};
 use super::poster::{post, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
@@ -131,6 +132,14 @@ pub struct SupplierBillLine {
     /// can be enabled by dropping a constraint rather than by a migration.
     pub site_id: String,
     pub amount_minor: i64,
+    /// Set when this line buys a fixed asset. Posting the bill mints a DRAFT
+    /// asset in that class pointing back at the line — the acquisition link
+    /// 0099 left to somebody noticing.
+    pub asset_class_code: Option<String>,
+    /// Set when this line replaces something the company has been reserving
+    /// for. It debits the replacement reserve for its class instead of the
+    /// account named on the line, and mints no asset.
+    pub draws_reserve: bool,
     pub memo: Option<String>,
 }
 
@@ -147,6 +156,20 @@ pub struct RecordBillLine {
     /// locations. See `SupplierBillLine::site_id`.
     pub site_id: String,
     pub amount_minor: i64,
+    /// The client's asset class this line buys, when it buys one: a family
+    /// under `10215`, or one of the thirty-six operating-equipment classes.
+    ///
+    /// Said here, by the person holding the paper, because that is the only
+    /// moment anybody knows. Everything downstream — the register row, the
+    /// depreciation, the disposal — follows from it, and none of it can be
+    /// reconstructed later from an account code that fourteen shops share.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub asset_class_code: Option<String>,
+    /// This purchase replaces something the company reserves for. Requires
+    /// `asset_class_code`, which then says which reserve it comes out of.
+    #[serde(default)]
+    pub draws_reserve: bool,
     pub memo: Option<String>,
 }
 
@@ -291,7 +314,7 @@ fn to_bill(row: &sqlx::postgres::PgRow) -> Result<SupplierBill, AppError> {
 async fn bill_lines(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<SupplierBillLine>, AppError> {
     let rows = sqlx::query(
         "SELECT l.line_id, l.line_number, l.account_code, a.name AS account_name,
-                l.site_id, l.amount_minor, l.memo
+                l.site_id, l.amount_minor, l.asset_class_code, l.draws_reserve, l.memo
            FROM supplier_invoice_expense_line l
            JOIN ledger_account a ON a.account_code = l.account_code
           WHERE l.invoice_id = $1
@@ -309,6 +332,8 @@ async fn bill_lines(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<SupplierBillL
                 account_name: row.try_get("account_name")?,
                 site_id: row.try_get("site_id")?,
                 amount_minor: row.try_get("amount_minor")?,
+                asset_class_code: row.try_get("asset_class_code")?,
+                draws_reserve: row.try_get("draws_reserve")?,
                 memo: row.try_get("memo")?,
             })
         })
@@ -459,6 +484,40 @@ pub async fn record_bill(
                     }
                     other => other,
                 })?;
+            // What the line says it is buying, checked while the person who
+            // wrote it is still on the screen. The alternative is a refusal at
+            // the moment somebody posts the bill, days later, naming a class
+            // they did not choose.
+            if let Some(class) = line.asset_class_code.as_deref().map(str::trim) {
+                if !class.starts_with(ASSET_ACCOUNT_FAMILY) {
+                    return Err(AppError::Validation(format!(
+                        "line {} says it buys a {class}, which is not an asset class; they are \
+                         the families under {ASSET_ACCOUNT_FAMILY} AKTIVA TETAP",
+                        index + 1
+                    )));
+                }
+                // A line that MINTS an asset has to be coded to the fixed-asset
+                // family too, because that debit is the cost the register will
+                // carry. A line that DRAWS the reserve is the opposite: its
+                // account is whatever the person chose and the posting rule
+                // ignores it, so nothing is asked of it here.
+                if !line.draws_reserve
+                    && !line.account_code.trim().starts_with(ASSET_ACCOUNT_FAMILY)
+                {
+                    return Err(AppError::Validation(format!(
+                        "line {} buys a {class} but is coded to {}; a capital purchase is coded \
+                         to the asset account it lands in, under {ASSET_ACCOUNT_FAMILY}",
+                        index + 1,
+                        line.account_code.trim()
+                    )));
+                }
+            } else if line.draws_reserve {
+                return Err(AppError::Validation(format!(
+                    "line {} draws the replacement reserve without saying which one; name the \
+                     asset class it replaces",
+                    index + 1
+                )));
+            }
             sum = sum
                 .checked_add(line.amount_minor)
                 .ok_or_else(|| AppError::Validation("the bill total overflows".into()))?;
@@ -523,8 +582,9 @@ pub async fn record_bill(
     for (index, line) in lines.iter().enumerate() {
         sqlx::query(
             "INSERT INTO supplier_invoice_expense_line
-               (line_id, invoice_id, line_number, account_code, site_id, amount_minor, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+               (line_id, invoice_id, line_number, account_code, site_id, amount_minor,
+                asset_class_code, draws_reserve, memo)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         )
         .bind(Uuid::new_v4())
         .bind(invoice_id)
@@ -532,6 +592,13 @@ pub async fn record_bill(
         .bind(line.account_code.trim())
         .bind(line.site_id.trim())
         .bind(line.amount_minor)
+        .bind(
+            line.asset_class_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|class| !class.is_empty()),
+        )
+        .bind(line.draws_reserve)
         .bind(line.memo.as_deref())
         .execute(&mut *tx)
         .await?;
@@ -608,25 +675,61 @@ pub async fn post_bill(
     // A cost line lands where the cost belongs and the payable lands at the
     // bill's own location, so an expense bill spanning four shops posts four
     // costs and one payable. That does not balance per location on its own, and
-    // it does not have to: `poster::post` adds the affiliate legs that leave
-    // each shop and head office at zero, which is the only way this can be read
-    // against the client's own per-location trial balance.
+    // it does not have to: 0121 relaxed 0098's "a line sits where its bill
+    // does", and `poster::post` adds the affiliate legs that leave each shop
+    // and head office at zero — which is the only way this can be read against
+    // the client's own per-location trial balance.
+    //
+    // Two exceptions to "debit whatever the person wrote down", and both are
+    // the register speaking rather than the document:
+    //
+    //   * a line that says it buys an asset gets that asset as its dimension,
+    //     so the ledger can be asked what one machine has cost. The asset is
+    //     minted first, below, inside the same transaction — a draft asset with
+    //     no posted bill behind it is a state nobody could explain.
+    //   * a line that says it DRAWS the replacement reserve debits the reserve
+    //     for its class instead of the account named on it. The expense was
+    //     already taken, month by month, while the reserve was being built;
+    //     charging it again would put one rack through the profit and loss
+    //     twice.
+    let mut tx = pool.begin().await?;
+    let minted = if expense {
+        asset_drafts_for_bill(&mut tx, invoice_id, actor).await?
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let mut lines: Vec<PostingLine> = if expense {
         existing
             .lines
             .as_deref()
             .unwrap_or(&[])
             .iter()
-            .map(|line| PostingLine {
-                account: LineAccount::Account {
-                    account_code: line.account_code.clone(),
-                },
-                site_id: line.site_id.clone(),
-                counter_site_id: None,
-                debit_minor: line.amount_minor,
-                credit_minor: 0,
-                supplier_id: None,
-                memo: line.memo.clone(),
+            .map(|line| {
+                let mut posting = match (line.draws_reserve, line.asset_class_code.as_deref()) {
+                    (true, Some(class)) => {
+                        PostingLine::debit("replacement_reserve", &line.site_id, line.amount_minor)
+                            .with_qualifier(class)
+                    }
+                    _ => PostingLine {
+                        account: LineAccount::Account {
+                            account_code: line.account_code.clone(),
+                        },
+                        site_id: line.site_id.clone(),
+                        // Nothing to say: where a cost line sits somewhere else
+                        // the balancer works the counterparty out and adds the
+                        // affiliate legs itself.
+                        counter_site_id: None,
+                        debit_minor: line.amount_minor,
+                        credit_minor: 0,
+                        supplier_id: None,
+                        asset_id: None,
+                        memo: line.memo.clone(),
+                    },
+                };
+                posting.memo = line.memo.clone();
+                posting.asset_id = minted.get(&line.line_id).copied();
+                posting
             })
             .collect()
     } else {
@@ -702,7 +805,8 @@ pub async fn post_bill(
         lines,
     };
 
-    let mut tx = pool.begin().await?;
+    // The transaction was opened above, so the assets this bill mints and the
+    // entry that pays for them are one write.
     let posted = post(&mut tx, &intent, None, actor).await?;
     sqlx::query(
         "UPDATE supplier_invoice

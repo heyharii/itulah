@@ -15,4 +15,19 @@ account_code: string,
  * head-office invoice for four shops' electricity is four lines at four
  * locations. See `SupplierBillLine::site_id`.
  */
-site_id: string, amount_minor: number, memo: string | null, };
+site_id: string, amount_minor: number, 
+/**
+ * The client's asset class this line buys, when it buys one: a family
+ * under `10215`, or one of the thirty-six operating-equipment classes.
+ *
+ * Said here, by the person holding the paper, because that is the only
+ * moment anybody knows. Everything downstream — the register row, the
+ * depreciation, the disposal — follows from it, and none of it can be
+ * reconstructed later from an account code that fourteen shops share.
+ */
+asset_class_code?: string, 
+/**
+ * This purchase replaces something the company reserves for. Requires
+ * `asset_class_code`, which then says which reserve it comes out of.
+ */
+draws_reserve: boolean, memo: string | null, };

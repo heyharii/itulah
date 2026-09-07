@@ -13,4 +13,14 @@ account_name: string, site_id: string,
  * electricity shows two lines called "Hutang Affiliasi Pembiayaan" and a
  * reader has to decode a twelve-digit code to find out which is whose.
  */
-counter_site_id: string | null, debit_minor: number, credit_minor: number, supplier_id: string | null, memo: string | null, };
+counter_site_id: string | null, debit_minor: number, credit_minor: number, supplier_id: string | null, 
+/**
+ * Which asset this line is about, when it is about one. The second
+ * sub-ledger dimension, beside the supplier.
+ */
+asset_id: string | null, 
+/**
+ * `AST-000123`, so a drill-down reads as a sentence rather than as a
+ * UUID somebody has to look up.
+ */
+asset_number: string | null, memo: string | null, };

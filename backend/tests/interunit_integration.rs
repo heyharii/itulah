@@ -514,6 +514,8 @@ async fn a_cost_may_sit_where_it_belongs_and_the_shop_still_balances(pool: PgPoo
                 site_id: "store-03".into(),
                 amount_minor: 1_000_000,
                 memo: Some("listrik September".into()),
+                asset_class_code: None,
+                draws_reserve: false,
             }]),
             matching: None,
             withholding_code: None,

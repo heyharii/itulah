@@ -961,6 +961,8 @@ async fn pph_is_withheld_at_payment_and_the_supplier_is_credited_in_full(pool: P
                 site_id: "dc".into(),
                 amount_minor: 10_000_000,
                 memo: Some("Keamanan September".into()),
+                asset_class_code: None,
+                draws_reserve: false,
             }]),
             matching: None,
             withholding_code: Some("PPH23_SERVICE".into()),

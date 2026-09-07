@@ -397,6 +397,7 @@ async fn a_heading_cannot_be_posted_to(pool: PgPool) {
                 debit_minor: 500,
                 credit_minor: 0,
                 supplier_id: None,
+                asset_id: None,
                 memo: None,
             },
             PostingLine::credit("trade_payable", "dc", 500),

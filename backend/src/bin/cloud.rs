@@ -46,6 +46,7 @@ async fn main() -> Result<(), AppError> {
     let state = AppState::new(pool, config);
     tokio::spawn(run_auth_policy_refresh_agent(state.db.clone()));
     tokio::spawn(run_catalog_publisher(state.db.clone()));
+    tokio::spawn(run_asset_month_end_agent(state.db.clone()));
     if state.config.sync_apply_enabled {
         tokio::spawn(sync_agent::run_apply_agent(state.clone()));
     }
@@ -88,6 +89,101 @@ async fn run_catalog_publisher(pool: sqlx::PgPool) {
             }
             Ok(None) => {}
             Err(error) => tracing::error!(%error, "failed to publish the product list"),
+        }
+    }
+}
+
+/// Charge last month's depreciation and replacement reserve, without being
+/// asked.
+///
+/// # Why this exists at all
+///
+/// The arithmetic and the endpoint have been here since 0070 and 0083, and
+/// nothing has ever called them except a person opening a screen and the seed
+/// script running four months once. A month nobody charges looks exactly like a
+/// month in which nothing was due — there is no row either way — so the failure
+/// is silent, and it surfaces as a profit and loss with no depreciation in it or
+/// as a disposal refused four months later because the run "still owes a
+/// charge".
+///
+/// # Why hourly, and why it charges the month that just ended
+///
+/// Hourly because the run is cheap when there is nothing to do — one query
+/// against the register — and because a node restarted on the 1st should not
+/// wait a day. The month charged is always the PREVIOUS one: charging the month
+/// in progress would post a full month of depreciation on the 3rd.
+///
+/// The run is idempotent by construction, so twenty-four attempts a day post
+/// exactly one month's charge. That is the property that makes a schedule this
+/// crude safe, and it is not incidental — it is the unique index on (asset,
+/// month) and the one on (class, location, month) doing their job.
+///
+/// # What it will not do
+///
+/// It never opens a period and never posts into a closed one: the trigger on
+/// the journal refuses that, and the refusal is recorded in the run log rather
+/// than retried. A month somebody closed without charging it is a decision, and
+/// this is not the thing that should quietly undo it.
+async fn run_asset_month_end_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    loop {
+        interval.tick().await;
+        let Some(previous) = chrono::Utc::now()
+            .date_naive()
+            .checked_sub_months(chrono::Months::new(1))
+        else {
+            continue;
+        };
+        let (year, month) = (
+            chrono::Datelike::year(&previous),
+            chrono::Datelike::month(&previous),
+        );
+
+        // Asked before anything is posted, so an ordinary hour of an ordinary
+        // day costs one query and writes no run row. Without this the log would
+        // fill with twenty-four "nothing was due" rows a day and the one row
+        // that mattered would be unfindable.
+        match postgres::asset_depreciation_status(&pool, year, month).await {
+            Ok(status) if status.complete => {}
+            Ok(status) if status.period_status.as_deref() == Some("CLOSED") => {
+                tracing::warn!(
+                    %year, %month, missing = status.missing.len(),
+                    "the month is closed and still owes depreciation; it needs reopening or a \
+                     correction, and this agent will not decide which"
+                );
+            }
+            Ok(_) => {
+                match postgres::asset_depreciation_run_month(&pool, year, month, "system:month-end")
+                    .await
+                {
+                    Ok(run) => info!(
+                        %year, %month, posted = run.posted_count, total = run.posted_total_minor,
+                        "charged a month of depreciation"
+                    ),
+                    Err(error) => {
+                        tracing::error!(%year,%month,%error,"could not charge the month")
+                    }
+                }
+            }
+            Err(error) => tracing::error!(%year,%month,%error,"could not read the month's status"),
+        }
+
+        match postgres::asset_reserve_status(&pool, year, month).await {
+            Ok(status) if status.complete => {}
+            Ok(_) => {
+                match postgres::asset_reserve_charge(&pool, year, month, "system:month-end").await {
+                    Ok(run) => info!(
+                        %year, %month, posted = run.posted_count, total = run.posted_total_minor,
+                        "charged a month of replacement reserve"
+                    ),
+                    Err(error) => {
+                        tracing::error!(%year,%month,%error,"could not charge the replacement reserve")
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(%year,%month,%error,"could not read the reserve's status")
+            }
         }
     }
 }
