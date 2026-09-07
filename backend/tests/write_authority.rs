@@ -128,10 +128,18 @@ const MATRIX: &[Authority] = &[
     },
     Authority {
         table: "edge_sale_tender",
-        writers: &["src/cloud/postgres/sync.rs"],
+        writers: &[
+            "src/cloud/postgres/sync.rs",
+            "src/cloud/postgres/sales_posting.rs",
+        ],
         reason: "as edge_sale, and it matters more here than anywhere: a tender \
                  the centre invented is money claimed from a bank that never \
-                 sent it",
+                 sent it. `sales_posting.rs` is the one exception and it is not \
+                 an invention: a retender moves a tender the shop really took \
+                 from the acquirer nobody could settle it against to the one \
+                 that did, and it writes `sale_tender_retender` beside the edit \
+                 so the change has a document and an author. The amount, the \
+                 sale and the day are untouched; only whose debt it is moves",
     },
     Authority {
         table: "sale_tender",
