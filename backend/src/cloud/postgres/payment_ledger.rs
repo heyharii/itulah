@@ -783,6 +783,200 @@ pub async fn ple_settle(
 }
 
 // ---------------------------------------------------------------------------
+// Finding what a document answers
+// ---------------------------------------------------------------------------
+
+/// What a settling document knows about the items it is answering.
+///
+/// Not a [`PaymentLedgerFilter`]. That one is a screen's question — every field
+/// optional, as at any date, on a pool — and this is a posting rule's. A rule
+/// always knows the control account and the party, it is always asking about
+/// now, and it is always inside the transaction that has just written the
+/// journal entry. Keeping the two shapes apart means neither has to carry the
+/// other's caveats.
+#[derive(Clone, Copy, Debug)]
+pub struct PaymentLedgerClaim<'a> {
+    /// The semantic key of the control account, as the opener wrote it.
+    pub account_key: &'a str,
+    /// Which bank, which scheme. Empty when the meaning needs no narrowing —
+    /// and it has to match, not be ignored, or a settlement meant for BCA would
+    /// find MANDIRI's items sitting on the same account.
+    pub qualifier: &'a str,
+    pub site_id: &'a str,
+    pub party_type: PaymentLedgerPartyType,
+    pub party_id: &'a str,
+    /// The document that raised the items, when the settling one names it —
+    /// "the open payable for BILL-0092 of PT Benang Emas". Left out when it
+    /// genuinely does not: an acquirer's settlement answers whatever days are
+    /// still open, and choosing which is the ledger's business rather than the
+    /// file's.
+    pub voucher_kind: Option<&'a str>,
+    pub voucher_id: Option<&'a str>,
+}
+
+impl PaymentLedgerClaim<'_> {
+    /// The claim as a person would say it, for the sentence a refusal prints.
+    fn describe(&self) -> String {
+        match (self.voucher_kind, self.voucher_id) {
+            (Some(kind), Some(voucher)) => format!(
+                "{kind} {voucher} on '{}' at {} for {}",
+                self.account_key, self.site_id, self.party_id
+            ),
+            _ => format!(
+                "'{}' at {} for {}",
+                self.account_key, self.site_id, self.party_id
+            ),
+        }
+    }
+}
+
+/// The open items a claim selects, inside the caller's transaction and locked.
+///
+/// [`ple_open_items`] takes a `&PgPool`, which is right for the ageing report
+/// and the integrity check: they read as at a date and write nothing. It is
+/// wrong for a posting rule. A second connection cannot see what this
+/// transaction has just written — the bill posted a moment ago in the same
+/// commit — and the ids it handed back would race [`ple_settle`]'s own
+/// `FOR UPDATE` between the read and the write. This one reads the table
+/// through the caller's own snapshot and takes that same lock as it reads, so
+/// what it finds is still what it finds when the settlement lands on it.
+///
+/// It asks about now rather than as at a date, and reads the stored
+/// `outstanding_minor` rather than `payment_ledger_as_of`: a settlement happens
+/// now, and a set-returning function cannot be locked.
+///
+/// Oldest first — by due date where somebody agreed one, by posting date where
+/// nobody did — because that is the order money is applied in when a document
+/// answers more than one item and does not say how. A document that DOES say
+/// how names its voucher on the claim and gets one item back.
+pub async fn ple_find_open(
+    tx: &mut Transaction<'_, Postgres>,
+    claim: &PaymentLedgerClaim<'_>,
+) -> Result<Vec<PaymentLedgerEntry>, AppError> {
+    let account_key = claim.account_key.trim().to_ascii_lowercase();
+    if account_key.is_empty() {
+        return Err(AppError::Validation(
+            "a claim on the payment ledger names the control account it is against".into(),
+        ));
+    }
+    let party_id = claim.party_id.trim();
+    if party_id.is_empty() {
+        return Err(AppError::Validation(
+            "a claim on the payment ledger names the party it is with".into(),
+        ));
+    }
+    let rows = sqlx::query(
+        "SELECT e.entry_id, e.account_key, e.qualifier, e.site_id, e.side,
+                e.party_type, e.party_id, e.party_name, e.voucher_kind, e.voucher_id,
+                e.against_voucher_kind, e.against_voucher_id, e.journal_entry_id,
+                NULL::text AS entry_number,
+                e.currency, e.amount_minor, e.settled_minor, e.outstanding_minor,
+                e.due_date, e.posting_date,
+                (CURRENT_DATE - COALESCE(e.due_date, e.posting_date))::int AS age_days,
+                e.delinked, e.created_at, e.created_by
+           FROM payment_ledger_entry e
+          WHERE e.account_key = $1
+            AND e.qualifier = $2
+            AND e.site_id = $3
+            AND e.party_type = $4
+            AND e.party_id = $5
+            AND ($6::text IS NULL OR e.voucher_kind = $6)
+            AND ($7::text IS NULL OR e.voucher_id = $7)
+            AND NOT e.delinked
+            AND e.outstanding_minor <> 0
+          ORDER BY COALESCE(e.due_date, e.posting_date), e.posting_date, e.entry_id
+            FOR UPDATE",
+    )
+    .bind(&account_key)
+    .bind(claim.qualifier.trim())
+    .bind(claim.site_id)
+    .bind(claim.party_type.as_str())
+    .bind(party_id)
+    .bind(claim.voucher_kind.map(str::trim))
+    .bind(claim.voucher_id.map(str::trim))
+    .fetch_all(&mut **tx)
+    .await?;
+    rows.iter().map(to_entry).collect()
+}
+
+/// Find the items a document answers and put one amount against them.
+///
+/// The two calls every settling posting rule has to make, in one place. The
+/// four seams this ledger was merged with unwired all knew a party, a control
+/// account and an amount, and none of them knew an `entry_id`; four separate
+/// oldest-first loops would be four chances to spread the same money four ways.
+///
+/// Two outcomes that are not errors and are worth telling apart:
+///
+///   * `Ok(None)` — the ledger holds nothing open for this claim. Either the
+///     debt is already answered, or it predates the ledger and nothing here
+///     follows it. Settling zero is then the honest act, and
+///     `payment_ledger_integrity` is where the second case shows up.
+///   * `Ok(Some(settled))` with `applied_minor` zero — this exact settlement is
+///     already recorded. A retry, not a second payment.
+///
+/// What IS refused is a document settling more than the ledger has open for it:
+/// `domain::spread` refuses rather than leaving a remainder, because a
+/// settlement quietly short by its remainder is how a control account and its
+/// sub-ledger part company.
+#[allow(clippy::too_many_arguments)]
+pub async fn ple_settle_claim(
+    tx: &mut Transaction<'_, Postgres>,
+    claim: &PaymentLedgerClaim<'_>,
+    against_voucher_kind: &str,
+    against_voucher_id: &str,
+    journal_entry_id: Uuid,
+    posting_date: NaiveDate,
+    amount_minor: i64,
+    actor: &str,
+) -> Result<Option<PaymentLedgerSettled>, AppError> {
+    if amount_minor <= 0 {
+        return Ok(None);
+    }
+    let items = ple_find_open(tx, claim).await?;
+    if items.is_empty() {
+        return Ok(None);
+    }
+    let open: Vec<i64> = items.iter().map(|item| item.outstanding_minor).collect();
+    let apportioned =
+        crate::cloud::domain::spread(&open, amount_minor).map_err(|refusal| match refusal {
+            AllocationRefusal::MoreThanIsOpen {
+                asked_minor,
+                open_minor,
+            } => AppError::Conflict(format!(
+                "{against_voucher_kind} {against_voucher_id} settles {asked_minor} against \
+                 {}, which has {open_minor} open. A document cannot answer a debt nobody \
+                 has raised",
+                claim.describe()
+            )),
+            other => AppError::Validation(other.to_string()),
+        })?;
+    let allocations: Vec<PaymentLedgerAllocation> = items
+        .iter()
+        .zip(&apportioned)
+        .filter(|(_, &amount)| amount > 0)
+        .map(|(item, &amount)| PaymentLedgerAllocation {
+            entry_id: item.entry_id,
+            amount_minor: amount,
+        })
+        .collect();
+    if allocations.is_empty() {
+        return Ok(None);
+    }
+    let settled = ple_settle(
+        tx,
+        against_voucher_kind,
+        against_voucher_id,
+        journal_entry_id,
+        posting_date,
+        &allocations,
+        actor,
+    )
+    .await?;
+    Ok(Some(settled))
+}
+
+// ---------------------------------------------------------------------------
 // Cancelling
 // ---------------------------------------------------------------------------
 
