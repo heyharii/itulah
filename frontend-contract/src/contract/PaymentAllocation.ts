@@ -15,4 +15,13 @@ invoice_total_minor: number, amount_minor: number,
  * a screen listing what a transfer settled should be able to say that one
  * of the four was the electricity.
  */
-kind: string, };
+kind: string, 
+/**
+ * Where the BILL is, which is not always where the payment is.
+ *
+ * It decides where the payable is debited, and it has to: a payable
+ * credited in store 03's books and cleared in head office's would leave
+ * store 03 owing a supplier for ever while head office's balance sheet
+ * carried a debt it never had.
+ */
+site_id: string, };

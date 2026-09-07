@@ -596,7 +596,16 @@ pub async fn run_depreciation(
                     ],
                 };
                 let mut tx = pool.begin().await?;
-                let posted = post(&mut tx, &intent, actor).await?;
+                // The month is the step. `source_id` is the asset and the asset
+                // is charged every month, so the document alone cannot say which
+                // charge this is — and under migration 0140's key it would make
+                // October's charge look like a duplicate of September's. Naming
+                // the period also gives the run the idempotency it never had:
+                // charging one asset twice for one month is now refused by the
+                // database rather than by `asset_depreciation_entry` being read
+                // a moment before it is written.
+                let purpose = format!("PERIOD_{}", period.format("%Y%m"));
+                let posted = post(&mut tx, &intent, Some(&purpose), actor).await?;
                 sqlx::query(
                     "INSERT INTO asset_depreciation_entry
                        (entry_id, asset_id, period_month, amount_minor, journal_entry_id, posted_by)
@@ -950,7 +959,8 @@ pub async fn dispose_asset(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    // An asset leaves the books once, so MAIN is the whole of it.
+    let posted = post(&mut tx, &intent, None, actor).await?;
     // One statement, so the CHECK that ties DISPOSED to its entry, its method
     // and its proceeds is satisfied by the row as a whole. Setting them one at
     // a time would fail on the first.
@@ -1071,7 +1081,17 @@ pub async fn transfer_asset(
             }),
             lines,
         };
-        Some(post(&mut tx, &intent, actor).await?.entry_id)
+        // The date is the step. An asset moves more than once in its life and
+        // `source_id` is the asset, so — as with the monthly charge — the
+        // document alone cannot say which move this is. Naming the day also
+        // makes the second attempt at one move a refusal rather than a second
+        // entry: an asset does not go to two places on one date.
+        let purpose = format!("MOVED_{}", request.moved_on.format("%Y%m%d"));
+        Some(
+            post(&mut tx, &intent, Some(&purpose), actor)
+                .await?
+                .entry_id,
+        )
     } else {
         None
     };

@@ -179,7 +179,7 @@ async fn a_meaning_with_no_account_refuses_and_says_which(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let refusal = cloud::post(&mut tx, &bill(8_600_000), ACTOR).await;
+    let refusal = cloud::post(&mut tx, &bill(8_600_000), None, ACTOR).await;
 
     let message = match refusal {
         Ok(posted) => panic!(
@@ -211,7 +211,7 @@ async fn a_bill_posts_and_the_trial_balance_balances(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let posted = cloud::post(&mut tx, &bill(8_600_000), ACTOR)
+    let posted = cloud::post(&mut tx, &bill(8_600_000), None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()
@@ -311,7 +311,7 @@ async fn a_closed_period_refuses_a_posting(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let refusal = cloud::post(&mut tx, &bill(1_000), ACTOR).await;
+    let refusal = cloud::post(&mut tx, &bill(1_000), None, ACTOR).await;
     let message = match refusal {
         Ok(posted) => panic!("posted {} into a closed month", posted.entry_number),
         Err(error) => as_shown_to_a_person(&error),
@@ -339,7 +339,7 @@ async fn a_month_nobody_opened_refuses_a_posting(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let refusal = cloud::post(&mut tx, &intent, ACTOR).await;
+    let refusal = cloud::post(&mut tx, &intent, None, ACTOR).await;
     let message = match refusal {
         Ok(posted) => panic!("posted {} into a month nobody opened", posted.entry_number),
         Err(error) => as_shown_to_a_person(&error),
@@ -393,6 +393,7 @@ async fn a_heading_cannot_be_posted_to(pool: PgPool) {
                     account_code: "1".into(),
                 },
                 site_id: "dc".into(),
+                counter_site_id: None,
                 debit_minor: 500,
                 credit_minor: 0,
                 supplier_id: None,
@@ -402,7 +403,7 @@ async fn a_heading_cannot_be_posted_to(pool: PgPool) {
         ],
     };
     assert!(
-        cloud::post(&mut tx, &intent, ACTOR).await.is_err(),
+        cloud::post(&mut tx, &intent, None, ACTOR).await.is_err(),
         "posting to a heading should be refused by the database"
     );
 }
@@ -418,7 +419,7 @@ async fn a_reversal_mirrors_the_original_and_leaves_it_alone(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let original = cloud::post(&mut tx, &bill(2_000_000), ACTOR)
+    let original = cloud::post(&mut tx, &bill(2_000_000), None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()
@@ -485,7 +486,7 @@ async fn the_journal_cannot_be_edited_or_deleted(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let posted = cloud::post(&mut tx, &bill(4_000), ACTOR)
+    let posted = cloud::post(&mut tx, &bill(4_000), None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()
@@ -518,11 +519,17 @@ async fn the_general_ledger_opens_where_the_previous_window_closed(pool: PgPool)
     for (day, amount) in [(1_u32, 1_000_i64), (2, 2_000)] {
         let mut intent = bill(amount);
         intent.posting_date = september(day);
+        // Two bills and not one bill posted twice. `bill()` names INV-1, and
+        // from migration 0140 a document posts once for each step it has — so
+        // the second of these would be refused as the duplicate it looks like.
+        // Which is the right refusal: what this test wants is two movements in
+        // one account, and two movements come from two documents.
+        intent.source_id = Some(format!("INV-{day}"));
         let mut tx = pool
             .begin()
             .await
             .unwrap_or_else(|error| panic!("begin: {error}"));
-        cloud::post(&mut tx, &intent, ACTOR)
+        cloud::post(&mut tx, &intent, None, ACTOR)
             .await
             .unwrap_or_else(|error| panic!("post: {error}"));
         tx.commit()
@@ -533,6 +540,7 @@ async fn the_general_ledger_opens_where_the_previous_window_closed(pool: PgPool)
     let october = cloud::general_ledger(
         &pool,
         "101120100100",
+        None,
         None,
         NaiveDate::from_ymd_opt(2026, 10, 1).unwrap_or_else(|| panic!("date")),
         NaiveDate::from_ymd_opt(2026, 10, 31).unwrap_or_else(|| panic!("date")),
@@ -677,7 +685,7 @@ async fn a_family_shows_a_cell_for_every_location(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    cloud::post(&mut tx, &bill(7_000), ACTOR)
+    cloud::post(&mut tx, &bill(7_000), None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()

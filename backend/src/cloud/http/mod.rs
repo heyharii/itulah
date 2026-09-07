@@ -27,6 +27,7 @@ pub mod employment;
 pub mod files;
 pub mod finance;
 pub mod holiday;
+pub mod interunit;
 pub mod leave;
 pub mod member;
 pub mod notifications;
@@ -66,7 +67,9 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
 
 pub fn router(state: AppState) -> Router {
     let frontend = state.config.frontend_dir.clone();
-    Router::new()
+    // Inter-unit, in its own file. The one figure in these books that two
+    // people have to agree about, and the only one read from both sides.
+    interunit::lane_d_routes(Router::new())
         .merge(crate::cloud::media::router())
         .route("/api/v1/health", get(health))
         .route("/api/v1/inventory/pools", get(pools))
@@ -534,7 +537,10 @@ pub fn router(state: AppState) -> Router {
         // The chats themselves. Kept on the node rather than in the tab that
         // asked, so the sidebar of past questions survives a reload and a
         // different machine — see migration `0102`.
-        .route("/api/v1/assistant/conversations", get(assistant::conversations))
+        .route(
+            "/api/v1/assistant/conversations",
+            get(assistant::conversations),
+        )
         .route(
             "/api/v1/assistant/conversations/{id}",
             get(assistant::conversation)

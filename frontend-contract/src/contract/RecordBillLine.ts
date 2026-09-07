@@ -11,6 +11,8 @@ export type RecordBillLine = {
  */
 account_code: string, 
 /**
- * Must be the bill's own location; see `SupplierBillLine::site_id`.
+ * Where the COST belongs, which need not be the bill's own location: one
+ * head-office invoice for four shops' electricity is four lines at four
+ * locations. See `SupplierBillLine::site_id`.
  */
 site_id: string, amount_minor: number, memo: string | null, };

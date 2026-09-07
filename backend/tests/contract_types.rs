@@ -399,6 +399,14 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("GeneralLedger: {e}"));
     inventory_backend::cloud::postgres::GeneralLedgerRow::export_all(&config)
         .unwrap_or_else(|e| panic!("GeneralLedgerRow: {e}"));
+    // The two-way check. Both sides of every head-office/shop balance, which
+    // is the one figure in these books that two people have to agree about.
+    inventory_backend::cloud::postgres::InterunitPair::export_all(&config)
+        .unwrap_or_else(|e| panic!("InterunitPair: {e}"));
+    inventory_backend::cloud::postgres::InterunitMovement::export_all(&config)
+        .unwrap_or_else(|e| panic!("InterunitMovement: {e}"));
+    inventory_backend::cloud::postgres::InterunitReport::export_all(&config)
+        .unwrap_or_else(|e| panic!("InterunitReport: {e}"));
     inventory_backend::cloud::http::finance::AccountDetail::export_all(&config)
         .unwrap_or_else(|e| panic!("AccountDetail: {e}"));
     inventory_backend::cloud::http::finance::PeriodRequest::export_all(&config)

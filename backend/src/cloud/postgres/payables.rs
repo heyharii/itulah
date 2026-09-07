@@ -129,7 +129,9 @@ pub struct RecordBillLine {
     /// advance or a capital purchase — class 1. The database refuses the rest,
     /// and says why.
     pub account_code: String,
-    /// Must be the bill's own location; see `SupplierBillLine::site_id`.
+    /// Where the COST belongs, which need not be the bill's own location: one
+    /// head-office invoice for four shops' electricity is four lines at four
+    /// locations. See `SupplierBillLine::site_id`.
     pub site_id: String,
     pub amount_minor: i64,
     pub memo: Option<String>,
@@ -381,30 +383,22 @@ pub async fn record_bill(
                     index + 1
                 )));
             }
-            // Every 6* and 7* leaf in this client's chart is already a
-            // per-location account, and their trial balance is read per
-            // location. A DC bill carrying a store-01 line would debit store
-            // 01 with no credit anywhere in store 01's books: two locations
-            // out by the same amount in opposite directions, and a
-            // consolidated trial balance that still balances.
+            // A line may sit at another location than its bill. One electricity
+            // invoice at head office covering four shops is four lines at four
+            // locations, which is how the client bills it and how they read it
+            // back.
             //
-            // The honest credit is inter-unit — the client keeps
-            // `affiliate_receivable` and `affiliate_payable` and both are
-            // mapped for all fourteen locations — but no rule writes either
-            // yet, and which side carries the balance is Finance's decision.
-            // 0084 refuses a cross-site PAYMENT on the same argument. The
-            // composite foreign key added in 0098 is the guarantee; this is
-            // the sentence.
-            if line.site_id.trim() != request.site_id.trim() {
-                return Err(AppError::Validation(format!(
-                    "line {} puts the cost at {} and the bill is at {}; a cost at another \
-                     location needs an inter-unit credit, and no rule writes affiliate_receivable \
-                     or affiliate_payable yet. Record one bill per location instead.",
-                    index + 1,
-                    line.site_id.trim(),
-                    request.site_id.trim()
-                )));
-            }
+            // This is where a refusal used to be, and the reason it could stand
+            // for as long as it did: every 6* and 7* leaf in the client's chart
+            // is a per-location account and their trial balance is read per
+            // location, so a head-office bill carrying a store-01 line debited
+            // store 01 with no credit anywhere in store 01's books. The honest
+            // credit is inter-unit, nothing wrote one, and refusing was better
+            // than mis-posting. `domain::interunit` writes it now — the shop's
+            // cost against what it owes head office, head office's receivable
+            // against the supplier it will pay — so the entry balances at every
+            // location it touches and the constraint that enforced the old rule
+            // came off in 0121.
             // Checked here as well as by the composite foreign key on the
             // table, for the reason `assert_postable` documents: a foreign-key
             // violation is SQLSTATE 23503 and reaches a person as "database
@@ -526,11 +520,12 @@ pub async fn post_bill(
     // chosen by the person who read the paper, exactly as it does on a manual
     // journal entry. `LineAccount::Account` is the same door that entry uses.
     //
-    // Every leg lands at the bill's own location: 0098 forces a line's site to
-    // equal its bill's, because a cross-location cost has no honest credit
-    // until an inter-unit rule exists. So the entry balances per location as
-    // well as in total, which is the only way it can be read against the
-    // client's own per-location trial balance.
+    // A cost line lands where the cost belongs and the payable lands at the
+    // bill's own location, so an expense bill spanning four shops posts four
+    // costs and one payable. That does not balance per location on its own, and
+    // it does not have to: `poster::post` adds the affiliate legs that leave
+    // each shop and head office at zero, which is the only way this can be read
+    // against the client's own per-location trial balance.
     let mut lines: Vec<PostingLine> = if expense {
         existing
             .lines
@@ -542,6 +537,7 @@ pub async fn post_bill(
                     account_code: line.account_code.clone(),
                 },
                 site_id: line.site_id.clone(),
+                counter_site_id: None,
                 debit_minor: line.amount_minor,
                 credit_minor: 0,
                 supplier_id: None,
@@ -607,7 +603,7 @@ pub async fn post_bill(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
     sqlx::query(
         "UPDATE supplier_invoice
             SET status='POSTED', journal_entry_id=$2, posted_by=$3, posted_at=now()

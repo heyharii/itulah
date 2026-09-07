@@ -680,6 +680,7 @@ pub async fn book_bank_line(
             account_code: chosen.to_string(),
         },
         site_id: site_id.clone(),
+        counter_site_id: None,
         debit_minor: if outgoing { amount } else { 0 },
         credit_minor: if outgoing { 0 } else { amount },
         supplier_id: None,
@@ -700,7 +701,7 @@ pub async fn book_bank_line(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
     let journal_line_id: Uuid =
         sqlx::query("SELECT line_id FROM journal_line WHERE entry_id = $1 AND line_number = 1")
             .bind(posted.entry_id)
