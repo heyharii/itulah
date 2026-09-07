@@ -11,6 +11,8 @@ use serde_json::{json, Value};
 use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use uuid::Uuid;
 
+// lane-H
+pub mod acquirer;
 pub mod articles;
 pub mod assistant;
 pub mod attendance;
@@ -732,6 +734,9 @@ pub fn router(state: AppState) -> Router {
         .merge(payment_ledger::lane_p_routes(Router::new()))
         // lane-A routes: a day of takings, and moving a settled tender.
         .merge(sales_posting::lane_a_routes(Router::new()))
+        // lane-H routes: a shop's evening against its own EDC slip, and
+        // head office settling what the acquirers owe.
+        .merge(acquirer::lane_h_routes(Router::new()))
         // What "late" means. Readable by anybody signed in — a tolerance
         // kept from the people measured against it is a trap, not a rule —
         // and writable only at head office.

@@ -1,4 +1,5 @@
 mod accounts;
+mod acquirer;
 mod allotments;
 mod articles;
 mod assets;
@@ -57,6 +58,7 @@ mod vocabulary;
 mod vouchers;
 
 pub use accounts::*;
+pub use acquirer::*;
 pub use allotments::*;
 pub use articles::*;
 pub use assets::*;
