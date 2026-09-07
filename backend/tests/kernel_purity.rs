@@ -51,6 +51,11 @@ const KERNELS: &[&str] = &[
     // nobody could compare with last month's, and the way that happens is a
     // kernel reaching for the calendar. Ages arrive as whole days.
     "src/cloud/domain/payment_ledger.rs",
+    // lane-A: the day's takings rule. Guarded for the same reason as the
+    // other two and one of its own — a posting rule that could read the
+    // database would produce a different entry in March than regenerating
+    // March produces, silently, with nothing failing.
+    "src/cloud/domain/sales_posting.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the

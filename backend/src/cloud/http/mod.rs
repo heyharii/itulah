@@ -37,6 +37,8 @@ pub mod payment_ledger;
 pub mod performance;
 pub mod reports;
 pub mod roster;
+// lane-A
+pub mod sales_posting;
 pub mod suppliers;
 pub mod vocabulary;
 pub mod vouchers;
@@ -728,6 +730,8 @@ pub fn router(state: AppState) -> Router {
         // agrees with the books. Read-only — an open balance is opened by the
         // posting rule that created the document, never by a screen.
         .merge(payment_ledger::lane_p_routes(Router::new()))
+        // lane-A routes: a day of takings, and moving a settled tender.
+        .merge(sales_posting::lane_a_routes(Router::new()))
         // What "late" means. Readable by anybody signed in — a tolerance
         // kept from the people measured against it is a trap, not a rule —
         // and writable only at head office.

@@ -19,6 +19,8 @@ mod pay;
 mod payment_ledger;
 mod place;
 mod sales;
+// lane-A
+pub mod sales_posting;
 mod supplier;
 mod sync;
 mod voucher;

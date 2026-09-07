@@ -5290,9 +5290,13 @@ async fn apply_sale(
     // fact overwrites the same rows rather than recording each payment twice.
     for tender in &sale.tenders {
         sqlx::query(
+            // lane-A: the acquirer, terminal and batch travel with the tender
+            // when the till knows them. Null when it does not, which is every
+            // till today — the ledger then falls back to `reference`.
             "INSERT INTO edge_sale_tender
-                 (sale_id, tender_seq, method, amount_minor, reference)
-             VALUES ($1, $2, $3, $4, $5)
+                 (sale_id, tender_seq, method, amount_minor, reference,
+                  acquirer, terminal_id, batch_no, card_kind)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              ON CONFLICT (sale_id, tender_seq) DO NOTHING",
         )
         .bind(sale.sale_id)
@@ -5305,6 +5309,36 @@ async fn apply_sale(
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty()),
+        )
+        .bind(
+            tender
+                .acquirer
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_ascii_uppercase),
+        )
+        .bind(
+            tender
+                .terminal_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(
+            tender
+                .batch_no
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(
+            tender
+                .card_kind
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_uppercase)
+                .filter(|value| value == "DEBIT" || value == "CREDIT"),
         )
         .execute(&mut **tx)
         .await?;

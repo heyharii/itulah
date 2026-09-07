@@ -43,6 +43,8 @@ mod reports;
 mod returns;
 mod roster;
 mod sales;
+// lane-A
+mod sales_posting;
 mod saved_reports;
 mod segments;
 mod statements;
@@ -99,6 +101,8 @@ pub use reports::*;
 pub use returns::*;
 pub use roster::*;
 pub use sales::*;
+// lane-A
+pub use sales_posting::*;
 pub use saved_reports::*;
 pub use segments::*;
 pub use statements::*;

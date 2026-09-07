@@ -385,6 +385,31 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SetAccountMappingRequest: {e}"));
     inventory_backend::cloud::postgres::SemanticKeyDoc::export_all(&config)
         .unwrap_or_else(|e| panic!("SemanticKeyDoc: {e}"));
+
+    // lane-A: a day of takings, and moving a settled tender. Exported for the
+    // same reason everything above it is — the screens that generate a day,
+    // read its working paper and retender a card have to agree with the server
+    // about the shape of all three, and the only way to guarantee that is for
+    // one of them to be written by the other.
+    inventory_backend::cloud::postgres::SalesPosting::export_all(&config)
+        .unwrap_or_else(|e| panic!("SalesPosting: {e}"));
+    inventory_backend::cloud::postgres::SalesPostingLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("SalesPostingLine: {e}"));
+    inventory_backend::cloud::postgres::SalesPostingDocument::export_all(&config)
+        .unwrap_or_else(|e| panic!("SalesPostingDocument: {e}"));
+    inventory_backend::cloud::postgres::GenerateSalesPostingRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("GenerateSalesPostingRequest: {e}"));
+    inventory_backend::cloud::postgres::GenerateSalesDaysRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("GenerateSalesDaysRequest: {e}"));
+    inventory_backend::cloud::postgres::GeneratedDay::export_all(&config)
+        .unwrap_or_else(|e| panic!("GeneratedDay: {e}"));
+    inventory_backend::cloud::postgres::ReverseSalesPostingRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReverseSalesPostingRequest: {e}"));
+    inventory_backend::cloud::postgres::RetenderRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RetenderRequest: {e}"));
+    inventory_backend::cloud::postgres::RetenderOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("RetenderOutcome: {e}"));
+    // end lane-A
     inventory_backend::cloud::postgres::BookLocation::export_all(&config)
         .unwrap_or_else(|e| panic!("BookLocation: {e}"));
     inventory_backend::cloud::postgres::FiscalPeriod::export_all(&config)

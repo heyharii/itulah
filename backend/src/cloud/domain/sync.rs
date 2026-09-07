@@ -1765,6 +1765,25 @@ pub struct SaleFactTender {
     pub amount_minor: i64,
     #[serde(default)]
     pub reference: Option<String>,
+    // lane-A: who settles this, on which terminal, in which batch. Card money
+    // does not arrive as money — it arrives days later, from a named acquirer,
+    // net of a fee, in a batch their terminal closed — and none of that can be
+    // reconciled against "we took 4,200,000 on cards".
+    //
+    // All optional, all `default`, because no till sends them yet: the fields
+    // are here so a till that starts to needs no change at this end, and until
+    // one does the centre falls back to `reference`, which is where 0077 said
+    // the acquirer goes.
+    #[serde(default)]
+    pub acquirer: Option<String>,
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub batch_no: Option<String>,
+    /// `DEBIT` or `CREDIT`. Absent leaves the centre to infer it from the
+    /// acquirer and to record on the day's document that it did.
+    #[serde(default)]
+    pub card_kind: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

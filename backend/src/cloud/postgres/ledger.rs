@@ -296,18 +296,25 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Cash & Bank",
         ),
+        // lane-A changed these two from unqualified to qualified. What a shop
+        // is owed on cards is owed by a NAMED acquirer, clearing on its own
+        // day for its own fee, and a day's takings cannot be reconciled
+        // against a settlement file without saying which. The client's chart
+        // keeps one account for all of them, so every qualifier may point at
+        // the same leaf — the qualifier is what lets them split it later
+        // without a change to a posting rule.
         key(
             "card_receivable_credit",
             "Credit card receivable",
-            "1011101001 Piutang kartu Kredit",
-            false,
+            "1011101001 Piutang kartu Kredit (per network)",
+            true,
             "Receivables",
         ),
         key(
             "card_receivable_debit",
             "Debit card receivable",
-            "1011101002 Piutang Debit Card",
-            false,
+            "1011101002 Piutang Debit Card (per bank)",
+            true,
             "Receivables",
         ),
         key(
@@ -445,6 +452,91 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Loans & Financing",
         ),
+        // lane-A: what a day's takings need. The client splits sales income by
+        // how it was settled, because cash is in a drawer tonight and a card is
+        // a named acquirer's debt that arrives on Thursday net of a fee, so the
+        // income keys below are qualified the same way the receivables are.
+        //
+        // Three of these are marked "proposed": their chart, all 496 accounts
+        // of it, has nothing for them. QRIS did not exist when it was drawn and
+        // they have never sold a gift card — checked, not assumed: no account
+        // in it mentions QRIS, a wallet, or a voucher.
+        //
+        // Each suggested code is a rung nobody has taken, checked against the
+        // same file. That check is worth making rather than eyeballing: the
+        // obvious next rung for QRIS income, 4010113001, is already spent on
+        // "Penjualan Online Sendiri" — 401011.3 is their online rung, .3002
+        // being the marketplaces — so QRIS goes to 401011.4 instead. Proposing
+        // a code that already means something else is the one mistake here
+        // that would post real money into somebody else's account and still
+        // balance.
+        //
+        // All three are suggestions on the Account Map screen and nothing more.
+        // Unmapped, the day refuses and names the key.
+        key(
+            "revenue_cash",
+            "Sales — cash",
+            "4010110001 Penjualan Tunai",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "revenue_debit",
+            "Sales — debit card",
+            "4010111* Penjualan Debit (per bank)",
+            true,
+            "Sales posting",
+        ),
+        key(
+            "revenue_credit",
+            "Sales — credit card",
+            "4010112* Penjualan Kartu Kredit (per network)",
+            true,
+            "Sales posting",
+        ),
+        key(
+            "revenue_qris",
+            "Sales — QRIS",
+            "4010114001 Penjualan QRIS (proposed; the client's chart has none)",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "sales_return",
+            "Sales returns",
+            "4010214001 Retur Penjualan",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "sales_discount",
+            "Sales discount",
+            "4010213001 Potongan Penjualan",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "vat_out",
+            "Output VAT",
+            "2012101003 Hutang PPN Keluaran",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "qris_receivable",
+            "QRIS receivable",
+            "1011101003 Piutang QRIS (proposed; the client's chart has none)",
+            true,
+            "Sales posting",
+        ),
+        key(
+            "voucher_liability",
+            "Voucher outstanding",
+            "2012305001 Hutang Voucher (proposed; the client's chart has none)",
+            false,
+            "Sales posting",
+        ),
+        // end lane-A
     ]
 }
 
