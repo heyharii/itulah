@@ -98,7 +98,8 @@ PLAIN: dict[str, str] = {
     # not anything owed by a store manager. A supplier advance, its own debt to
     # its own kind of counterparty, on its own account.
     "advance_purchase": "1011303002",
-    "bank_admin_fee": "6010310004",
+    # `bank_admin_fee` is the same meaning and the same account lane C seeds
+    # above; one key, one line.
     "pph23_payable": "2012101002",
     # `pph_final_payable` is deliberately absent. The client's chart has no
     # PPh 4(2) leaf under 20121 — only PPh 21, PPh 23, output VAT, PBB and
@@ -127,11 +128,11 @@ PLAIN: dict[str, str] = {
     # checked against Laporan_Master_Account1.csv.
     "cash_in_transit": "1011005001",      # PROPOSED
     "cash_variance": "8010110008",        # PROPOSED
-    # What a store manager is HOLDING for the company, which is not what an
-    # employee OWES it. 1011102001 PIUTANG PEGAWAI is the second thing and is
-    # deliberately not mapped by this lane; a float posted there would be
+    # `store_manager_receivable` — what a store manager is HOLDING for the
+    # company, which is not what an employee OWES it — is seeded by lane P
+    # above, at the same account. 1011102001 PIUTANG PEGAWAI is the second
+    # thing and is deliberately mapped by nobody; a float posted there would be
     # indistinguishable from a staff debt on an ageing report.
-    "store_manager_receivable": "1011102002",  # PIUTANG KEPALA TOKO
     # Wages owed and not yet handed over. What a manager paying an employee out
     # of a fund debits — never a second salary expense.
     "payroll_payable": "2012201001",      # Biaya Gaji dan Upah YMHD
