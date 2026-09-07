@@ -28,6 +28,7 @@ mod supplier;
 mod sync;
 mod tender_recon;
 mod transaction_category;
+mod sync_generation;
 mod voucher;
 
 pub use allotment::*;
@@ -58,4 +59,5 @@ pub use supplier::*;
 pub use sync::*;
 pub use tender_recon::*;
 pub use transaction_category::*;
+pub use sync_generation::*;
 pub use voucher::*;

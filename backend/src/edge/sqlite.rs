@@ -234,6 +234,16 @@ pub(crate) const PRINT_ITEM_COLOUR_SIZE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0020_print_item_colour_and_size.sql"
 ));
 
+/// Whose seqs this node is writing, and whether the cloud has agreed. See the
+/// migration: a database restored under its own origin id used to start
+/// counting from one into a stream the cloud was already durable through, and
+/// every sale it took that evening was discarded as a duplicate while the
+/// sender was told they were safe.
+pub(crate) const SYNC_HANDSHAKE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0033_a_stream_says_whose_seqs_it_writes.sql"
+));
+
 #[derive(Clone)]
 pub struct SqliteEdge {
     connection: Arc<Mutex<Connection>>,
@@ -705,6 +715,18 @@ impl SqliteEdge {
                     "ALTER TABLE idempotency_response ADD COLUMN request_json TEXT",
                     [],
                 )
+                .map_err(db)?;
+        }
+        let a_stream_says_whose_seqs_it_writes: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sync_origin') WHERE name='handshake_settled'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_stream_says_whose_seqs_it_writes == 0 {
+            connection
+                .execute_batch(SYNC_HANDSHAKE_SCHEMA)
                 .map_err(db)?;
         }
         let existing: Option<(String, String, String)> = connection

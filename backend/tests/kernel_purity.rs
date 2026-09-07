@@ -84,6 +84,15 @@ const KERNELS: &[&str] = &[
     "src/cloud/domain/cash_document.rs",
     "src/cloud/domain/giro.rs",
     "src/cloud/domain/transaction_category.rs",
+    // Which generation a sender may write into, and whether a batch may land.
+    // It qualifies for the same reason the other two do: every fact it needs —
+    // the sender's position, the receiver's watermark — arrives as an
+    // argument, so the whole restore scenario is checkable in microseconds
+    // with no database. It is listed here because the temptation to reach for
+    // the watermark directly, rather than being handed it, is obvious and
+    // would put a SQL round trip inside the decision that stops a shop's day
+    // of sales from being discarded.
+    "src/cloud/domain/sync_generation.rs",
 ];
 
 /// Anything that would make an answer depend on something other than the

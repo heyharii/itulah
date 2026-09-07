@@ -21,12 +21,14 @@
 //! the signing canonical — live in the domain and are called from here. If a
 //! settlement rule ever appears in this file, the split has failed.
 
+pub mod handshake;
 pub mod inventory;
 pub mod port;
 pub mod rfid;
 pub mod transfer;
 pub mod workflow;
 
+pub use handshake::{negotiate_generation, GenerationStore, HandshakeReport};
 pub use inventory::{
     PoolSnapshotBalance, PoolSnapshotPayload, PoolSnapshotValidationError,
     INVENTORY_POOL_SNAPSHOT_V1, POOL_SNAPSHOT_SCHEMA_VERSION,

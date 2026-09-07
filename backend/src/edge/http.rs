@@ -1536,9 +1536,25 @@ async fn sync_status(
         let (durable_through, pending_facts, dead_lettered) =
             crate::edge::sync::backlog(&connection)
                 .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+        // The origin is read even here. A node with no sender still captures
+        // under a generation and a seq, and those two numbers are what a
+        // person compares against the cloud's own list when they suspect the
+        // two ends are describing different streams.
+        let stream: Option<(i64, i64)> =
+            rusqlite::OptionalExtension::optional(connection.query_row(
+                "SELECT generation, next_seq FROM sync_origin WHERE singleton=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ))
+            .map_err(|error| EdgeError::Persistence(error.to_string()))?;
         Ok(EdgeSyncStatus {
             origin_id: None,
-            generation: 0,
+            generation: stream.map_or(0, |(generation, _)| generation),
+            next_seq: stream.map_or(0, |(_, next_seq)| next_seq),
+            // Nothing to agree with: there is no receiver configured.
+            handshake_settled: false,
+            handshake_at: None,
+            handshake_note: None,
             pending_facts,
             durable_through,
             dead_lettered,
