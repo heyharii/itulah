@@ -1,4 +1,5 @@
 import {
+  ArrowLeftRight,
   Boxes,
   CalendarClock,
   ClipboardCheck,
@@ -16,28 +17,39 @@ import type { AppModule } from "@/lib/navigation"
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
-/// # One row, and why
+/// # Four rows, and why not eleven
 ///
-/// This was eleven screens in four groups. It is now one, and the ten that
-/// went are still routed, still linkable and still in ⌘K — `hidden` only means
-/// "not a sub-item". The module does not unfold at all, because the shell
-/// unfolds a module only when it has more than one visible item, which is the
-/// same rule that keeps Home from growing a chevron over a single "Brief".
+/// This was eleven screens in four groups, then one, and is now four. The
+/// collapse to one was right about the readings and wrong about the records:
+/// Overview, Pools and Sightings *were* three readings of the same fleet, and
+/// As of, Control and Time machine three ways of doubting it — none of those
+/// is a destination somebody sets out for, and all of them are still routed,
+/// still linkable and still in ⌘K, because `hidden` only means "not a
+/// sub-item".
 ///
-/// The argument is not that ten screens were wrong. It is that they were ten
-/// answers to one question — *where is the stock and can I trust the number* —
-/// and asking somebody to pick which of ten screens holds this morning's
-/// version of that question is asking them to know the answer first. Overview,
-/// Pools and Sightings were three readings of the same fleet; As of, Control
-/// and Time machine were three ways of doubting it. `/inventory` now carries
-/// the whole of it: what is held, what stops anybody being sure of it, and
-/// every pool it is standing in.
+/// What the collapse also buried were the three surfaces that are not readings
+/// of stock at all:
 ///
-/// **Allotments left the module entirely.** It is not a reading of stock, it
-/// is an instruction to move some — and the work it creates is Picking, which
-/// lives in Operations. It sits there now, in front of the picklist it fills.
-/// Filing a verb under a module named after a noun is what made this sidebar
-/// eleven rows deep in the first place.
+/// - **Counts** is the only thing in this app allowed to tell the ledger it is
+///   wrong. It has a lifecycle, an approval and a history, and a person opens
+///   one deliberately rather than arriving at it from a number.
+/// - **Movements** is the ledger itself. Every other screen shows a balance;
+///   this shows the postings the balance is made of, which is what somebody
+///   needs when the balance is wrong and they do not yet know which shelf to
+///   blame.
+/// - **Sightings** is the evidence, from a machine rather than the ledger, and
+///   it is *deliberately* not the same list as Movements: reading a tag has
+///   never moved a piece and never will.
+///
+/// The test is not "is this about inventory" — everything here is. It is
+/// whether somebody would go looking for it by name. A reading is arrived at;
+/// a record is sought.
+///
+/// **Allotments left the module entirely**, for the same test read the other
+/// way: it is not a reading of stock, it is an instruction to move some.
+///
+/// The work it creates is Picking, which lives in Operations, and it sits
+/// there now in front of the picklist it fills.
 ///
 /// The rest stay declared here, and that is what keeps them routed: each is a
 /// place somebody *arrives at* from the one page — a pool sheet, a count, a
@@ -59,18 +71,13 @@ export const inventoryNav: AppModule = {
           hidden: true,
         },
         { path: "/inventory/pools", label: "Pools", icon: Boxes, hidden: true },
+        { path: "/inventory/counts", label: "Counts", icon: ClipboardCheck },
         {
-          path: "/inventory/counts",
-          label: "Counts",
-          icon: ClipboardCheck,
-          hidden: true,
+          path: "/inventory/movements",
+          label: "Movements",
+          icon: ArrowLeftRight,
         },
-        {
-          path: "/inventory/observations",
-          label: "Sightings",
-          icon: Radar,
-          hidden: true,
-        },
+        { path: "/inventory/observations", label: "Sightings", icon: Radar },
         {
           path: "/inventory/missing",
           label: "Missing",

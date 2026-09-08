@@ -2388,3 +2388,184 @@ async fn a_book_numbered_below_the_newest_is_refused(pool: PgPool) {
     let repeat = infrastructure::create_commercial_publication(&pool, book(900, "climb-3")).await;
     assert!(repeat.is_err(), "v900 already exists");
 }
+
+/// Register an Edge origin the way a provisioning run does: a credential, and
+/// nothing else. No watermark, no facts — a node that exists on paper.
+async fn register_edge(pool: &PgPool, origin_id: &str, site_id: &str, node_role: &str) {
+    sqlx::query(
+        "INSERT INTO sync_origin_credential
+             (origin_id, ingest_key_sha256, label, site_id, node_role,
+              active_generation, inventory_enabled)
+         VALUES ($1, repeat('0', 64), $2, $3, $4, 1, true)",
+    )
+    .bind(origin_id)
+    .bind(format!("{node_role} {site_id}"))
+    .bind(site_id)
+    .bind(node_role)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("register {origin_id}: {error}"));
+}
+
+/// The node speaking for the first time: a watermark, and one piece on a shelf.
+async fn report_facts(pool: &PgPool, origin_id: &str, place_id: &str, quantity: i64) {
+    sqlx::query(
+        "INSERT INTO sync_applied_watermark (origin_id, generation, applied_seq)
+         VALUES ($1, 1, 7)
+         ON CONFLICT (origin_id, generation) DO UPDATE SET applied_seq = 7",
+    )
+    .bind(origin_id)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("watermark {origin_id}: {error}"));
+    // A position belongs to a subject the origin has already identified, so the
+    // identity goes in first — the same order the sync applier writes them.
+    let subject_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO edge_inventory_fact_subject_identity
+             (origin_id, subject_id, first_generation, first_seq)
+         VALUES ($1, $2, 1, 1)",
+    )
+    .bind(origin_id)
+    .bind(subject_id)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("subject {origin_id}: {error}"));
+    sqlx::query(
+        "INSERT INTO edge_inventory_fact_position
+             (origin_id, subject_id, place_id, quantity, last_generation, last_seq)
+         VALUES ($1, $2, $3, $4, 1, 1)",
+    )
+    .bind(origin_id)
+    .bind(subject_id)
+    .bind(place_id)
+    .bind(quantity)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("fact {origin_id} {place_id}: {error}"));
+}
+
+/// Find one fleet row by the pool it names and the source it came from.
+fn fleet_row<'a>(
+    fleet: &'a serde_json::Value,
+    pool_id: &str,
+    source: &str,
+) -> &'a serde_json::Value {
+    fleet["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("fleet items: {fleet}"))
+        .iter()
+        .find(|item| item["id"] == pool_id && item["source_type"] == source)
+        .unwrap_or_else(|| panic!("no {source} row for {pool_id}"))
+}
+
+fn counted(row: &serde_json::Value) -> bool {
+    row["authority"]["included_in_fleet_total"]
+        .as_bool()
+        .unwrap_or_else(|| panic!("authority on {row}"))
+}
+
+/// Owning a site is a claim; applying a fact is the node having spoken. Only
+/// the second one takes a shop's numbers off the Cloud ledger.
+///
+/// Both halves of this were live at once and cancelled out into a plausible
+/// screen: thirteen shops read nought because a provisioned-but-silent Edge
+/// shadowed their real balances, while the DC's warehouse was counted twice
+/// because the centre spells it `dc` and the node spells it `dc-01`, so nothing
+/// matched and neither row was shadowed. The fleet total was wrong in both
+/// directions simultaneously.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_edge_node_shadows_a_pool_only_once_it_has_reported_that_pool(pool: PgPool) {
+    register_edge(&pool, "store-02-edge", "store-02", "STORE").await;
+    register_edge(&pool, "dc-01-edge", "dc-01", "DC").await;
+
+    // Nobody has said anything yet.
+    let fleet = infrastructure::list_fleet_pools(&pool, "cloud-primary", 24, 30)
+        .await
+        .unwrap_or_else(|error| panic!("fleet: {error}"));
+
+    assert!(
+        counted(fleet_row(&fleet, "store-02.warehouse", "CLOUD_LEDGER")),
+        "a shop whose node has never reported is still counted by the centre"
+    );
+    assert!(
+        !counted(fleet_row(
+            &fleet,
+            "store-02.warehouse",
+            "EDGE_FACT_POSITION"
+        )),
+        "and the silent node's own base pool stays out, so the shelf is counted once"
+    );
+    let diagnostics = &fleet["fleet_total_diagnostics"];
+    assert_eq!(
+        diagnostics["shadowed_cloud_site_ids"],
+        serde_json::json!([]),
+        "nothing is shadowed while nothing has reported: {diagnostics}"
+    );
+    assert!(
+        diagnostics["unreported_edge_origins"]
+            .as_array()
+            .is_some_and(|origins| origins.len() == 2),
+        "and both silent origins are named: {diagnostics}"
+    );
+
+    // Now both nodes speak. The DC reports under its own spelling, `dc-01`.
+    report_facts(&pool, "store-02-edge", "store-02.warehouse:on_hand", 5).await;
+    report_facts(&pool, "dc-01-edge", "dc-01.warehouse:on_hand", 9).await;
+
+    let fleet = infrastructure::list_fleet_pools(&pool, "cloud-primary", 24, 30)
+        .await
+        .unwrap_or_else(|error| panic!("fleet after reporting: {error}"));
+
+    assert!(
+        !counted(fleet_row(&fleet, "store-02.warehouse", "CLOUD_LEDGER")),
+        "the shop's Cloud row steps aside once its owner has reported the pool"
+    );
+    assert!(
+        counted(fleet_row(
+            &fleet,
+            "store-02.warehouse",
+            "EDGE_FACT_POSITION"
+        )),
+        "and the owner's row is the one that counts"
+    );
+
+    // The DC's two spellings are the same warehouse, and it is counted once.
+    assert!(
+        !counted(fleet_row(&fleet, "dc.warehouse", "CLOUD_LEDGER")),
+        "`dc.warehouse` is shadowed by `dc-01.warehouse` despite the different name"
+    );
+    assert!(
+        counted(fleet_row(&fleet, "dc-01.warehouse", "EDGE_FACT_POSITION")),
+        "the node's own spelling carries the number"
+    );
+
+    // But shadowing is per pool, not per site. The centre splits outbound into
+    // a row per destination store; the Edge has no spelling for those at all,
+    // so the Cloud rows remain the only account of them.
+    assert!(
+        counted(fleet_row(
+            &fleet,
+            "dc.outbound.picked.store-01",
+            "CLOUD_LEDGER"
+        )),
+        "a pool the owner does not model is not deleted by its ownership"
+    );
+
+    // The invariant the whole rule exists for: one counted row per shelf.
+    let mut seen = std::collections::BTreeSet::new();
+    for item in fleet["items"].as_array().unwrap_or_else(|| panic!("items")) {
+        if !counted(item) {
+            continue;
+        }
+        let id = item["id"].as_str().unwrap_or_default();
+        let logical = id
+            .strip_prefix("dc-01.")
+            .map(|rest| format!("dc.{rest}"))
+            .unwrap_or_else(|| id.to_string());
+        assert!(
+            seen.insert(logical.clone()),
+            "{logical} is counted twice in the fleet total"
+        );
+    }
+}

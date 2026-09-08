@@ -5,6 +5,7 @@ import { Availability } from "@/screens/inventory/availability"
 import { Control } from "@/screens/inventory/control"
 import { Counts } from "@/screens/inventory/counts"
 import { Missing } from "@/screens/inventory/missing"
+import { Movements } from "@/screens/inventory/movements"
 import { Observations } from "@/screens/inventory/observations"
 import { InventoryOverview } from "@/screens/inventory/overview"
 import { Pools } from "@/screens/inventory/pools"
@@ -21,6 +22,7 @@ export const screens: ScreenMap = {
   "/inventory/availability": Availability,
   "/inventory/pools": Pools,
   "/inventory/counts": Counts,
+  "/inventory/movements": Movements,
   "/inventory/observations": Observations,
   "/inventory/missing": Missing,
   "/inventory/reconciliations": Reconciliations,

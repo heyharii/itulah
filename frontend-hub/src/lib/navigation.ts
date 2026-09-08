@@ -4,6 +4,7 @@ import { allotmentNav } from "@/screens/allotment/nav"
 import { assistantNav } from "@/screens/assistant/nav"
 import { commercialNav } from "@/screens/commercial/nav"
 import { financeNav } from "@/screens/finance/nav"
+import { financeLabNav } from "@/screens/finance-lab/nav"
 import { homeNav } from "@/screens/home/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
 import { masterNav } from "@/screens/master/nav"
@@ -194,6 +195,7 @@ export const modules: readonly AppModule[] = [
   operationsNav,
   membersNav,
   financeNav,
+  financeLabNav,
   peopleNav,
   systemNav,
 ]

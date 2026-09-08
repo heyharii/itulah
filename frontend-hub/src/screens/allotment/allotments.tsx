@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Grid3x3 } from "lucide-react"
@@ -13,12 +18,13 @@ import { Field, Input } from "@/components/ui/field"
 import { FilterBar } from "@/components/ui/filter-bar"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { KeyValue, MiniTable, TotalsLadder } from "@/components/ui/rows"
+import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
+import { Thumbnail } from "@/components/ui/thumbnail"
 import {
   Lifecycle,
   Timeline,
@@ -26,8 +32,10 @@ import {
 } from "@/components/ui/timeline"
 import { useFilters } from "@/lib/filters"
 import { count, day, label as humanise, moment, toneFor } from "@/lib/format"
+import { useCatalogueIdentity } from "@/lib/operations/catalogue"
 import {
   allotmentDetail,
+  allotmentsByArticle,
   allotmentsByStore,
   cancelAllotment,
   executeAllotment,
@@ -36,10 +44,13 @@ import {
   inventoryKeys,
   listAllotments,
   type AllotmentRow,
+  type ArticleAllotmentList,
+  type StoreSkuSummary,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { cn } from "@/lib/utils"
 import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
 import { sitesOf, useActor } from "@/screens/inventory/shared"
 
@@ -85,6 +96,11 @@ const STAGES = [
   { key: "total_received_quantity", label: "Received" },
 ] as const
 
+/// Ticks in the progress bar. Twenty-four is the older app's count, and it is
+/// a good one: enough that a single piece of a hundred still moves the bar,
+/// few enough that each tick stays wide enough to see.
+const TICKS = 24
+
 const columns: ColumnDef<TableSetup, AllotmentRow>[] = [
   {
     accessorKey: "allotment_number",
@@ -92,17 +108,19 @@ const columns: ColumnDef<TableSetup, AllotmentRow>[] = [
     size: 150,
     meta: { filter: { kind: "text" } },
     cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.allotment_number}
+      <span className="flex items-center gap-1.5">
+        <span className="font-mono text-id text-body">
+          {row.original.allotment_number}
+        </span>
+        {/* Only when it is not the ordinary thing. Every allotment this app
+            raises goes to a store, so a column of TO_STORE nine hundred rows
+            deep said nothing; a return — raised from the pool screen that
+            found the goods wrong — is rare enough to be worth a word. */}
+        {row.original.type !== "TO_STORE" && (
+          <Tag>{humanise(row.original.type)}</Tag>
+        )}
       </span>
     ),
-  },
-  {
-    accessorKey: "type",
-    header: "Type",
-    size: 160,
-    meta: { filter: { kind: "option", format: humanise } },
-    cell: ({ row }) => <Tag>{row.original.type}</Tag>,
   },
   {
     accessorKey: "status",
@@ -123,56 +141,145 @@ const columns: ColumnDef<TableSetup, AllotmentRow>[] = [
     cell: ({ row }) => day(row.original.created_at),
   },
   {
-    accessorKey: "total_accepted_quantity",
-    header: "Accepted",
-    size: 110,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    // How big the delivery is, in the three units a person asks about: how
+    // many garments it names, how many pieces that comes to, and how many
+    // shops are waiting on it. A row without them says "ALT-13, active" and
+    // nothing about the size of what is standing still.
+    accessorKey: "sku_count",
+    header: "Items",
+    size: 90,
+    meta: { align: "right", filter: { kind: "number" } },
     cell: ({ row }) => (
       <span
-        className={
-          row.original.total_accepted_quantity === 0 &&
-          row.original.total_quantity > 0
-            ? "text-warn-fg"
-            : undefined
-        }
+        className="tabular-nums"
+        title={`${count(row.original.line_count)} lines — one per SKU per destination`}
       >
-        {count(row.original.total_accepted_quantity)}
+        {count(row.original.sku_count)}
       </span>
     ),
   },
   {
-    accessorKey: "total_picked_quantity",
-    header: "Picked",
-    size: 100,
+    accessorKey: "total_quantity",
+    header: "Qty",
+    size: 90,
     meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => count(row.original.total_picked_quantity),
-  },
-  {
-    accessorKey: "total_received_quantity",
-    header: "Received",
-    size: 110,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => count(row.original.total_received_quantity),
-  },
-  {
-    accessorKey: "remaining_quantity",
-    header: "Remaining",
-    size: 120,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    // The decision metric: anything above zero is stock nobody else can have.
     cell: ({ row }) => (
-      <span
-        className={
-          row.original.remaining_quantity > 0
-            ? "font-medium text-info-fg"
-            : "text-mute"
-        }
-      >
-        {count(row.original.remaining_quantity)}
+      <span className="tabular-nums">{count(row.original.total_quantity)}</span>
+    ),
+  },
+  {
+    accessorKey: "destination_count",
+    header: "Stores",
+    size: 90,
+    meta: { align: "right", filter: { kind: "number" } },
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        {count(row.original.destination_count)}
       </span>
+    ),
+  },
+  {
+    // Keyed on what has not arrived — ordered less received less cancelled —
+    // so the list can still be sorted and filtered by the number that matters,
+    // drawn rather than printed. Deliberately NOT `remaining_quantity`: that
+    // one is accepted minus picked, so an allotment no DC has accepted reads
+    // as nothing outstanding, which is the opposite of the truth for the shop
+    // waiting for it.
+    id: "outstanding",
+    accessorFn: (row: AllotmentRow) =>
+      Math.max(
+        0,
+        row.total_quantity -
+          row.total_received_quantity -
+          row.total_cancelled_quantity
+      ),
+    header: "Progress",
+    size: 260,
+    meta: { filter: { kind: "number", unit: "pcs" } },
+    cell: ({ row }) => (
+      <Journey
+        total={row.original.total_quantity}
+        picked={row.original.total_picked_quantity}
+        dispatched={row.original.total_dispatched_quantity}
+        received={row.original.total_received_quantity}
+        cancelled={row.original.total_cancelled_quantity}
+      />
     ),
   },
 ]
+
+/// How far one allotment has actually travelled, in a bar.
+///
+/// This replaces five columns of stage counters — accepted, picked, received,
+/// remaining — which asked a person to subtract in their head to answer the
+/// only question they were reading the row for: *is this moving*. The counters
+/// are still on the record; a list is where the shape of the thing belongs.
+///
+/// The bar is segmented rather than solid, the way the same measurement is
+/// drawn in the older app: twenty-four ticks read as a countable quantity,
+/// where a smooth fill reads as a percentage nobody can check.
+///
+/// It is coloured by stage rather than by threshold. An allotment fully picked
+/// but not yet delivered is not "0% done" — the goods are off the rack and in
+/// a box, and a bar that showed nothing until they arrived would say the
+/// warehouse had not started.
+function Journey({
+  total,
+  picked,
+  dispatched,
+  received,
+  cancelled,
+}: {
+  total: number
+  picked: number
+  dispatched: number
+  received: number
+  cancelled: number
+}) {
+  // Each counter is cumulative — pieces that reached at least that far — so a
+  // band is a difference, and never negative even when two stages report out
+  // of order across a sync.
+  const arrived = received
+  const travelling = Math.max(0, dispatched - arrived)
+  const gathered = Math.max(0, picked - dispatched)
+  const waiting = Math.max(
+    0,
+    total - arrived - travelling - gathered - cancelled
+  )
+
+  const marks: string[] = []
+  for (const band of [
+    { pieces: arrived, tone: "bg-ok" },
+    { pieces: travelling, tone: "bg-accent" },
+    { pieces: gathered, tone: "bg-info" },
+    { pieces: cancelled, tone: "bg-line-ico" },
+  ]) {
+    const ticks = total <= 0 ? 0 : Math.round((band.pieces / total) * TICKS)
+    for (let tick = 0; tick < ticks && marks.length < TICKS; tick += 1)
+      marks.push(band.tone)
+  }
+  while (marks.length < TICKS) marks.push("bg-soft-2")
+
+  const share = total <= 0 ? 0 : Math.round((arrived / total) * 100)
+
+  return (
+    <div
+      className="flex min-w-[9rem] items-center gap-2"
+      // The breakdown the columns used to hold, kept within reach of the row
+      // it belongs to rather than a click away in the record.
+      title={`${count(total)} promised · ${count(gathered)} picked · ${count(travelling)} in transit · ${count(arrived)} received${cancelled > 0 ? ` · ${count(cancelled)} cancelled` : ""}${waiting > 0 ? ` · ${count(waiting)} not started` : ""}`}
+    >
+      <span className="flex flex-1 gap-px" aria-hidden>
+        {marks.map((tone, tick) => (
+          <span key={tick} className={cn("h-2 flex-1 rounded-full", tone)} />
+        ))}
+      </span>
+      <span className="w-9 shrink-0 text-right text-[0.71875rem] font-medium text-body tabular-nums">
+        {share}%
+      </span>
+    </div>
+  )
+}
 
 export function Allotments() {
   const [tab, setTab] = useState("all")
@@ -182,7 +289,7 @@ export function Allotments() {
   const [query, setQuery] = useState("")
   const allotment = useSheet("allotment")
   const [sorting, setSorting] = useState<SortingState>([
-    { id: "remaining_quantity", desc: true },
+    { id: "outstanding", desc: true },
   ])
 
   const list = useQuery({
@@ -197,12 +304,23 @@ export function Allotments() {
     enabled: tab === "store" && store !== "",
   })
 
+  /// The same book grouped by garment instead of by paperwork. The store
+  /// filter is shared with the tab beside it deliberately: "what has store 03
+  /// been sent" and "which articles went to store 03" are two readings of one
+  /// question, and having to choose the shop twice to ask both is a filter
+  /// that forgets what it was told.
+  const byArticle = useQuery({
+    queryKey: inventoryKeys.allotmentsByArticle(store),
+    queryFn: ({ signal }) => allotmentsByArticle(store, signal),
+    enabled: tab === "article",
+  })
+
   const fleet = useQuery({
     queryKey: inventoryKeys.fleet(),
     queryFn: ({ signal }) => fleetPools(signal),
   })
 
-  const source = tab === "all" ? list : byStore
+  const source = tab === "store" ? byStore : list
   const rows = useMemo(
     () => (source.data?.items ?? []) as AllotmentRow[],
     [source.data]
@@ -252,6 +370,7 @@ export function Allotments() {
         tabs={[
           { value: "all", label: "Every allotment" },
           { value: "store", label: "By store" },
+          { value: "article", label: "By article" },
         ]}
         value={tab}
         onChange={setTab}
@@ -278,7 +397,7 @@ export function Allotments() {
             value={store}
             onChange={setStore}
             options={stores}
-            placeholder="Choose a store"
+            placeholder={tab === "store" ? "Choose a store" : "Every store"}
             className="max-w-72"
           />
         )}
@@ -342,7 +461,13 @@ export function Allotments() {
         </Card>
       )}
 
-      {tab === "store" && store === "" ? (
+      {tab === "article" ? (
+        <ByArticle
+          query={byArticle}
+          needle={query}
+          store={stores.find((one) => one.value === store)?.label ?? null}
+        />
+      ) : tab === "store" && store === "" ? (
         <Card>
           <EmptyState>
             Choose a store to see everything owed to it, and its lifetime
@@ -376,7 +501,14 @@ export function Allotments() {
                   label="Still owed"
                   value={count(
                     byStore.data.sku_summary.reduce(
-                      (total, sku) => total + sku.remaining_quantity,
+                      (total, sku) =>
+                        total +
+                        Math.max(
+                          0,
+                          sku.quantity -
+                            sku.received_quantity -
+                            sku.cancelled_quantity
+                        ),
                       0
                     )
                   )}
@@ -393,6 +525,14 @@ export function Allotments() {
                 below.
               </p>
             </Card>
+          )}
+
+          {tab === "store" && byStore.data && (
+            <ByStoreSkus
+              rows={byStore.data.sku_summary}
+              store={byStore.data.destination_name}
+              needle={query}
+            />
           )}
 
           <Card className="overflow-hidden">
@@ -415,37 +555,262 @@ export function Allotments() {
                 ),
             })}
           </Card>
-
-          {tab === "all" &&
-            list.data &&
-            list.data.by_destination.length > 0 && (
-              <Card className="mt-[1.125rem] overflow-hidden">
-                <CardHeader>
-                  <CardTitle>Owed, by destination</CardTitle>
-                </CardHeader>
-                <div className="border-t border-hairline px-4 py-1">
-                  {list.data.by_destination.map((rollup) => (
-                    <KeyValue
-                      key={`${rollup.destination_type}/${rollup.destination_id}`}
-                      term={rollup.destination_name ?? rollup.destination_id}
-                    >
-                      {count(rollup.remaining_quantity)} of{" "}
-                      {count(rollup.total_quantity)}
-                    </KeyValue>
-                  ))}
-                </div>
-                <p className="px-4 pt-1 pb-3.5 text-[0.71875rem] text-mute">
-                  Computed across every allotment in the book, not across the
-                  rows above — it answers "what is owed to this store", not
-                  "what is on screen".
-                </p>
-              </Card>
-            )}
         </>
       )}
 
       <AllotmentSheet id={allotment.value ?? null} onClose={allotment.close} />
     </PageContent>
+  )
+}
+
+/// What one shop is owed, SKU by SKU.
+///
+/// The tab used to answer this with four totals and then list the allotment
+/// headers — which is the paperwork, not the goods. A shop asking "what is
+/// still coming" wants the size run: which colour, which size, how many, and
+/// how far along. The server has computed exactly that for the whole lifetime
+/// of the store, and the screen was throwing it away.
+///
+/// Sorted by what is still owed rather than by SKU code: a store's picking
+/// question is about the rows that have not arrived, and there can be hundreds
+/// that have.
+function ByStoreSkus({
+  rows,
+  store,
+  needle,
+}: {
+  rows: readonly StoreSkuSummary[]
+  store: string
+  needle: string
+}) {
+  // The summary answers in SKU codes; a code is not a garment. The catalogue
+  // is already in cache for this hub, so the name costs nothing.
+  const catalogue = useCatalogueIdentity()
+  const wanted = needle.trim().toLowerCase()
+  const shown = useMemo(
+    () =>
+      [...rows]
+        .filter((row) => {
+          if (wanted === "") return true
+          const identity = catalogue.get(row.sku_code)
+          return (
+            row.sku_code.toLowerCase().includes(wanted) ||
+            (identity?.article_name ?? "").toLowerCase().includes(wanted) ||
+            (identity?.article_code ?? "").toLowerCase().includes(wanted)
+          )
+        })
+        .sort(
+          (left, right) =>
+            right.quantity -
+              right.received_quantity -
+              (left.quantity - left.received_quantity) ||
+            left.sku_code.localeCompare(right.sku_code)
+        ),
+    [rows, catalogue, wanted]
+  )
+
+  return (
+    <Card className="mb-[1.125rem] overflow-hidden">
+      <CardHeader>
+        <CardTitle>Owed to {store}, by SKU</CardTitle>
+        <span className="text-[0.75rem] text-mute tabular-nums">
+          {count(shown.length)} SKUs
+        </span>
+      </CardHeader>
+      <div className="max-h-[26rem] overflow-auto border-t border-hairline px-4 py-3">
+        {shown.length === 0 ? (
+          <EmptyState>
+            Nothing has ever been allotted to this store under that search.
+          </EmptyState>
+        ) : (
+          <MiniTable
+            head={[
+              "SKU",
+              { label: "Ordered", align: "right" },
+              "Progress",
+              { label: "Still owed", align: "right" },
+            ]}
+          >
+            {shown.map((row) => {
+              const identity = catalogue.get(row.sku_code)
+              // Ordered less arrived less cancelled. Not `remaining_quantity`,
+              // which counts a DC's acceptance rather than the goods.
+              const owed = Math.max(
+                0,
+                row.quantity - row.received_quantity - row.cancelled_quantity
+              )
+              return (
+                <tr key={row.sku_id} className="border-t border-hairline">
+                  <td className="py-2 pr-2">
+                    <span className="block text-[0.8125rem] text-ink">
+                      {identity?.article_name ?? row.sku_code}
+                    </span>
+                    <span className="font-mono text-[0.65625rem] text-mute">
+                      {row.sku_code}
+                      {identity &&
+                        ` · ${[identity.colour, identity.size].filter(Boolean).join(" · ")}`}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-2 text-right tabular-nums">
+                    {count(row.quantity)}
+                  </td>
+                  <td className="w-[14rem] py-2 pr-2">
+                    <Journey
+                      total={row.quantity}
+                      picked={row.picked_quantity}
+                      dispatched={row.dispatched_quantity}
+                      received={row.received_quantity}
+                      cancelled={row.cancelled_quantity}
+                    />
+                  </td>
+                  <td
+                    className={cn(
+                      "py-2 text-right tabular-nums",
+                      owed > 0 ? "font-medium text-info-fg" : "text-mute"
+                    )}
+                  >
+                    {count(owed)}
+                  </td>
+                </tr>
+              )
+            })}
+          </MiniTable>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+/// The book read by garment: where has this article been sent, and how much of
+/// it has actually arrived.
+///
+/// This is the reading merchandising does, and until now the app could not do
+/// it at all — allotments were only ever listed as paperwork, and an article's
+/// history was spread across however many allotments happened to name it. The
+/// rollup is the server's, across every line in the table; the store picker
+/// above narrows it to one shop.
+function ByArticle({
+  query,
+  needle,
+  store,
+}: {
+  query: UseQueryResult<ArticleAllotmentList>
+  needle: string
+  store: string | null
+}) {
+  const wanted = needle.trim().toLowerCase()
+  const rows = useMemo(() => {
+    const items = query.data?.items ?? []
+    return items
+      .filter(
+        (item) =>
+          wanted === "" ||
+          item.article_name.toLowerCase().includes(wanted) ||
+          item.article_code.toLowerCase().includes(wanted)
+      )
+      .slice()
+      .sort(
+        (left, right) =>
+          right.total_quantity -
+            right.total_received_quantity -
+            (left.total_quantity - left.total_received_quantity) ||
+          left.article_name.localeCompare(right.article_name)
+      )
+  }, [query.data, wanted])
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader>
+        <CardTitle>
+          {store === null ? "Every article ever allotted" : `Sent to ${store}`}
+        </CardTitle>
+        <span className="text-[0.75rem] text-mute tabular-nums">
+          {count(rows.length)} articles
+        </span>
+      </CardHeader>
+      <div className="border-t border-hairline px-4 py-3">
+        {queryState(query, {
+          loading: "Reading the book by garment…",
+          render: () =>
+            rows.length === 0 ? (
+              <EmptyState>
+                {store === null
+                  ? "Nothing has been allotted out of any pool yet."
+                  : "Nothing has ever been sent to this store."}
+              </EmptyState>
+            ) : (
+              <MiniTable
+                head={[
+                  "Article",
+                  { label: "SKUs", align: "right" },
+                  { label: "Places", align: "right" },
+                  { label: "Ordered", align: "right" },
+                  "Progress",
+                  { label: "Still owed", align: "right" },
+                ]}
+              >
+                {rows.map((item) => {
+                  const owed = Math.max(
+                    0,
+                    item.total_quantity -
+                      item.total_received_quantity -
+                      item.total_cancelled_quantity
+                  )
+                  return (
+                    <tr
+                      key={item.article_id}
+                      className="border-t border-hairline"
+                    >
+                      <td className="py-2 pr-2">
+                        <div className="flex items-center gap-2.5">
+                          <Thumbnail
+                            url={item.image_url}
+                            className="size-8 shrink-0 rounded-inner"
+                          />
+                          <div className="min-w-0">
+                            <span className="block truncate text-[0.8125rem] text-ink">
+                              {item.article_name}
+                            </span>
+                            <span className="font-mono text-[0.65625rem] text-mute">
+                              {item.article_code}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-2 pr-2 text-right tabular-nums">
+                        {count(item.sku_count)}
+                      </td>
+                      <td className="py-2 pr-2 text-right tabular-nums">
+                        {count(item.destination_count)}
+                      </td>
+                      <td className="py-2 pr-2 text-right tabular-nums">
+                        {count(item.total_quantity)}
+                      </td>
+                      <td className="w-[14rem] py-2 pr-2">
+                        <Journey
+                          total={item.total_quantity}
+                          picked={item.total_picked_quantity}
+                          dispatched={item.total_dispatched_quantity}
+                          received={item.total_received_quantity}
+                          cancelled={item.total_cancelled_quantity}
+                        />
+                      </td>
+                      <td
+                        className={cn(
+                          "py-2 text-right tabular-nums",
+                          owed > 0 ? "font-medium text-info-fg" : "text-mute"
+                        )}
+                      >
+                        {count(owed)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </MiniTable>
+            ),
+        })}
+      </div>
+    </Card>
   )
 }
 
@@ -580,7 +945,12 @@ function AllotmentSheet({
                   Lines
                 </h4>
                 <MiniTable
-                  head={["SKU", "Qty", "Accepted", "Picked", "Received"]}
+                  head={[
+                    "SKU",
+                    { label: "Qty", align: "right" },
+                    "Progress",
+                    { label: "Still owed", align: "right" },
+                  ]}
                 >
                   {record.lines.map((item) => (
                     <tr key={item.id} className="border-t border-hairline">
@@ -593,17 +963,27 @@ function AllotmentSheet({
                           {item.destination_id}
                         </span>
                       </td>
-                      <td className="py-2 text-right tabular-nums">
+                      <td className="py-2 pr-2 text-right tabular-nums">
                         {count(item.quantity)}
                       </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {count(item.accepted_quantity)}
+                      <td className="w-[13rem] py-2 pr-2">
+                        <Journey
+                          total={item.quantity}
+                          picked={item.picked_quantity}
+                          dispatched={item.dispatched_quantity}
+                          received={item.received_quantity}
+                          cancelled={item.cancelled_quantity}
+                        />
                       </td>
                       <td className="py-2 text-right tabular-nums">
-                        {count(item.picked_quantity)}
-                      </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {count(item.received_quantity)}
+                        {count(
+                          Math.max(
+                            0,
+                            item.quantity -
+                              item.received_quantity -
+                              item.cancelled_quantity
+                          )
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -614,8 +994,8 @@ function AllotmentSheet({
                   rows={[
                     { label: "Ordered", value: count(record.total_quantity) },
                     {
-                      label: "Accepted",
-                      value: count(record.total_accepted_quantity),
+                      label: "Received",
+                      value: count(record.total_received_quantity),
                     },
                     {
                       label: "Cancelled",
@@ -623,8 +1003,15 @@ function AllotmentSheet({
                     },
                   ]}
                   total={{
-                    label: "Still reserved",
-                    value: count(record.remaining_quantity),
+                    label: "Still owed",
+                    value: count(
+                      Math.max(
+                        0,
+                        record.total_quantity -
+                          record.total_received_quantity -
+                          record.total_cancelled_quantity
+                      )
+                    ),
                   }}
                 />
               </section>

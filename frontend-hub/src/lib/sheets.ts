@@ -165,6 +165,16 @@ export const SHEET_PARAMS = {
   article: id,
   // inventory
   pool: id,
+  /// The allotments drawing on one pool, keyed by that pool. A different
+  /// question from `allotment`, which is one instruction: this is "what has
+  /// been promised out of this shelf", asked from the shelf rather than from
+  /// the paperwork, and it is the answer behind the Allotted column.
+  "pool-allotments": id,
+  /// The sightings in one pool. Evidence, not movements — reading a tag never
+  /// moves it — so this is deliberately not the same sheet as `movement`.
+  "pool-sightings": id,
+  /// The ledger movements in and out of one pool.
+  "pool-movements": id,
   allotment: id,
   count: id,
   movement: id,

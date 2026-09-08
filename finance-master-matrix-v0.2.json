@@ -1,0 +1,5105 @@
+{
+ "version": "0.2",
+ "supersedes": "0.1",
+ "generated_on": "2026-09-09",
+ "note": "Revisi dari finance_master_matrix_v0.1. Berkas v0.1 DIPERTAHANKAN sebagai sumber dan tidak diubah. Inventaris COA (account_families_7d, account_behaviors_10d, leaf_accounts_12d) TIDAK disalin ke sini — itu salinan bagan klien dan sudah ada di v0.1 serta di tabel ledger_account. Yang direvisi hanya bagian yang menjadi konfigurasi: role, binding, rule, event, dan kontrak koding.",
+ "provenance": [
+  {
+   "source": "Laporan_Jurnal1 C006 JULY 2026 (6).csv",
+   "facts": "13.339 baris, 2.187 dokumen, 45 akun, 0 dokumen tidak seimbang. 5 jenis dokumen: Penjualan Cash 1.958, Surat Jalan Distribusi 147, BKK 70, JURNAL MEMO 6, BKM 6."
+  },
+  {
+   "source": "Laporan_Jurnal1 C006 JULY 2026 BY HO*.csv",
+   "facts": "IDENTIK baris-per-baris dengan berkas di atas. Bukan jurnal pasangan HO. Pemeriksaan dua sisi interunit tidak dapat dilakukan."
+  },
+  {
+   "source": "Laporan_Master_Account1.csv",
+   "facts": "7.528 akun. Sudah terimpor ke tabel ledger_account di backend."
+  },
+  {
+   "source": "MASTER ASSET (1).xls",
+   "facts": "1.342 baris; 46 milik C006. 871 baris METODE=NON DEPRECIABLE, 471 STRAIGHT LINE. 668 baris bertipe 'Contract In Progress'."
+  },
+  {
+   "source": "Daftar asset.xls",
+   "facts": "669 baris, format daftar depresiasi per periode."
+  },
+  {
+   "source": "codebase",
+   "facts": "backend/src/cloud/postgres/{poster,ledger,assets,payments,payables,banking}.rs; migrasi 0050, 0051, 0070, 0083, 0099, 0159, 0160. Branch feat/finance-control membawa 49 migrasi dan 22 modul Finance tambahan."
+  }
+ ],
+ "truth_model": {
+  "evidence": {
+   "ACTUAL_JOURNAL": "jurnal yang benar-benar diposting klien, dengan nomor dokumen",
+   "CLIENT_STATEMENT": "narasumber klien menyatakannya",
+   "COA_ONLY": "hanya struktur bagan akun yang mendukungnya — TIDAK PERNAH cukup untuk memposting",
+   "PROPOSAL": "usulan kita, belum dikonfirmasi"
+  },
+  "readiness": [
+   "DRAFT",
+   "VALIDATED",
+   "TESTED"
+  ],
+  "activation": {
+   "fields": [
+    "enabled",
+    "books",
+    "units",
+    "effective_from",
+    "effective_to",
+    "blocked_reason"
+   ],
+   "rule": "Aktivasi dilakukan untuk satu paket rule lengkap, bukan baris individual."
+  },
+  "invariant": "LOCKED pada v0.1 tidak berarti boleh diposting. Ketiga sumbu harus dibaca bersama."
+ },
+ "changes": [
+  {
+   "id": "C01",
+   "area": "Account resolver",
+   "severity": "BLOCKING",
+   "was": "Role BANK_CUSTODY dipersempit oleh nama bank ('BCA'), sehingga tidak bisa memilih antara Cash In Bank Giro Bank BCA dan Cash In Bank Tabungan Bank BCA. Masalah yang sama pada Mandiri, BRI, BNI.",
+   "now": "Dimensinya adalah IDENTITAS REKENING TERDAFTAR (bank_account_id, mis. BCA-TAB-C006). Registry rekening yang menghubungkan identitas ke kode pembukuan.",
+   "evidence": "Laporan_Master_Account1.csv: keluarga 1011002 (Giro) dan 1011003 (Tabungan) keduanya ada per bank per unit.",
+   "implemented_in": "frontend-hub/src/screens/finance-lab/engine/bindings.ts"
+  },
+  {
+   "id": "C02",
+   "area": "Account resolver",
+   "severity": "BLOCKING",
+   "was": "Rule menyeleksi role SALARY sementara binding difilekan sebagai GAJI_PEGAWAI; dimension key rule dan binding tidak sama.",
+   "now": "Kedua sisi memakai enum AccountRole yang sama. Mismatch menjadi kesalahan tipe, bukan resolve kosong saat runtime.",
+   "evidence": "Konstruksi: 21 placeholder bebas di posting_rule_lines v0.1 tidak bisa divalidasi sebelum dijalankan.",
+   "implemented_in": "engine/types.ts:AccountRole, engine/resolver.ts"
+  },
+  {
+   "id": "C03",
+   "area": "Account resolver",
+   "severity": "BLOCKING",
+   "was": "Role ALLOWANCE_EXPENSE dipakai satu rule dan tidak punya binding sama sekali.",
+   "now": "Dibinding ke 601031000306 Biaya Rumah Tangga.",
+   "evidence": "C006-BKK-26-07-00046 baris 'GAJI PETUGAS LUAR' Rp1.500.000 diposting ke Biaya Rumah Tangga, bukan ke akun gaji.",
+   "implemented_in": "engine/bindings.ts"
+  },
+  {
+   "id": "C04",
+   "area": "Account resolver",
+   "severity": "BLOCKING",
+   "was": "21 placeholder bebas (<EXPENSE_ROLE>, <CASH_OR_BANK_ROLE>, <DUE_TO_BY_FUNDING_TYPE>, ...) yang bisa diisi apa saja.",
+   "now": "35 role tertutup dan bertipe. Setiap placeholder v0.1 dipetakan ke satu atau beberapa role; yang tidak terpetakan didaftar sebagai unresolved_placeholders.",
+   "evidence": "Konstruksi.",
+   "implemented_in": "engine/types.ts"
+  },
+  {
+   "id": "C05",
+   "area": "Account resolver",
+   "severity": "BLOCKING",
+   "was": "Resolver boleh mengembalikan kosong, dan tidak menyatakan apa yang terjadi kalau lebih dari satu binding cocok.",
+   "now": "Menolak nol DAN menolak lebih dari satu, dengan kode berbeda (MISSING vs AMBIGUOUS) dan pesan yang menyebut kandidatnya.",
+   "evidence": "Konstruksi. Diuji di skenario G.1 dan G.2.",
+   "implemented_in": "engine/resolver.ts"
+  },
+  {
+   "id": "C06",
+   "area": "Account resolver",
+   "severity": "HIGH",
+   "was": "Flag COA asli dan aturan posting per unit tercampur dalam satu konsep 'akun boleh dipakai'.",
+   "now": "Account.postable adalah deklarasi klien; blocked_units adalah kebijakan kita, disimpan terpisah.",
+   "evidence": "Klien mengonfirmasi toko tidak memakai hutang supplier barang dagangan, sementara master masih mencantumkan 2012001001 per unit.",
+   "implemented_in": "engine/chart.ts, diuji di skenario G.4"
+  },
+  {
+   "id": "C07",
+   "area": "Account resolver",
+   "severity": "HIGH",
+   "was": "Binding tidak punya masa berlaku maupun versi.",
+   "now": "Setiap binding punya valid_from, valid_to opsional, dan version. Koreksi adalah baris baru, bukan edit.",
+   "evidence": "Konstruksi. Tanpa ini, pembalikan yang me-resolve ulang akan memposting ke akun yang tidak pernah disentuh entri aslinya.",
+   "implemented_in": "engine/bindings.ts, diuji di skenario H"
+  },
+  {
+   "id": "C08",
+   "area": "Posting rule",
+   "severity": "BLOCKING",
+   "was": "rule_status ada per baris (posting_rule_lines), sehingga separuh aturan bisa aktif.",
+   "now": "Aktivasi per PAKET, utuh, per buku dan per unit, dengan tanggal berlaku.",
+   "evidence": "Konstruksi: aturan penjualan dengan revenue aktif dan HPP mati menghasilkan entri yang seimbang dan persediaan yang lebih saji selamanya.",
+   "implemented_in": "engine/rules.ts:RulePackage.activation"
+  },
+  {
+   "id": "C09",
+   "area": "Posting rule",
+   "severity": "BLOCKING",
+   "was": "LOCKED dipakai untuk tiga hal sekaligus: bukti kuat, implementasi selesai, dan boleh berjalan.",
+   "now": "Tiga sumbu terpisah: evidence (ACTUAL_JOURNAL / CLIENT_STATEMENT / COA_ONLY / PROPOSAL), readiness (DRAFT / VALIDATED / TESTED), activation (enabled + buku + unit + tanggal).",
+   "evidence": "Instruksi §3.",
+   "implemented_in": "engine/types.ts, engine/rules.ts"
+  },
+  {
+   "id": "C10",
+   "area": "Posting rule",
+   "severity": "BLOCKING",
+   "was": "Bentuk aturan penjualan memungkinkan HPP dihitung per tender.",
+   "now": "HPP dihitung dari penjualan, satu pasang baris, berapa pun jumlah tender.",
+   "evidence": "1.958 dokumen Penjualan Cash C006 Juli 2026, termasuk 2 dokumen tunai+kartu: semuanya mendebit Harga Pokok Pembelian tepat satu kali.",
+   "implemented_in": "engine/rules.ts:SALE, diuji di skenario F"
+  },
+  {
+   "id": "C11",
+   "area": "Posting rule",
+   "severity": "HIGH",
+   "was": "Kebijakan bruto/neto tidak ditetapkan; SALES_DISCOUNT muncul sebagai role.",
+   "now": "Pendapatan dicatat NETO, tanpa baris kontra diskon.",
+   "evidence": "Tidak satu pun dari 1.958 dokumen penjualan C006 memuat akun diskon.",
+   "implemented_in": "engine/rules.ts:SALE.caveats"
+  },
+  {
+   "id": "C12",
+   "area": "Posting rule",
+   "severity": "HIGH",
+   "was": "Kewajiban payroll diperlakukan sebagai satu ACCRUED_LIABILITY.",
+   "now": "SALARY_ACCRUAL dan BENEFIT_ACCRUAL adalah dua kewajiban yang bisa dialokasikan sendiri-sendiri.",
+   "evidence": "C006-GL-26-07-00004 mengkredit 201220100106 dan 201220100506 secara terpisah; keduanya diselesaikan ke pihak yang berbeda.",
+   "implemented_in": "engine/rules.ts:PAYROLL_ACCRUAL, diuji di skenario E"
+  },
+  {
+   "id": "C13",
+   "area": "Posting rule",
+   "severity": "HIGH",
+   "was": "Pembayaran dari bank unit dan pembayaran oleh HO untuk unit tidak dibedakan.",
+   "now": "Alokasi ke open item milik unit lain DITOLAK dengan alasan, bukan diposting ke buku yang salah.",
+   "evidence": "Konstruksi; sejalan dengan asumsi yang sudah ditulis di backend/src/cloud/postgres/payments.rs.",
+   "implemented_in": "engine/payments.ts:request"
+  },
+  {
+   "id": "C14",
+   "area": "Posting rule",
+   "severity": "BLOCKING",
+   "was": "Pendanaan memakai placeholder <DUE_TO_BY_FUNDING_TYPE> tanpa menetapkan apa yang memilih.",
+   "now": "funding_type wajib ada di event (AFFILIATE_FINANCING | PRINCIPAL_REIMBURSEMENT). Event tanpa itu ditolak, tidak di-default.",
+   "evidence": "C006-BKM-26-07-00003 mengkredit Principal; 5 BKK lain melunasi Pembiayaan. Aturan pemilihnya belum ada di mana pun.",
+   "implemented_in": "engine/rules.ts:FUNDING"
+  },
+  {
+   "id": "C15",
+   "area": "Posting rule",
+   "severity": "HIGH",
+   "was": "Transfer antar buku memakai rule transfer kas satu buku.",
+   "now": "book_id eksplisit di setiap entri; seimbang diperiksa per buku.",
+   "evidence": "Konstruksi.",
+   "implemented_in": "engine/ledger.ts"
+  },
+  {
+   "id": "C16",
+   "area": "Posting rule",
+   "severity": "BLOCKING",
+   "was": "Pembalikan memakai <ORIGINAL_DEBIT_ROLE>/<ORIGINAL_CREDIT_ROLE>, yaitu me-resolve ulang lewat resolver terbaru.",
+   "now": "Pembalikan MENYALIN kode akun entri asli. Resolver tidak dipanggil.",
+   "evidence": "Konstruksi; sama dengan poster.rs::reverse di backend.",
+   "implemented_in": "engine/ledger.ts:reverse, diuji di skenario H"
+  },
+  {
+   "id": "C17",
+   "area": "Posting rule",
+   "severity": "HIGH",
+   "was": "condition dan amount_basis adalah teks bebas ('expense_type from payment').",
+   "now": "AmountBasis tertutup: FIELD | SUM | PER | BALANCING, plus alt_group untuk baris yang saling menggantikan. Tidak ada string yang dieksekusi.",
+   "evidence": "Instruksi §5.",
+   "implemented_in": "engine/types.ts:AmountBasis"
+  },
+  {
+   "id": "C18",
+   "area": "Posting rule",
+   "severity": "HIGH",
+   "was": "Tidak ada yang memastikan implementasi sebuah rule sesuai deklarasinya.",
+   "now": "conformance() membandingkan baris yang dihasilkan builder dengan baris yang dideklarasikan paket; menemukan 5 drift saat pertama dijalankan.",
+   "evidence": "Konstruksi.",
+   "implemented_in": "engine/rules.ts:conformance"
+  },
+  {
+   "id": "C19",
+   "area": "Payment",
+   "severity": "BLOCKING",
+   "was": "Payment tanpa baris alokasi.",
+   "now": "Payment punya baris alokasi; target adalah OPEN_ITEM atau DIRECT_EXPENSE.",
+   "evidence": "C006-BKK-26-07-00046 menjawab dua akrual dan dua biaya langsung dalam satu dokumen.",
+   "implemented_in": "engine/payments.ts, diuji di skenario E"
+  },
+  {
+   "id": "C20",
+   "area": "Payment",
+   "severity": "BLOCKING",
+   "was": "Status payment tidak memisahkan permintaan, persetujuan, instruksi, keberhasilan, kegagalan, dan rekonsiliasi.",
+   "now": "Enam status. Hanya SETTLED yang memposting. Persetujuan hanya oleh FINANCE_MANAGER.",
+   "evidence": "Instruksi §5.",
+   "implemented_in": "engine/payments.ts:NEXT"
+  },
+  {
+   "id": "C21",
+   "area": "Aset",
+   "severity": "BLOCKING",
+   "was": "Bulan pertama penyusutan belum ditetapkan.",
+   "now": "Jadwal dimulai di bulan TGL BELI. PERIODE disimpan sebagai tanggal pengarsipan dan tidak menggerakkan aritmetika.",
+   "evidence": "46 baris register C006: konvensi PERIODE menghasilkan 13 aset / Rp15.748.763; konvensi TGL BELI menghasilkan 9 aset / Rp4.683.970, dan GL-26-07-00004 adalah Rp4.683.970 atas sembilan baris itu.",
+   "implemented_in": "engine/depreciation.ts, diuji di skenario C"
+  },
+  {
+   "id": "C22",
+   "area": "Aset",
+   "severity": "HIGH",
+   "was": "Pembulatan beban bulanan belum ditetapkan.",
+   "now": "Dipotong ke RUPIAH BULAT, bukan dibulatkan dan bukan dipotong ke sen.",
+   "evidence": "1.329.100/60 = 22.151,67 dan klien memposting 22.151. Enam dari sembilan baris berpecahan, semuanya dipotong.",
+   "implemented_in": "engine/depreciation.ts:monthlyCharge"
+  },
+  {
+   "id": "C23",
+   "area": "Aset",
+   "severity": "BLOCKING",
+   "was": "Reserve replacement OE dimodelkan sebagai akrual bulanan (rule_status LOCKED/CONFIGURABLE) di v0.1, di migrasi 0139 pada feat/finance-control, dan di migrasi 0159 pada branch ini.",
+   "now": "oe_reserve_accrual DIDEKLARASIKAN DAN DIMATIKAN, evidence=COA_ONLY. REPLACEMENT_RESERVE sengaja tidak punya binding.",
+   "evidence": "C006 Juli 2026: nol postingan ke 1021607* dan nol ke 7010215*, dengan 15 baris OE aktif senilai ±Rp190 juta di register. Instruksi pemilik sejalan.",
+   "implemented_in": "engine/rules.ts:OE_RESERVE, diuji di skenario D"
+  },
+  {
+   "id": "C24",
+   "area": "Aset",
+   "severity": "HIGH",
+   "was": "Pembelian pengganti OE menarik reserve (0139), atau tidak ditetapkan (v0.1).",
+   "now": "Pembelian pengganti mendebit REPLACEMENT_EXPENSE. Tidak menambah register, tidak memulai jadwal, tidak menarik reserve.",
+   "evidence": "Instruksi pemilik, dikuatkan oleh tidak adanya postingan reserve.",
+   "implemented_in": "engine/rules.ts:OE_REPLACEMENT"
+  },
+  {
+   "id": "C25",
+   "area": "Aset",
+   "severity": "HIGH",
+   "was": "Satu aset diasumsikan dibeli oleh satu baris pembayaran.",
+   "now": "Beberapa komponen biaya boleh menunjuk satu aset; jumlahnya adalah harga perolehan. Biaya bank di dokumen yang sama BUKAN bagian dari harga perolehan.",
+   "evidence": "BKK AC: 25.000.000 unit + 1.390.000 pemasangan + 5.000 ADM. Sudah dimodelkan di migrasi 0160 pada branch ini.",
+   "implemented_in": "engine/types.ts:AssetCostComponent, diuji di skenario B"
+  },
+  {
+   "id": "C26",
+   "area": "Aset",
+   "severity": "BLOCKING",
+   "was": "Tidak dinyatakan bahwa melengkapi register tidak boleh membentuk jurnal kedua.",
+   "now": "AssetCostComponent.entry_id yang sudah terisi berarti pengakuan sudah terjadi; aktivasi register tidak memposting.",
+   "evidence": "KK-26-07-00276 adalah satu-satunya baris ke 10215* bulan itu — pengakuan aset ADALAH dokumen pembayaran.",
+   "implemented_in": "diuji di skenario A"
+  },
+  {
+   "id": "C27",
+   "area": "Interunit",
+   "severity": "BLOCKING",
+   "was": "Tidak ada role untuk Hutang Affiliasi ATAS BARANG; INTERUNIT_DUE_TO_GOODS ada di v0.1 tapi backend hanya punya affiliate_payable -> 2012301*.",
+   "now": "Tiga pasang role terpisah: GOODS, FINANCING, PRINCIPAL.",
+   "evidence": "Ketiganya dipakai di bulan yang sama oleh C006 untuk hal yang berbeda.",
+   "implemented_in": "engine/bindings.ts"
+  },
+  {
+   "id": "C28",
+   "area": "Interunit",
+   "severity": "BLOCKING",
+   "was": "interunit_receipt diperlakukan sebagai aturan yang bisa dikunci.",
+   "now": "Dideklarasikan lengkap dan DIMATIKAN, evidence=PROPOSAL.",
+   "evidence": "147 dispatch mendebit BDP Rp470.488.453,26; nol kredit BDP; penjualan mengkredit Persediaan yang tidak pernah didebit.",
+   "implemented_in": "engine/rules.ts:RECEIPT"
+  },
+  {
+   "id": "C29",
+   "area": "Kartu",
+   "severity": "HIGH",
+   "was": "Model clearing sejak checkout dianggap arah yang disukai.",
+   "now": "card_clearing_at_checkout DIMATIKAN sebagai PROPOSAL; card_reclass aktif dan mempertahankan praktik sekarang. Keduanya saling meniadakan.",
+   "evidence": "290 dokumen membankan kartu langsung; C006-GL-26-07-00003 mereklas di akhir periode.",
+   "implemented_in": "engine/rules.ts:CARD_CLEARING, CARD_RECLASS"
+  },
+  {
+   "id": "C30",
+   "area": "Ledger",
+   "severity": "HIGH",
+   "was": "Idempotency per event.",
+   "now": "Idempotency per (dokumen, LANGKAH), sehingga satu dokumen boleh memposting dua kali untuk dua alasan berbeda tanpa salah satunya menjadi duplikat.",
+   "evidence": "Konstruksi. Diuji di skenario A dan C.",
+   "implemented_in": "engine/ledger.ts"
+  },
+  {
+   "id": "C31",
+   "area": "Ledger",
+   "severity": "HIGH",
+   "was": "Otorisasi tidak disebut sebagai bagian dari posting.",
+   "now": "Peran pemanggil adalah argumen post(); GA tidak boleh memposting.",
+   "evidence": "Instruksi §6 dan §9: GA tidak perlu memilih debit/kredit.",
+   "implemented_in": "engine/ledger.ts:MAY_POST, diuji di skenario G.7"
+  },
+  {
+   "id": "C32",
+   "area": "Ledger",
+   "severity": "HIGH",
+   "was": "Tanggal kejadian/dokumen/posting/periode tidak dipisah.",
+   "now": "Empat field terpisah pada setiap entri.",
+   "evidence": "Instruksi §5.",
+   "implemented_in": "engine/types.ts:EventDates"
+  }
+ ],
+ "account_roles": [
+  {
+   "role": "CASH_ON_HAND",
+   "purpose": "Kas fisik unit",
+   "replaces_v01": [
+    "CASH_CUSTODY"
+   ],
+   "expects_pattern": "1011001001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "PETTY_CASH",
+   "purpose": "Petty cash",
+   "replaces_v01": [
+    "CASH_CUSTODY"
+   ],
+   "expects_pattern": "1011001002xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "CASHIER_FLOAT",
+   "purpose": "Modal kasir — dana tetap uang kembalian",
+   "replaces_v01": [],
+   "expects_pattern": "1011001003xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "BANK",
+   "purpose": "Rekening bank TERDAFTAR, bukan nama bank",
+   "replaces_v01": [
+    "BANK_CUSTODY",
+    "<CASH_OR_BANK_ROLE>",
+    "<SOURCE_CASH_ROLE>",
+    "<DESTINATION_CASH_ROLE>"
+   ],
+   "expects_pattern": "1011002xxxxx / 1011003xxxxx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "INVENTORY",
+   "purpose": "Persediaan barang dagangan",
+   "replaces_v01": [
+    "MERCHANDISE_INVENTORY"
+   ],
+   "expects_pattern": "1011201001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "GOODS_IN_TRANSIT",
+   "purpose": "BDP barang dagangan",
+   "replaces_v01": [
+    "MERCHANDISE_IN_TRANSIT"
+   ],
+   "expects_pattern": "1011203xxxxx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "COGS",
+   "purpose": "Harga pokok pembelian",
+   "replaces_v01": [
+    "COGS"
+   ],
+   "expects_pattern": "5010110001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "SALES_REVENUE_CASH",
+   "purpose": "Penjualan tunai",
+   "replaces_v01": [
+    "SALES_REVENUE_CASH"
+   ],
+   "expects_pattern": "4010110001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "SALES_REVENUE_CARD",
+   "purpose": "Penjualan kartu, per acquirer",
+   "replaces_v01": [
+    "SALES_REVENUE_DEBIT_CARD",
+    "SALES_REVENUE_CREDIT_CARD",
+    "SALES_REVENUE_ONLINE"
+   ],
+   "expects_pattern": "4010111001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "SALES_RETURN",
+   "purpose": "Retur penjualan",
+   "replaces_v01": [
+    "SALES_RETURN"
+   ],
+   "expects_pattern": "4010214001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "CARD_RECEIVABLE",
+   "purpose": "Piutang kartu, per acquirer",
+   "replaces_v01": [
+    "TRADE_RECEIVABLE_CLEARING",
+    "<ONLINE_CLEARING_ROLE>"
+   ],
+   "expects_pattern": "1011101002xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "CARD_FEE",
+   "purpose": "MDR / credit card expense",
+   "replaces_v01": [],
+   "expects_pattern": "6010110002xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "SALARY_EXPENSE",
+   "purpose": "Biaya gaji karyawan",
+   "replaces_v01": [
+    "EMPLOYEE_EXPENSE_OFFICE"
+   ],
+   "expects_pattern": "6010210001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "BENEFIT_EXPENSE",
+   "purpose": "Biaya asuransi / BPJS",
+   "replaces_v01": [],
+   "expects_pattern": "6010210006xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "SALARY_ACCRUAL",
+   "purpose": "Biaya gaji dan upah YMHD",
+   "replaces_v01": [
+    "ACCRUED_LIABILITY"
+   ],
+   "expects_pattern": "2012201001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "BENEFIT_ACCRUAL",
+   "purpose": "Biaya asuransi dan BPJS YMHD",
+   "replaces_v01": [
+    "ACCRUED_LIABILITY"
+   ],
+   "expects_pattern": "2012201005xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "ALLOWANCE_EXPENSE",
+   "purpose": "Upah petugas luar — dibiayakan langsung, tidak diakrual",
+   "replaces_v01": [
+    "ALLOWANCE_EXPENSE"
+   ],
+   "expects_pattern": "6010310003xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "AFFILIATE_GOODS_PAYABLE",
+   "purpose": "Hutang affiliasi ATAS BARANG",
+   "replaces_v01": [
+    "INTERUNIT_DUE_TO_GOODS"
+   ],
+   "expects_pattern": "2012302001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "AFFILIATE_FINANCING_PAYABLE",
+   "purpose": "Hutang affiliasi PEMBIAYAAN",
+   "replaces_v01": [
+    "<DUE_TO_BY_FUNDING_TYPE>"
+   ],
+   "expects_pattern": "2012301001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "PRINCIPAL_PAYABLE",
+   "purpose": "Hutang lain-lain PRINCIPAL",
+   "replaces_v01": [
+    "<DUE_TO_BY_FUNDING_TYPE>"
+   ],
+   "expects_pattern": "2012303001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "AFFILIATE_GOODS_RECEIVABLE",
+   "purpose": "Piutang affiliasi atas barang",
+   "replaces_v01": [
+    "INTERUNIT_DUE_FROM_GOODS"
+   ],
+   "expects_pattern": "1021402001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "AFFILIATE_FINANCING_RECEIVABLE",
+   "purpose": "Piutang affiliasi pembiayaan",
+   "replaces_v01": [
+    "INTERUNIT_DUE_FROM_FINANCING"
+   ],
+   "expects_pattern": "1021401001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "PRINCIPAL_RECEIVABLE",
+   "purpose": "Piutang affiliasi lain-lain",
+   "replaces_v01": [],
+   "expects_pattern": "1021403001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "FIXED_ASSET",
+   "purpose": "Aktiva tetap, per kelas",
+   "replaces_v01": [
+    "<FIXED_ASSET_ROLE>"
+   ],
+   "expects_pattern": "10215xxxxxxx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "ACCUM_DEPRECIATION",
+   "purpose": "Akumulasi penyusutan, per kelas",
+   "replaces_v01": [
+    "<ACCUMULATED_DEPRECIATION_ROLE>"
+   ],
+   "expects_pattern": "10216xxxxxxx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "DEPRECIATION_EXPENSE",
+   "purpose": "Biaya depresiasi, per kelas",
+   "replaces_v01": [
+    "<DEPRECIATION_EXPENSE_ROLE>"
+   ],
+   "expects_pattern": "70102xxxxxxx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "OE_ASSET",
+   "purpose": "Operating equipment, per kelas",
+   "replaces_v01": [
+    "OPERATING_EQUIPMENT"
+   ],
+   "expects_pattern": "1021507xxxxx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "REPLACEMENT_RESERVE",
+   "purpose": "Reserve replacement OE — SENGAJA TIDAK DIBINDING",
+   "replaces_v01": [
+    "OE_REPLACEMENT_RESERVE"
+   ],
+   "expects_pattern": "1021607xxxxx",
+   "bound": false,
+   "note": "Sengaja tidak dibinding: tidak ada tarif reserve yang dikonfirmasi dan Juli 2026 tidak memposting apa pun ke 1021607*."
+  },
+  {
+   "role": "REPLACEMENT_EXPENSE",
+   "purpose": "Biaya replacement OE",
+   "replaces_v01": [
+    "OE_REPLACEMENT_EXPENSE"
+   ],
+   "expects_pattern": "7010215xxxxx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "SUPPLIER_PAYABLE",
+   "purpose": "Hutang supplier barang dagangan — DILARANG di unit toko",
+   "replaces_v01": [
+    "SUPPLIER_PAYABLE",
+    "<AP_OR_CASH_ROLE>"
+   ],
+   "expects_pattern": "2012001001xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "PREPAID_RENT",
+   "purpose": "Sewa dibayar dimuka",
+   "replaces_v01": [
+    "PREPAID_EXPENSE"
+   ],
+   "expects_pattern": "1011301003xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "RENT_EXPENSE",
+   "purpose": "Biaya sewa",
+   "replaces_v01": [
+    "<EXPENSE_ROLE>"
+   ],
+   "expects_pattern": "7010110003xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "HOUSEKEEPING_EXPENSE",
+   "purpose": "Biaya rumah tangga",
+   "replaces_v01": [
+    "<EXPENSE_ROLE>"
+   ],
+   "expects_pattern": "6010310003xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "BANK_CHARGE",
+   "purpose": "Biaya bank — TIDAK dikapitalisasi ke aset",
+   "replaces_v01": [
+    "<EXPENSE_ROLE>"
+   ],
+   "expects_pattern": "6010310004xx",
+   "bound": true,
+   "note": null
+  },
+  {
+   "role": "ROUNDING",
+   "purpose": "Pembulatan; klien membebankannya ke Biaya Rumah Tangga, bukan ke akun selisih",
+   "replaces_v01": [],
+   "expects_pattern": "6010310003xx",
+   "bound": true,
+   "note": null
+  }
+ ],
+ "unresolved_placeholders": [
+  {
+   "placeholder": "<CASH_OR_AP_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Kandidat: BANK, PETTY_CASH, CASH_ON_HAND, SUPPLIER_PAYABLE. Ini alternatif (alt_group), bukan satu role."
+  },
+  {
+   "placeholder": "<CASH_OR_CLEARING_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Idem."
+  },
+  {
+   "placeholder": "<CURRENT_OR_LONG_TERM_LOAN_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Idem."
+  },
+  {
+   "placeholder": "<CURRENT_PORTION_LOAN_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Idem."
+  },
+  {
+   "placeholder": "<EXPENSE_ASSET_INVENTORY_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Idem, ditambah INVENTORY."
+  },
+  {
+   "placeholder": "<EXPENSE_ASSET_PREPAID_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Kandidat: RENT_EXPENSE, HOUSEKEEPING_EXPENSE, PREPAID_RENT, FIXED_ASSET. Alternatif, bukan satu role."
+  },
+  {
+   "placeholder": "<EXPENSE_OR_CLEARING_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Idem."
+  },
+  {
+   "placeholder": "<LONG_TERM_LOAN_ROLE>",
+   "occurrences": 2,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Belum ada role pinjaman di v0.2 — Financing & Equity di luar lima alur prioritas §8."
+  },
+  {
+   "placeholder": "<OFFSET_ROLE>",
+   "occurrences": 2,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Terlalu umum untuk dijadikan role. Harus dipecah per event."
+  },
+  {
+   "placeholder": "<ORIGINAL_CREDIT_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "TERJAWAB oleh C16: idem."
+  },
+  {
+   "placeholder": "<ORIGINAL_DEBIT_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "TERJAWAB oleh C16: pembalikan tidak me-resolve role sama sekali — ia menyalin kode akun entri asli. Placeholder ini seharusnya dihapus, bukan diisi."
+  },
+  {
+   "placeholder": "<RECEIVABLE_OR_INTERUNIT_DUE_FROM>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Kandidat: CARD_RECEIVABLE, AFFILIATE_*_RECEIVABLE. Alternatif per event."
+  },
+  {
+   "placeholder": "<RECEIVABLE_ROLE>",
+   "occurrences": 2,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Kandidat: CARD_RECEIVABLE, AFFILIATE_GOODS_RECEIVABLE, AFFILIATE_FINANCING_RECEIVABLE, PRINCIPAL_RECEIVABLE. Perlu diputuskan per event, bukan satu role."
+  },
+  {
+   "placeholder": "<REFUND_OR_CLEARING_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Idem — bergantung pada keputusan yang sama."
+  },
+  {
+   "placeholder": "<SELECTED_ACCOUNT_ROLE>",
+   "occurrences": 2,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Ini jurnal manual: penggunanya memilih AKUN, bukan role. Modelkan sebagai LineAccount::Account, seperti poster.rs sudah lakukan."
+  },
+  {
+   "placeholder": "<TENDER_OR_RECEIVABLE_ROLE>",
+   "occurrences": 1,
+   "action": "Perlu diputuskan role tertutupnya sebelum rule yang memakainya boleh diaktifkan.",
+   "resolution_note": "Bergantung pada keputusan kartu (open question P1). Praktik sekarang: BANK. Model clearing: CARD_RECEIVABLE."
+  }
+ ],
+ "bank_account_registry": {
+  "why": "Dimensi untuk role BANK adalah identitas rekening, bukan nama bank. Klien punya giro dan tabungan di bank yang sama pada unit yang sama.",
+  "schema": "bank_account(bank_account_id, unit_id, bank, product GIRO|TABUNGAN, number_masked, ledger_account_code, valid_from, valid_to)",
+  "seeded": 8
+ },
+ "binding_contract": {
+  "schema": "account_role_binding(binding_id, role, narrows_json, account_code12, valid_from, valid_to, version, set_by, note)",
+  "narrows_keys": [
+   "unit_id",
+   "bank_account_id",
+   "asset_class",
+   "counterparty_unit_id",
+   "acquirer",
+   "expense_kind"
+  ],
+  "rules": [
+   "Setiap dimensi yang DISEBUT binding harus sama dengan permintaan; dimensi yang tidak disebut tidak diperhatikan.",
+   "Nol hasil -> tolak dengan MISSING. Lebih dari satu -> tolak dengan AMBIGUOUS. Resolver tidak pernah memilih.",
+   "Akun harus postable menurut bagan klien, dan tidak boleh masuk blocked_units untuk unit itu.",
+   "Koreksi adalah baris baru dengan version berikutnya, bukan edit.",
+   "Pembalikan jurnal TIDAK memanggil resolver."
+  ]
+ },
+ "finance_menus": [
+  {
+   "menu": "Overview",
+   "goal": "See balances, upcoming work, attention and cross-domain financial health.",
+   "finance_role": "MONITOR",
+   "primary_actions": "Drill Down|Assign Attention",
+   "archetype": "MONITORING",
+   "source_domains": "ALL"
+  },
+  {
+   "menu": "Cash & Bank",
+   "goal": "Keep cash/bank balances correct and execute receipts/payments/transfers.",
+   "finance_role": "OWN",
+   "primary_actions": "Receive|Pay|Direct Expense|Transfer|Reconcile|Place/Mature Deposit",
+   "archetype": "BALANCE_CONTROL|RECONCILIATION",
+   "source_domains": "FINANCE_TREASURY|STORE_OPS|BANK_FEED"
+  },
+  {
+   "menu": "Receivables",
+   "goal": "Collect and clear amounts due to the company.",
+   "finance_role": "MONITOR_AND_SETTLE",
+   "primary_actions": "Receive|Settle|Write Off|Reconcile",
+   "archetype": "OPEN_ITEM",
+   "source_domains": "POS_SALES|PEOPLE|FINANCE|CORPORATE"
+  },
+  {
+   "menu": "Payables",
+   "goal": "Pay valid obligations on time while preserving cash/control.",
+   "finance_role": "REVIEW_AND_PAY",
+   "primary_actions": "Hold|Pay|Settle|Issue Giro|Reconcile",
+   "archetype": "OPEN_ITEM",
+   "source_domains": "PROCUREMENT|WORKPLACE|FINANCE_AP"
+  },
+  {
+   "menu": "Accruals / YMHD",
+   "goal": "Recognize costs in the correct period and clear/reverse liabilities.",
+   "finance_role": "MONITOR_AND_SETTLE",
+   "primary_actions": "Recognize|Paid|Reverse|Adjust",
+   "archetype": "OPEN_ITEM",
+   "source_domains": "PEOPLE|WORKPLACE|FINANCE_ACCOUNTING|FINANCE_TREASURY"
+  },
+  {
+   "menu": "Prepaids & Advances",
+   "goal": "Recognize prepaid costs over time and liquidate advances.",
+   "finance_role": "CONTROL",
+   "primary_actions": "Create Schedule|Recognize|Issue Advance|Liquidate|Adjust",
+   "archetype": "SCHEDULE|OPEN_ITEM",
+   "source_domains": "WORKPLACE|PROCUREMENT|PEOPLE|COMMERCIAL|FINANCE"
+  },
+  {
+   "menu": "Interunit & Principal",
+   "goal": "Keep HO/unit due-from/due-to and principal balances mirrored and settled.",
+   "finance_role": "OWN_AND_RECONCILE",
+   "primary_actions": "Fund|Receive Funding|Settle|Reconcile|View Transfer",
+   "archetype": "RECONCILIATION",
+   "source_domains": "FINANCE_TREASURY|INVENTORY"
+  },
+  {
+   "menu": "Inventory Valuation",
+   "goal": "Ensure operational quantity/cost valuation agrees with financial inventory and BDP.",
+   "finance_role": "MONITOR_RECONCILE_ADJUST",
+   "primary_actions": "Investigate|Reconcile|Approve Adjustment|View Source Movement",
+   "archetype": "RECONCILIATION|MONITORING",
+   "source_domains": "INVENTORY|OPERATIONS|PROCUREMENT|POS_SALES"
+  },
+  {
+   "menu": "Revenue & Margin",
+   "goal": "Monitor sales, discount, returns, COGS and margin from operational sources.",
+   "finance_role": "MONITOR",
+   "primary_actions": "Drill Down|Investigate|Controlled Adjustment",
+   "archetype": "MONITORING",
+   "source_domains": "POS_SALES|COMMERCIAL|INVENTORY"
+  },
+  {
+   "menu": "Assets & Projects",
+   "goal": "Control asset/project capitalization, schedules, NBV, OE replacement and disposal.",
+   "finance_role": "CONTROL",
+   "primary_actions": "Register|Capitalize|Transfer|Dispose|Run Schedule|Replace",
+   "archetype": "LIFECYCLE|SCHEDULE",
+   "source_domains": "WORKPLACE|TECHNOLOGY|PROJECTS|FINANCE_ASSET"
+  },
+  {
+   "menu": "Tax",
+   "goal": "Track tax credits/liabilities, reconcile returns and execute payments.",
+   "finance_role": "OWN_AND_REVIEW",
+   "primary_actions": "Recognize|Offset|Pay|Reconcile|Adjust",
+   "archetype": "OPEN_ITEM|ACCOUNTING_CONTROL",
+   "source_domains": "TAX|PEOPLE|PROCUREMENT|POS_SALES"
+  },
+  {
+   "menu": "Financing & Equity",
+   "goal": "Control debt, interest, current maturity and equity movements.",
+   "finance_role": "OWN",
+   "primary_actions": "Drawdown|Repay|Accrue Interest|Reclass Current|Capital Contribution|Owner Draw",
+   "archetype": "LIFECYCLE|ACCOUNTING_CONTROL",
+   "source_domains": "FINANCE_TREASURY|CORPORATE"
+  },
+  {
+   "menu": "Accounting & Close",
+   "goal": "Protect ledger integrity and period finalization.",
+   "finance_role": "OWN",
+   "primary_actions": "Add Journal|Reclass|Reverse|Adjust|Close Period",
+   "archetype": "ACCOUNTING_CONTROL",
+   "source_domains": "FINANCE_ACCOUNTING"
+  },
+  {
+   "menu": "Reports",
+   "goal": "Read and drill into TB, BS, P&L, cash flow, aging and unit/consolidated reports.",
+   "finance_role": "MONITOR",
+   "primary_actions": "Filter|Drill Down|Export|Trace Source",
+   "archetype": "MONITORING",
+   "source_domains": "ALL"
+  }
+ ],
+ "page_archetypes": [
+  {
+   "archetype": "OPEN_ITEM",
+   "used_by": "Receivables|Payables|Accruals|Advances|Tax",
+   "goal": "Drive outstanding balance to a resolved state.",
+   "core_fields": "Original Amount|Outstanding|Due Date|Age|Counterparty|Status",
+   "core_behaviors": "Partial Settlement|Due/Aging|Reminder|Expected Next Event|Write-off/Hold"
+  },
+  {
+   "archetype": "RECONCILIATION",
+   "used_by": "Bank|Card|Interunit|Inventory Valuation",
+   "goal": "Make expected/subledger balance equal actual/GL balance.",
+   "core_fields": "Expected|Actual|Difference|Unmatched|Matched",
+   "core_behaviors": "Auto Match|Suggested Match|Tolerance|Investigate|Adjustment"
+  },
+  {
+   "archetype": "SCHEDULE",
+   "used_by": "Prepaid|Depreciation|Amortization|Recurring Accrual",
+   "goal": "Recognize the correct amount in the correct period.",
+   "core_fields": "Total|Recognized|Remaining|Next Run|Method|Period",
+   "core_behaviors": "Scheduled Run|Auto Reversal|Adjust Prospectively|Pause|Post"
+  },
+  {
+   "archetype": "LIFECYCLE",
+   "used_by": "Asset|OE|Loan|CIP|Time Deposit",
+   "goal": "Keep financial object state and carrying amount correct across its life.",
+   "core_fields": "State|Start Date|Value|Outstanding/NBV|Next Milestone",
+   "core_behaviors": "Transition Actions|History|Schedule|Dispose/Close"
+  },
+  {
+   "archetype": "MONITORING",
+   "used_by": "Overview|Revenue & Margin|Reports",
+   "goal": "Detect changes, trends and exceptions without creating duplicate transactions.",
+   "core_fields": "KPI|Variance|Trend|Source Trace",
+   "core_behaviors": "Drill Down|Attention|Filter|Compare"
+  },
+  {
+   "archetype": "ACCOUNTING_CONTROL",
+   "used_by": "Journal|Close|Provision|Equity|Adjustments",
+   "goal": "Maintain ledger integrity and controlled judgement entries.",
+   "core_fields": "Period|Journal|Approval|Reason|Source|Status",
+   "core_behaviors": "Manual Journal|Reclass|Reverse|Close|Audit"
+  },
+  {
+   "archetype": "BALANCE_CONTROL",
+   "used_by": "Cash & Bank",
+   "goal": "Keep custody balances accurate and reconciled.",
+   "core_fields": "Book Balance|Physical/Statement Balance|Difference|Last Reconciled",
+   "core_behaviors": "Receive|Pay|Transfer|Count|Reconcile"
+  },
+  {
+   "archetype": "CONTEXTUAL",
+   "used_by": "Expense destination accounts",
+   "goal": "Surface expense impact through the source object rather than a standalone expense transaction module.",
+   "core_fields": "Source Object|Expense Type|Amount|Unit|Period",
+   "core_behaviors": "View Source|Pay|Accrue|Schedule|Adjust"
+  }
+ ],
+ "business_events": [
+  {
+   "event_type": "DIRECT_EXPENSE_PAID",
+   "source_domain": "FINANCE_TREASURY|SOURCE_DOMAIN",
+   "financial_object": "PAYMENT",
+   "finance_surface": "Cash & Bank",
+   "trigger": "Finance clicks Pay/New Payment",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "BANK_OR_CASH_RECONCILED",
+   "notes": "",
+   "evidence": {
+    "kind": "ACTUAL_JOURNAL",
+    "document": "C006-BKK-26-07-00002 dan 69 BKK lain"
+   },
+   "readiness": "VALIDATED",
+   "activation": {
+    "enabled": true,
+    "books": [
+     "CFS"
+    ],
+    "units": [
+     "HO",
+     "C004",
+     "C006"
+    ],
+    "blocked_reason": null
+   }
+  },
+  {
+   "event_type": "CASH_RECEIPT_RECORDED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "RECEIPT",
+   "finance_surface": "Cash & Bank",
+   "trigger": "Finance records receipt",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "RECONCILED",
+   "notes": "",
+   "evidence": {
+    "kind": "ACTUAL_JOURNAL",
+    "document": "C006-BKM-26-07-00003"
+   },
+   "readiness": "VALIDATED",
+   "activation": {
+    "enabled": true,
+    "books": [
+     "CFS"
+    ],
+    "units": [
+     "HO",
+     "C004",
+     "C006"
+    ],
+    "blocked_reason": null
+   }
+  },
+  {
+   "event_type": "INTERNAL_CASH_TRANSFER",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "TRANSFER",
+   "finance_surface": "Cash & Bank",
+   "trigger": "Finance clicks Transfer",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "BOTH_BALANCES_RECONCILED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "BANK_RECONCILED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "RECONCILIATION",
+   "finance_surface": "Cash & Bank",
+   "trigger": "Match/confirm bank statement",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "TIME_DEPOSIT_PLACED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "TIME_DEPOSIT",
+   "finance_surface": "Cash & Bank",
+   "trigger": "Finance places deposit",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "MATURITY",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "TIME_DEPOSIT_MATURED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "TIME_DEPOSIT",
+   "finance_surface": "Cash & Bank",
+   "trigger": "Maturity reached/confirmed",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "CLOSED_OR_RENEWED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "CASH_SALE_COMPLETED",
+   "source_domain": "POS_SALES",
+   "financial_object": "SALE",
+   "finance_surface": "Revenue & Margin",
+   "trigger": "POS checkout cash",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "SALE_COMPLETE",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "DEBIT_CARD_SALE_COMPLETED",
+   "source_domain": "POS_SALES",
+   "financial_object": "SALE",
+   "finance_surface": "Revenue & Margin",
+   "trigger": "POS checkout debit card",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "CARD_SETTLEMENT_RECEIVED",
+   "notes": "Target model uses card receivable/clearing at sale. Current July sample instead shows bank-first posting with later reclass.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "CREDIT_CARD_SALE_COMPLETED",
+   "source_domain": "POS_SALES",
+   "financial_object": "SALE",
+   "finance_surface": "Revenue & Margin",
+   "trigger": "POS checkout credit card",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "CARD_SETTLEMENT_RECEIVED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "ONLINE_SALE_COMPLETED",
+   "source_domain": "POS_SALES|COMMERCIAL",
+   "financial_object": "SALE",
+   "finance_surface": "Revenue & Margin",
+   "trigger": "Online order completed",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "ONLINE_SETTLEMENT_RECEIVED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "SALES_DISCOUNT_APPLIED",
+   "source_domain": "COMMERCIAL|POS_SALES",
+   "financial_object": "SALE",
+   "finance_surface": "Revenue & Margin",
+   "trigger": "Pricing/promotion applies discount",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "SALE_COMPLETE",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "SALES_RETURN_COMPLETED",
+   "source_domain": "POS_SALES|INVENTORY",
+   "financial_object": "RETURN",
+   "finance_surface": "Revenue & Margin",
+   "trigger": "Return approved/completed",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "RETURN_COMPLETE",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "CARD_SETTLEMENT_RECEIVED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "RECEIVABLE_OPEN_ITEM",
+   "finance_surface": "Receivables",
+   "trigger": "Bank/acquirer settlement matched",
+   "posting_mode": "ACTION",
+   "finance_role": "SETTLE",
+   "expected_next_event": "RECONCILED",
+   "notes": "Target clearing model. Keep configurable because current July sample uses reclass from bank to debit-card receivable for unsettled amount.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_DISPATCH_HO",
+   "source_domain": "INVENTORY|OPERATIONS",
+   "financial_object": "INVENTORY_IN_TRANSIT",
+   "finance_surface": "Inventory Valuation",
+   "trigger": "HO dispatch/SJD",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "DESTINATION_RECEIVE",
+   "notes": "Matches clarified HO SJD pattern in feedback.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_SJD_DESTINATION",
+   "source_domain": "INVENTORY|OPERATIONS",
+   "financial_object": "INTERUNIT_DUE_TO",
+   "finance_surface": "Interunit & Principal",
+   "trigger": "SJD posted for destination unit",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "DESTINATION_RECEIVE",
+   "notes": "Destination-side SJD pattern: Dr BDP / Cr Due To Goods.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_RECEIVED_HO",
+   "source_domain": "INVENTORY|FINANCE",
+   "financial_object": "INTERUNIT_DUE_FROM",
+   "finance_surface": "Interunit & Principal",
+   "trigger": "Destination receipt confirmed",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "INTERUNIT_BALANCED",
+   "notes": "Clarified expected pattern but receipt-side journal was not visible in July file; validate before locking.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_RECEIVED_DESTINATION",
+   "source_domain": "INVENTORY",
+   "financial_object": "INVENTORY_BALANCE",
+   "finance_surface": "Inventory Valuation",
+   "trigger": "Destination receives goods",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "BDP_CLEARED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "STOCK_COUNT_VARIANCE_APPROVED",
+   "source_domain": "INVENTORY|FINANCE_ACCOUNTING",
+   "financial_object": "INVENTORY_ADJUSTMENT",
+   "finance_surface": "Inventory Valuation",
+   "trigger": "Count variance approved",
+   "posting_mode": "ACTION",
+   "finance_role": "REVIEW",
+   "expected_next_event": "VARIANCE_RESOLVED",
+   "notes": "Need actual stock-count journal to lock loss/gain/reserve treatment.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "INVENTORY_DAMAGE_APPROVED",
+   "source_domain": "INVENTORY|FINANCE_ACCOUNTING",
+   "financial_object": "INVENTORY_ADJUSTMENT",
+   "finance_surface": "Inventory Valuation",
+   "trigger": "Damage/write-down approved",
+   "posting_mode": "ACTION",
+   "finance_role": "REVIEW",
+   "expected_next_event": "CASE_CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "SUPPLIER_BILL_POSTED_MERCHANDISE",
+   "source_domain": "PROCUREMENT|FINANCE_AP",
+   "financial_object": "PAYABLE_OPEN_ITEM",
+   "finance_surface": "Payables",
+   "trigger": "Supplier invoice accepted",
+   "posting_mode": "AUTO",
+   "finance_role": "PAY",
+   "expected_next_event": "PAYMENT",
+   "notes": "COA supports merchandise AP; validate actual store/HO receipt-invoice timing before locking.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "SUPPLIER_BILL_POSTED_NONMERCH",
+   "source_domain": "PROCUREMENT|WORKPLACE|FINANCE_AP",
+   "financial_object": "PAYABLE_OPEN_ITEM",
+   "finance_surface": "Payables",
+   "trigger": "Non-merch supplier invoice accepted",
+   "posting_mode": "AUTO",
+   "finance_role": "PAY",
+   "expected_next_event": "PAYMENT",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "SUPPLIER_PAYMENT",
+   "source_domain": "FINANCE_TREASURY|FINANCE_AP",
+   "financial_object": "PAYABLE_OPEN_ITEM",
+   "finance_surface": "Payables",
+   "trigger": "Finance clicks Pay",
+   "posting_mode": "ACTION",
+   "finance_role": "PAY",
+   "expected_next_event": "SETTLED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "GIRO_ISSUED",
+   "source_domain": "FINANCE_TREASURY|FINANCE_AP",
+   "financial_object": "PAYMENT_CLEARING",
+   "finance_surface": "Payables",
+   "trigger": "Finance issues giro",
+   "posting_mode": "ACTION",
+   "finance_role": "PAY",
+   "expected_next_event": "GIRO_CLEARED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "GIRO_CLEARED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "PAYMENT_CLEARING",
+   "finance_surface": "Cash & Bank",
+   "trigger": "Bank confirms giro cleared",
+   "posting_mode": "ACTION",
+   "finance_role": "RECONCILE",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "PAYROLL_RECOGNIZED",
+   "source_domain": "PEOPLE",
+   "financial_object": "ACCRUAL_OPEN_ITEM",
+   "finance_surface": "Accruals / YMHD",
+   "trigger": "Payroll period approved/recognized",
+   "posting_mode": "AUTO",
+   "finance_role": "MONITOR",
+   "expected_next_event": "PAYROLL_PAID",
+   "notes": "Journal pattern is confirmed, but current file does not prove that payroll approval is the automatic trigger. Target design can use approval as trigger.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "PAYROLL_PAID",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "ACCRUAL_OPEN_ITEM",
+   "finance_surface": "Accruals / YMHD",
+   "trigger": "Finance clicks Paid",
+   "posting_mode": "ACTION",
+   "finance_role": "SETTLE",
+   "expected_next_event": "CLOSED",
+   "notes": "Current C006 example clears YMHD through Petty Cash.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "GENERIC_ACCRUAL_RECOGNIZED",
+   "source_domain": "FINANCE_ACCOUNTING|SOURCE_DOMAIN",
+   "financial_object": "ACCRUAL_OPEN_ITEM",
+   "finance_surface": "Accruals / YMHD",
+   "trigger": "Source obligation recognized / Finance creates accrual",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "PAYMENT_OR_REVERSAL",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "ACCRUAL_SETTLED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "ACCRUAL_OPEN_ITEM",
+   "finance_surface": "Accruals / YMHD",
+   "trigger": "Finance clicks Paid",
+   "posting_mode": "ACTION",
+   "finance_role": "SETTLE",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "ACCRUAL_REVERSED",
+   "source_domain": "FINANCE_ACCOUNTING|SYSTEM",
+   "financial_object": "ACCRUAL_OPEN_ITEM",
+   "finance_surface": "Accruals / YMHD",
+   "trigger": "Scheduled/manual reversal",
+   "posting_mode": "SCHEDULE",
+   "finance_role": "OWN",
+   "expected_next_event": "CLOSED_OR_REACCRUED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "PREPAID_CREATED",
+   "source_domain": "FINANCE|WORKPLACE|PROCUREMENT",
+   "financial_object": "PREPAID",
+   "finance_surface": "Prepaids & Advances",
+   "trigger": "Payment/bill classified as prepaid",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "NEXT_RECOGNITION",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "PREPAID_RECOGNIZED",
+   "source_domain": "SYSTEM|FINANCE_ACCOUNTING",
+   "financial_object": "PREPAID",
+   "finance_surface": "Prepaids & Advances",
+   "trigger": "Recognition schedule due",
+   "posting_mode": "SCHEDULE",
+   "finance_role": "MONITOR",
+   "expected_next_event": "NEXT_RECOGNITION",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "ADVANCE_ISSUED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "ADVANCE",
+   "finance_surface": "Prepaids & Advances",
+   "trigger": "Finance issues advance",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "LIQUIDATION",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "ADVANCE_LIQUIDATED",
+   "source_domain": "PEOPLE|PROCUREMENT|FINANCE",
+   "financial_object": "ADVANCE",
+   "finance_surface": "Prepaids & Advances",
+   "trigger": "Expense report/supporting docs approved",
+   "posting_mode": "ACTION",
+   "finance_role": "REVIEW",
+   "expected_next_event": "CLOSED_OR_BALANCE_RETURNED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "INTERUNIT_FUNDING_SENT",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "INTERUNIT_DUE_FROM",
+   "finance_surface": "Interunit & Principal",
+   "trigger": "HO sends funding",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "DESTINATION_RECEIPT",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "INTERUNIT_FUNDING_RECEIVED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "INTERUNIT_DUE_TO",
+   "finance_surface": "Interunit & Principal",
+   "trigger": "Unit confirms receipt",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "INTERUNIT_RECONCILED",
+   "notes": "Liability role must be selected by funding_type: affiliate financing vs principal reimbursement/funding.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "STORE_CASH_SALES_SETTLED_TO_HO",
+   "source_domain": "STORE_OPS|FINANCE",
+   "financial_object": "INTERUNIT_DUE_TO",
+   "finance_surface": "Interunit & Principal",
+   "trigger": "Daily cash sales settlement",
+   "posting_mode": "ACTION",
+   "finance_role": "SETTLE",
+   "expected_next_event": "INTERUNIT_BALANCE_REDUCED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "OTHER_RECEIVABLE_CREATED",
+   "source_domain": "PEOPLE|STORE_OPS|FINANCE",
+   "financial_object": "RECEIVABLE_OPEN_ITEM",
+   "finance_surface": "Receivables",
+   "trigger": "Receivable case approved",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "RECEIVED_OR_CLEARED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "RECEIVABLE_SETTLED",
+   "source_domain": "FINANCE_TREASURY|PEOPLE",
+   "financial_object": "RECEIVABLE_OPEN_ITEM",
+   "finance_surface": "Receivables",
+   "trigger": "Finance records receipt/deduction",
+   "posting_mode": "ACTION",
+   "finance_role": "SETTLE",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "BAD_DEBT_PROVISION_CREATED",
+   "source_domain": "FINANCE_ACCOUNTING",
+   "financial_object": "ALLOWANCE",
+   "finance_surface": "Receivables",
+   "trigger": "Provision approved",
+   "posting_mode": "MANUAL",
+   "finance_role": "OWN",
+   "expected_next_event": "REVIEW_OR_RELEASE",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "RECEIVABLE_WRITTEN_OFF",
+   "source_domain": "FINANCE_ACCOUNTING",
+   "financial_object": "RECEIVABLE_OPEN_ITEM",
+   "finance_surface": "Receivables",
+   "trigger": "Write-off approved",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "ASSET_PURCHASED_DIRECT",
+   "source_domain": "WORKPLACE|FINANCE_ASSET",
+   "financial_object": "FIXED_ASSET",
+   "finance_surface": "Assets & Projects",
+   "trigger": "Asset purchase paid directly",
+   "posting_mode": "ACTION",
+   "finance_role": "REVIEW",
+   "expected_next_event": "ASSET_ACTIVE",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "ASSET_CAPITALIZED_FROM_CIP",
+   "source_domain": "PROJECTS|FINANCE_ASSET",
+   "financial_object": "FIXED_ASSET",
+   "finance_surface": "Assets & Projects",
+   "trigger": "Project/CIP completed",
+   "posting_mode": "ACTION",
+   "finance_role": "REVIEW",
+   "expected_next_event": "DEPRECIATION_OR_USE",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "DEPRECIATION_RUN",
+   "source_domain": "FINANCE_ASSET|SYSTEM",
+   "financial_object": "DEPRECIATION",
+   "finance_surface": "Assets & Projects",
+   "trigger": "Monthly asset schedule",
+   "posting_mode": "SCHEDULE",
+   "finance_role": "REVIEW",
+   "expected_next_event": "NEXT_PERIOD",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "SOFTWARE_AMORTIZATION_RUN",
+   "source_domain": "FINANCE_ASSET|SYSTEM",
+   "financial_object": "AMORTIZATION",
+   "finance_surface": "Assets & Projects",
+   "trigger": "Monthly intangible schedule",
+   "posting_mode": "SCHEDULE",
+   "finance_role": "REVIEW",
+   "expected_next_event": "NEXT_PERIOD",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "PREOPENING_AMORTIZATION_RUN",
+   "source_domain": "FINANCE_ASSET|SYSTEM",
+   "financial_object": "AMORTIZATION",
+   "finance_surface": "Assets & Projects",
+   "trigger": "Monthly preopening schedule",
+   "posting_mode": "SCHEDULE",
+   "finance_role": "REVIEW",
+   "expected_next_event": "NEXT_PERIOD",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "OE_REPLACEMENT_PURCHASED",
+   "source_domain": "WORKPLACE|STORE_OPS|FINANCE",
+   "financial_object": "OE_REPLACEMENT",
+   "finance_surface": "Assets & Projects",
+   "trigger": "Replacement item purchased",
+   "posting_mode": "ACTION",
+   "finance_role": "REVIEW",
+   "expected_next_event": "REPLACEMENT_CLOSED",
+   "notes": "Current confirmed design: replacement is expensed and not added as new asset value.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "OE_GROSS_WRITE_OFF",
+   "source_domain": "FINANCE_ACCOUNTING|WORKPLACE",
+   "financial_object": "OPERATING_EQUIPMENT",
+   "finance_surface": "Assets & Projects",
+   "trigger": "OE total write-off approved",
+   "posting_mode": "ACTION",
+   "finance_role": "REVIEW",
+   "expected_next_event": "CLOSED",
+   "notes": "Dr reserve / Cr OE was confirmed conceptually; reserve formation/balance sufficiency still needs validation.",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "TAX_PREPAYMENT_RECOGNIZED",
+   "source_domain": "TAX|SOURCE_DOMAIN",
+   "financial_object": "PREPAID_TAX",
+   "finance_surface": "Tax",
+   "trigger": "Creditable/prepaid tax recognized",
+   "posting_mode": "AUTO",
+   "finance_role": "REVIEW",
+   "expected_next_event": "OFFSET_OR_REFUND",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "TAX_PAYABLE_RECOGNIZED",
+   "source_domain": "TAX|SOURCE_DOMAIN",
+   "financial_object": "TAX_PAYABLE",
+   "finance_surface": "Tax",
+   "trigger": "Tax obligation recognized",
+   "posting_mode": "AUTO",
+   "finance_role": "REVIEW",
+   "expected_next_event": "PAYMENT_OR_OFFSET",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "TAX_PAID",
+   "source_domain": "FINANCE_TREASURY|TAX",
+   "financial_object": "TAX_PAYABLE",
+   "finance_surface": "Tax",
+   "trigger": "Finance clicks Pay Tax",
+   "posting_mode": "ACTION",
+   "finance_role": "PAY",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "LOAN_DRAWDOWN",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "LOAN_LONG_TERM",
+   "finance_surface": "Financing & Equity",
+   "trigger": "Loan funds received",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "NEXT_INSTALLMENT",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "LOAN_INTEREST_ACCRUED",
+   "source_domain": "FINANCE_TREASURY|SYSTEM",
+   "financial_object": "ACCRUAL_OPEN_ITEM",
+   "finance_surface": "Financing & Equity",
+   "trigger": "Interest schedule due",
+   "posting_mode": "SCHEDULE",
+   "finance_role": "OWN",
+   "expected_next_event": "PAYMENT",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "LOAN_CURRENT_PORTION_RECLASS",
+   "source_domain": "FINANCE_TREASURY|SYSTEM",
+   "financial_object": "LOAN_CURRENT",
+   "finance_surface": "Financing & Equity",
+   "trigger": "Maturity enters current horizon",
+   "posting_mode": "SCHEDULE",
+   "finance_role": "OWN",
+   "expected_next_event": "REPAYMENT",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "LOAN_REPAID",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "LOAN",
+   "finance_surface": "Financing & Equity",
+   "trigger": "Finance records repayment",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "NEXT_INSTALLMENT_OR_CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "CAPITAL_CONTRIBUTION",
+   "source_domain": "CORPORATE|FINANCE",
+   "financial_object": "EQUITY",
+   "finance_surface": "Financing & Equity",
+   "trigger": "Capital contribution approved/received",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "OWNER_DRAW",
+   "source_domain": "CORPORATE|FINANCE",
+   "financial_object": "EQUITY",
+   "finance_surface": "Financing & Equity",
+   "trigger": "Owner draw approved",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "BANK_INTEREST_RECEIVED",
+   "source_domain": "FINANCE_TREASURY",
+   "financial_object": "OTHER_INCOME",
+   "finance_surface": "Cash & Bank",
+   "trigger": "Bank interest line matched",
+   "posting_mode": "AUTO",
+   "finance_role": "RECONCILE",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "MANAGEMENT_FEE_RECOGNIZED",
+   "source_domain": "CORPORATE|FINANCE",
+   "financial_object": "REVENUE",
+   "finance_surface": "Revenue & Margin",
+   "trigger": "Management fee due/recognized",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "RECEIVED_OR_SETTLED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "PURCHASE_DISCOUNT_APPLIED",
+   "source_domain": "PROCUREMENT|FINANCE_AP",
+   "financial_object": "PAYABLE_OPEN_ITEM",
+   "finance_surface": "Payables",
+   "trigger": "Supplier discount confirmed",
+   "posting_mode": "AUTO",
+   "finance_role": "REVIEW",
+   "expected_next_event": "AP_SETTLED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "MANUAL_RECLASS",
+   "source_domain": "FINANCE_ACCOUNTING",
+   "financial_object": "JOURNAL",
+   "finance_surface": "Accounting & Close",
+   "trigger": "Authorized accountant creates reclass",
+   "posting_mode": "MANUAL",
+   "finance_role": "OWN",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "JOURNAL_REVERSAL",
+   "source_domain": "FINANCE_ACCOUNTING",
+   "financial_object": "JOURNAL",
+   "finance_surface": "Accounting & Close",
+   "trigger": "Authorized reversal",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "CLOSED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  },
+  {
+   "event_type": "PERIOD_CLOSE",
+   "source_domain": "FINANCE_ACCOUNTING|SYSTEM",
+   "financial_object": "CLOSE",
+   "finance_surface": "Accounting & Close",
+   "trigger": "Close checklist approved",
+   "posting_mode": "ACTION",
+   "finance_role": "OWN",
+   "expected_next_event": "PERIOD_LOCKED",
+   "notes": "",
+   "evidence": {
+    "kind": "PROPOSAL",
+    "note": "Belum diverifikasi terhadap jurnal aktual pada putaran ini."
+   },
+   "readiness": "DRAFT",
+   "activation": {
+    "enabled": false,
+    "books": [],
+    "units": [],
+    "blocked_reason": "Belum ada bukti jurnal aktual yang memvalidasi bentuk postingnya pada putaran ini."
+   }
+  }
+ ],
+ "posting_rule_lines": [
+  {
+   "event_type": "DIRECT_EXPENSE_PAID",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "expense_type from payment",
+   "amount_basis": "EXPENSE_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<EXPENSE_ROLE>",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "RENT_EXPENSE",
+    "HOUSEKEEPING_EXPENSE",
+    "BANK_CHARGE"
+   ],
+   "dimension_selector_structured": {
+    "raw": "expense_type from payment",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "DIRECT_EXPENSE_PAID",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "payment_source",
+   "amount_basis": "EXPENSE_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<CASH_OR_BANK_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "payment_source",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "CASH_RECEIPT_RECORDED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "BANK",
+   "dimension_selector": "receipt_destination",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<CASH_OR_BANK_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "receipt_destination",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "CASH_RECEIPT_RECORDED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "source_object",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<OFFSET_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "source_object",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERNAL_CASH_TRANSFER",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "BANK",
+   "dimension_selector": "destination account/unit",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<DESTINATION_CASH_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "destination account/unit",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERNAL_CASH_TRANSFER",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "source account/unit",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<SOURCE_CASH_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "source account/unit",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TIME_DEPOSIT_PLACED",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "TIME_DEPOSIT",
+   "dimension_selector": "bank dimension",
+   "amount_basis": "PRINCIPAL",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "TIME_DEPOSIT",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "bank dimension",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TIME_DEPOSIT_PLACED",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "funding bank",
+   "amount_basis": "PRINCIPAL",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "funding bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TIME_DEPOSIT_MATURED",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "BANK",
+   "dimension_selector": "receiving bank",
+   "amount_basis": "MATURITY_CASH",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "receiving bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TIME_DEPOSIT_MATURED",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "TIME_DEPOSIT",
+   "dimension_selector": "deposit bank",
+   "amount_basis": "PRINCIPAL",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "TIME_DEPOSIT",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "deposit bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TIME_DEPOSIT_MATURED",
+   "posting_scope": "ENTITY",
+   "sequence": 3,
+   "side": "CREDIT",
+   "account_role": "BANK_INTEREST_INCOME",
+   "dimension_selector": "",
+   "amount_basis": "INTEREST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_INTEREST_INCOME",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "CASH_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "CASH_ON_HAND",
+   "amount_basis": "NET_TENDER",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "CASH_CUSTODY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "CASH_ON_HAND",
+    "PETTY_CASH"
+   ],
+   "dimension_selector_structured": {
+    "raw": "CASH_ON_HAND",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "CASH_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "SALES_REVENUE_CASH",
+   "dimension_selector": "",
+   "amount_basis": "NET_SALES",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SALES_REVENUE_CASH",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "CASH_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "DEBIT",
+   "account_role": "COGS",
+   "dimension_selector": "",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "COGS",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "CASH_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 4,
+   "side": "CREDIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "DEBIT_CARD_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "CARD_RECEIVABLE",
+   "dimension_selector": "DEBIT_CARD",
+   "amount_basis": "NET_TENDER",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "TRADE_RECEIVABLE_CLEARING",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "DEBIT_CARD",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "DEBIT_CARD_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "SALES_REVENUE_CARD",
+   "dimension_selector": "acquirer bank",
+   "amount_basis": "NET_SALES",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SALES_REVENUE_DEBIT_CARD",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "acquirer bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "DEBIT_CARD_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "DEBIT",
+   "account_role": "COGS",
+   "dimension_selector": "",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "COGS",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "DEBIT_CARD_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 4,
+   "side": "CREDIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "CREDIT_CARD_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "CARD_RECEIVABLE",
+   "dimension_selector": "CREDIT_CARD",
+   "amount_basis": "NET_TENDER",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "TRADE_RECEIVABLE_CLEARING",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "CREDIT_CARD",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "CREDIT_CARD_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "SALES_REVENUE_CARD",
+   "dimension_selector": "card network",
+   "amount_basis": "NET_SALES",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SALES_REVENUE_CREDIT_CARD",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "card network",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "CREDIT_CARD_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "DEBIT",
+   "account_role": "COGS",
+   "dimension_selector": "",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "COGS",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "CREDIT_CARD_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 4,
+   "side": "CREDIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "ONLINE_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "CARD_RECEIVABLE",
+   "dimension_selector": "channel",
+   "amount_basis": "NET_TENDER",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<ONLINE_CLEARING_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "channel",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ONLINE_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "SALES_REVENUE_CARD",
+   "dimension_selector": "channel",
+   "amount_basis": "NET_SALES",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SALES_REVENUE_ONLINE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "channel",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ONLINE_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "DEBIT",
+   "account_role": "COGS",
+   "dimension_selector": "",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "COGS",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "ONLINE_SALE_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 4,
+   "side": "CREDIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "SALES_DISCOUNT_APPLIED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "SALES_DISCOUNT",
+   "dimension_selector": "",
+   "amount_basis": "DISCOUNT_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SALES_DISCOUNT",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "SALES_DISCOUNT_APPLIED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "",
+   "amount_basis": "DISCOUNT_AMOUNT",
+   "condition": "",
+   "notes": "Can also be embedded in gross-vs-net sale posting; implementation should use a single sale posting transaction.",
+   "v01_account_role": "<TENDER_OR_RECEIVABLE_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "SALES_RETURN_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "SALES_RETURN",
+   "dimension_selector": "",
+   "amount_basis": "RETURN_SELL_VALUE",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SALES_RETURN",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "SALES_RETURN_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "refund method",
+   "amount_basis": "RETURN_SELL_VALUE",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<REFUND_OR_CLEARING_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "refund method",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "SALES_RETURN_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "DEBIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "",
+   "amount_basis": "RETURN_COST",
+   "condition": "item returned to saleable inventory",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "SALES_RETURN_COMPLETED",
+   "posting_scope": "UNIT",
+   "sequence": 4,
+   "side": "CREDIT",
+   "account_role": "COGS",
+   "dimension_selector": "",
+   "amount_basis": "RETURN_COST",
+   "condition": "item returned to saleable inventory",
+   "notes": "",
+   "v01_account_role": "COGS",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "CARD_SETTLEMENT_RECEIVED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "BANK",
+   "dimension_selector": "settlement bank",
+   "amount_basis": "NET_SETTLEMENT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "settlement bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "CARD_SETTLEMENT_RECEIVED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "DEBIT",
+   "account_role": "SELLING_EXPENSE",
+   "dimension_selector": "CREDIT_CARD_FEE",
+   "amount_basis": "MERCHANT_FEE",
+   "condition": "fee > 0",
+   "notes": "",
+   "v01_account_role": "SELLING_EXPENSE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "CREDIT_CARD_FEE",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "CARD_SETTLEMENT_RECEIVED",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "CREDIT",
+   "account_role": "CARD_RECEIVABLE",
+   "dimension_selector": "payment instrument",
+   "amount_basis": "GROSS_SETTLEMENT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "TRADE_RECEIVABLE_CLEARING",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "payment instrument",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_DISPATCH_HO",
+   "posting_scope": "HO",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "GOODS_IN_TRANSIT",
+   "dimension_selector": "destination unit",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_IN_TRANSIT",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "destination unit",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_DISPATCH_HO",
+   "posting_scope": "HO",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "HO",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "HO",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_SJD_DESTINATION",
+   "posting_scope": "DEST_UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "GOODS_IN_TRANSIT",
+   "dimension_selector": "source/HO",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_IN_TRANSIT",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "source/HO",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_SJD_DESTINATION",
+   "posting_scope": "DEST_UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "AFFILIATE_GOODS_PAYABLE",
+   "dimension_selector": "source/HO",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "INTERUNIT_DUE_TO_GOODS",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "source/HO",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_RECEIVED_HO",
+   "posting_scope": "HO",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "AFFILIATE_GOODS_RECEIVABLE",
+   "dimension_selector": "destination unit",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "INTERUNIT_DUE_FROM_GOODS",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "destination unit",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_RECEIVED_HO",
+   "posting_scope": "HO",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "GOODS_IN_TRANSIT",
+   "dimension_selector": "destination unit",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_IN_TRANSIT",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "destination unit",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_RECEIVED_DESTINATION",
+   "posting_scope": "DEST_UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "destination unit",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "destination unit",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_GOODS_RECEIVED_DESTINATION",
+   "posting_scope": "DEST_UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "GOODS_IN_TRANSIT",
+   "dimension_selector": "source/HO",
+   "amount_basis": "COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_IN_TRANSIT",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "source/HO",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "STOCK_COUNT_VARIANCE_APPROVED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "INVENTORY_LOSS_GAIN",
+   "dimension_selector": "",
+   "amount_basis": "LOSS_VALUE",
+   "condition": "shortage",
+   "notes": "",
+   "v01_account_role": "INVENTORY_LOSS_GAIN",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "STOCK_COUNT_VARIANCE_APPROVED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "",
+   "amount_basis": "LOSS_VALUE",
+   "condition": "shortage",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "STOCK_COUNT_VARIANCE_APPROVED",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "DEBIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "",
+   "amount_basis": "GAIN_VALUE",
+   "condition": "overage",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "STOCK_COUNT_VARIANCE_APPROVED",
+   "posting_scope": "UNIT",
+   "sequence": 4,
+   "side": "CREDIT",
+   "account_role": "INVENTORY_LOSS_GAIN",
+   "dimension_selector": "",
+   "amount_basis": "GAIN_VALUE",
+   "condition": "overage",
+   "notes": "",
+   "v01_account_role": "INVENTORY_LOSS_GAIN",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "INVENTORY_DAMAGE_APPROVED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "SELLING_EXPENSE",
+   "dimension_selector": "INVENTORY_DAMAGE",
+   "amount_basis": "WRITE_DOWN_VALUE",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SELLING_EXPENSE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "INVENTORY_DAMAGE",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INVENTORY_DAMAGE_APPROVED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "",
+   "amount_basis": "WRITE_DOWN_VALUE",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "SUPPLIER_BILL_POSTED_MERCHANDISE",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "INVENTORY",
+   "dimension_selector": "",
+   "amount_basis": "INVOICE_NET",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MERCHANDISE_INVENTORY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "SUPPLIER_BILL_POSTED_MERCHANDISE",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "DEBIT",
+   "account_role": "PREPAID_TAX",
+   "dimension_selector": "VAT_INPUT",
+   "amount_basis": "VAT_INPUT",
+   "condition": "creditable VAT",
+   "notes": "",
+   "v01_account_role": "PREPAID_TAX",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "VAT_INPUT",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "SUPPLIER_BILL_POSTED_MERCHANDISE",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "CREDIT",
+   "account_role": "SUPPLIER_PAYABLE",
+   "dimension_selector": "MERCHANDISE",
+   "amount_basis": "INVOICE_GROSS",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SUPPLIER_PAYABLE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "MERCHANDISE",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "SUPPLIER_BILL_POSTED_NONMERCH",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "bill line mapping",
+   "amount_basis": "INVOICE_NET",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<EXPENSE_ASSET_PREPAID_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "bill line mapping",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "SUPPLIER_BILL_POSTED_NONMERCH",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "DEBIT",
+   "account_role": "PREPAID_TAX",
+   "dimension_selector": "VAT_INPUT",
+   "amount_basis": "VAT_INPUT",
+   "condition": "creditable VAT",
+   "notes": "",
+   "v01_account_role": "PREPAID_TAX",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "VAT_INPUT",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "SUPPLIER_BILL_POSTED_NONMERCH",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "CREDIT",
+   "account_role": "SUPPLIER_PAYABLE",
+   "dimension_selector": "NON_MERCHANDISE",
+   "amount_basis": "INVOICE_GROSS",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SUPPLIER_PAYABLE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "NON_MERCHANDISE",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "SUPPLIER_PAYMENT",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "SUPPLIER_PAYABLE",
+   "dimension_selector": "payable subtype",
+   "amount_basis": "PAYMENT_APPLIED",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SUPPLIER_PAYABLE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "payable subtype",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "SUPPLIER_PAYMENT",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "selected bank",
+   "amount_basis": "PAYMENT_APPLIED",
+   "condition": "transfer/payment clears bank directly",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "selected bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "GIRO_ISSUED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "SUPPLIER_PAYABLE",
+   "dimension_selector": "",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SUPPLIER_PAYABLE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "GIRO_ISSUED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "OUTSTANDING_GIRO",
+   "dimension_selector": "bank",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "OUTSTANDING_GIRO",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "GIRO_CLEARED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "OUTSTANDING_GIRO",
+   "dimension_selector": "bank",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "OUTSTANDING_GIRO",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "GIRO_CLEARED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "bank",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PAYROLL_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "SALARY_EXPENSE",
+   "dimension_selector": "SALARY",
+   "amount_basis": "SALARY_EXPENSE",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "EMPLOYEE_EXPENSE_OFFICE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "SALARY",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PAYROLL_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "DEBIT",
+   "account_role": "SALARY_EXPENSE",
+   "dimension_selector": "OVERTIME",
+   "amount_basis": "OVERTIME_EXPENSE",
+   "condition": ">0",
+   "notes": "",
+   "v01_account_role": "EMPLOYEE_EXPENSE_OFFICE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "OVERTIME",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PAYROLL_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 3,
+   "side": "DEBIT",
+   "account_role": "SALARY_EXPENSE",
+   "dimension_selector": "BPJS",
+   "amount_basis": "BPJS_EXPENSE",
+   "condition": ">0",
+   "notes": "",
+   "v01_account_role": "EMPLOYEE_EXPENSE_OFFICE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "BPJS",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PAYROLL_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 4,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "PAYROLL_SALARY/BPJS",
+   "amount_basis": "TOTAL_ACCRUED",
+   "condition": "",
+   "notes": "Implementation should preserve separate accrual types where COA distinguishes salary and BPJS.",
+   "v01_account_role": "ACCRUED_LIABILITY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "SALARY_ACCRUAL",
+    "BENEFIT_ACCRUAL"
+   ],
+   "dimension_selector_structured": {
+    "raw": "PAYROLL_SALARY/BPJS",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PAYROLL_PAID",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "payroll accrual types",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ACCRUED_LIABILITY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "SALARY_ACCRUAL",
+    "BENEFIT_ACCRUAL"
+   ],
+   "dimension_selector_structured": {
+    "raw": "payroll accrual types",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PAYROLL_PAID",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "PETTY_CASH",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "Default current-practice mapping; payment source should remain configurable by policy.",
+   "v01_account_role": "CASH_CUSTODY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "CASH_ON_HAND",
+    "PETTY_CASH"
+   ],
+   "dimension_selector_structured": {
+    "raw": "PETTY_CASH",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "GENERIC_ACCRUAL_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "accrual type",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<EXPENSE_ROLE>",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "RENT_EXPENSE",
+    "HOUSEKEEPING_EXPENSE",
+    "BANK_CHARGE"
+   ],
+   "dimension_selector_structured": {
+    "raw": "accrual type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "GENERIC_ACCRUAL_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "accrual type",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ACCRUED_LIABILITY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "SALARY_ACCRUAL",
+    "BENEFIT_ACCRUAL"
+   ],
+   "dimension_selector_structured": {
+    "raw": "accrual type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ACCRUAL_SETTLED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "accrual type",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ACCRUED_LIABILITY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "SALARY_ACCRUAL",
+    "BENEFIT_ACCRUAL"
+   ],
+   "dimension_selector_structured": {
+    "raw": "accrual type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ACCRUAL_SETTLED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "payment source",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<CASH_OR_BANK_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "payment source",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ACCRUAL_REVERSED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "accrual type",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ACCRUED_LIABILITY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "SALARY_ACCRUAL",
+    "BENEFIT_ACCRUAL"
+   ],
+   "dimension_selector_structured": {
+    "raw": "accrual type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ACCRUAL_REVERSED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "accrual type",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<EXPENSE_ROLE>",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "RENT_EXPENSE",
+    "HOUSEKEEPING_EXPENSE",
+    "BANK_CHARGE"
+   ],
+   "dimension_selector_structured": {
+    "raw": "accrual type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PREPAID_CREATED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "PREPAID_RENT",
+   "dimension_selector": "prepaid type",
+   "amount_basis": "PREPAID_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "PREPAID_EXPENSE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "prepaid type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PREPAID_CREATED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "SUPPLIER_PAYABLE",
+   "dimension_selector": "source document",
+   "amount_basis": "PREPAID_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<AP_OR_CASH_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "source document",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PREPAID_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "prepaid mapping",
+   "amount_basis": "PERIOD_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<EXPENSE_ROLE>",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "RENT_EXPENSE",
+    "HOUSEKEEPING_EXPENSE",
+    "BANK_CHARGE"
+   ],
+   "dimension_selector_structured": {
+    "raw": "prepaid mapping",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PREPAID_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "PREPAID_RENT",
+   "dimension_selector": "prepaid type",
+   "amount_basis": "PERIOD_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "PREPAID_EXPENSE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "prepaid type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ADVANCE_ISSUED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "ADVANCE",
+   "dimension_selector": "advance type",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ADVANCE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "advance type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ADVANCE_ISSUED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "payment source",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<CASH_OR_BANK_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "payment source",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ADVANCE_LIQUIDATED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "approved lines",
+   "amount_basis": "SUPPORTED_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<EXPENSE_ASSET_INVENTORY_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "approved lines",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ADVANCE_LIQUIDATED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "ADVANCE",
+   "dimension_selector": "advance type",
+   "amount_basis": "SUPPORTED_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ADVANCE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "advance type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_FUNDING_SENT",
+   "posting_scope": "HO",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "AFFILIATE_FINANCING_RECEIVABLE",
+   "dimension_selector": "destination unit",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "INTERUNIT_DUE_FROM_FINANCING",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "destination unit",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_FUNDING_SENT",
+   "posting_scope": "HO",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "funding bank",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "funding bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_FUNDING_RECEIVED",
+   "posting_scope": "DEST_UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "PETTY_CASH",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "CASH_CUSTODY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "CASH_ON_HAND",
+    "PETTY_CASH"
+   ],
+   "dimension_selector_structured": {
+    "raw": "PETTY_CASH",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "INTERUNIT_FUNDING_RECEIVED",
+   "posting_scope": "DEST_UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "AFFILIATE_FINANCING|PRINCIPAL",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<DUE_TO_BY_FUNDING_TYPE>",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "AFFILIATE_FINANCING_PAYABLE",
+    "PRINCIPAL_PAYABLE"
+   ],
+   "dimension_selector_structured": {
+    "raw": "AFFILIATE_FINANCING|PRINCIPAL",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "STORE_CASH_SALES_SETTLED_TO_HO",
+   "posting_scope": "STORE",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "AFFILIATE_GOODS_PAYABLE",
+   "dimension_selector": "HO",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "INTERUNIT_DUE_TO_GOODS",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "HO",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "STORE_CASH_SALES_SETTLED_TO_HO",
+   "posting_scope": "STORE",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "CASH_ON_HAND",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "CASH_CUSTODY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "CASH_ON_HAND",
+    "PETTY_CASH"
+   ],
+   "dimension_selector_structured": {
+    "raw": "CASH_ON_HAND",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "OTHER_RECEIVABLE_CREATED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "OTHER_RECEIVABLE",
+   "dimension_selector": "receivable type",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "OTHER_RECEIVABLE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "receivable type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "OTHER_RECEIVABLE_CREATED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "source case",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<OFFSET_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "source case",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "RECEIVABLE_SETTLED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "settlement method",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<CASH_OR_CLEARING_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "settlement method",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "RECEIVABLE_SETTLED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "receivable subtype",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<RECEIVABLE_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "receivable subtype",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "BAD_DEBT_PROVISION_CREATED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "ALLOWANCE_EXPENSE",
+   "dimension_selector": "BAD_DEBT",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ALLOWANCE_EXPENSE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "BAD_DEBT",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "BAD_DEBT_PROVISION_CREATED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "RECEIVABLE_ALLOWANCE",
+   "dimension_selector": "target receivable",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "RECEIVABLE_ALLOWANCE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "target receivable",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "RECEIVABLE_WRITTEN_OFF",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "RECEIVABLE_ALLOWANCE",
+   "dimension_selector": "target receivable",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "RECEIVABLE_ALLOWANCE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "target receivable",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "RECEIVABLE_WRITTEN_OFF",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "target receivable",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<RECEIVABLE_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "target receivable",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ASSET_PURCHASED_DIRECT",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "FIXED_ASSET",
+   "dimension_selector": "asset class",
+   "amount_basis": "CAPITALIZED_COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<FIXED_ASSET_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "asset class",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ASSET_PURCHASED_DIRECT",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "payment bank",
+   "amount_basis": "CAPITALIZED_COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "payment bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ASSET_CAPITALIZED_FROM_CIP",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "FIXED_ASSET",
+   "dimension_selector": "asset class",
+   "amount_basis": "CAPITALIZED_COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<FIXED_ASSET_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "asset class",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "ASSET_CAPITALIZED_FROM_CIP",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "CIP",
+   "dimension_selector": "",
+   "amount_basis": "CAPITALIZED_COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "CIP",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "DEPRECIATION_RUN",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "DEPRECIATION_EXPENSE",
+   "dimension_selector": "asset class",
+   "amount_basis": "PERIOD_DEPRECIATION",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<DEPRECIATION_EXPENSE_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "asset class",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "DEPRECIATION_RUN",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "ACCUM_DEPRECIATION",
+   "dimension_selector": "asset class",
+   "amount_basis": "PERIOD_DEPRECIATION",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<ACCUMULATED_DEPRECIATION_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "asset class",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "SOFTWARE_AMORTIZATION_RUN",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "AMORTIZATION_EXPENSE",
+   "dimension_selector": "software type",
+   "amount_basis": "PERIOD_AMORTIZATION",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "AMORTIZATION_EXPENSE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "software type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "SOFTWARE_AMORTIZATION_RUN",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "ACCUMULATED_AMORTIZATION_SOFTWARE",
+   "dimension_selector": "software type",
+   "amount_basis": "PERIOD_AMORTIZATION",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ACCUMULATED_AMORTIZATION_SOFTWARE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "software type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PREOPENING_AMORTIZATION_RUN",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "AMORTIZATION_EXPENSE",
+   "dimension_selector": "PREOPENING",
+   "amount_basis": "PERIOD_AMORTIZATION",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "AMORTIZATION_EXPENSE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "PREOPENING",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "PREOPENING_AMORTIZATION_RUN",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "ACCUMULATED_AMORTIZATION_PREOPENING",
+   "dimension_selector": "",
+   "amount_basis": "PERIOD_AMORTIZATION",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ACCUMULATED_AMORTIZATION_PREOPENING",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "OE_REPLACEMENT_PURCHASED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "REPLACEMENT_EXPENSE",
+   "dimension_selector": "OE class",
+   "amount_basis": "PURCHASE_COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "OE_REPLACEMENT_EXPENSE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "OE class",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "OE_REPLACEMENT_PURCHASED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "payment method",
+   "amount_basis": "PURCHASE_COST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<CASH_OR_AP_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "payment method",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "OE_GROSS_WRITE_OFF",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "REPLACEMENT_RESERVE",
+   "dimension_selector": "OE class",
+   "amount_basis": "GROSS_VALUE",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "OE_REPLACEMENT_RESERVE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "OE class",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "OE_GROSS_WRITE_OFF",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "OE_ASSET",
+   "dimension_selector": "OE class",
+   "amount_basis": "GROSS_VALUE",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "OPERATING_EQUIPMENT",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "OE class",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TAX_PREPAYMENT_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "PREPAID_TAX",
+   "dimension_selector": "tax type",
+   "amount_basis": "TAX_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "PREPAID_TAX",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "tax type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TAX_PREPAYMENT_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "SUPPLIER_PAYABLE",
+   "dimension_selector": "source",
+   "amount_basis": "TAX_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<AP_OR_CASH_ROLE>",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "source",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TAX_PAYABLE_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "tax type",
+   "amount_basis": "TAX_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<EXPENSE_OR_CLEARING_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "tax type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TAX_PAYABLE_RECOGNIZED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "TAX_PAYABLE",
+   "dimension_selector": "tax type",
+   "amount_basis": "TAX_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "TAX_PAYABLE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "tax type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TAX_PAID",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "TAX_PAYABLE",
+   "dimension_selector": "tax type",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "TAX_PAYABLE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "tax type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "TAX_PAID",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "payment bank",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "payment bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "LOAN_DRAWDOWN",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "BANK",
+   "dimension_selector": "receiving bank",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "receiving bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "LOAN_DRAWDOWN",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "lender",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<LONG_TERM_LOAN_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "lender",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "LOAN_INTEREST_ACCRUED",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "INTEREST_EXPENSE",
+   "dimension_selector": "lender type",
+   "amount_basis": "INTEREST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "INTEREST_EXPENSE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "lender type",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "LOAN_INTEREST_ACCRUED",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "LOAN_INTEREST",
+   "amount_basis": "INTEREST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "ACCRUED_LIABILITY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "SALARY_ACCRUAL",
+    "BENEFIT_ACCRUAL"
+   ],
+   "dimension_selector_structured": {
+    "raw": "LOAN_INTEREST",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "LOAN_CURRENT_PORTION_RECLASS",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "lender",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<LONG_TERM_LOAN_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "lender",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "LOAN_CURRENT_PORTION_RECLASS",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "lender",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<CURRENT_PORTION_LOAN_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "lender",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "LOAN_REPAID",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "lender",
+   "amount_basis": "PRINCIPAL_PAID",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<CURRENT_OR_LONG_TERM_LOAN_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "lender",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "LOAN_REPAID",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "LOAN_INTEREST",
+   "amount_basis": "INTEREST_PAID",
+   "condition": "interest accrual exists",
+   "notes": "",
+   "v01_account_role": "ACCRUED_LIABILITY",
+   "role_resolution": "AMBIGUOUS",
+   "candidate_roles": [
+    "SALARY_ACCRUAL",
+    "BENEFIT_ACCRUAL"
+   ],
+   "dimension_selector_structured": {
+    "raw": "LOAN_INTEREST",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "LOAN_REPAID",
+   "posting_scope": "ENTITY",
+   "sequence": 3,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "payment bank",
+   "amount_basis": "TOTAL_CASH",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "payment bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "CAPITAL_CONTRIBUTION",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "BANK",
+   "dimension_selector": "receiving bank",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "receiving bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "CAPITAL_CONTRIBUTION",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "EQUITY",
+   "dimension_selector": "PAID_IN_CAPITAL",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "EQUITY",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "PAID_IN_CAPITAL",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "OWNER_DRAW",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "EQUITY",
+   "dimension_selector": "OWNER_DRAW",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "EQUITY",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": {
+    "raw": "OWNER_DRAW",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "OWNER_DRAW",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK",
+   "dimension_selector": "payment bank",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "payment bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "BANK_INTEREST_RECEIVED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "BANK",
+   "dimension_selector": "bank",
+   "amount_basis": "NET_INTEREST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_CUSTODY",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": {
+    "raw": "bank",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "BANK_INTEREST_RECEIVED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "BANK_INTEREST_INCOME",
+   "dimension_selector": "",
+   "amount_basis": "NET_INTEREST",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "BANK_INTEREST_INCOME",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "MANAGEMENT_FEE_RECOGNIZED",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "counterparty",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<RECEIVABLE_OR_INTERUNIT_DUE_FROM>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": {
+    "raw": "counterparty",
+    "typed": false
+   }
+  },
+  {
+   "event_type": "MANAGEMENT_FEE_RECOGNIZED",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "MANAGEMENT_FEE_REVENUE",
+   "dimension_selector": "",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "MANAGEMENT_FEE_REVENUE",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "PURCHASE_DISCOUNT_APPLIED",
+   "posting_scope": "UNIT",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": "SUPPLIER_PAYABLE",
+   "dimension_selector": "",
+   "amount_basis": "DISCOUNT_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "SUPPLIER_PAYABLE",
+   "role_resolution": "MAPPED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "PURCHASE_DISCOUNT_APPLIED",
+   "posting_scope": "UNIT",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": "PURCHASE_DISCOUNT_INCOME",
+   "dimension_selector": "",
+   "amount_basis": "DISCOUNT_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "PURCHASE_DISCOUNT_INCOME",
+   "role_resolution": "KEPT",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "MANUAL_RECLASS",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<SELECTED_ACCOUNT_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "MANUAL_RECLASS",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "",
+   "amount_basis": "AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<SELECTED_ACCOUNT_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "JOURNAL_REVERSAL",
+   "posting_scope": "ENTITY",
+   "sequence": 1,
+   "side": "DEBIT",
+   "account_role": null,
+   "dimension_selector": "",
+   "amount_basis": "ORIGINAL_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<ORIGINAL_CREDIT_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": null
+  },
+  {
+   "event_type": "JOURNAL_REVERSAL",
+   "posting_scope": "ENTITY",
+   "sequence": 2,
+   "side": "CREDIT",
+   "account_role": null,
+   "dimension_selector": "",
+   "amount_basis": "ORIGINAL_AMOUNT",
+   "condition": "",
+   "notes": "",
+   "v01_account_role": "<ORIGINAL_DEBIT_ROLE>",
+   "role_resolution": "UNRESOLVED",
+   "dimension_selector_structured": null
+  }
+ ],
+ "rule_packages_implemented": [
+  {
+   "package_id": "retail_sale",
+   "version": "2",
+   "event": "SALE_COMPLETED",
+   "mode": "AUTO",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "card_clearing_at_checkout",
+   "version": "0",
+   "event": "SALE_COMPLETED",
+   "mode": "AUTO",
+   "evidence": "PROPOSAL",
+   "enabled": false
+  },
+  {
+   "package_id": "interunit_dispatch",
+   "version": "1",
+   "event": "GOODS_DISPATCHED",
+   "mode": "AUTO",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "interunit_receipt",
+   "version": "0",
+   "event": "GOODS_RECEIVED",
+   "mode": "AUTO",
+   "evidence": "PROPOSAL",
+   "enabled": false
+  },
+  {
+   "package_id": "takings_deposit",
+   "version": "1",
+   "event": "TAKINGS_DEPOSITED",
+   "mode": "ACTION",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "card_reclass",
+   "version": "1",
+   "event": "CARD_UNCLEARED_RECLASSED",
+   "mode": "ACTION",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "card_settlement",
+   "version": "1",
+   "event": "CARD_SETTLED",
+   "mode": "ACTION",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "payroll_accrual",
+   "version": "1",
+   "event": "PAYROLL_RECOGNISED",
+   "mode": "SCHEDULE",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "interunit_funding",
+   "version": "1",
+   "event": "FUNDS_RECEIVED",
+   "mode": "ACTION",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "asset_acquisition",
+   "version": "1",
+   "event": "ASSET_ACQUIRED",
+   "mode": "ACTION",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "depreciation_run",
+   "version": "1",
+   "event": "DEPRECIATION_CHARGED",
+   "mode": "SCHEDULE",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "oe_replacement",
+   "version": "1",
+   "event": "OE_REPLACED",
+   "mode": "ACTION",
+   "evidence": "CLIENT_STATEMENT",
+   "enabled": true
+  },
+  {
+   "package_id": "oe_reserve_accrual",
+   "version": "0",
+   "event": "OE_RESERVE_ACCRUED",
+   "mode": "SCHEDULE",
+   "evidence": "COA_ONLY",
+   "enabled": false
+  },
+  {
+   "package_id": "prepaid_release",
+   "version": "1",
+   "event": "PREPAID_RECOGNISED",
+   "mode": "SCHEDULE",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  },
+  {
+   "package_id": "payment_settlement",
+   "version": "1",
+   "event": "PAYMENT_SETTLED",
+   "mode": "ACTION",
+   "evidence": "ACTUAL_JOURNAL",
+   "enabled": true
+  }
+ ],
+ "payment_contract": {
+  "schema": "payment(payment_id, payment_number, book_id, unit_id, direction, occurred_on, document_on, posting_on, counterparty, source_json, status, action, entry_id, failure_reason); payment_allocation(payment_id, seq, target_kind OPEN_ITEM|DIRECT_EXPENSE, item_id?, role?, narrows_json?, description, amount)",
+  "statuses": [
+   "REQUESTED",
+   "APPROVED",
+   "INSTRUCTED",
+   "SETTLED",
+   "FAILED",
+   "CANCELLED",
+   "RECONCILED"
+  ],
+  "rules": [
+   "Hanya SETTLED yang memposting, dan hanya sekali.",
+   "APPROVED hanya boleh oleh FINANCE_MANAGER.",
+   "Alokasi menghasilkan satu baris jurnal per alokasi; sisi uang satu baris untuk total.",
+   "outstanding dihitung dari payment yang SETTLED; reserved dari yang APPROVED/INSTRUCTED. Dua angka berbeda.",
+   "Alokasi ke open item milik unit lain ditolak."
+  ]
+ },
+ "asset_flow_contract": {
+  "separate_states": [
+   "pengadaan",
+   "penerimaan barang",
+   "pembayaran",
+   "pengakuan accounting",
+   "kelengkapan register",
+   "pemakaian fisik"
+  ],
+  "ga_owns": [
+   "kebutuhan",
+   "penerimaan & pemasangan",
+   "identitas, jumlah, lokasi, penanggung jawab, kondisi, bukti",
+   "mutasi, pelepasan, penggantian OE",
+   "riwayat fisik"
+  ],
+  "finance_owns": [
+   "komponen harga perolehan",
+   "buku/unit, akun, kategori, metode, umur, periode",
+   "pembayaran / menghubungkan pembayaran",
+   "pengakuan nilai",
+   "review & posting depresiasi",
+   "rekonsiliasi register vs buku besar"
+  ],
+  "rules": [
+   "GA tidak pernah memilih debit dan kredit; peran GA tidak boleh memposting.",
+   "Jika pembayaran sudah membentuk jurnal pengadaan, melengkapi atau mengaktifkan register TIDAK boleh membentuk jurnal kedua.",
+   "Beberapa komponen biaya boleh menunjuk satu aset; jumlahnya adalah harga perolehan.",
+   "Biaya bank pada dokumen yang sama bukan bagian dari harga perolehan.",
+   "Jadwal penyusutan dimulai di bulan TGL BELI; PERIODE disimpan sebagai tanggal pengarsipan.",
+   "Beban bulanan dipotong ke rupiah bulat.",
+   "Penggantian OE menjadi biaya replacement; tidak menambah register, tidak memulai jadwal, tidak menarik reserve."
+  ]
+ },
+ "ledger_integrity": {
+  "guaranteed": [
+   "book/entity/unit eksplisit",
+   "debit=kredit per buku, diperiksa sebelum menulis",
+   "nilai integer minor unit",
+   "posting atomik",
+   "idempotent per (dokumen, langkah)",
+   "period lock",
+   "otorisasi bagian dari post()",
+   "event -> rule_version -> journal -> dokumen sumber",
+   "occurred_on / document_on / posting_on / period terpisah"
+  ],
+  "implemented_in": "frontend-hub/src/screens/finance-lab/engine/ledger.ts (simulasi) dan backend/src/cloud/postgres/poster.rs (produksi)"
+ },
+ "acceptance": [
+  {
+   "id": "A",
+   "title": "Pengadaan aset langsung",
+   "checks": 6,
+   "passing": 6,
+   "evidence": "KK-26-07-00276"
+  },
+  {
+   "id": "B",
+   "title": "Pengadaan dengan pemasangan",
+   "checks": 5,
+   "passing": 5,
+   "evidence": "SIMULASI berbasis BKK AC"
+  },
+  {
+   "id": "C",
+   "title": "Depresiasi bulanan",
+   "checks": 7,
+   "passing": 7,
+   "evidence": "GL-26-07-00004 Rp4.683.970, cocok baris demi baris"
+  },
+  {
+   "id": "D",
+   "title": "Replacement OE",
+   "checks": 6,
+   "passing": 6,
+   "evidence": "Instruksi pemilik + nol postingan reserve"
+  },
+  {
+   "id": "E",
+   "title": "Payroll",
+   "checks": 10,
+   "passing": 10,
+   "evidence": "C006-GL-26-07-00004, C006-BKM-26-07-00003, C006-BKK-26-07-00046"
+  },
+  {
+   "id": "F",
+   "title": "Penjualan campuran",
+   "checks": 10,
+   "passing": 10,
+   "evidence": "1.958 dokumen penjualan"
+  },
+  {
+   "id": "G",
+   "title": "Rule dan akun tidak valid",
+   "checks": 7,
+   "passing": 7,
+   "evidence": "Konstruksi"
+  },
+  {
+   "id": "H",
+   "title": "Koreksi",
+   "checks": 7,
+   "passing": 7,
+   "evidence": "Konstruksi"
+  }
+ ],
+ "open_questions": [
+  {
+   "priority": "P0",
+   "area": "BDP / Interunit Goods",
+   "question": "Jurnal penerimaan barang yang membersihkan BDP.",
+   "status": "NEEDS_ACCOUNTING_EVIDENCE",
+   "blocks": "interunit_receipt (mati), dan arti saldo Persediaan",
+   "quantified": "147 dispatch, Rp470.488.453,26 debit BDP, nol kredit BDP di Juli 2026",
+   "v01_status": "NEEDS_ACCOUNTING_EVIDENCE — tidak berubah"
+  },
+  {
+   "priority": "P0",
+   "area": "Interunit Funding vs Principal",
+   "question": "Kondisi bisnis apa yang memilih Pembiayaan versus Principal.",
+   "status": "NEEDS_POLICY",
+   "blocks": "Resolver penerimaan dana",
+   "quantified": "Ketiga keluarga afiliasi dipakai C006 di bulan yang sama",
+   "v01_status": "NEEDS_POLICY — tidak berubah; engine sekarang MENOLAK event tanpa funding_type"
+  },
+  {
+   "priority": "P0",
+   "area": "Jurnal HO",
+   "question": "Ekspor jurnal HEAD OFFICE Juli 2026.",
+   "status": "NEEDS_ACCOUNTING_EVIDENCE",
+   "blocks": "Pemeriksaan dua sisi interunit",
+   "quantified": "Kedua berkas 'BY HO' identik baris-per-baris dengan ekspor unit",
+   "v01_status": "BARU — v0.1 mengasumsikan berkas HO belum diminta"
+  },
+  {
+   "priority": "P1",
+   "area": "OE Reserve",
+   "question": "Apakah reserve OE dibentuk bulanan, dengan tarif dan basis berapa.",
+   "status": "NEEDS_POLICY",
+   "blocks": "oe_reserve_accrual (mati)",
+   "quantified": "Nol postingan ke 1021607* dan 7010215* di C006 Juli 2026, dengan 15 baris OE aktif ±Rp190 juta",
+   "v01_status": "DIPERKUAT — sekarang ada bukti yang menyanggah, bukan sekadar ketiadaan konfirmasi"
+  },
+  {
+   "priority": "P1",
+   "area": "Card Settlement",
+   "question": "Pertahankan bank-dulu-lalu-reklas, atau pindah ke clearing sejak checkout.",
+   "status": "DESIGN_DECISION",
+   "blocks": "card_clearing_at_checkout (mati)",
+   "quantified": "290 dokumen membankan kartu langsung; C006-GL-26-07-00003 mereklas",
+   "v01_status": "DIUBAH — v0.1 cenderung ke opsi B; v0.2 mempertahankan praktik dan mematikan opsi B sampai diputuskan"
+  },
+  {
+   "priority": "P1",
+   "area": "Asset Schedule",
+   "question": "Konvensi bulan pertama penyusutan.",
+   "status": "ANSWERED",
+   "blocks": "—",
+   "quantified": "TGL BELI menghasilkan Rp4.683.970 (cocok); PERIODE menghasilkan Rp15.748.763 (selisih Rp11.064.793)",
+   "v01_status": "TERJAWAB oleh putaran ini"
+  },
+  {
+   "priority": "P1",
+   "area": "Aset AC C004",
+   "question": "Rp26,39 juta atau Rp33,39 juta; C004 atau HO.",
+   "status": "NEEDS_CLIENT_CONFIRMATION",
+   "blocks": "Nilai perolehan dan unit satu aset",
+   "quantified": "BKK Rp26.390.000 C004; screenshot Rp33.390.000 C004; MASTER ASSET Rp26.390.000 HO",
+   "v01_status": "BARU"
+  },
+  {
+   "priority": "P1",
+   "area": "Stock Adjustment / Loss",
+   "question": "Satu contoh jurnal aktual per jenis (shortage, overage, damage, loss, disposal).",
+   "status": "NEEDS_JOURNAL_SAMPLE",
+   "blocks": "Mapping varians persediaan",
+   "quantified": "Tidak ada satu pun di C006 Juli 2026",
+   "v01_status": "NEEDS_JOURNAL_SAMPLE — tidak berubah"
+  },
+  {
+   "priority": "P2",
+   "area": "Supplier AP",
+   "question": "Kapan liability supplier barang diakui.",
+   "status": "NEEDS_PROCESS_SAMPLE",
+   "blocks": "Aturan AP barang dagangan",
+   "quantified": "Nol postingan ke 2012001* di C006 Juli 2026 — konsisten dengan konfirmasi bahwa toko tidak memakainya",
+   "v01_status": "DIPERKUAT"
+  },
+  {
+   "priority": "P2",
+   "area": "Penamaan akun",
+   "question": "102140300100 bernama 'Piutang Affiliasi Lain-lain', bukan 'Principal'.",
+   "status": "NEEDS_CLIENT_CONFIRMATION",
+   "blocks": "Penamaan role PRINCIPAL_RECEIVABLE",
+   "quantified": "Pasangan 2012303 'Hutang Lain-lain Principal' dan 1021403 'Piutang Affiliasi Lain-lain'",
+   "v01_status": "BARU"
+  }
+ ],
+ "coding_contract": [
+  {
+   "component": "Account role resolver",
+   "purpose": "Resolve semantic role + dimensions + unit into actual leaf account.",
+   "minimum_schema": "account_role_binding(role, dimension_kind, dimension_value, unit, account_code10, account_code12, valid_from, valid_to)",
+   "rule": "Business logic references semantic roles, never hard-codes 12-digit unit accounts."
+  },
+  {
+   "component": "Business event store",
+   "purpose": "Immutable source facts from POS/Inventory/Procurement/People/Finance.",
+   "minimum_schema": "business_event(id, type, source_domain, source_id, unit, occurred_at, payload_json, idempotency_key, status)",
+   "rule": "One source transaction/event must be idempotent and traceable."
+  },
+  {
+   "component": "Posting rule",
+   "purpose": "Translate event + stage + context into journal lines.",
+   "minimum_schema": "posting_rule(id, event_type, scope, condition_json, mode, status, version); posting_rule_line(rule_id, seq, side, role, dimension_expr, amount_expr)",
+   "rule": "Posting is selected by event/stage/context, not by account alone."
+  },
+  {
+   "component": "Journal / ledger",
+   "purpose": "Authoritative double-entry financial record.",
+   "minimum_schema": "journal(id, event_id, posting_rule_version, date, unit, status, reversed_by); journal_line(journal_id, account_id, debit, credit, dimensions_json)",
+   "rule": "Posted journal is immutable; corrections use reverse + repost."
+  },
+  {
+   "component": "Open item engine",
+   "purpose": "Common lifecycle for receivable, payable, accrual, advance.",
+   "minimum_schema": "open_item(id, type, source_id, counterparty, original_amount, outstanding_amount, due_date, status, expected_next_event)",
+   "rule": "Settlement actions reduce outstanding; support partial settlement."
+  },
+  {
+   "component": "Payment / receipt",
+   "purpose": "Single cash movement object reused across Payables/Accruals/Receivables/Cash & Bank.",
+   "minimum_schema": "cash_movement(id, kind, source_object_type, source_object_id, cash_account_role, amount, date, status, reference)",
+   "rule": "One payment may appear in multiple views but creates one transaction."
+  },
+  {
+   "component": "Schedule engine",
+   "purpose": "Prepaid recognition, depreciation, amortization, recurring accrual/reversal.",
+   "minimum_schema": "schedule(id, type, source_id, start_date, end_date, frequency, method, total, remaining, next_run, status)",
+   "rule": "Each run is idempotent and links to generated journal."
+  },
+  {
+   "component": "Reconciliation",
+   "purpose": "Bank/card/interunit/inventory matching and difference control.",
+   "minimum_schema": "reconciliation(id, type, period, expected_total, actual_total, difference, status); match(id, reconciliation_id, left_ref, right_ref, amount, confidence, status)",
+   "rule": "Matching itself need not create a journal unless an adjustment/settlement event occurs."
+  },
+  {
+   "component": "Attention engine",
+   "purpose": "Generate durable work items for overdue/mismatch/missed expected events.",
+   "minimum_schema": "attention(id, rule_key, object_type, object_id, severity, opened_at, due_at, status, assigned_to)",
+   "rule": "Rules evaluate financial objects, not GL rows only."
+  },
+  {
+   "component": "Approval / audit",
+   "purpose": "Controlled actions and complete history.",
+   "minimum_schema": "approval(id, object_type, object_id, step, actor, decision, timestamp); audit_event(id, object_type, object_id, action, actor, before_json, after_json)",
+   "rule": "Payment, write-off, journal, disposal, close can have configurable thresholds."
+  }
+ ]
+}

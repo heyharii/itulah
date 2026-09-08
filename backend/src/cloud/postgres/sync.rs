@@ -4258,7 +4258,7 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
 /// Resolve the exact authoritative DC for a site inside the caller's business
 /// transaction. No aliasing and no broadcast fallback are permitted.
 /// What the centre's siteless pool model calls its distribution centre.
-const CANONICAL_DC_SITE_ID: &str = "dc";
+pub(super) const CANONICAL_DC_SITE_ID: &str = "dc";
 
 /// The single registered DC origin, or nothing when that is not unambiguous.
 async fn sole_dc_origin_tx(tx: &mut Transaction<'_, Postgres>) -> Result<Option<String>, AppError> {

@@ -883,6 +883,91 @@
         "VITE_API_TARGET": "https://itulah-cloud.onrender.com",
         "VITE_EDGE_TARGET": "http://127.0.0.1:8082"
       }
+    },
+    {
+      "name": "article-api",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8134,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_rfid",
+        "BIND_ADDR": "127.0.0.1:8134",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "article-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5298",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5298,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8134"
+      }
+    },
+    {
+      "name": "fleet-verify",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8097,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_rfid",
+        "BIND_ADDR": "127.0.0.1:8097",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=warn,tower_http=warn",
+        "FRONTEND_DIR": "../frontend-hub/dist"
+      }
+    },
+    {
+      "name": "hub-fleet",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5299",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5299,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8097"
+      }
+    },
+    {
+      "name": "finance-lab",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5321",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5321,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8080"
+      }
     }
   ]
 }

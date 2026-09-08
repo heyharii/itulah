@@ -10,6 +10,7 @@ import { ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
@@ -26,11 +27,13 @@ import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { ago, count, label as humanise, moment } from "@/lib/format"
 import {
+  allotmentsByPool,
   correctPlacement,
   fleetPools,
   idempotencyKey,
   inventoryKeys,
   listCounts,
+  listObservations,
   poolDetail,
   type FleetPool,
   type PoolItem,
@@ -82,18 +85,70 @@ export interface PoolRow {
   /// The latest count of this pool whatever its status, so one opened this
   /// morning reads as counted today rather than as never counted.
   readonly last_count: string | null
-  /// False on the Cloud row for a site a live Edge node owns. Those rows are
-  /// shown — they hold the last numbers the centre saw — but they are NOT in
-  /// the site's total, because the Edge row for the same pool is. Reading the
-  /// two together without that distinction is exactly how a fleet counts a
-  /// store twice.
+  /// Whether the fleet total includes this row. True for almost every row now
+  /// that the sources for one shelf are folded together — what remains false
+  /// is the outbound rollups, which are sums of the rows beneath them and
+  /// would double the fleet if added again.
   readonly counted: boolean
+  /// The pool id **in the centre's spelling**, which is the only one the Cloud
+  /// tables are keyed by.
+  ///
+  /// Not `pool.id`: where an Edge node owns the shelf, the row that wins the
+  /// fold is that node's, and its id is the node's own spelling —
+  /// `dc-01.warehouse` for what every Cloud table calls `dc.warehouse`. Asking
+  /// the centre about a pool by the node's name gets "not found: active
+  /// placement source pool", which is what the allotments panel answered until
+  /// this field existed. Counts, sightings, allotments and the pool's own
+  /// detail are all Cloud records; all four ask with this.
+  readonly poolId: string
+  /// Set when a second source for the same shelf reports a different quantity.
+  /// The fold picks the authoritative one; this is what it did not pick, so a
+  /// disagreement between the centre and a node is visible rather than
+  /// resolved out of sight.
+  readonly disputed: { readonly source: string; readonly stock: number } | null
+  /// Every row the fleet read returned for this shelf — one per source. The
+  /// sheet lists them, which is where "why do these two disagree" is answered.
+  readonly sources?: readonly FleetPool[]
   readonly subRows?: readonly PoolRow[]
 }
 
 /// A quantity that may be absent, and an absence that is not a nought.
 function figure(value: number | null) {
   return value === null ? <span className="text-mute">—</span> : count(value)
+}
+
+/// A number that is also a way in to what it is made of.
+///
+/// A real `<button>` rather than a click handler on the cell: this is the
+/// keyboard's only route to these two sheets, and a cell that merely responds
+/// to a pointer is a control only some people have. `stopPropagation` because
+/// the row itself opens the pool — without it, clicking Allotted would open
+/// the pool sheet and the allotments sheet at once.
+///
+/// The underline is dotted rather than solid: this does not leave the screen,
+/// and a link's underline promises that it does.
+function Figure({
+  onClick,
+  label,
+  children,
+}: {
+  onClick: () => void
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
+      className="tabular-nums underline decoration-line-ico decoration-dotted underline-offset-4 transition-colors hover:text-ink hover:decoration-ink focus-visible:outline-2 focus-visible:outline-accent"
+    >
+      {children}
+    </button>
+  )
 }
 
 /// Stock, then what it is made of, then what is wrong with it.
@@ -105,136 +160,185 @@ function figure(value: number | null) {
 /// in front of it. A row whose ring is empty and whose last count says Never
 /// is a number nobody has checked, and those two columns are the only place
 /// this table says so.
-const columns: ColumnDef<TableSetup, PoolRow>[] = [
-  {
-    id: "pool",
-    accessorFn: (row) => row.label,
-    header: "Pool",
-    size: 320,
-    meta: { filter: { kind: "text" } },
-    cell: ({ row }) => {
-      const site = row.original.pool === null
-      return (
-        <div
-          className="flex min-w-0 items-center gap-1.5"
-          style={{ paddingLeft: `${row.depth * 1.125}rem` }}
-        >
-          {row.getCanExpand() ? (
-            // A real button, even though the whole row toggles too: the row is
-            // a click target and this is the keyboard's way in.
-            <button
-              type="button"
-              aria-expanded={row.getIsExpanded()}
-              aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} ${row.original.label}`}
-              onClick={(event) => {
-                event.stopPropagation()
-                row.toggleExpanded()
-              }}
-              className="grid size-4 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-accent"
-            >
-              <ChevronRight
-                className={cn(
-                  "size-3.5 transition-transform",
-                  row.getIsExpanded() && "rotate-90"
-                )}
-              />
-            </button>
-          ) : (
-            <span className="w-4 shrink-0" />
-          )}
-          <span
-            className={
-              site
-                ? "truncate font-medium text-ink"
-                : row.original.counted
-                  ? "truncate text-text"
-                  : "truncate text-mute"
-            }
+/// Built per screen rather than once at module scope, because two of these
+/// cells open a sheet and a sheet opener is a hook's return value.
+///
+/// The openers are passed in rather than the cells reaching for `useSheet`
+/// themselves: a cell renderer is called by the table, not by React's
+/// component tree, so a hook inside one is a hook called outside a component.
+function poolColumns(open: {
+  allotments: (poolId: string) => void
+  sightings: (poolId: string) => void
+}): ColumnDef<TableSetup, PoolRow>[] {
+  return [
+    {
+      id: "pool",
+      accessorFn: (row) => row.label,
+      header: "Pool",
+      size: 320,
+      meta: { filter: { kind: "text" } },
+      cell: ({ row }) => {
+        const site = row.original.pool === null
+        return (
+          <div
+            className="flex min-w-0 items-center gap-1.5"
+            style={{ paddingLeft: `${row.depth * 1.125}rem` }}
           >
-            {row.original.label}
-          </span>
-          {!site && !row.original.counted && (
-            <span className="shrink-0 text-[0.625rem] text-mute">
-              not counted
+            {row.getCanExpand() ? (
+              // A real button, even though the whole row toggles too: the row is
+              // a click target and this is the keyboard's way in.
+              <button
+                type="button"
+                aria-expanded={row.getIsExpanded()}
+                aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} ${row.original.label}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  row.toggleExpanded()
+                }}
+                className="grid size-4 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                <ChevronRight
+                  className={cn(
+                    "size-3.5 transition-transform",
+                    row.getIsExpanded() && "rotate-90"
+                  )}
+                />
+              </button>
+            ) : (
+              <span className="w-4 shrink-0" />
+            )}
+            <span
+              className={
+                site
+                  ? "truncate font-medium text-ink"
+                  : row.original.counted
+                    ? "truncate text-text"
+                    : "truncate text-mute"
+              }
+            >
+              {row.original.label}
             </span>
-          )}
-        </div>
-      )
+            {/* Two markers, and they say different things. A rollup is a sum of
+              the rows beneath it — real stock, deliberately not added again, so
+              the fleet is not doubled. A dispute is two sources that do not
+              agree about the same shelf, which no fold may resolve silently.
+              Neither is "nobody has counted this", which the Last count column
+              says on its own. */}
+            {!site && !row.original.counted && (
+              <span className="shrink-0 text-[0.625rem] text-mute">rollup</span>
+            )}
+            {row.original.disputed !== null && (
+              <span
+                className="shrink-0 text-[0.625rem] font-medium text-warn-fg"
+                title={`${row.original.disputed.source} reports ${row.original.disputed.stock}`}
+              >
+                disputed
+              </span>
+            )}
+          </div>
+        )
+      },
     },
-  },
-  {
-    accessorKey: "stock",
-    header: "Stock",
-    size: 100,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => count(row.original.stock),
-  },
-  {
-    accessorKey: "on_hand",
-    header: "On hand",
-    size: 100,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => count(row.original.on_hand),
-  },
-  {
-    accessorKey: "allotted",
-    header: "Allotted",
-    size: 100,
-    meta: {
-      align: "right",
-      priority: 2,
-      filter: { kind: "number", unit: "pcs" },
+    {
+      accessorKey: "stock",
+      header: "Stock",
+      size: 100,
+      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      cell: ({ row }) => count(row.original.stock),
     },
-    cell: ({ row }) => figure(row.original.allotted),
-  },
-  {
-    accessorKey: "observed",
-    header: "Observed",
-    size: 120,
-    meta: {
-      align: "right",
-      priority: 3,
-      filter: { kind: "number", unit: "tags" },
+    {
+      accessorKey: "on_hand",
+      header: "On hand",
+      size: 100,
+      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      cell: ({ row }) => count(row.original.on_hand),
     },
-    cell: ({ row }) => {
-      const { observed, stock } = row.original
-      if (observed === null) return <span className="text-mute">—</span>
-      return (
-        <span className="inline-flex items-center gap-1.5">
-          <Dial value={stock > 0 ? observed / stock : 0} />
-          {count(observed)}
+    {
+      accessorKey: "allotted",
+      header: "Allotted",
+      size: 100,
+      meta: {
+        align: "right",
+        priority: 2,
+        filter: { kind: "number", unit: "pcs" },
+      },
+      /// A promise is made of instructions, and this is the only number on the
+      /// row that names records rather than pieces. Clicking it asks which ones.
+      cell: ({ row }) => {
+        const { allotted, pool, poolId } = row.original
+        if (allotted === null || pool === null) return figure(allotted)
+        return (
+          <Figure
+            onClick={() => open.allotments(poolId)}
+            label={`Allotments out of ${row.original.label}`}
+          >
+            {count(allotted)}
+          </Figure>
+        )
+      },
+    },
+    {
+      accessorKey: "observed",
+      header: "Observed",
+      size: 120,
+      meta: {
+        align: "right",
+        priority: 3,
+        filter: { kind: "number", unit: "tags" },
+      },
+      /// Distinct tags a reader saw in the window. Evidence rather than a
+      /// balance, so what is behind it is a list of readings — which is a
+      /// different record from the movements behind Stock, and opens its own
+      /// sheet for exactly that reason.
+      cell: ({ row }) => {
+        const { observed, stock, pool, poolId } = row.original
+        if (observed === null) return <span className="text-mute">—</span>
+        const reading = (
+          <span className="inline-flex items-center gap-1.5">
+            <Dial value={stock > 0 ? observed / stock : 0} />
+            {count(observed)}
+          </span>
+        )
+        if (pool === null) return reading
+        return (
+          <Figure
+            onClick={() => open.sightings(poolId)}
+            label={`Sightings in ${row.original.label}`}
+          >
+            {reading}
+          </Figure>
+        )
+      },
+    },
+    {
+      accessorKey: "missing",
+      header: "Missing",
+      size: 100,
+      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      cell: ({ row }) => (
+        <span
+          className={
+            row.original.missing > 0 ? "font-medium text-bad-fg" : "text-mute"
+          }
+        >
+          {count(row.original.missing)}
         </span>
-      )
-    },
-  },
-  {
-    accessorKey: "missing",
-    header: "Missing",
-    size: 100,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => (
-      <span
-        className={
-          row.original.missing > 0 ? "font-medium text-bad-fg" : "text-mute"
-        }
-      >
-        {count(row.original.missing)}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "last_count",
-    header: "Last count",
-    size: 120,
-    meta: { priority: 3, filter: { kind: "date" } },
-    cell: ({ row }) =>
-      row.original.last_count === null ? (
-        <span className="text-mute">Never</span>
-      ) : (
-        ago(row.original.last_count)
       ),
-  },
-]
+    },
+    {
+      accessorKey: "last_count",
+      header: "Last count",
+      size: 120,
+      meta: { priority: 3, filter: { kind: "date" } },
+      cell: ({ row }) =>
+        row.original.last_count === null ? (
+          <span className="text-mute">Never</span>
+        ) : (
+          ago(row.original.last_count)
+        ),
+    },
+  ]
+}
 
 /// The pool table on its own, without page chrome.
 ///
@@ -247,6 +351,8 @@ const columns: ColumnDef<TableSetup, PoolRow>[] = [
 export function PoolsBody() {
   const [query, setQuery] = useState("")
   const pool = useSheet("pool")
+  const poolAllotments = useSheet("pool-allotments")
+  const poolSightings = useSheet("pool-sightings")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "missing", desc: true },
   ])
@@ -300,44 +406,133 @@ export function PoolsBody() {
 
   /// The pools of one site, folded into the row that stands for the site.
   ///
-  /// **Only rows the server counts are added up.** 160 rows describe 112 pools:
-  /// where a live Edge node owns a site, the Cloud row for the same pool is
-  /// shadowed and carries `included_in_fleet_total: false`, and the four
-  /// outbound stage rollups carry it too — because their own leaves are what
-  /// count. Summing every row gives 7.001 for a fleet the server puts at 4.401.
-  /// So the total follows the server's own policy rather than a second opinion,
-  /// and the rows it leaves out are still shown, dimmed and labelled.
+  /// # One shelf, one row
+  ///
+  /// The fleet read returns a row per *source*, not per shelf: Cloud keeps a
+  /// native ledger and also projects each Edge node's fact positions, so a
+  /// warehouse an Edge node owns arrives twice — once from each. The server
+  /// marks exactly one of the pair `included_in_fleet_total`, and this screen
+  /// used to render both, dimming the other and labelling it "not counted".
+  ///
+  /// That label was read as "nobody has counted this stock", which is what the
+  /// **Last count** column says two columns further along. What it actually
+  /// meant was "not added into the total" — and having a duplicate row for
+  /// every shelf in the fleet to carry that distinction is a poor trade for it.
+  /// The pair is folded here instead: the row the server counts supplies the
+  /// numbers, its shadowed twin supplies only the readings the winner cannot
+  /// have, and where the two genuinely disagree the row says so rather than
+  /// picking one quietly.
+  ///
+  /// # Two names for one distribution centre
+  ///
+  /// The centre's pool model spells the DC literally — `dc.warehouse` — while
+  /// the Edge parameterises the same grammar by the site it runs as, so the
+  /// same shelf is `dc-01.warehouse` there. Grouping on `site_id` alone puts
+  /// them under two different headings and folds neither. The respelling is
+  /// recovered from the data rather than hardcoded: a Cloud row that names an
+  /// origin in `shadowed_by_origin_id` is telling us which site that origin is
+  /// standing in, which is the whole of the mapping.
   const tree = useMemo<PoolRow[]>(() => {
     const items = fleet.data?.items ?? []
 
+    /// `dc-01-edge` → `dc`: the site the centre files this origin's rows under.
+    /// Empty for every store, where the two spellings already agree.
+    const siteOfOrigin = new Map<string, string>()
+    for (const item of items) {
+      const shadowing = item.authority.shadowed_by_origin_id
+      if (shadowing !== null) siteOfOrigin.set(shadowing, item.site_id)
+    }
+    const siteOf = (item: FleetPool) =>
+      siteOfOrigin.get(item.origin_id) ?? item.site_id
+    /// The pool id in the centre's spelling. The first segment IS the site — a
+    /// site id admits only lowercase letters, digits and `-`, never the dot.
+    const poolOf = (item: FleetPool) => {
+      const site = siteOf(item)
+      const rest = item.id.slice(item.id.indexOf(".") + 1)
+      return item.id.includes(".") ? `${site}.${rest}` : item.id
+    }
+
     const bySite = new Map<string, FleetPool[]>()
     for (const item of items) {
-      const list = bySite.get(item.site_id)
+      const site = siteOf(item)
+      const list = bySite.get(site)
       if (list) list.push(item)
-      else bySite.set(item.site_id, [item])
+      else bySite.set(site, [item])
     }
 
     return [...bySite.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([siteId, pools]) => {
-        const children: PoolRow[] = pools
-          .slice()
+        /// The sources for one shelf, newest authority first.
+        const byPool = new Map<string, FleetPool[]>()
+        for (const item of pools) {
+          const key = poolOf(item)
+          const list = byPool.get(key)
+          if (list) list.push(item)
+          else byPool.set(key, [item])
+        }
+
+        const children: PoolRow[] = [...byPool.entries()]
+          .map(([poolId, sources]) => {
+            /// The server has already decided which source speaks for this
+            /// shelf. Where it counts neither — an outbound rollup, a shelf
+            /// whose owner has gone quiet — the Cloud row is the fallback,
+            /// because it is the one that still holds a number.
+            const lead =
+              sources.find((item) => item.authority.included_in_fleet_total) ??
+              sources.find((item) => item.source_type === "CLOUD_LEDGER") ??
+              sources[0]
+            /// A reading the winner cannot have rather than does not have.
+            /// Cloud holds each Edge node's fact positions but not the
+            /// sightings behind them, so an Edge row's `observed` is null by
+            /// construction — taking the Cloud twin's is recovering the
+            /// column, not overriding an answer.
+            const borrow = (pick: (item: FleetPool) => number | null) =>
+              pick(lead) ?? sources.map(pick).find((v) => v !== null) ?? null
+            /// Two sources for one shelf that do not agree on how much is on
+            /// it. Folding them hides that, so the row carries it instead.
+            ///
+            /// Only a source that has actually spoken can disagree. A node
+            /// that has never reported reads nought for every pool it models,
+            /// and calling that a dispute would put the marker on every shelf
+            /// of every shop whose box is not plugged in yet — which is the
+            /// same noise as the label this fold replaced. Rollups are excluded
+            /// for a different reason: the two sides derive them over different
+            /// leaves, so their numbers are not the same question.
+            const rival = sources.find(
+              (item) =>
+                item !== lead &&
+                item.stock !== lead.stock &&
+                !item.authority.derived &&
+                item.sync_status !== "WAITING"
+            )
+            return {
+              key: poolId,
+              poolId,
+              label: lead.label,
+              pool: lead,
+              stock: lead.stock,
+              on_hand: lead.on_hand,
+              allotted: borrow((item) => item.allotted),
+              observed: borrow((item) => item.observed),
+              missing: lead.missing,
+              last_count: lastCounts.get(poolId) ?? null,
+              counted: lead.authority.included_in_fleet_total,
+              disputed:
+                rival === undefined
+                  ? null
+                  : {
+                      source: rival.owner_label ?? rival.origin_id,
+                      stock: rival.stock,
+                    },
+              sources,
+            }
+          })
           .sort(
             (a, b) =>
-              a.display_order - b.display_order || a.id.localeCompare(b.id)
+              a.pool!.display_order - b.pool!.display_order ||
+              a.key.localeCompare(b.key)
           )
-          .map((item) => ({
-            key: `${item.origin_id}/${item.id}`,
-            label: item.label,
-            pool: item,
-            stock: item.stock,
-            on_hand: item.on_hand,
-            allotted: item.allotted,
-            observed: item.observed,
-            missing: item.missing,
-            last_count: lastCounts.get(item.id) ?? null,
-            counted: item.authority.included_in_fleet_total,
-          }))
 
         const counted = children.filter((child) => child.counted)
         const sum = (pick: (row: PoolRow) => number) =>
@@ -365,7 +560,16 @@ export function PoolsBody() {
 
         return {
           key: `site/${siteId}`,
-          label: pools[0].site_name ?? siteId,
+          poolId: siteId,
+          /// The site's own name, not the node's. `site.name` is the master
+          /// record for the place ("DC", "Store 02"); an origin's label names
+          /// the box standing in it ("DC Jakarta"), and the two are folded
+          /// under one heading now, so the place is what the heading says.
+          label:
+            pools.find((item) => item.source_type === "CLOUD_LEDGER")
+              ?.site_name ??
+            pools[0].site_name ??
+            siteId,
           pool: null,
           stock: sum((row) => row.stock),
           on_hand: sum((row) => row.on_hand),
@@ -374,11 +578,20 @@ export function PoolsBody() {
           missing: sum((row) => row.missing),
           last_count: latest,
           counted: true,
+          disputed: null,
           subRows: children,
         }
       })
   }, [fleet.data, lastCounts])
 
+  const columns = useMemo(
+    () =>
+      poolColumns({
+        allotments: poolAllotments.open,
+        sightings: poolSightings.open,
+      }),
+    [poolAllotments.open, poolSightings.open]
+  )
   const filters = useFilters(columns)
 
   const table = useTable(
@@ -431,9 +644,7 @@ export function PoolsBody() {
           loading: "Reading every node…",
           render: () =>
             tree.length === 0 ? (
-              <EmptyState>
-                This node has no active operational pool.
-              </EmptyState>
+              <EmptyState>This node has no active operational pool.</EmptyState>
             ) : (
               <DataTable<PoolRow>
                 table={table}
@@ -441,7 +652,7 @@ export function PoolsBody() {
                 // whole row is the chevron's click target rather than a dead
                 // strip beside a 14-pixel control.
                 onRowClick={(row) => {
-                  if (row.pool) pool.open(row.pool.id)
+                  if (row.pool) pool.open(row.poolId)
                   else table.getRow(row.key).toggleExpanded()
                 }}
                 // `row.pool?.id === pool.value` was `undefined === undefined`
@@ -457,6 +668,14 @@ export function PoolsBody() {
       </Card>
 
       <PoolSheet id={pool.value ?? null} onClose={pool.close} />
+      <PoolAllotmentsSheet
+        id={poolAllotments.value ?? null}
+        onClose={poolAllotments.close}
+      />
+      <PoolSightingsSheet
+        id={poolSightings.value ?? null}
+        onClose={poolSightings.close}
+      />
     </>
   )
 }
@@ -567,6 +786,13 @@ function PoolSheet({
   return (
     <Sheet
       open={id !== null}
+      // Six sections and a five-field form do not fit a 27.5rem rail: the
+      // holding table alone can be two hundred rows. The trade is real and
+      // taken deliberately — only `rail` docks beside the list on a wide
+      // monitor, so this panel now covers the table it was opened from. For a
+      // record this dense that is the better half of the trade; the list is
+      // still there when it closes.
+      width="table"
       subject={id === null ? undefined : { kind: "pool", id }}
       onOpenChange={(open) => !open && onClose()}
       id={id ?? undefined}
@@ -689,6 +915,48 @@ function PoolSheet({
                       </td>
                       <td className="py-2 text-right tabular-nums">
                         {count(movement.quantity)}
+                      </td>
+                    </tr>
+                  ))}
+                </MiniTable>
+              </section>
+            )}
+
+            {/* The server has been sending these all along and the panel
+                dropped them on the floor. A pool's sightings are the evidence
+                behind its Observed column, and the one reading on this screen
+                that comes from a machine rather than from the ledger. */}
+            {pool.observations.length > 0 && (
+              <section>
+                <h4 className="mb-2 text-card-title font-semibold text-ink">
+                  Seen here
+                  <span className="ml-1.5 font-normal text-mute">
+                    {count(pool.observations.length)}
+                  </span>
+                </h4>
+                <p className="mb-2 text-[0.71875rem] text-mute">
+                  Evidence, not movements — nothing here has changed the ledger.
+                </p>
+                <MiniTable
+                  head={[
+                    "Tag",
+                    "Last seen",
+                    { label: "Reads", align: "right" },
+                  ]}
+                >
+                  {pool.observations.map((item) => (
+                    <tr
+                      key={item.observation_id}
+                      className="border-t border-hairline"
+                    >
+                      <td className="py-2 pr-2 font-mono text-[0.65625rem] text-body">
+                        {item.epc}
+                      </td>
+                      <td className="py-2 pr-2 text-[0.8125rem] text-body">
+                        {ago(item.last_seen_at)}
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {count(item.read_count)}
                       </td>
                     </tr>
                   ))}
@@ -862,6 +1130,176 @@ function PoolSheet({
             </section>
           </div>
         ),
+      })}
+    </Sheet>
+  )
+}
+
+/// What one shelf has been promised out of, reached from the Allotted column.
+///
+/// The Allotted number on a pool row is a sum of instructions, and nothing on
+/// that screen said which ones. Answering it needed a server-side filter that
+/// already existed and nothing had ever called — `source_pool_id` on the
+/// allotment book — so this is a narrow read, not a fetch-everything-and-sift:
+/// an allotment drawing on three pools matches on one of them, and its other
+/// two lines are none of this pool's business.
+function PoolAllotmentsSheet({
+  id,
+  onClose,
+}: {
+  id: string | null
+  onClose: () => void
+}) {
+  const book = useQuery({
+    queryKey: inventoryKeys.allotmentsByPool(id ?? ""),
+    queryFn: ({ signal }) => allotmentsByPool(id!, signal),
+    enabled: id !== null,
+  })
+
+  return (
+    <Sheet
+      open={id !== null}
+      width="wide"
+      onOpenChange={(open) => !open && onClose()}
+      id={id ?? undefined}
+      title="Allotted out of this pool"
+    >
+      {queryState(book, {
+        loading: "Reading the book…",
+        render: (list) =>
+          list.items.length === 0 ? (
+            <EmptyState>
+              Nothing is promised out of here. Allotted counts pieces committed
+              to a destination but not yet picked, and this pool has none.
+            </EmptyState>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <p className="text-meta text-body">
+                {count(list.items.length)} allotment
+                {list.items.length === 1 ? "" : "s"} draw on this pool.
+                Remaining is what is still owed — accepted, less picked, less
+                cancelled — and it is the number the Allotted column adds up.
+              </p>
+              <MiniTable
+                head={[
+                  "Allotment",
+                  "Destinations",
+                  { label: "Remaining", align: "right" },
+                ]}
+              >
+                {list.items.map((item) => (
+                  <tr key={item.id} className="border-t border-hairline">
+                    <td className="py-2 pr-2">
+                      <AppLink
+                        to="/allotment"
+                        sheet={{ key: "allotment", value: item.id }}
+                        className="font-mono text-id text-body hover:text-ink hover:underline"
+                      >
+                        {item.allotment_number}
+                      </AppLink>
+                      <span className="mt-0.5 block text-[0.65625rem] text-mute">
+                        {humanise(item.type)} · {moment(item.created_at)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-2 text-[0.8125rem] text-body">
+                      {count(item.destination_count)} · {count(item.sku_count)}{" "}
+                      SKU
+                      <Pill
+                        tone={item.status === "CANCELLED" ? "bad" : "info"}
+                        className="ml-1.5"
+                      >
+                        {humanise(item.status)}
+                      </Pill>
+                    </td>
+                    <td className="py-2 text-right tabular-nums">
+                      {count(item.remaining_quantity)}
+                    </td>
+                  </tr>
+                ))}
+              </MiniTable>
+            </div>
+          ),
+      })}
+    </Sheet>
+  )
+}
+
+/// Every tag a reader saw in this pool, reached from the Observed column.
+///
+/// **A sighting is evidence, not a movement.** Nothing here has moved a piece
+/// or ever will: ingesting RFID returns `inventory_effect: {0, 0}` and the
+/// server means it literally. A tag read in the wrong aisle is a fact about a
+/// reading; making the ledger agree with it takes a person and a placement
+/// correction, which is on the pool's own sheet. That is why this is a
+/// separate panel from the movements rather than a section beside them — they
+/// are two ledgers, and conflating them is how a fleet starts trusting a
+/// scanner over a count.
+function PoolSightingsSheet({
+  id,
+  onClose,
+}: {
+  id: string | null
+  onClose: () => void
+}) {
+  const reads = useQuery({
+    queryKey: inventoryKeys.observations(id ?? "", ""),
+    queryFn: ({ signal }) => listObservations(id!, "", signal),
+    enabled: id !== null,
+  })
+
+  return (
+    <Sheet
+      open={id !== null}
+      width="wide"
+      onOpenChange={(open) => !open && onClose()}
+      id={id ?? undefined}
+      title="Seen in this pool"
+    >
+      {queryState(reads, {
+        loading: "Reading the sightings…",
+        render: (items) =>
+          items.length === 0 ? (
+            <EmptyState>
+              No tag has been read here. Observed counts distinct tags a reader
+              saw inside the window, and nothing has swept this pool in it.
+            </EmptyState>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <Banner tone="info">
+                A sighting is evidence, not a movement. Nothing on this list has
+                changed the ledger — correcting a placement is done on the
+                pool's own sheet, and it needs a reason and a piece of evidence.
+              </Banner>
+              <MiniTable
+                head={["Tag", "Last seen", { label: "Reads", align: "right" }]}
+              >
+                {items.map((item) => (
+                  <tr
+                    key={item.observation_id}
+                    className="border-t border-hairline"
+                  >
+                    <td className="py-2 pr-2">
+                      <span className="block font-mono text-[0.65625rem] text-body">
+                        {item.epc}
+                      </span>
+                      <span className="font-mono text-[0.65625rem] text-mute">
+                        {item.sku_code ?? "unknown SKU"}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-2 text-[0.8125rem] text-body">
+                      {ago(item.last_seen_at)}
+                      <span className="mt-0.5 block text-[0.65625rem] text-mute">
+                        {item.device_id}
+                      </span>
+                    </td>
+                    <td className="py-2 text-right tabular-nums">
+                      {count(item.read_count)}
+                    </td>
+                  </tr>
+                ))}
+              </MiniTable>
+            </div>
+          ),
       })}
     </Sheet>
   )

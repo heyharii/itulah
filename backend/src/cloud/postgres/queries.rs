@@ -1,4 +1,4 @@
-use super::{create_movement, movement_request_for_resolution, parse_missing_id};
+use super::{create_movement, movement_request_for_resolution, parse_missing_id, sync};
 use crate::cloud::{
     application::{AppError, AsOfQuery, MissingResolutionRequest},
     domain::{InventoryBalance, OperationalPool},
@@ -470,6 +470,7 @@ pub async fn list_fleet_pools(
     let mut active_edge_sites = BTreeMap::<String, String>::new();
     let mut stale_edge_origins = Vec::<String>::new();
     let mut missing_edge_origins = Vec::<String>::new();
+    let mut unreported_edge_origins = Vec::<String>::new();
     for row in owner_rows {
         let origin_id: String = row.get("origin_id");
         let site_id: String = row.get("site_id");
@@ -481,7 +482,22 @@ pub async fn list_fleet_pools(
         let checkpoint_age_seconds = row
             .get::<Option<f64>, _>("checkpoint_age_seconds")
             .map(|age| age.max(0.0));
-        active_edge_sites.insert(site_id.clone(), origin_id.clone());
+        // A credential is a claim of ownership; an applied watermark is the
+        // node having actually spoken. Only the second one is allowed to take
+        // a site off the Cloud ledger.
+        //
+        // Registering an Edge node used to be enough to shadow the Cloud rows
+        // for its site. A node that is provisioned but has never synced would
+        // then contribute base pools of nought while the real balances sat on
+        // Cloud rows excluded from the total — a store holding 600 pieces
+        // reading 0, with no row on the screen saying so. Ownership is still
+        // the credential's: what moved is only *when* it starts.
+        let reported = row.get::<Option<i64>, _>("fact_applied_seq").is_some();
+        if reported {
+            active_edge_sites.insert(site_id.clone(), origin_id.clone());
+        } else {
+            unreported_edge_origins.push(origin_id.clone());
+        }
         if checkpoint_generation.is_none() {
             missing_edge_origins.push(origin_id.clone());
         } else if checkpoint_age_seconds.is_some_and(|age| age > 300.0) {
@@ -510,64 +526,53 @@ pub async fn list_fleet_pools(
         );
     }
 
-    let mut shadowed_cloud_sites = std::collections::BTreeSet::<String>::new();
-    for item in &mut items {
-        if let Some(object) = item.as_object_mut() {
-            let site_id = object
-                .get("site_id")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            let is_rollup = object
-                .get("is_rollup")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            let shadowed_by = active_edge_sites.get(&site_id).cloned();
-            if shadowed_by.is_some() {
-                shadowed_cloud_sites.insert(site_id.clone());
+    // The centre's pool model has exactly one distribution centre and spells it
+    // into the id literally — `dc.warehouse`. The Edge parameterises the same
+    // grammar by the site it runs as — `dc-01.warehouse`. Stores never diverge,
+    // which is why only the DC needs this.
+    //
+    // Shadowing matches on site id, so nothing ever matched for the DC: the
+    // Cloud rows sat under `dc`, the Edge rows under `dc-01`, both were counted,
+    // and the same warehouse went into the fleet total twice. The same
+    // `dc.warehouse` reading 3.589 appeared as two rows on the screen, each
+    // presented as authoritative.
+    //
+    // Resolved the way `inventory_dc_owner_tx` already resolves it — the
+    // canonical name belongs to the sole registered DC — and left unresolved
+    // when there are several, because choosing which of two warehouses is "the"
+    // DC is not a decision a read may make. That case is named in the
+    // diagnostics rather than guessed at.
+    let reported_dc_origins: Vec<(&String, &Value)> = edge_owners
+        .iter()
+        .filter(|(origin_id, owner)| {
+            owner.get("node_role").and_then(Value::as_str) == Some("DC")
+                && active_edge_sites
+                    .values()
+                    .any(|active| active == *origin_id)
+        })
+        .collect();
+    let mut ambiguous_canonical_dc = Vec::<String>::new();
+    match reported_dc_origins.as_slice() {
+        [(origin_id, owner)] => {
+            let runs_as = owner.get("site_id").and_then(Value::as_str).unwrap_or("");
+            if runs_as != sync::CANONICAL_DC_SITE_ID {
+                active_edge_sites
+                    .insert(sync::CANONICAL_DC_SITE_ID.to_string(), (*origin_id).clone());
             }
-            let included = !is_rollup && shadowed_by.is_none();
-            let cloud_writable = included;
-            let write_policy = if is_rollup {
-                "DERIVED_READ_ONLY"
-            } else if shadowed_by.is_some() {
-                "SHADOWED_READ_ONLY"
-            } else {
-                "CLOUD_WRITABLE"
-            };
-            object.insert("origin_id".into(), json!(cloud_node_id));
-            object.insert("origin_role".into(), json!("CLOUD"));
-            object.insert("owner_label".into(), json!("Cloud native ledger"));
-            object.insert("source_type".into(), json!("CLOUD_LEDGER"));
-            object.insert("fact_generation".into(), Value::Null);
-            object.insert("fact_applied_seq".into(), Value::Null);
-            object.insert("snapshot_generation".into(), Value::Null);
-            object.insert("snapshot_seq".into(), Value::Null);
-            object.insert("checkpoint_captured_at".into(), Value::Null);
-            object.insert("checkpoint_applied_at".into(), Value::Null);
-            object.insert("checkpoint_age_seconds".into(), Value::Null);
-            object.insert("checkpoint_status".into(), Value::Null);
-            object.insert("sync_captured_at".into(), Value::Null);
-            object.insert("sync_applied_at".into(), Value::Null);
-            object.insert("sync_age_seconds".into(), Value::Null);
-            object.insert("source_capture_age_seconds".into(), Value::Null);
-            object.insert("sync_status".into(), json!("LOCAL"));
-            object.insert(
-                "authority".into(),
-                json!({
-                    "owner_site_id": site_id,
-                    "owner_origin_id": cloud_node_id,
-                    "owner_role": "CLOUD",
-                    "source": "CLOUD_LEDGER",
-                    "write_policy": write_policy,
-                    "cloud_writable": cloud_writable,
-                    "included_in_fleet_total": included,
-                    "shadowed_by_origin_id": shadowed_by,
-                    "derived": is_rollup,
-                }),
-            );
         }
+        several if several.len() > 1 => {
+            ambiguous_canonical_dc = several
+                .iter()
+                .map(|(origin_id, _)| (*origin_id).clone())
+                .collect();
+        }
+        _ => {}
     }
+
+    // Where the Cloud rows end and the Edge rows begin. The shadowing pass
+    // below needs both halves in hand, so it runs after the Edge read and
+    // walks only this prefix.
+    let cloud_row_count = items.len();
 
     let rows = sqlx::query(
         "WITH base_pool AS (
@@ -701,6 +706,12 @@ pub async fn list_fleet_pools(
         } else {
             "CURRENT"
         };
+        // The other half of the rule above. A node that has never reported does
+        // not shadow its site's Cloud rows, so those are in the total — and
+        // these base pools, which are nought because nothing has arrived rather
+        // than because the shelf is empty, must stay out of it. Exactly one row
+        // per pool is counted either way, which is the whole point of the pair.
+        let counted = sync_status != "WAITING";
         items.push(json!({
             "id": pool_id,
             "site_id": site_id,
@@ -749,11 +760,116 @@ pub async fn list_fleet_pools(
                 "source": "EDGE_FACT_POSITION",
                 "write_policy": "OWNER_NODE_ONLY",
                 "cloud_writable": false,
-                "included_in_fleet_total": true,
+                "included_in_fleet_total": counted,
                 "shadowed_by_origin_id": Value::Null,
                 "derived": false,
             },
         }));
+    }
+
+    // Every pool an Edge origin actually emits, in that origin's own spelling.
+    //
+    // Shadowing is decided against this rather than against the site, because
+    // owning a site is not the same as modelling every shelf in it. The DC Edge
+    // emits four base pools; the centre additionally splits outbound into a row
+    // per destination store — `dc.outbound.picked.store-01` and its dozen
+    // siblings — which the Edge has no spelling for at all. Shadowing the whole
+    // site therefore deleted 539 pieces of outbound stock and replaced them with
+    // nothing, which is the same defect as the one below in the other
+    // direction: a number vanishing because of who owns it rather than because
+    // of what is on the shelf.
+    //
+    // A Cloud row is shadowed only where the Edge has a row for that exact pool.
+    // Everywhere else the centre's ledger is still the only account of it.
+    let edge_pool_rows: std::collections::BTreeSet<(String, String)> = items
+        .iter()
+        .skip(cloud_row_count)
+        .filter_map(|item| {
+            Some((
+                item.get("origin_id").and_then(Value::as_str)?.to_string(),
+                item.get("id").and_then(Value::as_str)?.to_string(),
+            ))
+        })
+        .collect();
+
+    let mut shadowed_cloud_sites = std::collections::BTreeSet::<String>::new();
+    for item in items.iter_mut().take(cloud_row_count) {
+        if let Some(object) = item.as_object_mut() {
+            let site_id = object
+                .get("site_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let pool_id = object
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let is_rollup = object
+                .get("is_rollup")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            // The owner, then the shelf. `pool_id_for_site` respells the
+            // centre's `dc.warehouse` as the origin's own `dc-01.warehouse`; a
+            // no-op for every store, where the two names already agree.
+            let shadowed_by = active_edge_sites
+                .get(&site_id)
+                .filter(|origin_id| {
+                    let runs_as = edge_owners
+                        .get(*origin_id)
+                        .and_then(|owner| owner.get("site_id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or(site_id.as_str());
+                    edge_pool_rows.contains(&(
+                        (*origin_id).clone(),
+                        sync::pool_id_for_site(&pool_id, runs_as),
+                    ))
+                })
+                .cloned();
+            if shadowed_by.is_some() {
+                shadowed_cloud_sites.insert(site_id.clone());
+            }
+            let included = !is_rollup && shadowed_by.is_none();
+            let cloud_writable = included;
+            let write_policy = if is_rollup {
+                "DERIVED_READ_ONLY"
+            } else if shadowed_by.is_some() {
+                "SHADOWED_READ_ONLY"
+            } else {
+                "CLOUD_WRITABLE"
+            };
+            object.insert("origin_id".into(), json!(cloud_node_id));
+            object.insert("origin_role".into(), json!("CLOUD"));
+            object.insert("owner_label".into(), json!("Cloud native ledger"));
+            object.insert("source_type".into(), json!("CLOUD_LEDGER"));
+            object.insert("fact_generation".into(), Value::Null);
+            object.insert("fact_applied_seq".into(), Value::Null);
+            object.insert("snapshot_generation".into(), Value::Null);
+            object.insert("snapshot_seq".into(), Value::Null);
+            object.insert("checkpoint_captured_at".into(), Value::Null);
+            object.insert("checkpoint_applied_at".into(), Value::Null);
+            object.insert("checkpoint_age_seconds".into(), Value::Null);
+            object.insert("checkpoint_status".into(), Value::Null);
+            object.insert("sync_captured_at".into(), Value::Null);
+            object.insert("sync_applied_at".into(), Value::Null);
+            object.insert("sync_age_seconds".into(), Value::Null);
+            object.insert("source_capture_age_seconds".into(), Value::Null);
+            object.insert("sync_status".into(), json!("LOCAL"));
+            object.insert(
+                "authority".into(),
+                json!({
+                    "owner_site_id": site_id,
+                    "owner_origin_id": cloud_node_id,
+                    "owner_role": "CLOUD",
+                    "source": "CLOUD_LEDGER",
+                    "write_policy": write_policy,
+                    "cloud_writable": cloud_writable,
+                    "included_in_fleet_total": included,
+                    "shadowed_by_origin_id": shadowed_by,
+                    "derived": is_rollup,
+                }),
+            );
+        }
     }
 
     // Rollups are derived from fact-position leaves and never selected into
@@ -922,7 +1038,7 @@ pub async fn list_fleet_pools(
         "observed_window_hours": observed_hours,
         "lost_risk_window_days": lost_days,
         "inventory_equation": "Stock = On Hand + Allotted + Missing",
-        "aggregation_policy": "Exact-site active Edge fact positions shadow Cloud rows; rollups are excluded; snapshots are reconciliation checkpoints; matched Store receipts deduct capped DC In Transit overlap",
+        "aggregation_policy": "Exact-site Edge fact positions shadow Cloud rows once that origin has applied a fact; an Edge origin that has never reported shadows nothing and its own base pools are excluded; rollups are excluded; snapshots are reconciliation checkpoints; matched Store receipts deduct capped DC In Transit overlap",
         "fleet_total": fleet_total,
         "fleet_total_status": if certified { "CERTIFIED" } else { "UNCERTIFIED" },
         "reconciliation_summary": reconciliation.summary(),
@@ -935,6 +1051,17 @@ pub async fn list_fleet_pools(
             "shadowed_cloud_site_ids": shadowed_cloud_sites,
             "stale_edge_origins": stale_edge_origins,
             "missing_edge_origins": missing_edge_origins,
+            // Registered, inventory-enabled, and never once heard from. These
+            // shadow nothing — their site's Cloud rows carry the total — and
+            // their own base pools are excluded. Named separately from
+            // `missing_edge_origins`, which is about a missing *checkpoint*: a
+            // node can be projecting facts every minute and still owe one.
+            "unreported_edge_origins": unreported_edge_origins,
+            // Non-empty only when several DC origins have reported, which the
+            // centre's single-DC pool model has no spelling for. While this is
+            // set the Cloud `dc` rows are NOT shadowed and the fleet total
+            // double-counts that warehouse — named here rather than guessed at.
+            "ambiguous_canonical_dc_origins": ambiguous_canonical_dc,
             "certification_reasons": certification_reasons,
             "routes": route_diagnostics,
         },

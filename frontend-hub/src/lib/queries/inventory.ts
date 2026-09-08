@@ -700,6 +700,12 @@ export interface AllotmentStages {
 export interface AllotmentRow extends AllotmentStages {
   readonly id: string
   readonly allotment_number: string
+  /// The size of the thing, counted three ways, because "a hundred pieces" is
+  /// a different delivery when it is one SKU to one shop and when it is forty
+  /// SKUs to thirteen. Counted by the server over the allotment's own lines.
+  readonly line_count: number
+  readonly sku_count: number
+  readonly destination_count: number
   readonly type: AllotmentType
   readonly status: AllotmentStatus
   readonly edge_cancellation_status: EdgeCancellationStatus | null
@@ -727,6 +733,29 @@ export interface DestinationRollup extends AllotmentStages {
 /// warehouse is allowed to find out it cannot keep one.
 export interface AllotmentShortage extends AvailabilityItem {
   readonly shortage_qty: number
+}
+
+/// One article, summed across every allotment line that has ever named it.
+///
+/// The stage counters carry the same `total_*` names an allotment row does, so
+/// one bar draws both: what is being measured — how far pieces have travelled
+/// — is the same measurement whether the pieces are grouped by paperwork or by
+/// garment.
+export interface ArticleRollup extends AllotmentStages {
+  readonly article_id: string
+  readonly article_code: string
+  readonly article_name: string
+  readonly division_code: string | null
+  readonly image_url: string | null
+  /// How many of the article's SKUs appear, and how many places it has been
+  /// sent to — the two numbers that say whether a row is one size to one shop
+  /// or a whole size run to the fleet.
+  readonly sku_count: number
+  readonly destination_count: number
+}
+
+export interface ArticleAllotmentList {
+  readonly items: readonly ArticleRollup[]
 }
 
 export interface AllotmentList {
@@ -1238,6 +1267,12 @@ export const inventoryKeys = {
   allotment: (id: string) => ["inventory", "allotments", "detail", id] as const,
   allotmentsByStore: (storeId: string) =>
     ["inventory", "allotments", "by-store", storeId] as const,
+  allotmentsByArticle: (destinationId: string) =>
+    ["inventory", "allotments", "by-article", destinationId] as const,
+  /// The book narrowed to one source pool — what the Allotted column on that
+  /// pool is made of.
+  allotmentsByPool: (poolId: string) =>
+    ["inventory", "allotments", "by-pool", poolId] as const,
 
   counts: () => ["inventory", "counts"] as const,
   count: (id: string) => ["inventory", "counts", id] as const,
@@ -1247,6 +1282,8 @@ export const inventoryKeys = {
   anomalies: () => ["inventory", "observation-anomalies"] as const,
 
   missing: () => ["inventory", "missing"] as const,
+
+  movements: (poolId: string) => ["inventory", "movements", poolId] as const,
 
   control: () => ["inventory", "control"] as const,
   timeMachineState: (seq: string, poolId: string) =>
@@ -1406,6 +1443,20 @@ export function listAllotments(
   )
 }
 
+/// The same book, narrowed to what one shelf has been promised out of.
+///
+/// Narrowed at the server rather than here: the filter is a clause on the
+/// allotment *lines*, and an allotment carrying three source pools matches on
+/// one of them without its other two lines being any of this pool's business.
+/// Fetching five hundred and filtering in the browser would get that wrong in
+/// a way that looks right.
+export function allotmentsByPool(poolId: string, signal?: AbortSignal) {
+  return node.get<AllotmentList>(
+    `/api/v1/inventory/allotments${search({ source_pool_id: poolId, limit: 200 })}`,
+    { signal }
+  )
+}
+
 export function allotmentDetail(id: string, signal?: AbortSignal) {
   return node.get<AllotmentDetail>(`/api/v1/inventory/allotments/${id}`, {
     signal,
@@ -1415,6 +1466,20 @@ export function allotmentDetail(id: string, signal?: AbortSignal) {
 export function allotmentsByStore(storeId: string, signal?: AbortSignal) {
   return node.get<StoreAllotmentList>(
     `/api/v1/inventory/allotments/by-store/${encodeURIComponent(storeId)}`,
+    { signal }
+  )
+}
+
+/// The book read down the other axis: not "what did this allotment carry" but
+/// "where has this garment been sent". Rolled up on the server because the
+/// answer spans every allotment line in the table, and assembling it here
+/// would mean opening each allotment in turn.
+export function allotmentsByArticle(
+  destinationId: string,
+  signal?: AbortSignal
+) {
+  return node.get<ArticleAllotmentList>(
+    `/api/v1/inventory/allotments/by-article${search({ destination_id: destinationId })}`,
     { signal }
   )
 }
@@ -1437,6 +1502,28 @@ export function listObservations(
   return node
     .get<{ items: Observation[] }>(
       `/api/v1/inventory/observations${search({ pool_id: poolId, epc, limit: 300 })}`,
+      { signal }
+    )
+    .then((body) => body.items)
+}
+
+/// The ledger movements in and out of one pool, newest first.
+///
+/// The endpoint has been there since the ledger was written and nothing in
+/// this app had ever asked it: movements reached the screen only as the tail
+/// carried on a pool's own detail, capped at whatever that read decides. This
+/// is the ledger asked directly, which is what "show me the log" means.
+///
+/// A movement is double-entry — `from` and `to` are place ids, so a transfer
+/// appears once, not twice — and `pool_id` matches either side of it.
+export function listMovements(
+  poolId: string,
+  limit = 300,
+  signal?: AbortSignal
+) {
+  return node
+    .get<{ items: Movement[] }>(
+      `/api/v1/inventory/movements${search({ pool_id: poolId, limit })}`,
       { signal }
     )
     .then((body) => body.items)

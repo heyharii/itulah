@@ -14,6 +14,7 @@ import { screens as master } from "@/screens/master"
 import { screens as commercial } from "@/screens/commercial"
 import { screens as allotment } from "@/screens/allotment"
 import { screens as finance } from "@/screens/finance"
+import { screens as financeLab } from "@/screens/finance-lab"
 import { screens as home } from "@/screens/home"
 import { screens as inventory } from "@/screens/inventory"
 import { screens as members } from "@/screens/members"
@@ -65,6 +66,7 @@ const screens: Readonly<Record<string, () => React.ReactNode>> = {
   ...operations,
   ...members,
   ...finance,
+  ...financeLab,
   ...people,
   ...workplace,
   ...reports,
