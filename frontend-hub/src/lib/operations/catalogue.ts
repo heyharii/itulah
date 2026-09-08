@@ -38,8 +38,14 @@ export interface Identity {
 /// One read for the whole catalogue rather than a lookup per SKU: the
 /// availability endpoint answers with every active SKU whatever is asked of
 /// it, and forty round trips to name forty rows would be slower than the one
-/// that names two thousand. It shares its cache key with the allotment matrix,
-/// which is usually what warmed it.
+/// that names two thousand.
+///
+/// This is the reader that wants the WHOLE catalogue: a picklist can name a
+/// SKU the warehouse has since emptied, and a line whose name is missing is
+/// the bare code again. The allotment matrix asks the same endpoint for
+/// `held=true` and gets a different, much smaller answer — which is why the
+/// two no longer share a cache key, and why this one is no longer warmed by
+/// that screen.
 export function useCatalogueIdentity(): ReadonlyMap<string, Identity> {
   const fleet = useQuery({
     queryKey: inventoryKeys.fleet(),
@@ -59,7 +65,7 @@ export function useCatalogueIdentity(): ReadonlyMap<string, Identity> {
 
   const stock = useQuery({
     queryKey: inventoryKeys.poolAvailability(pool),
-    queryFn: ({ signal }) => poolAvailability(pool, signal),
+    queryFn: ({ signal }) => poolAvailability(pool, {}, signal),
     enabled: pool !== "",
     staleTime: 5 * 60 * 1000,
   })

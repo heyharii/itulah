@@ -1223,8 +1223,11 @@ export const inventoryKeys = {
   pool: (id: string) => ["inventory", "pools", id] as const,
   availability: (poolId: string, search: string, cursor: string) =>
     ["inventory", "availability", poolId, search, cursor] as const,
-  poolAvailability: (poolId: string) =>
-    ["inventory", "availability", "whole", poolId] as const,
+  /// `held` is part of the key and not a detail of the fetch: the held answer
+  /// is a few dozen rows and the whole-catalogue answer is a few thousand, and
+  /// a screen that asked for one must never be handed the other out of cache.
+  poolAvailability: (poolId: string, held = false) =>
+    ["inventory", "availability", "whole", poolId, held] as const,
   asOf: (at: string, siteId: string, poolId: string) =>
     ["inventory", "as-of", at, siteId, poolId] as const,
   reconciliations: () => ["inventory", "reconciliations"] as const,
@@ -1330,24 +1333,36 @@ export function availability(
 
 /// The whole pool, not the first page of it.
 ///
-/// The availability endpoint pages on a SKU-code cursor and caps a page at 500
-/// — it is written for a list somebody reads a screenful at a time. The
+/// The availability endpoint pages on a SKU-code cursor — it is written for a
+/// list somebody reads a screenful at a time. The
 /// allotment matrix is not that: its rows are the axis a person scans down
 /// while typing quantities across, and a matrix that stops at row 500 with a
 /// "next page" button is a matrix you cannot total. So the pages are walked
 /// here, in one query, and the caller gets one answer.
 ///
-/// Cheap in practice — the seed's 2,740 SKUs come back in six requests and
-/// under a third of a second, because the expensive part is the ledger fold
-/// PostgreSQL does once per page over an index.
+/// Ask for the whole catalogue in one page, and walk the cursor only if the
+/// catalogue is bigger than that.
+///
+/// The old reading — "cheap, six requests, a third of a second" — was measured
+/// against a node on the same machine, and it was wrong about why. A page is
+/// not a slice of work: the server folds the whole ledger for the pool and
+/// runs the totals over every row on EVERY page, then discards everything
+/// before the cursor. Six pages was six folds and six round trips, and against
+/// a hosted node that is where the screen sat waiting.
+///
+/// `PAGE_SIZE` is the server's own maximum. Asking for more is not an error —
+/// the server clamps — but asking for exactly it keeps the two numbers
+/// visibly the same thing.
 ///
 /// `PAGE_CAP` is a stop, not a limit anybody should reach: a server that
 /// returned a cursor it had already returned would otherwise loop forever, and
 /// an infinite `while` in a query function takes the tab with it.
+const PAGE_SIZE = 5000
 const PAGE_CAP = 60
 
 export async function poolAvailability(
   sourcePoolId: string,
+  options: { held?: boolean } = {},
   signal?: AbortSignal
 ): Promise<Availability> {
   const pages: Availability[] = []
@@ -1357,7 +1372,8 @@ export async function poolAvailability(
       `/api/v1/inventory/availability${search({
         source_pool_id: sourcePoolId,
         cursor,
-        limit: 500,
+        limit: PAGE_SIZE,
+        ...(options.held === true ? { held: "true" } : {}),
       })}`,
       { signal }
     )

@@ -1202,6 +1202,9 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
             cursor: None,
             q: None,
             limit: None,
+            // The shortage projection compares a promise against every SKU it
+            // could name, so it wants the zeroes too.
+            held: None,
             unbounded: true,
         },
     )
@@ -1316,12 +1319,28 @@ pub async fn list_allotments_by_store(pool: &PgPool, store_id: &str) -> Result<V
     Ok(result)
 }
 
+/// How many rows one page may carry.
+///
+/// This is not a page size in the usual sense, because a page here is not
+/// cheaper than the whole set: every page folds the entire ledger for the
+/// pool, runs the window totals over all of it, and only then throws away
+/// everything before the cursor. Six pages of five hundred is therefore six
+/// times the work of one page of three thousand and, over a link to the node,
+/// six round trips instead of one — which is what made the allotment matrix
+/// sit on "reading everything the pool holds".
+///
+/// So the cap is set above the size of a real catalogue rather than at a
+/// comfortable-looking round number, and the screen that wants the whole pool
+/// asks for it once. The cursor stays, because a catalogue can outgrow any
+/// number written here.
+const AVAILABILITY_PAGE_MAX: i64 = 5_000;
+
 pub async fn get_availability(pool: &PgPool, query: AvailabilityQuery) -> Result<Value, AppError> {
     let at = query.at.unwrap_or_else(Utc::now);
     let limit = if query.unbounded {
         i64::MAX
     } else {
-        query.limit.unwrap_or(100).clamp(1, 500)
+        query.limit.unwrap_or(100).clamp(1, AVAILABILITY_PAGE_MAX)
     };
     let fetch_limit = if query.unbounded { limit } else { limit + 1 };
     let cursor = query
@@ -1420,6 +1439,12 @@ WHERE sku.active
   AND ($4::text IS NULL OR sku.sku_code ILIKE '%'||$4||'%'
        OR article.article_code ILIKE '%'||$4||'%'
        OR article.name ILIKE '%'||$4||'%')
+-- Held only, when the caller asked for it. Applied here rather than around
+-- `numbered` so the totals, the sort and the page are all about the same set
+-- of rows — a caller asking what it can send is not helped by a total that
+-- counts what it cannot.
+  AND ($6::bool IS NOT TRUE
+       OR (COALESCE(ledger.normal_quantity,0)+COALESCE(ledger.missing_quantity,0)) > 0)
 ), numbered AS (
 SELECT availability_rows.*,
        COUNT(*) OVER()::bigint total_items,
@@ -1439,6 +1464,7 @@ LIMIT $5
         .bind(cursor)
         .bind(needle)
         .bind(fetch_limit)
+        .bind(query.held.unwrap_or(false))
         .fetch_all(pool)
         .await?;
     let has_more = !query.unbounded && rows.len() > limit as usize;

@@ -861,6 +861,15 @@ pub struct AvailabilityQuery {
     /// Search is evaluated by PostgreSQL before pagination.
     pub q: Option<String>,
     pub limit: Option<i64>,
+    /// Only the SKUs the pool actually holds.
+    ///
+    /// The endpoint's default answer is every active SKU in the catalogue,
+    /// because a zero is a real answer to "what is this SKU's position". It is
+    /// not an answer to "what can I send from here", and the screens that ask
+    /// the second question were throwing away 2,722 rows of the 2,740 they
+    /// were handed — after the server had folded the ledger for all of them
+    /// and serialised them.
+    pub held: Option<bool>,
     /// Internal projections may need the complete set for correctness. HTTP
     /// input cannot set this field.
     #[serde(skip)]
