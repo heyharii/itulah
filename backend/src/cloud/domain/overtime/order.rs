@@ -3,9 +3,7 @@
 use super::error::OvertimeError;
 use super::policy::OvertimePolicy;
 use crate::cloud::domain::attendance::Minutes;
-use crate::cloud::domain::employment::{
-    actions, Authorization, EmployeeId, PlaceId,
-};
+use crate::cloud::domain::employment::{actions, Authorization, EmployeeId, PlaceId};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fmt;

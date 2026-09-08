@@ -309,7 +309,7 @@ export function ArticleForm({
           {(ready) => (
             <Button
               type="submit"
-              variant="dark"
+              variant="primary"
               className="flex-1"
               disabled={save.isPending || stale || !ready}
             >

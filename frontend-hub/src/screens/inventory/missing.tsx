@@ -464,7 +464,7 @@ function ResolveSheet({
               {(state) => (
                 <Button
                   type="submit"
-                  variant="dark"
+                  variant="primary"
                   disabled={!state.ready || actor === "" || resolve.isPending}
                 >
                   {resolve.isPending

@@ -8,7 +8,7 @@ import type { PrinterLanguage } from "@itulah/contract"
 /// bench somebody is standing at, and it changes when they walk to another
 /// one. Shared between the tagging bench and the carton labels so a warehouse
 /// does not have to be told twice where its printer is.
-const KEY = "itulah.dc.printer"
+const KEY = "central.dc.printer"
 
 export interface Printer {
   readonly host: string

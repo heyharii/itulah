@@ -9,7 +9,6 @@ import {
   X,
 } from "lucide-react"
 
-import { Mark } from "@/components/shell/mark"
 import { count } from "@/lib/format"
 import {
   asides,
@@ -92,9 +91,6 @@ export function Sidebar({
           !open && "flex-col gap-1.5"
         )}
       >
-        <span className="grid size-[1.6875rem] shrink-0 place-items-center text-ink">
-          <Mark className="h-[1.4375rem] w-[1.25rem]" />
-        </span>
         {open && (
           <b className="min-w-0 flex-1 truncate text-card-title font-semibold">
             {where.data?.node_id ?? "cloud"}

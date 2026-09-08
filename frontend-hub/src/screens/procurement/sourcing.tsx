@@ -482,7 +482,7 @@ export function Sourcing() {
               Add item
             </Button>
             <Button
-              variant={picked > 0 ? "dark" : "ghost"}
+              variant={picked > 0 ? "primary" : "ghost"}
               onClick={() => cart.open(true)}
             >
               <ShoppingBasket />
@@ -880,7 +880,7 @@ function ItemSheet({
               aria-label="Pieces"
             />
             <Button
-              variant="dark"
+              variant="primary"
               className="flex-1"
               disabled={!valid || pick.isPending}
               onClick={() =>

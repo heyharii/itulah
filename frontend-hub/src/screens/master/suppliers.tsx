@@ -180,7 +180,7 @@ export function Suppliers() {
               placeholder="Name or code"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => supplier.open("new")}>
+            <Button variant="primary" onClick={() => supplier.open("new")}>
               New supplier
             </Button>
           </>
@@ -509,7 +509,7 @@ function SupplierForm({
         }
       >
         {(ready) => (
-          <Button type="submit" variant="dark" disabled={!ready || submit}>
+          <Button type="submit" variant="primary" disabled={!ready || submit}>
             {submit ? pendingLabel : submitLabel}
           </Button>
         )}

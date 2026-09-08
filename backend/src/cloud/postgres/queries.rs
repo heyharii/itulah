@@ -589,10 +589,20 @@ pub async fn list_fleet_pools(
              WHERE place_id ~ ':(on_hand|missing)$'
              GROUP BY origin_id,regexp_replace(place_id,':(on_hand|missing)$','')
          ), reservation AS (
-             SELECT origin_id,source_pool_id AS pool_id,
-                    COALESCE(sum(accepted_quantity-picked_quantity-cancelled_quantity),0)::bigint AS allotted
-             FROM edge_allotment_line_progress
-             GROUP BY origin_id,source_pool_id
+             -- `source_pool_id` here is the CENTRE's spelling, copied off the
+             -- authored `allotment_line` — `dc.warehouse`. Every other branch
+             -- of `pool_scope` is the origin's own — `dc-01.warehouse` — so
+             -- the prefix is swapped to match, or the reservation lands on a
+             -- phantom row and the real warehouse reads Allotted 0. A no-op
+             -- for every store, where the two names are already the same.
+             SELECT progress.origin_id,
+                    regexp_replace(progress.source_pool_id,'^[^.]+',credential.site_id) AS pool_id,
+                    COALESCE(sum(progress.accepted_quantity-progress.picked_quantity-progress.cancelled_quantity),0)::bigint AS allotted
+             FROM edge_allotment_line_progress progress
+             JOIN sync_origin_credential credential
+               ON credential.origin_id=progress.origin_id
+             GROUP BY progress.origin_id,
+                      regexp_replace(progress.source_pool_id,'^[^.]+',credential.site_id)
          ), pool_scope AS (
              SELECT origin_id,pool_id FROM base_pool
              UNION SELECT origin_id,pool_id FROM fact_balance

@@ -435,7 +435,6 @@ impl Authorization {
     pub fn authorizes_overtime_consent(&self) -> bool {
         actions::OVERTIME_CONSENTING.contains(&self.action_key.as_str())
     }
-
 }
 
 #[cfg(test)]
@@ -505,7 +504,6 @@ mod tests {
         // already exists, and the distinction is recorded from the first day.
         assert_ne!(actions::ACCOUNT_PROVISION, actions::ACCOUNT_LINK);
     }
-
 
     /// A key nobody taught this function about must not be a way in.
     #[test]

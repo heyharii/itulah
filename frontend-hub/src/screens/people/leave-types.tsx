@@ -340,7 +340,7 @@ function DefineKind() {
 
         <div>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={!ready || define.isPending}
             onClick={() => define.mutate()}
           >

@@ -120,7 +120,7 @@ export function Segments() {
         title="Segments"
         sub="The directory read as six groups, by how long since somebody last came in. Worked out on every read, never stored."
         actions={
-          <Button variant="dark" onClick={() => editing.open("new")}>
+          <Button variant="primary" onClick={() => editing.open("new")}>
             New segment
           </Button>
         }

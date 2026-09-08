@@ -171,7 +171,7 @@ export function Periods() {
         sub="Nothing can be posted into a month that has not been opened, and nothing can be posted into one that has been sealed."
         actions={
           <Button
-            variant="dark"
+            variant="primary"
             disabled={already || open.isPending}
             onClick={() => open.mutate()}
           >

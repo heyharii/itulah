@@ -370,6 +370,10 @@ pub fn router() -> Router<AppState> {
             "/api/v1/catalogue/suppliers/{supplier_code}/items/{item_code}/image",
             get(supplier_image),
         )
+        .route(
+            "/api/v1/catalogue/suppliers/{supplier_code}/items/{item_code}/image/upload-url",
+            post(supplier_image_upload_url),
+        )
 }
 
 fn media(state: &AppState) -> Result<Arc<CatalogueMedia>, AppError> {
@@ -403,6 +407,33 @@ async fn article_image_upload_url(
     let media = media(&state)?;
     let image = ArticleImage::parse(&article_code, &colour)?;
     let location = media.upload_location(media.article_key(&image))?;
+    Ok(Json(json!({
+        "upload": location,
+        "method": "PUT",
+        "content_type": "image/jpeg",
+    })))
+}
+
+/// A URL the browser can PUT a supplier item's photograph to.
+///
+/// The mirror of `article_image_upload_url`, and it exists for the same reason
+/// that one does: the bytes go straight to the bucket and the credential never
+/// leaves this process. It was missing while the read route was not, which
+/// left `supplier_item.image_url` writable only by the scraper that seeded it
+/// — a buyer adding an item to the catalogue by hand could name a photograph
+/// somebody else already hosted and nothing else.
+///
+/// Unlike the article route, what is stored afterwards is a URL in a column
+/// rather than a key this module can recompute. The caller therefore reads the
+/// location back through the GET route above once the bytes are up, which is
+/// the one that knows whether this bucket serves a public URL or a signed one.
+async fn supplier_image_upload_url(
+    State(state): State<AppState>,
+    Path((supplier_code, item_code)): Path<(String, String)>,
+) -> Result<Json<Value>, AppError> {
+    let media = media(&state)?;
+    let image = SupplierImage::parse(&supplier_code, &item_code)?;
+    let location = media.upload_location(media.supplier_key(&image))?;
     Ok(Json(json!({
         "upload": location,
         "method": "PUT",

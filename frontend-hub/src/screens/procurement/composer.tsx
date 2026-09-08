@@ -470,7 +470,7 @@ export function OrderComposer({
               Cancel
             </Button>
             <Button
-              variant="dark"
+              variant="primary"
               disabled={!ready || raise.isPending}
               onClick={() => raise.mutate()}
             >

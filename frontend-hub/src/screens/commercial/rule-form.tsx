@@ -526,7 +526,7 @@ export function RuleForm({
             )}
           </span>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={problem !== undefined || publish.isPending}
             onClick={() => publish.mutate()}
           >
@@ -621,7 +621,7 @@ export function RuleForm({
                   <FindMany
                     chosen={products}
                     onChange={setProducts}
-                    queryKey={(needle) => commercialKeys.products(needle)}
+                    queryKey={(needle) => commercialKeys.products(needle, 20)}
                     search={(needle, signal) =>
                       commercialProducts(needle, 20, signal).then((rows) =>
                         rows.map((row) => ({

@@ -49,6 +49,18 @@ async fn main() -> Result<(), AppError> {
     if state.config.sync_apply_enabled {
         tokio::spawn(sync_agent::run_apply_agent(state.clone()));
     }
+    // The mail gateway. Silent and absent unless this node is told where to
+    // look — see `cloud::intake`. Started before the server rather than after,
+    // so a mailbox that will not answer says so in the log next to the boot.
+    if let Some(source) = inventory_backend::cloud::intake::source_from_env() {
+        let gateway = inventory_backend::cloud::intake::Gateway::new(state.db.clone(), source)
+            .with_archive(state.attachments.clone());
+        let interval = inventory_backend::cloud::intake::interval_from_env();
+        info!(source = %gateway.describe(), seconds = interval.as_secs(), "bank statement intake started");
+        tokio::spawn(inventory_backend::cloud::intake::run_agent(
+            gateway, interval,
+        ));
+    }
     if let Some(url) = state.config.sync_upload_url.clone() {
         let transport = sync_agent::HttpTransport::new(&url, state.config.sync_upload_key.clone())?;
         tokio::spawn(sync_agent::run_sync_agent(

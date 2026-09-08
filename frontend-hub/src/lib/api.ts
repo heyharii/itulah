@@ -42,7 +42,7 @@ export const edge = new Node(EDGE_BASE)
 /// office machine outlives the person who typed the password. A closed tab is
 /// a signed-out warehouse, which is the right default for a console somebody
 /// opens beside their real work.
-const EDGE_TOKEN_KEY = "itulah.hub.edge-token"
+const EDGE_TOKEN_KEY = "central.hub.edge-token"
 
 function readStoredEdgeToken(): string | null {
   try {

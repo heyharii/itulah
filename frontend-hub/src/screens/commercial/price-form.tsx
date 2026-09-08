@@ -2,10 +2,8 @@ import { useQueries, useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Field, Input, Money, Select } from "@/components/ui/field"
-import { PickMany, PickOne } from "@/components/ui/pick"
+import { Field, Input, Money } from "@/components/ui/field"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
-import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
@@ -18,7 +16,6 @@ import {
 } from "@/lib/queries/commercial"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
-import { Switch } from "@/components/ui/form"
 import { Named, Quiet } from "@/screens/commercial/parts"
 import type { PendingPrice } from "@/screens/commercial/pricelist-editor"
 
@@ -63,7 +60,18 @@ import type { PendingPrice } from "@/screens/commercial/pricelist-editor"
 ///  - **Online and marketplace.** Publishing a book that introduces a channel
 ///    makes the server demand a company-wide price for *every* active SKU in
 ///    it. Pricing a handful online would therefore write a book, take the next
-///    version number, and then refuse to publish.
+///    version number, and then refuse to publish. The company does not trade
+///    either way, so the channel is a constant here rather than a Select with
+///    two dead options in it.
+///  - **A tax class and rate.** The server insists a book that sets prices
+///    carries a tax rule, so one is sent — `STANDARD` at nothing per cent,
+///    which is what an article setup files its first price under. It is not
+///    asked for: the fleet has one class at one rate, and the right home for a
+///    tax class is the article anyway, beside division and tags.
+///  - **"May be sold".** The permission travels with the price because the
+///    server refuses one without the other, and it is always granted. Pricing
+///    something a till will not sell is a withdrawal, and belongs where a
+///    style is withdrawn rather than on the sheet that prices it.
 
 /// One shop the grid knows about — the STORE origins, as `article-prices`
 /// returns them.
@@ -87,11 +95,21 @@ export interface PriceSeed {
 /// Which shops a price names. The engine's three levels, in its own order.
 type Scope = "FLEET" | "ONE" | "SOME"
 
-const SCOPES: readonly { value: Scope; label: string }[] = [
-  { value: "FLEET", label: "Every shop" },
-  { value: "ONE", label: "One shop" },
-  { value: "SOME", label: "Some shops" },
-]
+/// The level, read off the shops that are lit rather than chosen twice.
+///
+/// This used to be a segmented control — Every shop / One shop / Some shops —
+/// sitting above a combobox, so naming two shops meant a click to say "some"
+/// and then a search field to say which. Two controls for one thought, and the
+/// first of them asking about the engine's vocabulary rather than the user's.
+/// The tiles below say the same thing by being pressed: nothing lit is the
+/// company price, one is that shop's own, several is a group.
+///
+/// The rung a group of one would sit on is the one shape this cannot express,
+/// and deliberately: it is legal at the server but there is no reason to want
+/// it — a shop price beats it inside the same book and is otherwise identical.
+function scopeOf(siteIds: readonly string[]): Scope {
+  return siteIds.length === 0 ? "FLEET" : siteIds.length === 1 ? "ONE" : "SOME"
+}
 
 /// Rupiah, and the only currency the fleet trades in. Declared rather than
 /// asked for: `CurrencyCode` validates it at the server and a second currency
@@ -107,6 +125,84 @@ const CURRENCY = "IDR"
 /// goods, not of a price — and until it lives there this is the constant the
 /// rest of the system already assumes.
 const TAX_CATEGORY = "STANDARD"
+
+/// The only channel there is. It was a Select — In the shops / Online /
+/// Marketplace — with the last two disabled and a paragraph explaining why,
+/// which is three lines of screen spent telling somebody about two ways of
+/// trading the company does not do.
+const CHANNEL: CommercialChannel = "STORE"
+
+/// A price and the permission to sell are one thing here. The server refuses a
+/// book carrying one without the other, so the flag has to be sent; it was a
+/// switch on this sheet, offering to price something a till would then refuse
+/// to put in a basket. That is a withdrawal, and withdrawing a style is not
+/// what somebody opening "New price" came to do.
+const SELLABLE = true
+
+/// One row the book will carry: a level, a figure, and when it starts.
+///
+/// The composer used to have exactly one of these implied by a segmented
+/// control, which is why one price for the whole batch was the only thing it
+/// could say. Shops charge different money and change on different days, and
+/// both of those are ordinary rather than exceptional.
+interface Target {
+  readonly siteId: string | null
+  readonly siteIds: readonly string[] | null
+  /// How the level reads out loud — "Every shop", "Toko Bandung", "3 shops".
+  readonly where: string
+  /// The shop's own figure as typed, or `""` to take the figures at the top of
+  /// the sheet — which is the per-product ones, falling back to the batch one.
+  readonly price: string
+  /// `datetime-local` text, or `null` for "when the book starts".
+  readonly from: string | null
+}
+
+/// One shop in "Where it applies", pressed rather than searched for.
+function ShopTile({
+  on,
+  label,
+  note,
+  onClick,
+  className,
+}: {
+  on: boolean
+  label: string
+  /// The site id, when the shop has a name that is not it. Small, and under —
+  /// two shops in one city can read almost identically by name alone.
+  note?: string
+  onClick: () => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={cn(
+        "flex min-w-0 flex-col items-start gap-0.5 rounded-inner border px-3 py-2.5 text-left transition-colors",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+        on
+          ? "border-accent bg-accent-bg"
+          : "border-hairline-2 bg-canvas hover:border-hairline-strong hover:bg-soft-2",
+        className
+      )}
+    >
+      <span
+        className={cn(
+          "w-full truncate text-[0.8125rem] font-medium",
+          on ? "text-accent" : "text-ink"
+        )}
+      >
+        {label}
+      </span>
+      {note !== undefined && (
+        <span className="w-full truncate text-[0.71875rem] text-mute">
+          {note}
+        </span>
+      )}
+    </button>
+  )
+}
 
 /// "Khaki · 02", or nothing when a product carries neither.
 function variantOf(product: CommercialProduct): string {
@@ -224,106 +320,146 @@ export function NewPriceSheet({
   const priceOf = (skuId: string) => minorOf(priceText(skuId))
 
   // ── where it applies ─────────────────────────────────────────────────────
-  const [scope, setScope] = useState<Scope>(() =>
-    seed === null || seed.siteIds.length === 0
-      ? "FLEET"
-      : seed.siteIds.length === 1
-        ? "ONE"
-        : "SOME"
-  )
-  const [siteId, setSiteId] = useState<string | null>(
-    () => seed?.siteIds[0] ?? null
-  )
   const [siteIds, setSiteIds] = useState<readonly string[]>(
     () => seed?.siteIds ?? []
   )
-  const [channel, setChannel] = useState<CommercialChannel>("STORE")
-  const [sellable, setSellable] = useState(true)
+  /// A shop's own figure and its own start, when it does not take the batch's.
+  ///
+  /// Kept while the tile is dark rather than cleared with it: unlighting a shop
+  /// by mistake is one click, and throwing away the two things somebody typed
+  /// for it is not a thing a click should do.
+  const [shopPrice, setShopPrice] = useState<Record<string, string>>({})
+  const [shopFrom, setShopFrom] = useState<Record<string, string>>({})
 
-  // ── how it is taxed ──────────────────────────────────────────────────────
-  const [taxCategory, setTaxCategory] = useState(TAX_CATEGORY)
-  const [rate, setRate] = useState("0")
-  const [taxInclusive, setTaxInclusive] = useState(true)
-
-  const choices = useMemo(
-    () =>
-      shops.map((shop) => ({
-        value: shop.site_id,
-        label: shop.label ?? shop.site_id,
-      })),
-    [shops]
-  )
   const labelOf = (id: string) =>
     shops.find((shop) => shop.site_id === id)?.label ?? id
 
-  /// The level, as the three fields the server takes. Exactly one is set —
-  /// `price_rule_names_one_level` counts them and refuses a second.
-  const level =
-    scope === "ONE" && siteId !== null
-      ? { site_id: siteId, site_ids: null }
-      : scope === "SOME" && siteIds.length > 0
-        ? { site_id: null, site_ids: siteIds }
-        : { site_id: null, site_ids: null }
+  const scope = scopeOf(siteIds)
+
+  const toggleShop = (id: string) =>
+    setSiteIds((was) =>
+      was.includes(id) ? was.filter((one) => one !== id) : [...was, id]
+    )
+
+  /// The rows the tiles come to: one per level the book will actually carry.
+  ///
+  /// Shops that agree on both figure and start date are ONE price naming
+  /// several shops, which is what the group level is for and what keeps a
+  /// branch opened next month on the same price. Disagree on either and they
+  /// get a row each.
+  const targets = useMemo<readonly Target[]>(() => {
+    if (siteIds.length === 0) {
+      return [
+        {
+          siteId: null,
+          siteIds: null,
+          where: "Every shop",
+          price: "",
+          from: null,
+        },
+      ]
+    }
+
+    const by = new Map<
+      string,
+      { shops: string[]; price: string; from: string | null }
+    >()
+    for (const id of siteIds) {
+      const price = (shopPrice[id] ?? "").trim()
+      const from = (shopFrom[id] ?? "").trim()
+      const at = `${price}|${from}`
+      const found = by.get(at)
+      if (found !== undefined) found.shops.push(id)
+      else by.set(at, { shops: [id], price, from: from === "" ? null : from })
+    }
+    const batches = [...by.values()]
+
+    // At most one group row per book, and this is the constraint's own doing:
+    // `commercial_price_scope_unique` keys on `COALESCE(site_id,'*')`, so every
+    // level that stores a null site — the company price and every group — is
+    // one slot per product per book. Two groups in one book would be refused
+    // after the book had been written. The biggest set keeps the level; the
+    // rest are written a shop at a time, which prices the same shops the same
+    // way and only gives up the "a shop added later joins this" property.
+    const holds = new Map<string, number>()
+    batches.forEach((batch, index) => {
+      const book = batch.from ?? ""
+      const held = holds.get(book)
+      if (held === undefined || batch.shops.length > batches[held].shops.length)
+        holds.set(book, index)
+    })
+
+    return batches.flatMap<Target>((batch, index) =>
+      batch.shops.length > 1 && holds.get(batch.from ?? "") === index
+        ? [
+            {
+              siteId: null,
+              siteIds: batch.shops,
+              where: `${count(batch.shops.length)} shops`,
+              price: batch.price,
+              from: batch.from,
+            },
+          ]
+        : batch.shops.map((id) => ({
+            siteId: id,
+            siteIds: null,
+            where: shops.find((shop) => shop.site_id === id)?.label ?? id,
+            price: batch.price,
+            from: batch.from,
+          }))
+    )
+  }, [siteIds, shopPrice, shopFrom, shops])
+
+  /// The books this batch will be published as — one per distinct start date.
+  const books = [...new Set(targets.map((one) => one.from ?? ""))]
+
+  /// What a product costs at a target: the shop's own figure when it has one,
+  /// and otherwise whatever the figures at the top of the sheet say.
+  const priceIn = (target: Target, skuId: string) =>
+    target.price !== "" ? minorOf(target.price) : priceOf(skuId)
 
   const where =
-    scope === "FLEET"
-      ? "Every shop"
-      : scope === "ONE"
-        ? siteId === null
-          ? "No shop chosen"
-          : labelOf(siteId)
-        : siteIds.length === 0
-          ? "No shops chosen"
-          : siteIds.length === 1
-            ? labelOf(siteIds[0])
-            : `${count(siteIds.length)} shops`
+    targets.length === 1 ? targets[0].where : `${count(siteIds.length)} shops`
 
-  const rateBps = Math.round(Number(rate.replace(",", ".")) * 100)
-  const rateBroken =
-    rate.trim() === "" ||
-    !Number.isFinite(rateBps) ||
-    rateBps < 0 ||
-    rateBps > 100_000
+  const unpriced = chosen.filter((one) =>
+    targets.some((target) => priceIn(target, one.sku_id) === null)
+  )
 
-  const unpriced = chosen.filter((one) => priceOf(one.sku_id) === null)
-  const scopeBroken =
-    (scope === "ONE" && siteId === null) ||
-    (scope === "SOME" && siteIds.length === 0)
-
-  const ready =
-    chosen.length > 0 &&
-    unpriced.length === 0 &&
-    !scopeBroken &&
-    !rateBroken &&
-    taxCategory.trim() !== ""
+  /// No scope can be wrong any more: nothing lit is the company price, which
+  /// is a complete answer rather than an unfinished one.
+  const ready = chosen.length > 0 && unpriced.length === 0
 
   const commit = () => {
     if (!ready) return
     onAdd(
-      chosen.map((product) => ({
-        kind: "price" as const,
-        // `COALESCE(site_id,'*')` is what the server's unique index keys on,
-        // so this is the same identity — a group price and a fleet price for
-        // one product are one row's worth of book, and the later one wins
-        // here instead of being refused there.
-        key: `${product.sku_id}|${level.site_id ?? "*"}|${channel}`,
-        skuId: product.sku_id,
-        skuCode: product.sku_code,
-        articleCode: product.article_code,
-        articleName: product.article_name,
-        variant: variantOf(product),
-        wasMinor: product.unit_price_minor,
-        priceMinor: priceOf(product.sku_id)!,
-        currency: CURRENCY,
-        channel,
-        siteId: level.site_id,
-        siteIds: level.site_ids,
-        where,
-        sellable,
-        taxCategory: taxCategory.trim().toUpperCase(),
-        taxRateBps: rateBps,
-        taxInclusive,
-      }))
+      targets.flatMap((target) =>
+        chosen.map((product) => ({
+          kind: "price" as const,
+          // `COALESCE(site_id,'*')` is what the server's unique index keys on,
+          // so this is the same identity — a group price and a fleet price for
+          // one product are one row's worth of book, and the later one wins
+          // here instead of being refused there. The start date joins it
+          // because two dates are two books, which the index cannot see.
+          key: `${product.sku_id}|${target.siteId ?? "*"}|${CHANNEL}|${target.from ?? "book"}`,
+          skuId: product.sku_id,
+          skuCode: product.sku_code,
+          articleCode: product.article_code,
+          articleName: product.article_name,
+          variant: variantOf(product),
+          wasMinor: product.unit_price_minor,
+          priceMinor: priceIn(target, product.sku_id)!,
+          currency: CURRENCY,
+          channel: CHANNEL,
+          siteId: target.siteId,
+          siteIds: target.siteIds,
+          where: target.where,
+          from: target.from,
+          sellable: SELLABLE,
+          taxCategory: TAX_CATEGORY,
+          taxRateBps: 0,
+          taxInclusive: true,
+        }))
+      )
     )
     // Everything chosen is marked dropped rather than the lists being emptied:
     // the seeded half is derived from a query, so clearing `added` alone would
@@ -332,6 +468,8 @@ export function NewPriceSheet({
     setDropped(new Set(chosen.map((product) => product.sku_id)))
     setOwn({})
     setBulk("")
+    setShopPrice({})
+    setShopFrom({})
     setSearch("")
   }
 
@@ -349,7 +487,7 @@ export function NewPriceSheet({
               ? "Nothing chosen yet."
               : `${count(chosen.length)} product${chosen.length === 1 ? "" : "s"} · ${where}`}
           </span>
-          <Button variant="dark" disabled={!ready} onClick={commit}>
+          <Button variant="primary" disabled={!ready} onClick={commit}>
             Add to the book
           </Button>
         </div>
@@ -549,141 +687,115 @@ export function NewPriceSheet({
 
         {/* ── the level ──────────────────────────────────────────────────── */}
         <div>
-          <SubHead aside="one level per price">Where it applies</SubHead>
-          <Segmented
-            options={SCOPES}
-            value={scope}
-            onChange={setScope}
-            className="mb-2"
-          />
+          <SubHead aside={scope === "FLEET" ? "company price" : where}>
+            Where it applies
+          </SubHead>
 
-          {scope === "ONE" && (
-            <PickOne
-              choices={choices}
-              value={siteId}
-              onChange={setSiteId}
-              placeholder="Choose a shop"
-              label="The shop this price is for"
+          {/* Every shop is a tile of its own rather than the absence of one.
+              "Nothing lit" and "the company price" are the same state to the
+              engine, but not to a reader: an empty grid looks like a question
+              nobody has answered yet, and the company price is the answer most
+              of these rows want. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <ShopTile
+              on={scope === "FLEET"}
+              label="Every shop"
+              note="the company price"
+              onClick={() => setSiteIds([])}
+              className="col-span-full sm:col-span-1"
             />
-          )}
-          {scope === "SOME" && (
-            <PickMany
-              choices={choices}
-              values={siteIds}
-              onChange={setSiteIds}
-              placeholder="Choose the shops"
-              label="The shops this price is for"
-            />
+            {shops.map((shop) => (
+              <ShopTile
+                key={shop.site_id}
+                on={siteIds.includes(shop.site_id)}
+                label={shop.label ?? shop.site_id}
+                note={shop.label === null ? undefined : shop.site_id}
+                onClick={() => toggleShop(shop.site_id)}
+              />
+            ))}
+          </div>
+
+          {siteIds.length > 0 && (
+            <div className="mt-2.5 overflow-hidden rounded-inner border border-hairline-2">
+              {/* The header only appears where the row is a row. Below `sm`
+                  the three fields stack, and a caption sitting above the first
+                  of three stacks would be labelling one of them. */}
+              <div className="hidden bg-soft px-3 py-1.5 text-[0.6875rem] font-medium tracking-[0.06em] text-mute uppercase sm:grid sm:grid-cols-[1fr_8.5rem_10.5rem] sm:gap-2">
+                <span>Shop</span>
+                <span>Its own price</span>
+                <span>Starts</span>
+              </div>
+              {siteIds.map((id) => (
+                <div
+                  key={id}
+                  className="grid grid-cols-1 gap-1.5 border-t border-hairline px-3 py-2 first:border-t-0 sm:grid-cols-[1fr_8.5rem_10.5rem] sm:items-center sm:gap-2 sm:first:border-t"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-[0.8125rem] text-ink">
+                      {labelOf(id)}
+                    </span>
+                    <span className="block truncate text-[0.6875rem] text-mute">
+                      {id}
+                    </span>
+                  </span>
+                  <Money
+                    value={shopPrice[id] ?? ""}
+                    label={`What ${labelOf(id)} charges`}
+                    placeholder="as above"
+                    onChange={(digits) =>
+                      setShopPrice((was) => ({ ...was, [id]: digits }))
+                    }
+                  />
+                  <Input
+                    type="datetime-local"
+                    value={shopFrom[id] ?? ""}
+                    aria-label={`When ${labelOf(id)} starts charging it`}
+                    onChange={(event) =>
+                      setShopFrom((was) => ({
+                        ...was,
+                        [id]: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
           )}
 
+          {books.length > 1 && (
+            <Banner tone="info" className="mt-2">
+              {count(books.length)} start dates is {count(books.length)} books.
+              A price carries no date of its own — every till reads the book's
+              window — so publishing this writes one book per date, each taking
+              its own version number. That is safe: a shop loads every book
+              whose window is open, so a book naming one shop adds a price there
+              and leaves the rest standing.
+            </Banner>
+          )}
+
+          {/* What the tiles and the table above have actually come to, rather
+              than what the number of lit tiles suggests: two shops on one
+              figure and one day are a group, and the same two disagreeing on
+              either are two prices. */}
           <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
             {scope === "FLEET"
               ? "The company price — the level every active product must have, and the one a shop falls back to. It is what a new shop sells at on its first day, without anybody remembering to add it."
-              : scope === "ONE"
-                ? "A price for this shop alone. It outranks a group price and the company price — but only within the same book: a newer company-wide book supersedes it, because the engine ranks by version first."
-                : "One price naming several shops — a city, a format — rather than one row per shop. That is the difference the level exists for: a shop added to the group later is priced by it, where a row-per-shop list quietly leaves the new branch on the company price."}
-          </p>
-          {scope === "SOME" && siteIds.length === 1 && (
-            <p className="mt-1.5 text-[0.71875rem] leading-relaxed text-mute">
-              A group of one is legal and is not the same as “One shop”: it sits
-              a rung lower, so a shop price would beat it inside the same book.
-            </p>
-          )}
-        </div>
-
-        {/* ── channel and permission ─────────────────────────────────────── */}
-        <Field
-          label="Where it is sold"
-          hint="Online and marketplace are refused on purpose — see below."
-        >
-          <Select
-            value={channel}
-            onChange={(next) => setChannel(next as CommercialChannel)}
-          >
-            <option value="STORE">In the shops</option>
-            <option value="ONLINE" disabled>
-              Online — not available
-            </option>
-            <option value="MARKETPLACE" disabled>
-              Marketplace — not available
-            </option>
-          </Select>
-        </Field>
-        <p className="-mt-3 text-[0.71875rem] leading-relaxed text-mute">
-          A book that carries the first price in a channel has to carry one for
-          every active product in it: publishing checks that each active SKU has
-          a company-wide price in every channel the book touches. So an online
-          price for a handful of styles would write a book, take the next
-          version number, and then refuse to publish. Trading online begins with
-          pricing the range, not with this sheet.
-        </p>
-
-        <div className="flex items-start gap-2.5 rounded-inner border border-hairline px-3 py-2.5">
-          <Switch
-            on={sellable}
-            label="May be sold"
-            onToggle={() => setSellable((was) => !was)}
-          />
-          <span className="min-w-0">
-            <span className="block text-[0.8125rem] font-medium text-ink">
-              {sellable ? "May be sold" : "Priced but not for sale"}
-            </span>
-            <span className="block text-[0.71875rem] leading-relaxed text-body">
-              A price and the permission to sell are authored together — the
-              server refuses a book holding one without the other. Switching
-              this off prices a product that a till will not put in a basket,
-              which is how something is withdrawn without losing what it costs.
-            </span>
-          </span>
-        </div>
-
-        {/* ── tax ────────────────────────────────────────────────────────── */}
-        <div>
-          <SubHead aside="required with a price">Filed under</SubHead>
-          <div className="flex flex-wrap items-start gap-2.5">
-            <Field label="Tax class" className="w-40">
-              <Input
-                value={taxCategory}
-                onChange={(event) =>
-                  setTaxCategory(event.target.value.toUpperCase())
-                }
-              />
-            </Field>
-            <Field
-              label="Rate"
-              className="w-28"
-              problem={rateBroken ? "Between 0 and 1000%." : undefined}
-            >
-              <Input
-                value={rate}
-                inputMode="decimal"
-                onChange={(event) => setRate(event.target.value)}
-              />
-            </Field>
-            <Field label="Reading" className="w-44">
-              <Select
-                value={taxInclusive ? "IN" : "ON"}
-                onChange={(next) => setTaxInclusive(next === "IN")}
-              >
-                <option value="IN">Included in the price</option>
-                <option value="ON">Added at the till</option>
-              </Select>
-            </Field>
-          </div>
-          <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
-            A book that sets prices carries at least one tax rule to categorise
-            them, and a book that sets none may not carry any — the server
-            refuses both ways round. {TAX_CATEGORY} at nothing per cent is what
-            an article setup files its first price under, so leaving this alone
-            keeps a pushed price in the same class as the one it supersedes.
+              : targets.some((one) => one.siteIds !== null)
+                ? "Shops that agree on the figure and the day are one price naming them all — a city, a format — rather than a row each. That is the difference the level exists for: a shop added to that group later is priced by it, where a row-per-shop list quietly leaves the new branch on the company price."
+                : targets.length === 1
+                  ? "A price for this shop alone. It outranks a group price and the company price — but only within the same book: a newer company-wide book supersedes it, because the engine ranks by version first."
+                  : "A price each, because these shops do not agree on the figure or on the day. Leave two of them on the same figure and the same date and they are written as one price naming both, which is what keeps a branch opened later on it."}
           </p>
         </div>
 
         <p className="text-[0.71875rem] leading-relaxed text-mute">
-          When these start is decided once, for the whole book, at Publish: a
-          price rule carries no dates of its own — the engine reads the
-          publication's window for every price in it. A cut that has to end on a
-          date is a sale price, which does carry its own.
+          A price with no start of its own begins when the book does, and that
+          is decided once, at Publish. It is not a field on a price — the price
+          row carries no dates at all, and the engine reads the publication's
+          window for every price in it — which is why a shop given its own day
+          above goes out as its own book. An end date is a different thing
+          again: a cut that has to stop on a date is a sale price, and that one
+          does carry its own window.
         </p>
       </div>
     </Sheet>

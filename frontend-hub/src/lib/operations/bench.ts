@@ -18,7 +18,7 @@ import { useSyncExternalStore } from "react"
 /// Held in `localStorage` rather than in React state because the tablet on the
 /// bay is reloaded — a dropped connection, a sleeping tablet, a new shift — and
 /// asking again after every reload is how the wrong name gets typed.
-const KEY = "itulah.dc.bench-actor"
+const KEY = "central.dc.bench-actor"
 
 function read(): string | null {
   try {

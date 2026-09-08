@@ -28,6 +28,11 @@ export const keys = {
   /// (`/dc/purchase-orders`), because it is deliberately not an order list —
   /// it carries no ordered quantity at all.
   purchaseWork: () => ["dc", "purchase-work"] as const,
+  /// The uploaded invoice page for one delivery. Keyed by the delivery and not
+  /// by the count: one lorry brings one invoice, and every count on it looks
+  /// at the same page.
+  invoiceDocument: (receiptId: string) =>
+    ["dc", "goods-receipt", receiptId, "invoice-document"] as const,
   verifyQueue: () => ["dc", "purchase-counts"] as const,
 
   // ── Tagging ──────────────────────────────────────────────────────────────
@@ -60,27 +65,17 @@ export const keys = {
       language,
     ] as const,
 
-  // ── Counting ─────────────────────────────────────────────────────────────
-  counts: () => ["dc", "official-counts"] as const,
-  count: (countId: string) => ["dc", "official-count", countId] as const,
-
   // ── Picking ──────────────────────────────────────────────────────────────
+  /// What is still owed, by SKU. Recomputed on every read — nobody authors it,
+  /// which is why it is what a new picklist is composed against.
   picklist: () => ["dc", "picklist"] as const,
-  pickRounds: (filter: ListFilter = {}) =>
-    ["dc", "pick-sessions", filter] as const,
+  /// The picklists themselves: rounds that have been walked.
+  picklists: () => ["dc", "picklists"] as const,
   pickRound: (sessionId: string) => ["dc", "pick-session", sessionId] as const,
-  /// One allotment line's position, counted from containment.
-  linePosition: (lineId: string) =>
-    ["dc", "allotment-line", lineId, "position"] as const,
 
   // ── Packing ──────────────────────────────────────────────────────────────
-  packRounds: (filter: ListFilter = {}) =>
-    ["dc", "packing-sessions", filter] as const,
-  packRound: (sessionId: string) =>
-    ["dc", "packing-session", sessionId] as const,
-  /// The RFID box being filled against a target, which is a different thing
-  /// from the packing round it may or may not belong to.
-  packingBox: (sessionId: string) => ["dc", "packing-box", sessionId] as const,
+  /// Every shop with something outstanding — the packer's queue.
+  destinations: () => ["dc", "destinations"] as const,
   koli: (filter: ListFilter = {}) => ["dc", "koli", filter] as const,
   manifest: (koliId: string) => ["dc", "koli", koliId, "manifest"] as const,
   outstanding: (storeId: string) => ["dc", "outstanding", storeId] as const,
@@ -94,7 +89,6 @@ export const keys = {
 
   // ── Stock, which every station moves ─────────────────────────────────────
   pools: () => ["inventory", "pools"] as const,
-  movements: (limit: number) => ["inventory", "movements", limit] as const,
 
   // ── The node itself ──────────────────────────────────────────────────────
   syncStatus: () => ["node", "sync-status"] as const,

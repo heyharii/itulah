@@ -4,6 +4,8 @@ import type {
   CreateDispatchRequest,
   CreateKoliShipmentRequest,
   CreateShipmentRequest,
+  CreatePicklistRequest,
+  DestinationDemand,
   Dispatch,
   DispatchDetail,
   EdgeOfficialCountDetail,
@@ -11,6 +13,7 @@ import type {
   FulfillmentProgressResult,
   GoodsReceiptView,
   IntakeRequest,
+  InvoiceDocumentView,
   Koli,
   KoliManifest,
   LabelPreview,
@@ -29,11 +32,15 @@ import type {
   PackingBox,
   PackingSessionSummary,
   PackKoliRequest,
+  PackRequest,
   PicklistLine,
+  PicklistResult,
+  PicklistSummary,
   PickRequest,
   PickResult,
   PickSessionSummary,
   PrintChunkReport,
+  PrinterProbe,
   PrintKoliLabelRequest,
   PrintSessionSummary,
   PurchaseCountAwaitingVerification,
@@ -154,6 +161,43 @@ export class Dc {
     );
   }
 
+  /// Keep the supplier's invoice as the paper it is.
+  ///
+  /// The numbers off it go through `recordInvoice`, and they are what gets
+  /// compared against the order. This is the page behind them — one per
+  /// delivery, because one lorry brings one invoice, and a second upload
+  /// replaces the first rather than piling up.
+  ///
+  /// Name and type travel as query parameters so the browser can hand the
+  /// `File` straight to `fetch` without re-encoding a scan. See
+  /// `edge/http.rs`.
+  uploadInvoiceDocument(
+    receiptId: string,
+    file: File,
+    actorId: string,
+    signal?: AbortSignal,
+  ): Promise<InvoiceDocumentView> {
+    const params = new URLSearchParams({ name: file.name, actor: actorId });
+    if (file.type !== "") params.set("type", file.type);
+    return this.node.upload<InvoiceDocumentView>(
+      `/api/v1/dc/goods-receipts/${encodeURIComponent(receiptId)}/invoice-document?${params.toString()}`,
+      file,
+      { signal },
+    );
+  }
+
+  /// The stored page back, as bytes.
+  ///
+  /// Not a URL a page can link to: this node authenticates with a bearer
+  /// token that only this client holds, so an `<img src>` or an anchor would
+  /// arrive without it and be refused. The caller makes an object URL.
+  invoiceDocument(receiptId: string, signal?: AbortSignal): Promise<Blob> {
+    return this.node.download(
+      `/api/v1/dc/goods-receipts/${encodeURIComponent(receiptId)}/invoice-document`,
+      { signal },
+    );
+  }
+
   /// The checker's work list: which articles this DC still owes a supplier
   /// delivery against. Deliberately carries no ordered quantity.
   async purchaseWork(signal?: AbortSignal): Promise<PurchaseWorkLine[]> {
@@ -255,6 +299,26 @@ export class Dc {
     return body.session;
   }
 
+  /// Ask whether the machine this bench is pointed at is actually there.
+  ///
+  /// Prints nothing, deliberately: a test that printed would drop a tag on the
+  /// floor every time somebody checked a setting, and on RFID stock that tag
+  /// carries an EPC. What comes back says a socket opened — not that a label
+  /// will come out.
+  ///
+  /// The node opens the socket, not the browser: a page cannot reach a printer
+  /// on the warehouse LAN, and it is the node that will have to reach it when
+  /// the run starts. Testing from anywhere else would answer a question nobody
+  /// asked.
+  testPrinter(
+    request: { printer_host: string; printer_port: number },
+    signal?: AbortSignal,
+  ): Promise<PrinterProbe> {
+    return this.node.post<PrinterProbe>("/api/v1/dc/printer/test", request, {
+      signal,
+    });
+  }
+
   /// Move a run to the printer in front of whoever picked it up.
   repointPrintSession(
     sessionId: string,
@@ -345,6 +409,33 @@ export class Dc {
     return body.lines;
   }
 
+  /// Every picklist this DC has raised, newest first.
+  ///
+  /// The rounds themselves, which is a different question from `picklist()`
+  /// above: that one says what is still owed, this one says what has been
+  /// fetched and by whom.
+  async picklists(signal?: AbortSignal): Promise<PicklistSummary[]> {
+    const body = await this.node.get<{ items: PicklistSummary[] }>(
+      "/api/v1/dc/picklists",
+      { signal },
+    );
+    return body.items;
+  }
+
+  /// Raise a picklist: a round opened, walked and closed in one act.
+  ///
+  /// One request rather than one per line. A round that dropped halfway
+  /// through warehouse wifi would otherwise be half a document, and nothing on
+  /// the sheet would say which half.
+  createPicklist(
+    request: CreatePicklistRequest,
+    signal?: AbortSignal,
+  ): Promise<PicklistResult> {
+    return this.node.post<PicklistResult>("/api/v1/dc/picklists", request, {
+      signal,
+    });
+  }
+
   async pickSessions(
     filter?: ListFilter,
     signal?: AbortSignal,
@@ -406,6 +497,34 @@ export class Dc {
       { signal },
     );
     return body.lines;
+  }
+
+  /// Pack a carton by saying how much, and let the node name the pieces.
+  ///
+  /// The EPC form below is the same act described by an RFID reader. This one
+  /// is the act described by a person, which is what a bench without a reader
+  /// has: quantities off a sheet, and the server chooses which garments answer
+  /// to them — FIFO out of the picking area, exactly as picking chooses what
+  /// comes off a rack.
+  pack(request: PackRequest, signal?: AbortSignal): Promise<KoliManifest> {
+    return this.node.post<KoliManifest>("/api/v1/dc/packs", request, {
+      signal,
+    });
+  }
+
+  /// Every shop this DC still owes something to — the packer's queue.
+  ///
+  /// **An edge node had no list of destinations until this.** Allotments are
+  /// authored at the centre, so the packing screens asked somebody to type a
+  /// store id and offered the shops the DC had previously packed for as a
+  /// guess. The node knew all along: a shop it owes something to has lines in
+  /// its own allotment work.
+  async destinations(signal?: AbortSignal): Promise<DestinationDemand[]> {
+    const body = await this.node.get<{ items: DestinationDemand[] }>(
+      "/api/v1/dc/destinations",
+      { signal },
+    );
+    return body.items;
   }
 
   async packingSessions(

@@ -271,7 +271,7 @@ function RequestSheet({
         </Field>
         <ButtonGroup>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={!ready || decide.isPending}
             onClick={() => decide.mutate("approve")}
           >

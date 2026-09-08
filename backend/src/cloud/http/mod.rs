@@ -3,7 +3,7 @@ use crate::security;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
-    routing::{get, patch, post},
+    routing::{get, patch, post, put},
     Json, Router,
 };
 use chrono::{Duration, Utc};
@@ -35,6 +35,7 @@ pub mod pay;
 pub mod performance;
 pub mod reports;
 pub mod roster;
+pub mod statement_intake;
 pub mod suppliers;
 pub mod vocabulary;
 pub mod vouchers;
@@ -534,7 +535,10 @@ pub fn router(state: AppState) -> Router {
         // The chats themselves. Kept on the node rather than in the tab that
         // asked, so the sidebar of past questions survives a reload and a
         // different machine — see migration `0102`.
-        .route("/api/v1/assistant/conversations", get(assistant::conversations))
+        .route(
+            "/api/v1/assistant/conversations",
+            get(assistant::conversations),
+        )
         .route(
             "/api/v1/assistant/conversations/{id}",
             get(assistant::conversation)
@@ -678,6 +682,25 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/finance/bank-statements",
             get(finance::bank_statements).post(finance::import_bank_statement),
+        )
+        // The mail gateway: where a statement comes from, and what arrived.
+        .route(
+            "/api/v1/finance/statement-sources",
+            get(statement_intake::statement_sources)
+                .post(statement_intake::create_statement_source),
+        )
+        .route(
+            "/api/v1/finance/statement-sources/{id}",
+            put(statement_intake::update_statement_source)
+                .delete(statement_intake::delete_statement_source),
+        )
+        .route(
+            "/api/v1/finance/statement-intake",
+            get(statement_intake::statement_intake_log),
+        )
+        .route(
+            "/api/v1/finance/statement-intake/run",
+            post(statement_intake::run_statement_intake),
         )
         .route(
             "/api/v1/finance/bank-statements/{id}/lines",

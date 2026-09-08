@@ -449,7 +449,7 @@ function IntoRoom({
           A file with no room is reachable from nowhere.
         </span>
         <Button
-          variant="dark"
+          variant="primary"
           disabled={room === null || note.trim() === "" || place.isPending}
           onClick={() => place.mutate()}
         >
@@ -596,7 +596,7 @@ function IntoDrawer({
           Nothing is recorded until the bytes have really landed.
         </span>
         <Button
-          variant="dark"
+          variant="primary"
           disabled={file.isPending}
           onClick={() => file.mutate()}
         >

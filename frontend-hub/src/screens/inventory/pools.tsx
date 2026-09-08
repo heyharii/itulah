@@ -845,7 +845,7 @@ function PoolSheet({
                   {(ready) => (
                     <Button
                       type="submit"
-                      variant="dark"
+                      variant="primary"
                       disabled={!ready || correct.isPending}
                     >
                       {correct.isPending ? "Posting…" : "Correct placement"}

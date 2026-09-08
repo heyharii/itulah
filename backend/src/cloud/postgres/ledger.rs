@@ -387,6 +387,50 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             true,
             "Fixed Assets",
         ),
+        // The seventh family is not depreciated and the client's chart says so
+        // in its own names: `1021607 Reserve Replacement - Operating
+        // Equipment`, charged through `7010215 BIAYA REPLACEMENT`. Racks and
+        // hangers are replaced rather than written down, and mapping them to
+        // `accumulated_depreciation` would credit a reserve through a meaning
+        // that says it is something else. 0159 has the argument.
+        key(
+            "replacement_reserve",
+            "Replacement reserve",
+            "1021607* Reserve Replacement - Operating Equipment",
+            true,
+            "Fixed Assets",
+        ),
+        key(
+            "replacement_expense",
+            "Replacement expense",
+            "7010215* Biaya Replacement Operating Equipment",
+            true,
+            "Fixed Assets",
+        ),
+        // Intangibles. A separate cost meaning because an intangible's cost is
+        // the one asset cost that does not sit under `10215`, so
+        // `fixed_asset` cannot answer for it — and disposal credits the cost.
+        key(
+            "intangible_asset",
+            "Intangible asset",
+            "10217* Intangible Asset",
+            true,
+            "Fixed Assets",
+        ),
+        key(
+            "accumulated_amortisation",
+            "Accumulated amortisation",
+            "1021702* Acc Amort Software",
+            true,
+            "Fixed Assets",
+        ),
+        key(
+            "amortisation_expense",
+            "Amortisation expense",
+            "7010216* Biaya Amortisasi Intangible Asset",
+            true,
+            "Fixed Assets",
+        ),
         // Where the difference between what an asset was worth and what it
         // fetched lands. The client's chart has no account named for it — they
         // keep no "Laba (Rugi) Penjualan Aktiva Tetap" — so the expectation

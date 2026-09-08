@@ -495,7 +495,7 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
           {(ready) => (
             <Button
               type="submit"
-              variant="dark"
+              variant="primary"
               disabled={!ready || send.isPending}
             >
               {send.isPending ? "Sending…" : "Submit the sweep"}

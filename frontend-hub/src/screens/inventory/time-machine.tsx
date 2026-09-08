@@ -616,7 +616,7 @@ function WhatIfTab() {
             />
           </Field>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={
               subject.trim() === "" || place.trim() === "" || evaluate.isPending
             }

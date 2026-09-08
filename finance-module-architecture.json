@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Finance Module — Accounting Flow",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/heyharii/itulah",
+      "revision": "d2e97196da43af62812d1059a2727e1d591d8c51"
+    },
+    "viewBox": [1300, 840],
+    "views": [
+      {"id": "posting", "label": "Posting path", "focus": ["cloud_ui", "finance_http", "adapters", "poster", "postgres"], "note": "All financial writes converge on poster::post and database invariants."},
+      {"id": "supplier", "label": "Bills & payments", "focus": ["source_docs", "adapters", "poster", "postgres", "projections"], "note": "Draft documents become immutable accounting facts only after posting."},
+      {"id": "asset_bank", "label": "Assets & banking", "focus": ["source_docs", "pure_kernels", "adapters", "poster", "postgres"], "note": "Pure decision kernels support depreciation and deterministic bank matching."},
+      {"id": "reporting", "label": "Reporting", "focus": ["postgres", "projections", "cloud_ui"], "note": "Balances and statements are derived from journal and source rows."}
+    ]
+  },
+  "components": [
+    {"id": "chart_setup", "type": "external", "label": "Accounting setup", "sublabel": "COA import · account map · open period", "pos": [70, 70], "size": [245, 76], "sources": [{"path": "backend/migrations/postgres/0050_ledger.sql", "line": 1, "end_line": 137}]},
+    {"id": "source_docs", "type": "frontend", "label": "Source documents", "sublabel": "Bills · payments · assets · bank · manual", "pos": [70, 245], "size": [245, 88], "sources": [{"path": "backend/src/cloud/postgres/payables.rs", "line": 307}, {"path": "backend/src/cloud/postgres/payments.rs", "line": 284}, {"path": "backend/src/cloud/postgres/banking.rs", "line": 103}]},
+    {"id": "cloud_ui", "type": "frontend", "label": "Active Cloud UI", "sublabel": "Finance routes · React Query · partial surface", "pos": [70, 455], "size": [245, 88], "tag": "deployed", "sources": [{"path": "frontend-cloud/src/router.tsx", "line": 295, "end_line": 351}, {"path": "frontend-cloud/src/lib/finance.ts", "line": 1, "end_line": 449}]},
+    {"id": "finance_http", "type": "cloud", "label": "Axum finance HTTP", "sublabel": "Routes · ADMIN writes · SUPERVISOR reads", "pos": [390, 455], "size": [245, 88], "sources": [{"path": "backend/src/cloud/http/mod.rs", "line": 591, "end_line": 721}, {"path": "backend/src/cloud/http/finance.rs", "line": 1, "end_line": 11}]},
+    {"id": "adapters", "type": "backend", "label": "Finance adapters", "sublabel": "Ledger · payables · assets · banking · statements", "pos": [710, 455], "size": [260, 88], "sources": [{"path": "backend/src/cloud/postgres/mod.rs", "line": 1, "end_line": 109}]},
+    {"id": "pure_kernels", "type": "backend", "label": "Pure decision kernels", "sublabel": "Exact depreciation · deterministic bank match", "pos": [710, 245], "size": [260, 88], "sources": [{"path": "backend/src/cloud/domain/depreciation.rs", "line": 1, "end_line": 188}, {"path": "backend/src/cloud/domain/bank_match.rs", "line": 1, "end_line": 245}]},
+    {"id": "poster", "type": "backend", "label": "Posting kernel", "sublabel": "Balance · resolve meanings · verify accounts", "pos": [1045, 455], "size": [245, 88], "tag": "single writer", "sources": [{"path": "backend/src/cloud/postgres/poster.rs", "line": 178, "end_line": 271}]},
+    {"id": "postgres", "type": "database", "label": "Postgres authority", "sublabel": "Append-only journal · deferred invariants", "pos": [1045, 650], "size": [245, 88], "tag": "source of truth", "sources": [{"path": "backend/migrations/postgres/0051_journal.sql", "line": 36, "end_line": 231}]},
+    {"id": "projections", "type": "database", "label": "Derived projections", "sublabel": "GL · trial balance · statements · ageing", "pos": [710, 650], "size": [260, 88], "sources": [{"path": "backend/src/cloud/postgres/statements.rs", "line": 61, "end_line": 369}, {"path": "backend/src/cloud/postgres/ledger.rs", "line": 1, "end_line": 12}]},
+    {"id": "hub_reference", "type": "frontend", "label": "Hub finance surface", "sublabel": "Broader legacy/reference client coverage", "pos": [390, 650], "size": [245, 88], "tag": "surface drift", "sources": [{"path": "frontend-hub/src/lib/queries/finance.ts", "line": 583, "end_line": 918}]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "Cloud finance backend", "wraps": ["finance_http", "adapters", "pure_kernels", "poster", "postgres", "projections"], "pad": 8}
+  ],
+  "connections": [
+    {"id": "setup_posting", "from": "chart_setup", "to": "poster", "label": "account map + open period", "variant": "dashed", "labelAt": [1021, 347]},
+    {"id": "docs_adapters", "from": "source_docs", "to": "adapters", "label": "record / post / match"},
+    {"id": "ui_http", "from": "cloud_ui", "to": "finance_http", "label": "/api/finance/*", "variant": "emphasis"},
+    {"id": "http_adapters", "from": "finance_http", "to": "adapters", "label": "validated commands & queries", "variant": "emphasis", "labelAt": [673, 557]},
+    {"id": "adapter_kernel", "from": "adapters", "to": "pure_kernels", "label": "calculate / suggest"},
+    {"id": "adapter_poster", "from": "adapters", "to": "poster", "label": "balanced posting intent", "variant": "emphasis", "labelAt": [1008, 557]},
+    {"id": "poster_db", "from": "poster", "to": "postgres", "label": "journal entry + lines", "variant": "emphasis", "labelAt": [1168, 585]},
+    {"id": "db_projection", "from": "postgres", "to": "projections", "label": "derive from journal/source rows", "labelAt": [1008, 752]},
+    {"id": "projection_adapters", "from": "projections", "to": "adapters", "label": "read models"},
+    {"id": "hub_http", "from": "hub_reference", "to": "finance_http", "label": "broader API coverage", "variant": "dashed"}
+  ],
+  "cards": [
+    {"dot": "emerald", "title": "Accounting guarantees", "items": ["Balanced entries and open periods are enforced at commit", "Journal corrections use reversals; posted facts are append-only", "Semantic account meanings resolve per location"]},
+    {"dot": "amber", "title": "Current seams", "items": ["Deployed Cloud UI exposes only part of the backend", "No GRNI posting for received-but-unbilled goods", "Admin-only writes; no accountant maker/checker role"]}
+  ]
+}

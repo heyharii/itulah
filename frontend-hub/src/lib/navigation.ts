@@ -1,8 +1,8 @@
 import type { LucideIcon } from "lucide-react"
 
+import { allotmentNav } from "@/screens/allotment/nav"
 import { assistantNav } from "@/screens/assistant/nav"
 import { commercialNav } from "@/screens/commercial/nav"
-import { distributionNav } from "@/screens/distribution/nav"
 import { financeNav } from "@/screens/finance/nav"
 import { homeNav } from "@/screens/home/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
@@ -187,7 +187,7 @@ export const modules: readonly AppModule[] = [
   commercialNav,
   masterNav,
   inventoryNav,
-  distributionNav,
+  allotmentNav,
   procurementNav,
   salesNav,
   storeopsNav,

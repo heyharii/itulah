@@ -233,7 +233,9 @@ impl PayRecord {
         self.fixed_allowances.get(code).copied()
     }
     pub fn allowances(&self) -> impl Iterator<Item = (&AllowanceCode, Money)> {
-        self.fixed_allowances.iter().map(|(code, amount)| (code, *amount))
+        self.fixed_allowances
+            .iter()
+            .map(|(code, amount)| (code, *amount))
     }
     pub const fn authorization(&self) -> &Authorization {
         &self.authorization

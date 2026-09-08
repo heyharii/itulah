@@ -11,7 +11,7 @@ import { extendTailwindMerge } from "tailwind-merge"
 /// nothing warns, nothing fails, the heading is just the wrong size.
 ///
 /// It also loses white text off the one black CTA the moment anything hands
-/// `<Button variant="dark">` a `text-*` class of its own.
+/// `<Button variant="primary">` a `text-*` class of its own.
 const TYPE_SCALE = [
   "hero",
   "card-title",

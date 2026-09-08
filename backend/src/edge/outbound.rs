@@ -927,6 +927,55 @@ pub fn pick_session_summary(
     })
 }
 
+/// One picklist as a list reads it: who walked, when, and what came back.
+///
+/// The round's own lines are deliberately not here. A list of picklists is
+/// read to choose one, and forty SKUs under every row is a list nobody can
+/// scan; the lines are one click away in [`pick_session_summary`].
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PicklistSummary {
+    pub session: Session,
+    pub sku_count: i64,
+    pub total_picked: i64,
+}
+
+/// Every picklist this DC has raised, newest first.
+///
+/// One query rather than a session list and a summary per row: a warehouse
+/// that has been running a fortnight has a few hundred of these, and the
+/// per-row version is a few hundred requests to draw one screen.
+pub fn list_picklists(connection: &Connection) -> Result<Vec<PicklistSummary>, EdgeError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT s.session_id, s.picker_id, s.started_at, s.closed_at, s.status,
+                    COUNT(DISTINCT e.sku_code), COALESCE(SUM(e.quantity), 0)
+               FROM pick_session s
+               LEFT JOIN dc_pick_event e ON e.pick_session_id = s.session_id
+              GROUP BY s.session_id
+              ORDER BY s.started_at DESC, s.session_id DESC",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(PicklistSummary {
+                session: Session {
+                    session_id: row.get(0)?,
+                    actor_id: row.get(1)?,
+                    started_at: row.get(2)?,
+                    closed_at: row.get(3)?,
+                    status: row.get(4)?,
+                },
+                sku_count: row.get(5)?,
+                total_picked: row.get(6)?,
+            })
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    Ok(rows)
+}
+
 /// "These 200 pieces became how many boxes, and what is in each?"
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -1154,6 +1203,73 @@ pub fn outstanding_for_destination(
         .collect::<Result<Vec<_>, _>>()
         .map_err(db)?;
     Ok(lines)
+}
+
+/// One shop this DC still owes something to, and how much of it can leave.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct DestinationDemand {
+    pub destination_id: String,
+    /// How many SKUs it is waiting on.
+    pub sku_count: i64,
+    /// Everything still coming to it, across its open allotment lines.
+    pub wanted: i64,
+    /// What can honestly go in a carton right now — the same line-by-line
+    /// minimum [`outstanding_for_destination`] computes, added up. Deliberately
+    /// not `min(wanted, everything in the picking area)`: a shop wanting ten
+    /// shirts and eight trousers, with ten shirts picked, can be sent ten
+    /// pieces and not eighteen.
+    pub packable: i64,
+}
+
+/// Every shop with something outstanding, busiest first.
+///
+/// **This is the list an edge node was missing.** Allotments are authored at
+/// the centre, so a DC has never had a roster of destinations — the packing
+/// screens asked somebody to type a store id, and offered the shops it had
+/// previously packed for as a guess. But the node does know: a shop it owes
+/// something to has lines in its own allotment work table, and those are the
+/// only shops a packer ever needs.
+pub fn destinations_owed(
+    connection: &Connection,
+    site_id: &str,
+) -> Result<Vec<DestinationDemand>, EdgeError> {
+    let picking = format!("{site_id}.outbound.picking:on_hand");
+    let mut statement = connection
+        .prepare(
+            "SELECT want.destination_id,
+                    COUNT(*),
+                    SUM(want.wanted),
+                    SUM(MIN(want.wanted, COALESCE(have.available, 0)))
+               FROM (SELECT destination_id, sku_code,
+                            SUM(accepted_quantity - packed_quantity - cancelled_quantity) AS wanted
+                       FROM dc_allotment_work_line
+                      WHERE destination_type = 'STORE'
+                        AND accepted_quantity - packed_quantity - cancelled_quantity > 0
+                      GROUP BY destination_id, sku_code) want
+               LEFT JOIN (SELECT subject.sku_code, SUM(projection.quantity) AS available
+                            FROM inventory_projection projection
+                            JOIN inventory_subject subject ON subject.id = projection.subject_id
+                           WHERE projection.place_id = ?1 AND projection.quantity > 0
+                           GROUP BY subject.sku_code) have
+                 ON have.sku_code = want.sku_code
+              GROUP BY want.destination_id
+              ORDER BY SUM(want.wanted) DESC, want.destination_id",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map(params![picking], |row| {
+            Ok(DestinationDemand {
+                destination_id: row.get(0)?,
+                sku_count: row.get(1)?,
+                wanted: row.get(2)?,
+                packable: row.get(3)?,
+            })
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    Ok(rows)
 }
 
 #[derive(Debug, Deserialize)]

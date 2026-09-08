@@ -291,7 +291,7 @@ export function BankReconciliation() {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => setImporting(true)}>
+            <Button variant="primary" onClick={() => setImporting(true)}>
               Import statement
             </Button>
           </>
@@ -1152,7 +1152,7 @@ function BookLine({
         </Button>
         <Button
           size="sm"
-          variant="dark"
+          variant="primary"
           disabled={!ready || busy}
           onClick={() => onBook(code, memo)}
         >
@@ -1284,7 +1284,7 @@ function ImportSheet({
                   : `${count(state.read)} lines read`}
               </span>
               <Button
-                variant="dark"
+                variant="primary"
                 disabled={!state.ready || load.isPending}
                 onClick={() => form.handleSubmit()}
               >

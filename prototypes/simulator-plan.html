@@ -1,0 +1,853 @@
+<meta charset="utf-8">
+<title>Simulator itulah</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ink: #1B1F1D;
+    --ground: #F5F6F3;
+    --surface: #FFFFFF;
+    --surface-2: #ECEFEA;
+    --muted: #5E6660;
+    --line: #D6DBD6;
+    --line-strong: #A9B2AB;
+    --accent: #1F6F50;
+    --accent-ink: #145039;
+    --accent-soft: #E1EFE7;
+    --old: #6B6F6B;
+    --old-soft: #ECECEA;
+    --crit: #B42318;
+    --crit-soft: #FBE9E7;
+    --warn: #9A5B00;
+    --warn-soft: #FBF1DF;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #E4E9E5;
+      --ground: #121614;
+      --surface: #1A201C;
+      --surface-2: #222A25;
+      --muted: #9AA49D;
+      --line: #2B342E;
+      --line-strong: #4A564E;
+      --accent: #5FC08F;
+      --accent-ink: #8AD6AE;
+      --accent-soft: #1B3226;
+      --old: #9AA19B;
+      --old-soft: #232824;
+      --crit: #F0857A;
+      --crit-soft: #3A1F1C;
+      --warn: #E8B266;
+      --warn-soft: #3A2E17;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #E4E9E5;
+    --ground: #121614;
+    --surface: #1A201C;
+    --surface-2: #222A25;
+    --muted: #9AA49D;
+    --line: #2B342E;
+    --line-strong: #4A564E;
+    --accent: #5FC08F;
+    --accent-ink: #8AD6AE;
+    --accent-soft: #1B3226;
+    --old: #9AA19B;
+    --old-soft: #232824;
+    --crit: #F0857A;
+    --crit-soft: #3A1F1C;
+    --warn: #E8B266;
+    --warn-soft: #3A2E17;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  code, pre, .mono { font-family: var(--mono); }
+  code { font-size: 0.86em; background: var(--surface-2); padding: 0.08em 0.35em; border-radius: 3px; }
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .page {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 20px 80px;
+  }
+  @media (min-width: 1120px) {
+    .page { grid-template-columns: 220px minmax(0, 880px); column-gap: 48px; }
+    .toc { position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 48px); overflow: auto; padding-top: 88px; }
+  }
+  .toc { display: none; }
+  @media (min-width: 1120px) { .toc { display: block; } }
+  .toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
+  .toc li { margin: 0; }
+  .toc a {
+    display: block; padding: 4px 0 4px 14px; color: var(--muted); text-decoration: none;
+    font-size: 13px; line-height: 1.35; border-left: 2px solid transparent; margin-left: -1px;
+  }
+  .toc a:hover { color: var(--ink); border-left-color: var(--line-strong); }
+  .toc .n { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-right: 6px; }
+
+  main { min-width: 0; }
+
+  header.masthead { padding: 56px 0 28px; border-bottom: 1px solid var(--line-strong); margin-bottom: 36px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 14px;
+  }
+  .eyebrow b { color: var(--accent-ink); font-weight: 500; }
+  h1 {
+    font-family: var(--serif); font-weight: 600; font-size: clamp(30px, 4.6vw, 44px);
+    line-height: 1.12; letter-spacing: -0.01em; margin: 0 0 18px; text-wrap: balance;
+  }
+  .lede { font-size: 18px; line-height: 1.5; color: var(--ink); max-width: 66ch; margin: 0 0 18px; }
+  .lede + p { color: var(--muted); max-width: 66ch; margin: 0; font-size: 15px; }
+
+  section { margin: 0 0 52px; }
+  h2 {
+    font-family: var(--serif); font-weight: 600; font-size: 26px; line-height: 1.2;
+    margin: 0 0 14px; text-wrap: balance; display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .n { font-family: var(--mono); font-weight: 400; font-size: 14px; color: var(--muted); }
+  h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; margin: 28px 0 10px; }
+  p { max-width: 68ch; margin: 0 0 12px; }
+  ul, ol { max-width: 70ch; padding-left: 22px; margin: 0 0 14px; }
+  li { margin: 0 0 6px; }
+  li > b:first-child { font-weight: 600; }
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); background: var(--surface); margin: 14px 0 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th {
+    font-family: var(--mono); font-weight: 500; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); background: var(--surface-2);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td code { white-space: nowrap; }
+  td.wrap code { white-space: normal; }
+  table.ledger td:first-child { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+  table.compare td.old { color: var(--old); background: var(--old-soft); }
+  table.compare td.new { background: var(--accent-soft); }
+  .sev { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
+  .sev.crit { background: var(--crit-soft); color: var(--crit); }
+  .sev.high { background: var(--warn-soft); color: var(--warn); }
+  .sev.med { background: var(--surface-2); color: var(--muted); }
+  .chip { display: inline-block; font-family: var(--mono); font-size: 11.5px; background: var(--accent-soft); color: var(--accent-ink); padding: 2px 7px; border-radius: 3px; }
+
+  figure { margin: 22px 0 26px; }
+  figure svg { display: block; width: 100%; height: auto; max-width: 100%; color: var(--ink); }
+  figcaption { font-size: 13.5px; color: var(--muted); max-width: 70ch; margin-top: 10px; line-height: 1.45; }
+  .fig-old { fill: var(--old-soft); stroke: var(--old); }
+  .fig-accent { fill: var(--accent-soft); stroke: var(--accent); }
+  .fig-surface { fill: var(--surface); stroke: currentColor; }
+  .fig-muted { fill: var(--surface-2); stroke: var(--line-strong); }
+  .fig-t { font-family: var(--sans); font-size: 12px; fill: currentColor; }
+  .fig-tm { font-family: var(--mono); font-size: 11px; fill: currentColor; }
+  .fig-tmu { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .fig-tb { font-family: var(--sans); font-size: 12.5px; font-weight: 600; fill: currentColor; }
+  .fig-line { stroke: currentColor; stroke-width: 1.2; fill: none; }
+  .fig-line-accent { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+  .fig-dash { stroke-dasharray: 4 3; }
+
+  .principles { list-style: none; padding: 0; max-width: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .principles li { background: var(--surface); border: 1px solid var(--line); padding: 14px 16px; margin: 0; font-size: 14.5px; }
+  .principles .k { font-family: var(--mono); font-size: 11px; color: var(--accent-ink); letter-spacing: 0.06em; display: block; margin-bottom: 4px; }
+  .principles b { display: block; margin-bottom: 4px; font-weight: 600; }
+
+  .phases { list-style: none; padding: 0; margin: 18px 0 0; max-width: none; position: relative; }
+  .phases::before { content: ""; position: absolute; left: 17px; top: 8px; bottom: 8px; width: 2px; background: var(--line); }
+  .phases li { position: relative; padding: 0 0 26px 56px; margin: 0; }
+  .phases li:last-child { padding-bottom: 0; }
+  .phases .idx {
+    position: absolute; left: 0; top: 0; width: 36px; height: 36px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--accent); color: var(--accent-ink);
+    font-family: var(--mono); font-weight: 500; font-size: 14px; display: grid; place-items: center;
+  }
+  .phases h3 { margin: 6px 0 6px; }
+  .phases .size { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-left: 8px; font-weight: 400; }
+  .phases .exit { font-size: 14px; color: var(--muted); border-left: 2px solid var(--accent); padding-left: 10px; margin-top: 8px; max-width: 68ch; }
+  .phases .exit b { color: var(--ink); font-weight: 600; }
+
+  .note { border-left: 3px solid var(--accent); background: var(--surface); padding: 12px 16px; margin: 16px 0; max-width: 72ch; font-size: 14.5px; }
+  .note.warn { border-left-color: var(--warn); }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+  footer { border-top: 1px solid var(--line); margin-top: 48px; padding-top: 18px; font-size: 13.5px; color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+  html { scroll-behavior: smooth; }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Daftar isi">
+    <ol>
+      <li><a href="#keputusan"><span class="n">0</span>Keputusan</a></li>
+      <li><a href="#lama"><span class="n">1</span>Yang salah pada simbot lama</a></li>
+      <li><a href="#prinsip"><span class="n">2</span>Prinsip</a></li>
+      <li><a href="#arsitektur"><span class="n">3</span>Arsitektur</a></li>
+      <li><a href="#harness"><span class="n">3.2</span>Dua harness</a></li>
+      <li><a href="#waktu"><span class="n">3.3</span>Waktu</a></li>
+      <li><a href="#sync"><span class="n">3.4</span>Sync &amp; chaos</a></li>
+      <li><a href="#identitas"><span class="n">3.5</span>Identitas</a></li>
+      <li><a href="#persona"><span class="n">4</span>Persona &amp; rantai</a></li>
+      <li><a href="#permintaan"><span class="n">5</span>Model permintaan</a></li>
+      <li><a href="#invariant"><span class="n">6</span>Katalog invariant</a></li>
+      <li><a href="#skenario"><span class="n">7</span>Skenario = mode</a></li>
+      <li><a href="#coverage"><span class="n">8</span>Coverage</a></li>
+      <li><a href="#kendali"><span class="n">9</span>API kendali</a></li>
+      <li><a href="#guardrail"><span class="n">10</span>Guardrail</a></li>
+      <li><a href="#fase"><span class="n">11</span>Rencana fase</a></li>
+      <li><a href="#risiko"><span class="n">12</span>Risiko</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="masthead">
+      <p class="eyebrow">Rencana &amp; rancangan · 2026-09-06 · <b>proposal, belum ada kode</b> · pendahulu: <code>cmd/simbot</code> (Go)</p>
+      <h1>Menjalankan bisnis itulah lewat API-nya sendiri, dan membuktikan angkanya</h1>
+      <p class="lede">Satu program memerankan pemasok, pembeli HO, staf DC, supervisor dan kasir toko, pelanggan, handheld RFID, HR, dan keuangan. Ia menggerakkan cloud (Postgres), DC edge (SQLite), dan store edge (SQLite) hanya lewat endpoint produksi, memegang model dunianya sendiri, dan menilai apakah yang sistem laporkan sama dengan yang benar-benar terjadi.</p>
+      <p>Dirancang dari kegagalan simbot lama yang dicatat audit simbot sendiri. Dokumen sumber dengan lampiran lengkap ada di repo: <code>SIMULATION-PLAN.md</code>.</p>
+    </header>
+
+    <section id="keputusan">
+      <h2><span class="n">0</span>Keputusan dalam satu layar</h2>
+      <div class="tablewrap">
+        <table class="ledger">
+          <thead><tr><th>#</th><th>Keputusan</th><th>Pilihan</th><th>Alasan</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Di mana kode hidup</td><td class="wrap">Crate baru <code>backend/crates/sim</code> (lib + bin <code>sim</code>), anggota workspace, bergantung ke <code>inventory-backend</code></td><td>Nol kode simulasi di binary <code>cloud</code>/<code>dc</code>/<code>store</code>. Direktori <code>crates/core|pg|sqlite|edge-*</code> dan <code>apps/*</code> ternyata kosong tanpa satu commit pun, jadi bukan tempat bersandar.</td></tr>
+            <tr><td>2</td><td>Cara mencapai sistem</td><td class="wrap">Dua harness, satu kode persona: <b>in-process</b> (router asli lewat <code>tower::oneshot</code>, sync lewat trait <code>SyncTransport</code>) dan <b>live</b> (HTTP ke proses nyata)</td><td>In-process sudah terbukti di <code>tests/full_chain_integration.rs</code>: cloud + DC + toko satu proses. Itulah yang membuat CI, determinisme, dan kecepatan mungkin.</td></tr>
+            <tr><td>3</td><td>Aksi lewat SQL</td><td class="wrap"><b>Tidak ada.</b> Setiap aksi manusia lewat endpoint; SQL hanya untuk membaca saat invariant diperiksa</td><td>Simbot lama punya 12 persona yang menulis Postgres langsung; jalur itu tak pernah dilalui produksi.</td></tr>
+            <tr><td>4</td><td>Waktu</td><td class="wrap">Jam bisnis virtual, discrete-event dengan resolusi menit; jam keamanan (sesi, lockout, breaker) tetap jam dinding</td><td>Cron lama meruntuhkan job sub-harian jadi 1×/hari. Sesi yang kedaluwarsa karena jam virtual bukan bug bisnis.</td></tr>
+            <tr><td>5</td><td>Determinisme</td><td class="wrap">Satu <code>seed</code> per run, RNG per (run, persona, hari), loop event tunggal, ID inventory deterministik lewat macro <code>uuid_id!</code></td><td>Separuh persona lama seed dari <code>time.Now()</code> dengan fan-out 8 worker: tak ada run yang bisa diulang.</td></tr>
+            <tr><td>6</td><td>Kegagalan</td><td class="wrap">Non-2xx pada intent mutasi = gagal, kecuali intent mendeklarasikan penolakan yang diharapkan; 404 pada route yang ada di katalog = gagal</td><td>Probe lama menghitung 404 sebagai sukses; sim hijau sementara API tak pernah tersentuh.</td></tr>
+            <tr><td>7</td><td>Kebenaran</td><td class="wrap">Tiga keluarga invariant, semuanya run-scoped: struktural, konvergensi antar node, ekspektasi dunia vs laporan sistem</td><td>Simbot lama hanya punya SQL global berjendela "5 menit terakhir" dan tak punya model dunia, jadi tak bisa tahu kalau sistem melaporkan angka yang salah tapi konsisten.</td></tr>
+            <tr><td>8</td><td>Isolasi &amp; keamanan</td><td class="wrap">Satu database per run, state run di proses simulator, tak pernah migrasi DB hidup, tolak <code>DATABASE_URL</code> non-lokal tanpa <code>SIM_ALLOW_REMOTE=1</code></td><td>Flag pause lama global di tabel bisnis; simbot <code>ALTER TABLE</code> saat boot; handler sim ter-mount di produksi.</td></tr>
+            <tr><td>9</td><td>Kendali</td><td class="wrap"><code>sim</code> punya API sendiri (<code>:8090</code>, <code>/api/v1/sim/…</code> + SSE) dan CLI yang memakai API yang sama; modul <b>Simulation</b> di hub pada fase 4</td><td>Dari hub, dari CI, dari terminal: satu permukaan.</td></tr>
+            <tr><td>10</td><td>Yang tidak dibawa</td><td class="wrap">Bot browser yang meng-assert teks UI; OTel; blueprint "3-in-1" (game perencanaan bisnis, tak pernah dibangun)</td><td>Bukan bagian dari "menjalankan sistem lewat API".</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="lama">
+      <h2><span class="n">1</span>Apa yang salah pada simbot lama, dan jawabannya</h2>
+      <p>Simbot lama bukan program kecil: ~46 persona terdaftar, scheduler cron dari tabel <code>sim_schedule</code>, sentinel 38 invariant SQL, virtual clock "12 bulan dalam 24 menit", katalog coverage endpoint, sepuluh mode. Yang bagus darinya dibawa: kontrak passthrough jam virtual, invariant sebagai data bersaverity, korelasi per request, coverage sebagai keluaran, guard destruktif yang fail-closed, <code>sim_result.json</code>. Yang berikut ini tidak.</p>
+      <div class="tablewrap">
+        <table class="compare">
+          <thead><tr><th>Kelemahan lama (bukti di kode &amp; audit mereka)</th><th>Akibat</th><th>Jawaban baru</th></tr></thead>
+          <tbody>
+            <tr><td class="old">Kegagalan ditelan: <code>Probe.IsOK</code> menghitung 404 sukses; <code>Tolerate:</code>; <code>return 0, nil</code> setelah error; kasir multi-terminal sukses selama satu terminal hidup</td><td>Route mati dan payload salah tak terlihat; endpoint returns "teruji" padahal 400 selamanya</td><td class="new">P3: setiap intent membawa <code>expect</code>; selisih = failure dengan request + response tersimpan</td></tr>
+            <tr><td class="old">12 persona HQ menulis <code>journal_entries</code>/<code>inventory_movements</code> langsung; period-end menutup periode dengan SQL fallback; bootstrap <code>ALTER TABLE</code></td><td>Sim memvalidasi jalur yang produksi tak pernah lalui</td><td class="new">P1: nol SQL tulis; endpoint yang belum ada = product gap yang dilaporkan</td></tr>
+            <tr><td class="old"><i>Phantom stock</i>: <code>pos-mirror</code> memalsukan stok saat oversell dan memposting jurnal penyeimbang agar invariant tetap hijau (pengakuan di <code>phantom.go</code>)</td><td>Pemeriksa dibohongi oleh sistem yang diperiksanya</td><td class="new">P4: simulator membaca stok lantai sebelum menjual; permintaan yang tak terpenuhi = <i>lost sale</i>, bukan penjualan paksa</td></tr>
+            <tr><td class="old">Determinisme separuh: empat persona dan kedua scenario pack seed dari <code>time.Now().UnixNano()</code>; fan-out 8 worker</td><td>Tak ada run yang bisa diulang</td><td class="new">Satu seed, loop event tunggal, jam virtual, ID deterministik; replay = properti</td></tr>
+            <tr><td class="old">Assertion berjendela jam dinding (<code>posted_at &gt;= NOW() - 5 minutes</code>); flag pause global di <code>integration_settings</code></td><td>Dua run di satu DB saling mencemari</td><td class="new">P5: DB per run; setiap pemeriksaan di-scope ke run</td></tr>
+            <tr><td class="old"><code>Spec</code> mode tak dibaca: <code>-coverage-floor</code> diabaikan di <code>-mode acceptance</code> <b>termasuk di CI</b>; <code>chaos</code> identik <code>acceptance</code>; <code>-mode load</code> selalu exit 1</td><td>Gate CI tidak menggerbangi apa pun</td><td class="new">Mode = file skenario; satu loader; test membuktikan tiap field mengubah perilaku</td></tr>
+            <tr><td class="old">Handler <code>inventorysim</code>/<code>mockedc</code> ter-mount di semua build; plan 010 (<code>ENABLE_SIM_ENDPOINTS</code>) tak pernah dieksekusi</td><td>Endpoint yang menulis stok &amp; GL nyata terbuka di produksi</td><td class="new">P6: crate terpisah; backend hanya dapat dua seam berdefault produksi</td></tr>
+            <tr><td class="old">Auth fasad: provider TOTP/PIN ada, tapi semua persona memakai API key global <code>demo-api-key-ho</code></td><td>RBAC, scope, 403 tak pernah teruji</td><td class="new">Akun nyata per peran, password edge lewat assignment, HMAC handheld, matriks negatif</td></tr>
+            <tr><td class="old">Virtual clock ditempel belakangan: 38 <code>CURRENT_DATE</code> di-patch; cron sub-harian runtuh 1×/hari; <code>time.Sleep</code> di mock hardware</td><td>Tahun terkompresi bukan tahun yang diperkecil, tapi tahun berbentuk lain</td><td class="new">Discrete-event resolusi menit; fake hardware tanpa sleep; seam jam dirancang dari awal</td></tr>
+            <tr><td class="old">Topologi hard-coded (13 store ID tiga kali); konfigurasi di env + <code>os.Getenv</code> + 3 tabel DB</td><td>Menambah toko = edit Go</td><td class="new">Topologi di file skenario; konfigurasi terselesaikan disimpan di hasil run</td></tr>
+            <tr><td class="old">Test pengaman teater: meng-assert baris yang ditulisnya sendiri; chaos berakhir <code>if ok { t.Log }</code></td><td>Test tanpa jalur gagal</td><td class="new">P7: mutation check wajib merah via <code>corrupt_projection_for_test</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="prinsip">
+      <h2><span class="n">2</span>Prinsip yang tidak bisa ditawar</h2>
+      <ul class="principles">
+        <li><span class="k">P1</span><b>Lewat API, atau tidak sama sekali.</b> Setiap aksi manusia menjadi request ke node yang benar. Endpoint yang tidak ada menjadi baris di laporan product gap, bukan alasan menulis SQL.</li>
+        <li><span class="k">P2</span><b>Satu seed, satu cerita.</b> Semua keacakan dari RNG yang diturunkan dari (seed, persona, hari virtual). Run yang sama dua kali menghasilkan intent log yang identik.</li>
+        <li><span class="k">P3</span><b>Tidak ada kegagalan yang ditelan.</b> Setiap intent membawa ekspektasi: 2xx, atau penolakan spesifik. Selisih apa pun tersimpan dengan request, response, dan state dunia. Tidak ada daftar tolerate.</li>
+        <li><span class="k">P4</span><b>Dunia adalah ekspektasi, sistem adalah kenyataan.</b> Simulator membaca sistem sebelum bertindak dan tidak pernah memasok state agar pemeriksaan lolos.</li>
+        <li><span class="k">P5</span><b>Run terisolasi.</b> Postgres sendiri, SQLite sendiri, state run di simulator. Tidak ada flag global di tabel bisnis. Tidak pernah migrasi database yang tidak ia buat.</li>
+        <li><span class="k">P6</span><b>Nol kode simulasi di binary produksi</b>, kecuali dua seam yang defaultnya persis perilaku produksi: <code>Clock</code> dan endpoint kontrol di balik <code>INVENTORY_ENABLE_TEST_CONTROLS</code>.</li>
+        <li><span class="k">P7</span><b>Setiap pemeriksa punya jalur gagal yang terbukti.</b> Skenario yang tak pernah bisa merah tidak boleh masuk CI.</li>
+        <li><span class="k">P8</span><b>Satu sumber konfigurasi.</b> Skenario adalah satu file TOML; hasil run menyimpan konfigurasi terselesaikan, seed, dan commit backend.</li>
+      </ul>
+    </section>
+
+    <section id="arsitektur">
+      <h2><span class="n">3</span>Arsitektur</h2>
+      <figure>
+        <svg viewBox="0 0 960 430" role="img" aria-label="Simulator memegang skenario, dunia, jam virtual, dan persona; persona mencapai cloud, DC edge, dan store edge lewat klien node; sync menghubungkan ketiganya; invariant dan rekaman menutup di bawah; fake printer dan RFID menempel pada edge.">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+            <marker id="arr-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+            </marker>
+          </defs>
+          <!-- outside: CLI / hub -->
+          <rect x="16" y="150" width="120" height="44" rx="3" class="fig-muted"/>
+          <text x="76" y="169" text-anchor="middle" class="fig-tb">CLI · hub</text>
+          <text x="76" y="184" text-anchor="middle" class="fig-tmu">Simulation</text>
+          <line x1="136" y1="166" x2="166" y2="166" class="fig-line" marker-end="url(#arr)"/>
+          <line x1="166" y1="180" x2="136" y2="180" class="fig-line fig-dash" marker-end="url(#arr)"/>
+          <text x="151" y="206" text-anchor="middle" class="fig-tmu">API · SSE</text>
+
+          <!-- sim boundary -->
+          <rect x="168" y="14" width="776" height="402" rx="4" class="fig-line fig-dash"/>
+          <text x="184" y="36" class="fig-tm">sim  (crates/sim — lib + bin)</text>
+
+          <!-- row 1 -->
+          <rect x="188" y="52" width="160" height="42" rx="3" class="fig-surface"/>
+          <text x="268" y="70" text-anchor="middle" class="fig-tb">skenario · profil</text>
+          <text x="268" y="85" text-anchor="middle" class="fig-tmu">TOML, satu loader</text>
+
+          <rect x="364" y="52" width="180" height="42" rx="3" class="fig-accent"/>
+          <text x="454" y="70" text-anchor="middle" class="fig-tb">dunia (ekspektasi)</text>
+          <text x="454" y="85" text-anchor="middle" class="fig-tmu">stok · kas · poin · buku harga</text>
+
+          <rect x="560" y="52" width="364" height="42" rx="3" class="fig-surface"/>
+          <text x="742" y="70" text-anchor="middle" class="fig-tb">SimClock + scheduler discrete-event + RNG(seed)</text>
+          <text x="742" y="85" text-anchor="middle" class="fig-tmu">heap (t_virtual, seq, persona, intent)</text>
+
+          <line x1="454" y1="94" x2="454" y2="116" class="fig-line" marker-end="url(#arr)"/>
+          <line x1="742" y1="94" x2="742" y2="116" class="fig-line" marker-end="url(#arr)"/>
+          <text x="600" y="110" text-anchor="middle" class="fig-tmu">intent bertimestamp virtual</text>
+
+          <!-- row 2 personas -->
+          <rect x="188" y="118" width="736" height="40" rx="3" class="fig-accent"/>
+          <text x="556" y="136" text-anchor="middle" class="fig-tb">persona — hanya API</text>
+          <text x="556" y="151" text-anchor="middle" class="fig-tmu">pembeli · DC · merchandiser · penanda · alokator · supervisor toko · kasir · pelanggan · komersial · keuangan · HR · auditor</text>
+
+          <line x1="556" y1="158" x2="556" y2="176" class="fig-line" marker-end="url(#arr)"/>
+
+          <!-- row 3 node client -->
+          <rect x="188" y="178" width="736" height="36" rx="3" class="fig-surface"/>
+          <text x="556" y="194" text-anchor="middle" class="fig-tb">klien node: InProcess (oneshot) | Http (reqwest)</text>
+          <text x="556" y="208" text-anchor="middle" class="fig-tmu">Bearer · cookie jar · HMAC device · Idempotency-Key + If-Match · x-sim-run / x-sim-actor</text>
+
+          <line x1="290" y1="214" x2="290" y2="244" class="fig-line" marker-end="url(#arr)"/>
+          <line x1="470" y1="214" x2="470" y2="244" class="fig-line" marker-end="url(#arr)"/>
+          <line x1="650" y1="214" x2="650" y2="244" class="fig-line" marker-end="url(#arr)"/>
+
+          <!-- row 4 nodes -->
+          <rect x="200" y="246" width="180" height="62" rx="3" class="fig-surface"/>
+          <text x="290" y="268" text-anchor="middle" class="fig-tb">cloud</text>
+          <text x="290" y="284" text-anchor="middle" class="fig-tmu">Postgres sim_&lt;run&gt;</text>
+          <text x="290" y="298" text-anchor="middle" class="fig-tmu">327 method-route</text>
+
+          <rect x="380" y="246" width="180" height="62" rx="3" class="fig-surface"/>
+          <text x="470" y="268" text-anchor="middle" class="fig-tb">dc edge</text>
+          <text x="470" y="284" text-anchor="middle" class="fig-tmu">SQLite · site dc-01</text>
+          <text x="470" y="298" text-anchor="middle" class="fig-tmu">61 route DC</text>
+
+          <rect x="560" y="246" width="180" height="62" rx="3" class="fig-surface"/>
+          <text x="650" y="268" text-anchor="middle" class="fig-tb">store edge</text>
+          <text x="650" y="284" text-anchor="middle" class="fig-tmu">SQLite · site store-01</text>
+          <text x="650" y="298" text-anchor="middle" class="fig-tmu">18 route toko</text>
+
+          <rect x="770" y="246" width="154" height="62" rx="3" class="fig-muted fig-dash"/>
+          <text x="847" y="266" text-anchor="middle" class="fig-tb">fakes</text>
+          <text x="847" y="281" text-anchor="middle" class="fig-tmu">printer TCP · handheld</text>
+          <text x="847" y="295" text-anchor="middle" class="fig-tmu">terminal · pemasok</text>
+          <line x1="770" y1="277" x2="740" y2="277" class="fig-line fig-dash" marker-end="url(#arr)"/>
+
+          <!-- sync bus -->
+          <line x1="290" y1="308" x2="290" y2="334" class="fig-line-accent"/>
+          <line x1="470" y1="308" x2="470" y2="334" class="fig-line-accent"/>
+          <line x1="650" y1="308" x2="650" y2="334" class="fig-line-accent"/>
+          <line x1="290" y1="334" x2="650" y2="334" class="fig-line-accent"/>
+          <text x="470" y="350" text-anchor="middle" class="fig-tm">sync: fakta ↑ edge→cloud, perintah ↓ menumpang respons ingest — run_cycle / SyncTransport</text>
+
+          <!-- row 5 -->
+          <rect x="188" y="362" width="420" height="40" rx="3" class="fig-accent"/>
+          <text x="398" y="379" text-anchor="middle" class="fig-tb">invariant: struktural · konvergensi · ekspektasi</text>
+          <text x="398" y="394" text-anchor="middle" class="fig-tmu">run-scoped, bersaverity; SQL hanya di sini</text>
+
+          <rect x="624" y="362" width="300" height="40" rx="3" class="fig-surface"/>
+          <text x="774" y="379" text-anchor="middle" class="fig-tb">rekaman</text>
+          <text x="774" y="394" text-anchor="middle" class="fig-tmu">intents.jsonl · failures/ · coverage · sim_result.json</text>
+        </svg>
+        <figcaption>Dunia dan persona hidup di simulator; ketiga node adalah sistem yang diuji, tidak berubah kecuali dua seam. Sync yang menghubungkan node dijalankan oleh simulator sendiri pada harness in-process, sehingga "kapan fakta sampai di cloud" pun deterministik.</figcaption>
+      </figure>
+
+      <h3>Komponen crate <code>sim</code></h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Modul</th><th>Tanggung jawab</th></tr></thead>
+          <tbody>
+            <tr><td><code>scenario</code></td><td>Memuat dan memvalidasi TOML; menghasilkan konfigurasi terselesaikan yang disimpan ke hasil</td></tr>
+            <tr><td><code>world</code></td><td>Toko, DC, pemasok, katalog yang lahir lewat API, stok yang diyakini per pool, shift dan kas, member dan poin, buku harga yang seharusnya berlaku di tiap toko pada tiap waktu</td></tr>
+            <tr><td><code>clock</code></td><td><code>SimClock</code> monoton; scheduler discrete-event; pemetaan ke seam jam backend</td></tr>
+            <tr><td><code>demand</code></td><td>Profil permintaan menjadi kunjungan per toko per jam; keranjang, tender, member share, retur, void</td></tr>
+            <tr><td><code>actors</code></td><td>Satu file per persona: fungsi keputusan murni <code>(world, rng, now) → Vec&lt;Intent&gt;</code> plus eksekutor intent</td></tr>
+            <tr><td><code>node</code></td><td><code>InProcessNode</code> dan <code>HttpNode</code>; Bearer, cookie jar, HMAC device, dua mekanisme idempoten; penanda <code>x-sim-run</code>, <code>x-sim-actor</code>, <code>x-request-id</code></td></tr>
+            <tr><td><code>harness</code></td><td><code>InProcessFleet</code> (Postgres per run, SQLite tmp, <code>run_cycle</code> sampai tenang, publisher katalog dipanggil langsung) dan <code>LiveFleet</code> (menunggu watermark)</td></tr>
+            <tr><td><code>fakes</code></td><td>Printer sink TCP yang mencatat EPC per label, pembaca RFID yang menghasilkan sighting bertanda tangan dari EPC yang ada, terminal pembayaran dengan decline rate, pemasok yang mengirim sebagian atau terlambat</td></tr>
+            <tr><td><code>invariants</code></td><td>Katalog pemeriksaan bersaverity, tiga keluarga; satu-satunya modul yang membaca SQL</td></tr>
+            <tr><td><code>coverage</code></td><td>Katalog route golden + log panggilan menjadi persen tercakup dan daftar tak tersentuh; floor ratchet</td></tr>
+            <tr><td><code>chaos</code></td><td>Gangguan bertimestamp virtual: partisi, drop response, duplikasi batch, restore dari backup, rollover generation, printer mati, misread</td></tr>
+            <tr><td><code>record</code>, <code>control</code></td><td>Artefak run; HTTP API simulator + SSE; CLI adalah klien API yang sama</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="harness">
+      <h2><span class="n">3.2</span>Dua harness, satu kode persona</h2>
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="Kiri: harness in-process, satu batas proses berisi simulator dan tiga router, dipanggil lewat oneshot, sync lewat IngestOverHttp, satu jam bersama. Kanan: harness live, simulator dan tiga proses terpisah dihubungkan HTTP, node punya timer sync 5 detik sendiri, jam diatur lewat endpoint kontrol.">
+          <defs>
+            <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <!-- LEFT: in-process -->
+          <text x="20" y="24" class="fig-tb">In-process — CI, soak, chaos, replay</text>
+          <rect x="20" y="36" width="410" height="250" rx="4" class="fig-line"/>
+          <text x="32" y="54" class="fig-tmu">satu proses OS · tokio current_thread</text>
+
+          <rect x="40" y="70" width="370" height="40" rx="3" class="fig-accent"/>
+          <text x="225" y="88" text-anchor="middle" class="fig-tb">sim: dunia · persona · SimClock</text>
+          <text x="225" y="102" text-anchor="middle" class="fig-tmu">Arc&lt;dyn Clock&gt; yang sama disuntik ke tiga node</text>
+
+          <line x1="110" y1="110" x2="110" y2="150" class="fig-line" marker-end="url(#arr2)"/>
+          <line x1="225" y1="110" x2="225" y2="150" class="fig-line" marker-end="url(#arr2)"/>
+          <line x1="340" y1="110" x2="340" y2="150" class="fig-line" marker-end="url(#arr2)"/>
+          <text x="225" y="136" text-anchor="middle" class="fig-tmu">tower::oneshot — HTTP semantik tanpa TCP</text>
+
+          <rect x="52" y="152" width="116" height="54" rx="3" class="fig-surface"/>
+          <text x="110" y="173" text-anchor="middle" class="fig-tb">Router cloud</text>
+          <text x="110" y="188" text-anchor="middle" class="fig-tmu">Postgres sim_&lt;run&gt;</text>
+          <rect x="167" y="152" width="116" height="54" rx="3" class="fig-surface"/>
+          <text x="225" y="173" text-anchor="middle" class="fig-tb">Router dc</text>
+          <text x="225" y="188" text-anchor="middle" class="fig-tmu">SQLite tmp</text>
+          <rect x="282" y="152" width="116" height="54" rx="3" class="fig-surface"/>
+          <text x="340" y="173" text-anchor="middle" class="fig-tb">Router store</text>
+          <text x="340" y="188" text-anchor="middle" class="fig-tmu">SQLite tmp</text>
+
+          <path d="M225,206 L225,228 L110,228 L110,206" class="fig-line-accent" marker-end="url(#arr2)"/>
+          <path d="M340,206 L340,240 L110,240" class="fig-line-accent"/>
+          <text x="225" y="258" text-anchor="middle" class="fig-tm">run_cycle(store, cfg, IngestOverHttp) sampai Idle</text>
+          <text x="225" y="274" text-anchor="middle" class="fig-tmu">simulator yang memutuskan kapan sync terjadi</text>
+
+          <!-- RIGHT: live -->
+          <text x="470" y="24" class="fig-tb">Live — load, demo, rig DC + printer, staging</text>
+          <rect x="470" y="36" width="410" height="60" rx="4" class="fig-accent"/>
+          <text x="675" y="60" text-anchor="middle" class="fig-tb">proses sim</text>
+          <text x="675" y="76" text-anchor="middle" class="fig-tmu">HttpNode (reqwest) · menunggu watermark, bukan sleep</text>
+
+          <line x1="540" y1="96" x2="540" y2="150" class="fig-line" marker-end="url(#arr2)"/>
+          <line x1="675" y1="96" x2="675" y2="150" class="fig-line" marker-end="url(#arr2)"/>
+          <line x1="810" y1="96" x2="810" y2="150" class="fig-line" marker-end="url(#arr2)"/>
+          <text x="675" y="126" text-anchor="middle" class="fig-tmu">HTTP · Bearer · :8080 / :8082 / :8081 (launch.json)</text>
+
+          <rect x="482" y="152" width="116" height="60" rx="3" class="fig-line"/>
+          <text x="540" y="172" text-anchor="middle" class="fig-tb">proses cloud</text>
+          <text x="540" y="187" text-anchor="middle" class="fig-tmu">Postgres milik node</text>
+          <text x="540" y="202" text-anchor="middle" class="fig-tmu">apply agent 5 s</text>
+          <rect x="617" y="152" width="116" height="60" rx="3" class="fig-line"/>
+          <text x="675" y="172" text-anchor="middle" class="fig-tb">proses dc</text>
+          <text x="675" y="187" text-anchor="middle" class="fig-tmu">sender 5 s</text>
+          <text x="675" y="202" text-anchor="middle" class="fig-tmu">printer nyata / bridge</text>
+          <rect x="752" y="152" width="116" height="60" rx="3" class="fig-line"/>
+          <text x="810" y="172" text-anchor="middle" class="fig-tb">proses store</text>
+          <text x="810" y="187" text-anchor="middle" class="fig-tmu">sender 5 s</text>
+
+          <path d="M675,212 L675,232 L540,232 L540,212" class="fig-line-accent fig-dash" marker-end="url(#arr2)"/>
+          <path d="M810,212 L810,244 L540,244" class="fig-line-accent fig-dash"/>
+          <text x="675" y="262" text-anchor="middle" class="fig-tm">POST /api/v1/sync/ingest lewat TCP, timer node sendiri</text>
+          <text x="675" y="278" text-anchor="middle" class="fig-tmu">jam: POST …/control/clock per node (di balik test controls)</text>
+        </svg>
+        <figcaption>Yang berbeda hanya batas proses dan siapa yang memajukan waktu dan sync. Kode persona, dunia, dan invariant identik. Prasyaratnya: <code>Fleet</code> yang hari ini disalin ulang di tiga file test diangkat ke <code>inventory_backend::harness</code> di balik feature <code>harness</code>, dipakai test dan simulator.</figcaption>
+      </figure>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th></th><th>In-process</th><th>Live</th></tr></thead>
+          <tbody>
+            <tr><td>Database</td><td>Postgres baru per run lewat migrator yang sama dengan startup <code>cloud</code>; SQLite di direktori run</td><td>Milik node; simulator hanya membaca lewat API (SQL read-only bila diberi <code>SIM_READ_DSN</code>)</td></tr>
+            <tr><td>Sync</td><td>Simulator memanggil <code>run_cycle</code> lalu <code>apply_pending</code> sampai tenang; publisher katalog dan siaran usage 15 menit dipanggil langsung pada jadwal virtualnya</td><td>Timer node (5 s); <code>POST /api/v1/sync/trigger</code>, tunggu watermark di <code>sync/status</code>, <code>sync/fleet</code>, <code>fleet-pools</code>; anggaran ≥ 2 siklus per arah</td></tr>
+            <tr><td>Printer</td><td>Sesi cetak DC membuka soket TCP sungguhan, jadi fake printer adalah <code>TcpListener</code> di <code>127.0.0.1:0</code> dalam proses yang sama</td><td>Sama, atau printer nyata di rig</td></tr>
+            <tr><td>Determinisme</td><td>Penuh: loop tunggal, ID deterministik, tanpa timer</td><td>Urutan intent deterministik; waktu tiba tidak</td></tr>
+            <tr><td>Kecepatan</td><td>Ribuan request per detik dalam proses; acceptance 30 hari dalam hitungan menit</td><td>Dibatasi jaringan dan siklus 5 s</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="waktu">
+      <h2><span class="n">3.3</span>Waktu: jam bisnis virtual, jam keamanan nyata</h2>
+      <figure>
+        <svg viewBox="0 0 900 230" role="img" aria-label="Dua garis waktu satu hari. Cron lama dengan langkah 24 jam menembakkan setiap job sekali di tengah malam. Scheduler discrete-event baru menaruh intent di menit yang sesungguhnya sepanjang jam buka, padat di siang dan malam, dengan siklus sync tiap lima menit virtual.">
+          <defs>
+            <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <!-- axis labels -->
+          <g class="fig-tmu">
+            <text x="60" y="222" text-anchor="middle">00:00</text>
+            <text x="270" y="222" text-anchor="middle">08:00</text>
+            <text x="480" y="222" text-anchor="middle">12:00</text>
+            <text x="690" y="222" text-anchor="middle">18:00</text>
+            <text x="860" y="222" text-anchor="middle">24:00</text>
+          </g>
+          <!-- old -->
+          <text x="60" y="30" class="fig-tb">cron lama, step 24 jam</text>
+          <text x="60" y="46" class="fig-tmu">semua job yang due dalam sehari runtuh jadi satu tembakan di batas hari</text>
+          <line x1="60" y1="80" x2="860" y2="80" class="fig-line" style="stroke: var(--old)"/>
+          <polygon points="60,58 54,72 66,72" style="fill: var(--old)"/>
+          <text x="72" y="70" class="fig-tmu">1× fire: kasir, stok, recon, HR — sekaligus, di 00:00</text>
+          <!-- open hours band -->
+          <rect x="325" y="118" width="425" height="60" style="fill: var(--accent-soft)" rx="2"/>
+          <text x="337" y="112" class="fig-tmu">jam buka 10:00–21:00</text>
+          <!-- new -->
+          <text x="60" y="100" class="fig-tb" style="fill: var(--accent-ink)">discrete-event, resolusi menit</text>
+          <line x1="60" y1="160" x2="860" y2="160" class="fig-line"/>
+          <!-- ticks: density peaks at 13:00 (x≈515) and 19:00 (x≈725) -->
+          <g style="stroke: var(--accent); stroke-width: 1.6">
+            <line x1="330" y1="150" x2="330" y2="170"/><line x1="342" y1="150" x2="342" y2="170"/><line x1="358" y1="150" x2="358" y2="170"/>
+            <line x1="371" y1="150" x2="371" y2="170"/><line x1="389" y1="150" x2="389" y2="170"/><line x1="404" y1="150" x2="404" y2="170"/>
+            <line x1="416" y1="150" x2="416" y2="170"/><line x1="431" y1="150" x2="431" y2="170"/><line x1="443" y1="150" x2="443" y2="170"/>
+            <line x1="452" y1="150" x2="452" y2="170"/><line x1="462" y1="150" x2="462" y2="170"/><line x1="470" y1="150" x2="470" y2="170"/>
+            <line x1="479" y1="150" x2="479" y2="170"/><line x1="486" y1="150" x2="486" y2="170"/><line x1="493" y1="150" x2="493" y2="170"/>
+            <line x1="499" y1="150" x2="499" y2="170"/><line x1="505" y1="150" x2="505" y2="170"/><line x1="510" y1="150" x2="510" y2="170"/>
+            <line x1="515" y1="150" x2="515" y2="170"/><line x1="520" y1="150" x2="520" y2="170"/><line x1="526" y1="150" x2="526" y2="170"/>
+            <line x1="533" y1="150" x2="533" y2="170"/><line x1="541" y1="150" x2="541" y2="170"/><line x1="551" y1="150" x2="551" y2="170"/>
+            <line x1="563" y1="150" x2="563" y2="170"/><line x1="577" y1="150" x2="577" y2="170"/><line x1="593" y1="150" x2="593" y2="170"/>
+            <line x1="611" y1="150" x2="611" y2="170"/><line x1="627" y1="150" x2="627" y2="170"/><line x1="641" y1="150" x2="641" y2="170"/>
+            <line x1="653" y1="150" x2="653" y2="170"/><line x1="664" y1="150" x2="664" y2="170"/><line x1="674" y1="150" x2="674" y2="170"/>
+            <line x1="683" y1="150" x2="683" y2="170"/><line x1="691" y1="150" x2="691" y2="170"/><line x1="698" y1="150" x2="698" y2="170"/>
+            <line x1="704" y1="150" x2="704" y2="170"/><line x1="710" y1="150" x2="710" y2="170"/><line x1="716" y1="150" x2="716" y2="170"/>
+            <line x1="722" y1="150" x2="722" y2="170"/><line x1="728" y1="150" x2="728" y2="170"/><line x1="735" y1="150" x2="735" y2="170"/>
+            <line x1="743" y1="150" x2="743" y2="170"/>
+          </g>
+          <!-- special events -->
+          <line x1="130" y1="150" x2="130" y2="170" class="fig-line"/>
+          <text x="130" y="192" text-anchor="middle" class="fig-tmu">03:00 PO pembeli (Senin)</text>
+          <line x1="325" y1="150" x2="325" y2="170" class="fig-line"/>
+          <text x="325" y="192" text-anchor="middle" class="fig-tmu">buka shift</text>
+          <line x1="750" y1="150" x2="750" y2="170" class="fig-line"/>
+          <text x="750" y="192" text-anchor="middle" class="fig-tmu">tutup shift · kas dinyatakan</text>
+          <text x="860" y="192" text-anchor="end" class="fig-tmu">sync tiap 5 mnt virtual · tutup bulan di hari terakhir</text>
+          <line x1="60" y1="130" x2="60" y2="150" class="fig-line" marker-end="url(#arr3)"/>
+          <text x="66" y="140" class="fig-tmu">jam melompat ke event berikutnya, tanpa polling, tanpa sleep</text>
+        </svg>
+        <figcaption>Setiap persona mendaftarkan perilaku berulangnya (kasir: shift dengan kunjungan mengikuti kurva jam; pembeli: PO tiap Senin; HR: punch harian; keuangan: tutup bulan). Scheduler mengambil intent berikutnya dari heap dan memajukan jam ke waktunya. Tahun yang terkompresi tetap tahun yang sama bentuknya.</figcaption>
+      </figure>
+      <div class="two">
+        <div>
+          <h3>Dua jam, sengaja dipisah</h3>
+          <ul>
+            <li><b>Jam bisnis</b> (<code>Clock::now()</code>): kapan penjualan terjadi, barang bergerak, shift dibuka, tanggal punch, masa berlaku promo, segmen member 90/180 hari, periode payroll. Ini yang dimajukan simulator.</li>
+            <li><b>Jam keamanan</b> (tetap <code>Utc::now()</code>/<code>now()</code>): kedaluwarsa sesi, lockout login, lease device, breaker sync, retensi outbox. Kalau ikut virtual, "setahun dalam sepuluh menit" mematikan semua sesi di hari pertama dan yang diuji jadi auth, bukan bisnis.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Seam di backend (fase 0)</h3>
+          <ol>
+            <li><code>src/clock.rs</code>: trait <code>Clock</code>, <code>SystemClock</code>, <code>ControlledClock</code>; <code>AppState.clock</code> dan konteks edge. Default <code>SystemClock</code>, binary produksi tak berubah.</li>
+            <li>Audit 159 <code>Utc::now()</code> di Rust dan ±200 <code>now()</code> di SQL adapter Postgres menjadi tiga kelas: metadata (biarkan), stempel bisnis (ganti), jendela bisnis di SQL (ikat parameter <code>$now</code>). Hari ini tak ada abstraksi jam sama sekali; helper privat <code>fn now()</code> di <code>edge/till.rs:38</code> adalah seam termurah pertama.</li>
+            <li>Gate <code>tests/clock_authority.rs</code> bergaya <code>write_authority.rs</code>: daftar file yang boleh memanggil <code>Utc::now()</code> beserta alasannya.</li>
+            <li><code>POST …/control/clock</code> di cloud dan edge, hanya bila <code>INVENTORY_ENABLE_TEST_CONTROLS=true</code>, pola yang sudah ada di <code>control.rs</code>.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section id="sync">
+      <h2><span class="n">3.4</span>Sync di bawah simulasi, dan rencana chaos</h2>
+      <p>Ini sifat paling penting arsitektur itulah: edge tetap beroperasi tanpa cloud. Simbot lama tak pernah mengujinya; gate 5 mereka dikapalkan tanpa rekonsiliasi cloud.</p>
+      <ul>
+        <li><b>Quiescence</b>: semua <code>run_cycle</code> melaporkan <code>Idle</code>, <code>commands_applied == 0</code>, <code>apply_pending</code> kosong, watermark cloud = seq terakhir edge. Invariant konvergensi hanya dinilai di titik tenang.</li>
+        <li><b>Perintah menumpang respons ingest</b> (20 per respons). Edge tanpa fakta pun tetap mengirim batch kosong tiap siklus. <code>command_type</code> yang tak dikenal memblokir stream, bukan dilewati, dan muncul di <code>GET /api/v1/sync/fleet</code>; invariant K5 membaca ini.</li>
+        <li><b>Rencana chaos</b> bertimestamp virtual di file skenario: <code>partition</code>, <code>drop_response</code> (pola <code>CommitThenDropCloud</code> yang sudah ada di test), <code>duplicate_batch</code>, <code>restore_edge_from_backup</code>, <code>generation_rollover</code> dalam urutan benar dan salah, <code>printer_down</code>, <code>handheld_misread</code>, <code>terminal_decline</code>.</li>
+        <li><b>Restore dari backup harus ditolak</b>: <code>ingest_batch</code> hari ini diam-diam melewati <code>seq &lt;= durable</code>, jadi skenario ini merah sampai lubang itu ditutup. Itu tujuannya, dan ia dibawa ke CI sebagai <i>known-failing</i>, bukan dimatikan.</li>
+        <li>Setelah run, <code>GET /api/v1/inventory/time-machine/sync-divergence</code> per origin membuktikan log fakta edge dan cloud identik; bila divergen, crate time-machine menghasilkan <code>minimal_fixture</code> yang bisa langsung ditempel jadi test.</li>
+      </ul>
+    </section>
+
+    <section id="identitas">
+      <h2><span class="n">3.5</span>Identitas dan auth yang nyata</h2>
+      <ul>
+        <li><b>Node simulasi selalu berjalan dengan <code>INVENTORY_AUTH_MODE=required</code>.</b> Mode <code>disabled</code> mengubah semantik: semua jadi ADMIN, <code>login</code> menjawab 409, <code>actor_id</code> wajib <code>"development"</code>. Harness live hanya menoleransinya bila node milik pemilik memang begitu, dan hasil run menandainya.</li>
+        <li><b>Akun per persona</b> dibuat admin bootstrap lewat <code>POST /api/v1/auth/users</code> dengan peran sebenarnya (<code>CASHIER &lt; SUPERVISOR &lt; ADMIN</code>). Kredensial edge bukan PIN endpoint: <code>POST /api/v1/auth/edge-assignments</code> lalu <code>POST /api/v1/auth/edge-policies/{origin}/publish</code> mengirim policy ke node; setelah sync, kasir login di edge.</li>
+        <li><b>Bearer</b> menang atas cookie dan tak butuh CSRF; jalur cookie + <code>x-csrf-token</code> dilatih satu skenario auth khusus. Permukaan pembeli (<code>/api/v1/member/*</code>) hanya cookie, jadi persona Pelanggan memakai cookie jar.</li>
+        <li><b><code>actor_id</code></b>: cloud menolak 403 bila tak sama dengan username sesi; edge menimpanya dengan username sesi. Karena tiap persona login sebagai dirinya sendiri, keduanya benar tanpa kasus khusus.</li>
+        <li><b>Handheld</b> didaftarkan sebagai device (<code>device_key</code> hanya sekali) dan menandatangani observasi dengan HMAC atas kanonik <code>POST\n/api/v1/rfid/observations\n{DEVICE_ID}\n{ts}\n{seq}\n{sha256 body}</code>, persis <code>scripts/rfid_simulator.py</code>.</li>
+        <li><b>Putaran kunci supervisor ada di body</b>: void, retur, dan payout kas membawa <code>supervisor: {username, password}</code>. Kasir memegang referensi ke supervisor tokonya; skenario negatif mengirim kredensial salah dan mengharapkan penolakan.</li>
+        <li><b>Matriks negatif</b> per skenario: tiap endpoint mutasi juga dipanggil peran terendah (harap 403), tanpa sesi (401), body salah (4xx yang tepat), <code>Idempotency-Key</code> sama dengan body berbeda (409).</li>
+        <li><b>Dua mekanisme idempoten</b> didukung klien: <code>idempotency_key</code> di body (mayoritas endpoint) dan header <code>Idempotency-Key</code> + <code>If-Match: "N"</code> pada sumber daya berversi (supplier, item, artikel, warna, vocabulary, voucher). ETag dibaca dari respons sebelumnya dan disimpan di dunia.</li>
+      </ul>
+    </section>
+
+    <section id="persona">
+      <h2><span class="n">4</span>Persona dan rantai bisnis</h2>
+      <p>Permukaan hari ini: cloud 265 path / 327 method-route (160 mutasi); edge 93 method-route (61 khusus DC, 18 khusus toko, 14 bersama). Setiap persona bertindak di satu node dan mengubah dunia simulator.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Persona (peran)</th><th>Node</th><th>Rantai endpoint</th><th>Invariant yang dijaga</th></tr></thead>
+          <tbody>
+            <tr><td>Pemasok (fake)</td><td>—</td><td class="wrap">Menjawab PO penuh / sebagian / terlambat sesuai profil; menentukan <code>counted_quantity</code> yang akan ditemukan pemeriksa</td><td>receipt ≤ ordered</td></tr>
+            <tr><td>Pembeli HO (SUPERVISOR)</td><td>cloud</td><td class="wrap"><code>POST /suppliers</code>, <code>POST /suppliers/{id}/items</code> (header idempoten) → <code>GET /supplier-items</code> → <code>POST /purchase-orders</code>; PO dan <code>purchase.order.activate</code> satu transaksi</td><td>PO tampak di DC ≤ 2 siklus</td></tr>
+            <tr><td>Penerima / Pemeriksa / Verifikator DC (dua orang berbeda)</td><td>dc</td><td class="wrap"><code>POST /dc/goods-receipts</code> → <code>POST /dc/purchase-counts</code> (hitung buta) → <code>POST /dc/purchase-verifications</code> (<code>verifier ≠ counted_by</code>, DB menegakkannya) → <code>POST /dc/goods-receipts/{id}/invoice</code>; selisih harga memicu amandemen yang Pembeli putuskan</td><td>Σ diterima = Σ diverifikasi; amandemen tercatat, tak menghalangi</td></tr>
+            <tr><td>Merchandiser HO (SUPERVISOR)</td><td>cloud</td><td class="wrap"><code>GET /article-setups/unidentified</code> → <code>POST /article-setups</code> (warna digit 0–9, varian ukuran, harga dasar) → <code>POST /article-setups/{id}/issue</code>: artikel, SKU, rentang serial EPC, dan <code>tagging.job.activate</code> satu commit</td><td>SKU 11 digit; ≤ 10 warna; <code>created_by_session_id</code> tak pernah NULL</td></tr>
+            <tr><td>Penanda DC</td><td>dc</td><td class="wrap"><code>GET /dc/tagging-jobs</code> → <code>POST /dc/print-sessions</code> → <code>POST …/run</code> berulang → <code>POST /dc/tagging-confirmations</code> (mengubah barang jadi stok gudang yang bisa dipick)</td><td>EPC 0xA0 golden vector; label di sink = unit ditandai, tiap label membawa EPC</td></tr>
+            <tr><td>Alokator HO (SUPERVISOR)</td><td>cloud</td><td class="wrap"><code>POST /inventory/allotments</code> (<code>source_site_id: dc</code>, <code>source_pool_id: dc.warehouse</code>, CHECK di tabel) → <code>inventory.allotment.activate.v1</code></td><td>in-transit DC = dikirim − diterima toko</td></tr>
+            <tr><td>Picker / Packer / Dispatcher DC</td><td>dc</td><td class="wrap"><code>POST /dc/pick-sessions</code> → <code>POST /dc/picks</code> → <code>POST /dc/packing-boxes</code> → sapuan <code>POST /rfid/observations</code> (HMAC) → <code>POST …/capture</code> → <code>POST /dc/shipments</code> → <code>POST /dc/dispatches</code> → <code>POST …/depart</code> (satu-satunya tahap yang menggerakkan barang)</td><td>tiap unit tepat satu koli, satu shipment</td></tr>
+            <tr><td>Supervisor toko (Supervisor edge)</td><td>store</td><td class="wrap"><code>POST /store/receive</code> / <code>receive-batch</code> (<code>source_dc_id: dc</code>, harga intake) → <code>POST /store/movements</code> (<code>warehouse:on_hand → floor:on_hand</code>); kredensialnya dipakai kasir untuk void/retur/payout</td><td>diterima ≤ dikirim; unit di lantai = yang dipindah</td></tr>
+            <tr><td>Handheld toko (device)</td><td>store</td><td class="wrap"><code>POST /rfid/observations</code> bertanda tangan atas EPC yang ada di pool</td><td>sighting hanya untuk EPC yang ada; misread sesuai profil = anomali yang diharapkan</td></tr>
+            <tr><td>Kasir (Cashier edge)</td><td>store</td><td class="wrap"><code>POST /store/shifts</code> → <code>POST /store/quote</code> → <code>POST /store/sales</code> (<code>epcs[]</code>, <code>tenders[]</code>, kupon, member) → struk → <code>POST /store/shifts/{id}/movements</code> → void / <code>POST /store/returns</code> (dengan <code>supervisor</code>) → <code>POST /store/shifts/{id}/close</code> (kas dinyatakan sebelum angka harapan dibuka)</td><td>Σ tender = Σ penjualan − retur; kembalian hanya CASH; kas tutup = float + CASH − kembalian ± movement</td></tr>
+            <tr><td>Pelanggan / member</td><td>store + cloud</td><td class="wrap">Walk-in, atau member: kasir <code>POST /members</code> + <code>POST /members/{id}/pairing-code</code>; pembeli <code>POST /member/session</code> → <code>GET /member/summary|transactions</code></td><td>poin hanya bertambah lewat penjualan yang ada</td></tr>
+            <tr><td>Komersial HO (SUPERVISOR)</td><td>cloud</td><td class="wrap"><code>POST /commercial/publications</code> (DRAFT, dengan assortment) → <code>POST …/publish</code>; <code>PATCH /commercial/campaigns/{id}</code>; voucher issue → kasir redeem; <code>GET /commercial/offers/resolve</code> untuk ekspektasi harga</td><td>harga di fakta penjualan = buku yang sampai di toko saat itu</td></tr>
+            <tr><td>Keuangan HO (ADMIN)</td><td>cloud</td><td class="wrap"><code>/finance/bills</code> → post; <code>/finance/payments</code> → post; bank statement → match; periode → close; depreciation run</td><td>jurnal seimbang; tak ada posting ke periode tertutup; tagihan = faktur DC</td></tr>
+            <tr><td>HR (SUPERVISOR)</td><td>cloud</td><td class="wrap">employees → employment, assignments; roster; punch; cuti approve; lembur consent; payroll runs verify → approve → seal; closure periode kehadiran</td><td>payroll = punch; bulan tertutup menolak perubahan roster</td></tr>
+            <tr><td>Auditor (SUPERVISOR cloud + Cashier DC)</td><td>cloud → dc</td><td class="wrap"><code>POST /inventory/counts</code> → activate → DC entries → submit → cloud approve; selisih disengaja dari dunia</td><td>varians = selisih yang disengaja, tidak lebih</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn">
+        <b>Jebakan yang dibakukan di dunia simulator.</b> Dua nama untuk DC (<code>dc-01</code> untuk dokumen dan sync origin, <code>dc</code> untuk ledger dan allotment). Trigger immutability komersial menyala saat INSERT: promo masuk selagi DRAFT. Harga tanpa assortment tak terlihat. Voucher issue dan redeem tak bisa satu transaksi. Migrasi SQLite <code>0028</code> (tender VOUCHER) tak pernah diterapkan, jadi smoke merah sampai fase 0 memperbaikinya. Lebih dari satu origin DC terdaftar membuat PO menjawab 409. Port di <code>launch.json</code> bersilangan dengan default binary, jadi harness live membaca URL per node dari skenario.
+      </div>
+    </section>
+
+    <section id="permintaan">
+      <h2><span class="n">5</span>Model permintaan</h2>
+      <p>Satu file profil TOML, dibaca seluruhnya oleh satu loader dengan test per field. Simulator tidak menjual apa yang tak ada di lantai: permintaan yang melebihi stok tercatat sebagai <i>lost sale</i> di dunia, metrik yang berguna bagi alokator, bukan penjualan yang dipaksakan.</p>
+<pre><code>[demand]
+base_visits_per_store_day = 60
+month_mult = [0.8, 0.8, 0.9, 1.0, 1.1, 1.0, 0.9, 0.9, 1.0, 1.1, 1.2, 1.5]
+dow_mult   = [1.3, 0.8, 0.8, 0.9, 1.0, 1.2, 1.4]        # Minggu..Sabtu
+hour_curve = "mall"                                    # 10:00 buka, puncak 13 &amp; 19
+payday     = { days = [25, 1], mult = 1.4 }
+basket     = { sizes = [[1, 0.55], [2, 0.30], [3, 0.12], [5, 0.03]] }
+tender     = { CASH = 0.45, CARD = 0.25, QRIS = 0.25, VOUCHER = 0.05 }
+member_share = 0.35
+return_rate  = 0.03
+void_rate    = 0.01
+
+[[store]]
+id = "store-01"; weight = 1.0; terminals = 2; hours = "10:00-21:00"
+
+[[event]]                       # gangguan pasar, bukan chaos sistem
+kind = "promo_week"; from = "2026-10-05"; to = "2026-10-11"; mult = 1.6</code></pre>
+    </section>
+
+    <section id="invariant">
+      <h2><span class="n">6</span>Katalog invariant</h2>
+      <p>Semua run-scoped dan bersaverity: <span class="sev crit">critical</span> menghentikan run, <span class="sev high">high</span> dan <span class="sev med">medium</span> menggagalkannya di akhir. Setiap pemeriksaan tahu sumbernya: API read-model bila ada, SQL hanya bila tidak.</p>
+      <h3>Struktural, per node</h3>
+      <div class="tablewrap">
+        <table class="ledger">
+          <thead><tr><th>ID</th><th>Pemeriksaan</th><th>Node</th><th>Sumber</th></tr></thead>
+          <tbody>
+            <tr><td>S1</td><td><code>inventory_projection</code> = Σ <code>movement</code> per (subject, pool)</td><td>cloud, dc, store</td><td>SQL</td></tr>
+            <tr><td>S2</td><td>tak ada <code>on_hand</code> negatif</td><td>semua</td><td>SQL</td></tr>
+            <tr><td>S3</td><td>setiap unit punya PO di belakangnya (35 pemeriksaan <code>--audit</code> dari <code>seed-full-chain.py</code>, diport)</td><td>cloud</td><td>SQL</td></tr>
+            <tr><td>S4</td><td>EPC = encode(SKU, serial) golden vector; tak ada EPC ganda</td><td>cloud, dc</td><td>API + SQL</td></tr>
+            <tr><td>S5</td><td>voucher: ledger = header</td><td>cloud</td><td>SQL</td></tr>
+            <tr><td>S6</td><td>jurnal seimbang; tak ada posting ke periode tertutup</td><td>cloud</td><td>API</td></tr>
+            <tr><td>S7</td><td>publikasi komersial tak berubah setelah publish</td><td>cloud</td><td>SQL</td></tr>
+            <tr><td>S8</td><td>official count: snapshot penuh; varians = temuan − snapshot</td><td>cloud</td><td>API</td></tr>
+            <tr><td>S9</td><td>shift: Σ tender = Σ penjualan − retur; kas tutup = kas buka + CASH masuk − kembalian</td><td>store</td><td>API</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Konvergensi, antar node di titik tenang</h3>
+      <div class="tablewrap">
+        <table class="ledger">
+          <thead><tr><th>ID</th><th>Pemeriksaan</th></tr></thead>
+          <tbody>
+            <tr><td>K1</td><td>fakta penjualan edge di cloud = penjualan yang toko catat: jumlah, baris, harga, tender</td></tr>
+            <tr><td>K2</td><td>posisi fakta cloud per pool = ledger edge per pool (DC dan toko)</td></tr>
+            <tr><td>K3</td><td>in-transit DC = dikirim − diterima toko, dicocokkan (source_dc, dest_store, shipment_ref, EPC)</td></tr>
+            <tr><td>K4</td><td>buku harga dan promo yang cloud publish pada t sampai di toko sebelum penjualan pertama yang memakainya</td></tr>
+            <tr><td>K5</td><td>PO, setup, tagging job sampai di DC; tak ada stream perintah yang terblokir</td></tr>
+            <tr><td>K6</td><td>watermark monoton; <code>sync-divergence</code> = MATCH untuk setiap origin</td></tr>
+            <tr><td>K7</td><td>setelah partisi, backlog edge terkuras tanpa penolakan dan tanpa duplikat</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Ekspektasi, dunia simulator vs laporan sistem</h3>
+      <div class="tablewrap">
+        <table class="ledger">
+          <thead><tr><th>ID</th><th>Pemeriksaan</th></tr></thead>
+          <tbody>
+            <tr><td>E1</td><td>stok per pool menurut dunia = <code>GET fleet-pools</code> / pool edge</td></tr>
+            <tr><td>E2</td><td>penjualan per toko per hari menurut dunia = laporan sales cloud, setelah tenang</td></tr>
+            <tr><td>E3</td><td>poin member menurut dunia = saldo member di cloud</td></tr>
+            <tr><td>E4</td><td>harga yang dunia harapkan untuk (SKU, toko, t) = harga di struk</td></tr>
+            <tr><td>E5</td><td>lost sale dunia = 0 pada SKU yang sistem laporkan masih ada di lantai; kalau tidak, salah satu bohong</td></tr>
+            <tr><td>E6</td><td>label yang printer sink terima = unit yang dunia tandai; setiap label membawa EPC, bukan <code>EPC NONE</code></td></tr>
+            <tr><td>E7</td><td>payroll = Σ jam dari punch yang dunia kirim</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">Tiga kegagalan diam yang ditemukan saat menulis <code>full_chain_integration.rs</code>, yaitu harga sampai di toko tapi tak pernah dibaca, fakta penjualan membawa harga yang salah, kampanye promo tak pernah tiba, hanya bisa ditangkap oleh E4 dan K4. Keluarga ekspektasi adalah yang tidak dimiliki simbot lama.</div>
+    </section>
+
+    <section id="skenario">
+      <h2><span class="n">7</span>Skenario adalah mode</h2>
+      <p>Tidak ada preset di kode. Setiap mode adalah file di <code>crates/sim/scenarios/</code>.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Skenario</th><th>Harness</th><th>Topologi</th><th>Durasi virtual</th><th>Yang dibuktikan</th><th>Exit ≠ 0 bila</th></tr></thead>
+          <tbody>
+            <tr><td><code>smoke</code></td><td>in-process</td><td>1 DC, 1 toko</td><td>2 hari</td><td>rantai penuh PO → penjualan → sync + S1–S9, K1–K2, E1–E2</td><td>failure / invariant</td></tr>
+            <tr><td><code>acceptance</code></td><td>in-process</td><td>1 DC, 2 toko, 1 pemasok</td><td>30 hari</td><td>semua persona, semua invariant, coverage ≥ floor</td><td>failure, invariant, coverage &lt; floor</td></tr>
+            <tr><td><code>soak</code></td><td>in-process</td><td>1 DC, 3 toko</td><td>12 bulan</td><td>tutup bulan ×12, payroll ×12, promo lintas bulan, segmen member berubah</td><td>invariant bulanan</td></tr>
+            <tr><td><code>chaos</code></td><td>in-process</td><td>acceptance + gangguan</td><td>30 hari</td><td>konvergensi setelah partisi / duplikasi / restore / rollover</td><td>K6/K7, atau known-failing berubah status</td></tr>
+            <tr><td><code>load</code></td><td>live</td><td>rig lokal 3 proses</td><td>1 hari, N kasir paralel</td><td>p95 latensi till dan ingest, tanpa error</td><td>error atau p95 &gt; ambang</td></tr>
+            <tr><td><code>demo</code></td><td>live</td><td>node lokal / rig</td><td>90 hari sejarah</td><td>mengisi DB demo lewat API dengan sejarah yang bisa ditelusuri; pengganti bagian <i>trading</i> seed SQL</td><td>failure</td></tr>
+            <tr><td><code>replay</code></td><td>in-process</td><td>dari run tersimpan</td><td>= run asal</td><td>build baru menghasilkan hasil yang sama atas kunci alami</td><td>drift</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><b>known-failing</b>: skenario boleh menandai satu pemeriksaan sebagai diharapkan merah, dengan alasan dan tautan. CI gagal bila pemeriksaan itu <i>hijau</i>, artinya sudah diperbaiki dan penanda harus dicabut. Ini cara jujur membawa lubang <code>seq &lt;= durable</code> dan <code>0028</code> ke CI tanpa mematikan gate.</p>
+    </section>
+
+    <section id="coverage">
+      <h2><span class="n">8</span>Coverage endpoint</h2>
+      <ul>
+        <li><b>Denominator</b>: <code>tests/route_catalog.rs</code> memindai <code>.route("…", get(a).post(b))</code> di <code>cloud/http/mod.rs</code>, <code>cloud/media.rs</code>, dan <code>edge/http.rs</code> menjadi <code>routes.json</code> (node, method, pattern, role dari <code>required_role</code> sungguhan). Test merah bila hasil pindai berbeda dari berkas tersimpan, jadi route baru masuk katalog secara sadar.</li>
+        <li><b>Numerator</b>: log panggilan simulator dicocokkan ke pola.</li>
+        <li><b>Laporan</b>: persen per node dan daftar tak tersentuh per modul; entri <code>exempt</code> beralasan (SSE assistant, streaming media).</li>
+        <li><b>Ratchet</b>: <code>coverage-floor.toml</code> menyimpan angka nyata terakhir; <code>acceptance</code> gagal bila turun.</li>
+      </ul>
+    </section>
+
+    <section id="kendali">
+      <h2><span class="n">9</span>API kendali dan CLI</h2>
+      <p><code>sim serve --port 8090</code> pada fase 4. Hub berbicara ke sini seperti ia berbicara ke DC edge, dengan <code>VITE_SIM_TARGET</code>.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Method</th><th>Path</th><th>Fungsi</th></tr></thead>
+          <tbody>
+            <tr><td>GET</td><td><code>/api/v1/sim/scenarios</code></td><td>daftar skenario dan profil</td></tr>
+            <tr><td>POST</td><td><code>/api/v1/sim/runs</code></td><td><code>{scenario, seed?, harness, overrides?}</code> → <code>run_id</code></td></tr>
+            <tr><td>GET</td><td><code>/api/v1/sim/runs/{id}</code></td><td>status, jam virtual, hitungan intent dan failure, invariant terakhir</td></tr>
+            <tr><td>POST</td><td><code>/api/v1/sim/runs/{id}/advance</code></td><td><code>{days}</code> | <code>{until}</code> | <code>{until_quiescent: true}</code></td></tr>
+            <tr><td>POST</td><td><code>…/pause</code> · <code>…/resume</code> · <code>…/abort</code></td><td></td></tr>
+            <tr><td>GET</td><td><code>/api/v1/sim/runs/{id}/events</code></td><td>SSE: intent, outcome, invariant, clock</td></tr>
+            <tr><td>GET</td><td><code>…/invariants</code> · <code>…/coverage</code> · <code>…/failures/{n}</code> · <code>…/result</code></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+<pre><code>cargo run -p inventory-sim -- run --scenario smoke --seed 42
+cargo run -p inventory-sim -- run --scenario acceptance --coverage-floor auto
+cargo run -p inventory-sim -- run --scenario chaos --keep-db
+cargo run -p inventory-sim -- replay --from runs/2026-09-06T10-00-acceptance-42
+cargo run -p inventory-sim -- run --scenario demo --harness live \
+  --cloud http://127.0.0.1:8080 --dc http://127.0.0.1:8082 --store http://127.0.0.1:8081</code></pre>
+      <p>Modul hub <b>Simulation</b> (<code>/simulation</code>, satu <code>AppModule</code> di <code>lib/navigation.ts</code>): daftar run; detail run dengan garis waktu intent, jam virtual, persona, failure beserta request dan response; invariant; peta panas coverage per modul.</p>
+    </section>
+
+    <section id="guardrail">
+      <h2><span class="n">10</span>Guardrail, sebagai kode</h2>
+      <ol>
+        <li><code>DATABASE_URL</code> in-process harus lokal atau bernama <code>sim_*</code>; <code>SIM_ALLOW_REMOTE=1</code> wajib untuk lainnya, dan tetap menolak host yang cocok <code>SIM_DENY_HOSTS</code> (default <code>onrender.com</code>).</li>
+        <li>Simulator tak pernah menjalankan migrasi kecuali pada database yang ia buat sendiri pada run itu.</li>
+        <li>Harness live menolak skenario ber-jam-virtual bila node melaporkan test controls mati.</li>
+        <li>Setiap request bertanda <code>x-sim-run</code>, <code>x-sim-actor</code>, <code>x-request-id</code>; <code>Idempotency-Key</code> dicetak sekali per intent dan dipakai ulang saat retry.</li>
+        <li>Tidak ada <code>sleep</code> di simulator; latensi fake hardware adalah waktu virtual.</li>
+        <li><code>cargo build</code> default tidak membangun <code>sim</code>; binary produksi tak pernah menautkan crate ini.</li>
+      </ol>
+    </section>
+
+    <section id="fase">
+      <h2><span class="n">11</span>Rencana fase</h2>
+      <p>Ukuran: S ≈ 1–2 hari kerja satu sesi, M ≈ 3–5, L ≈ 1–2 minggu. Fase 0 dan 1 bisa dikerjakan paralel oleh sesi berbeda kecuali yang ditandai.</p>
+      <ol class="phases">
+        <li>
+          <span class="idx">0</span>
+          <h3>Seam di backend <span class="size">M · tiga lane paralel</span></h3>
+          <ul>
+            <li><b>0a Jam</b>: <code>src/clock.rs</code>; <code>AppState.clock</code> dan konteks edge; audit ke tabel kelas A/B/C di <code>docs/clock-audit.md</code>; kelas B/C diganti; <code>tests/clock_authority.rs</code>; endpoint <code>control/clock</code> di cloud dan edge.</li>
+            <li><b>0b Harness bersama</b>: <code>inventory_backend::harness</code> di balik feature <code>harness</code>: <code>Fleet</code>, <code>IngestOverHttp</code>, <code>sync_until_quiescent</code>, pembuat DB per run; tiga test yang menyalinnya beralih memakainya.</li>
+            <li><b>0c Katalog route dan gate merah</b>: <code>tests/route_catalog.rs</code>; daftarkan <code>0028</code> di <code>edge/sqlite.rs</code>; allowlist blok migrasi yang sengaja dilompati di <code>migration_hygiene.rs</code>; <code>.github/workflows/ci.yml</code> pertama repo.</li>
+          </ul>
+          <p class="exit"><b>Exit:</b> <code>cargo test</code> hijau dengan jam tersuntik; test baru memajukan <code>ControlledClock</code> 90 hari mengubah segmen member tanpa mematikan sesi; CI pertama hijau.</p>
+        </li>
+        <li>
+          <span class="idx">1</span>
+          <h3>Inti dan smoke <span class="size">M–L · setelah 0a/0b</span></h3>
+          <ul>
+            <li><code>crates/sim</code>: <code>scenario</code>, <code>world</code>, <code>clock</code>, <code>node</code>, <code>harness</code>, <code>fakes</code>, <code>record</code>, runner invariant dengan S1, S2, S4, S9, K1, K2, E1, E2.</li>
+            <li>Persona rantai barang: Pembeli, DC, Merchandiser, Penanda, Alokator, Picker/Packer/Dispatcher, Supervisor toko, Kasir, Pelanggan. Ini port <code>full_chain_integration.rs</code> ke bentuk persona.</li>
+            <li>CLI <code>run</code>, <code>sim_result.json</code>, <code>intents.jsonl</code>, <code>failures/</code>.</li>
+          </ul>
+          <p class="exit"><b>Exit:</b> <code>sim run --scenario smoke</code> hijau di bawah 2 menit; mutation check merah; dua run dengan seed sama menghasilkan <code>intents.jsonl</code> identik.</p>
+        </li>
+        <li>
+          <span class="idx">2</span>
+          <h3>Acceptance bisnis <span class="size">L · paralel per domain</span></h3>
+          <ul>
+            <li>Persona lengkap: Komersial, Keuangan, HR, Auditor, Pemasok fake dengan pengiriman sebagian dan terlambat, matriks negatif per peran.</li>
+            <li>Profil permintaan; <code>acceptance</code> 30 hari; katalog invariant penuh; coverage dan floor; known-failing.</li>
+            <li>CI: PR menjalankan <code>smoke</code>; nightly menjalankan <code>acceptance</code> dengan floor ratchet.</li>
+          </ul>
+          <p class="exit"><b>Exit:</b> <code>acceptance</code> hijau; angka coverage nyata tercatat; daftar product gap pertama, misalnya transfer antar toko.</p>
+        </li>
+        <li>
+          <span class="idx">3</span>
+          <h3>Waktu dan gangguan <span class="size">M–L</span></h3>
+          <ul>
+            <li><code>soak</code> 12 bulan: payroll, tutup periode, promo lintas bulan, segmen member.</li>
+            <li><code>chaos</code>: partisi, drop response, duplikasi, restore dari backup (menutup lubang <code>seq &lt;= durable</code>), rollover generation, printer mati, misread.</li>
+            <li><code>load</code> live di rig tiga proses; <code>demo</code> live untuk mengisi DB demo lewat API.</li>
+          </ul>
+          <p class="exit"><b>Exit:</b> soak hijau dengan pemeriksaan bulanan; setiap item chaos punya skenario dan status.</p>
+        </li>
+        <li>
+          <span class="idx">4</span>
+          <h3>Kendali dan UI <span class="size">M</span></h3>
+          <ul>
+            <li><code>sim serve</code>: API dan SSE; <code>replay</code> dengan laporan drift; jembatan time-machine (<code>sync-divergence</code>, <code>what-if</code>, fixture otomatis).</li>
+            <li>Modul hub Simulation.</li>
+          </ul>
+          <p class="exit"><b>Exit:</b> run dimulai dari hub, diikuti langsung, hasil diunduh; satu divergensi buatan menghasilkan fixture yang lolos <code>is_faithful</code>.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section id="risiko">
+      <h2><span class="n">12</span>Risiko dan keputusan terbuka</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Risiko / pertanyaan</th><th>Rekomendasi</th></tr></thead>
+          <tbody>
+            <tr><td>Audit jam lebih luas dari perkiraan; kelas C tersebar di SQL</td><td>Kerjakan per modul mengikuti persona yang membutuhkannya (member, komersial, HR dulu); modul lain tetap jam dinding sampai persona-nya masuk</td></tr>
+            <tr><td>Endpoint yang belum ada untuk sebagian persona (transfer antar toko, sebagian keuangan)</td><td>Bukan alasan menulis SQL; dilaporkan sebagai product gap; skenario melewati langkah itu secara eksplisit</td></tr>
+            <tr><td><code>oneshot</code> mengonsumsi <code>Router</code>, klon per panggilan</td><td>Sama seperti test hari ini; biaya kecil. Alternatif <code>Router::into_service()</code> + <code>ready</code></td></tr>
+            <tr><td>ID deterministik menyentuh macro yang dipakai produksi</td><td>Generator task-local hanya aktif di harness in-process; default persis <code>new_v4()</code>; ditutup test. 172 <code>new_v4()</code> mentah di luar macro tak disentuh karena kesetaraan replay didefinisikan atas kunci alami</td></tr>
+            <tr><td>Seed Python (<code>seed-everything.sh</code>) vs <code>demo</code> lewat API</td><td>Pertahankan seed SQL untuk skala katalog (500 artikel); <code>demo</code> mengambil alih sejarah perdagangan karena hanya API yang menjamin stok bergerak</td></tr>
+            <tr><td>Sesi paralel menyapu file dengan <code>git add -A</code></td><td>Commit lane simulator sendiri begitu hijau, pola yang sudah dipelajari repo ini</td></tr>
+            <tr><td>Nama</td><td><code>inventory-sim</code> untuk paket, <code>sim</code> untuk binary dan direktori, mengikuti <code>inventory-backend</code>, <code>cloud</code>, <code>dc</code>, <code>store</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      Sumber: bedah <code>~/Documents/retail/cmd/simbot</code>, <code>internal/cloud/inventorysim</code>, <code>mockedc</code>, audit simbot 2026-07; tabel route <code>backend/src/cloud/http/mod.rs</code> dan <code>src/edge/http.rs</code>; harness <code>tests/full_chain_integration.rs</code>; crate <code>inventory-time-machine</code>. Lampiran format <code>sim_result.json</code>, <code>intents.jsonl</code>, dan kerangka skenario ada di <code>SIMULATION-PLAN.md</code> di akar repo.
+    </footer>
+  </main>
+</div>

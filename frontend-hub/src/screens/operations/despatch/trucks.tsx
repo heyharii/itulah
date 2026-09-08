@@ -1,12 +1,12 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { FileText, Truck } from "lucide-react"
+import { FileText, Plus, Truck } from "lucide-react"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -48,6 +48,7 @@ export function Trucks() {
   const actor = useEdgeActor()
   const client = useQueryClient()
   const dispatch = useSheet("dispatch")
+  const composing = useSheet("new-dispatch")
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set())
   const [progress, setProgress] = useState<Progress | null>(null)
 
@@ -111,6 +112,7 @@ export function Trucks() {
       setProgress(result)
       setChosen(new Set())
       form.reset()
+      composing.close()
       refresh()
     },
   })
@@ -151,8 +153,18 @@ export function Trucks() {
     <PageContent>
       <PageHeader
         crumb="Despatch"
-        title="Trucks"
+        title="Dispatch"
         sub="Load the consignments, then open the gate. Departing is the one step that cannot be walked back."
+        actions={
+          <Button
+            variant="primary"
+            onClick={() => composing.open(true)}
+            disabled={rows.length === 0}
+          >
+            <Plus />
+            New dispatch
+          </Button>
+        }
       />
 
       <KpiStrip className="grid-cols-2 xl:grid-cols-4">
@@ -172,9 +184,10 @@ export function Trucks() {
           value={count(runs.reduce((total, run) => total + run.koli_count, 0))}
         />
         <Kpi
-          label="Chosen"
-          value={count(chosen.size)}
-          delta="for the next run"
+          label="Consignments loaded"
+          value={count(
+            runs.reduce((total, run) => total + run.shipment_count, 0)
+          )}
         />
       </KpiStrip>
 
@@ -190,166 +203,183 @@ export function Trucks() {
         </Banner>
       )}
 
-      <div className="grid gap-[1.125rem] xl:grid-cols-[minmax(0,1fr)_23rem] xl:items-start">
-        <div className="flex flex-col gap-[1.125rem]">
-          <Card className="overflow-hidden">
-            <CardHeader>
-              <CardTitle>On the dock</CardTitle>
-              <span className="text-[0.75rem] text-mute">
-                {count(chosen.size)} of {count(rows.length)} chosen
-              </span>
-            </CardHeader>
-            {queryState(waiting, {
-              loading: "Reading the dock…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState
-                    action={
-                      <AppLink to="/operations/despatch" variant="soft">
-                        Build a consignment
-                      </AppLink>
-                    }
+      {queryState(onYard, {
+        loading: "Reading the yard…",
+        render: () =>
+          runs.length === 0 ? (
+            <Card>
+              <EmptyState
+                action={
+                  <Button
+                    variant="soft"
+                    onClick={() => composing.open(true)}
+                    disabled={rows.length === 0}
                   >
-                    Every consignment is on a truck run. Nothing is waiting on
-                    the dock.
-                  </EmptyState>
-                ) : (
-                  <div className="border-t border-hairline">
-                    {rows.map((row) => {
-                      const picked = chosen.has(row.shipment_id)
-                      return (
-                        <button
-                          key={row.shipment_id}
-                          type="button"
-                          onClick={() =>
-                            setChosen((current) => {
-                              const next = new Set(current)
-                              if (next.has(row.shipment_id))
-                                next.delete(row.shipment_id)
-                              else next.add(row.shipment_id)
-                              return next
-                            })
-                          }
-                          className={`flex min-h-tap w-full items-center gap-3 border-b border-hairline px-4 py-2.5 text-left transition-colors last:border-b-0 ${
-                            picked ? "bg-accent-bg" : "hover:bg-soft"
-                          }`}
-                        >
-                          <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-body">
-                            <FileText className="size-[0.9375rem]" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate font-mono text-id text-ink">
-                              {row.shipment_number}
-                            </span>
-                            <span className="block truncate text-[0.6875rem] text-mute">
-                              {row.destination_store_id} ·{" "}
-                              {count(row.koli_count)} cartons
-                            </span>
-                          </span>
-                          <span className="shrink-0 text-[0.78125rem] text-body tabular-nums">
-                            {count(row.unit_count)}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                ),
-            })}
-          </Card>
+                    New dispatch
+                  </Button>
+                }
+              >
+                {rows.length === 0
+                  ? "No truck on the yard, and no consignment waiting for one."
+                  : `${count(rows.length)} consignments are on the dock with no truck.`}
+              </EmptyState>
+            </Card>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {runs.map((run) => (
+                <RunCard
+                  key={run.dispatch_id}
+                  run={run}
+                  pending={depart.isPending}
+                  onDepart={() => depart.mutate(run.dispatch_id)}
+                  onOpen={() => dispatch.open(run.dispatch_id)}
+                />
+              ))}
+            </div>
+          ),
+      })}
+      <Problem error={depart.error} className="mt-3" />
 
-          <div>
-            <h2 className="mb-3 text-card-title font-semibold text-ink">
-              On the yard
-            </h2>
-            {queryState(onYard, {
-              loading: "Reading the yard…",
-              render: () =>
-                runs.length === 0 ? (
-                  <Card>
-                    <EmptyState>
-                      No truck is standing on the yard. Everything loaded has
-                      left.
-                    </EmptyState>
-                  </Card>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    {runs.map((run) => (
-                      <RunCard
-                        key={run.dispatch_id}
-                        run={run}
-                        pending={depart.isPending}
-                        onDepart={() => depart.mutate(run.dispatch_id)}
-                        onOpen={() => dispatch.open(run.dispatch_id)}
-                      />
-                    ))}
-                  </div>
-                ),
-            })}
-            <Problem error={depart.error} className="mt-3" />
-          </div>
-        </div>
-
-        <Card className="overflow-hidden">
-          <CardHeader>
-            <CardTitle>Load a truck</CardTitle>
-          </CardHeader>
-          <form
-            className="flex flex-col gap-3 border-t border-hairline px-4 py-3.5"
-            onSubmit={(event) => {
-              event.preventDefault()
-              form.handleSubmit()
-            }}
-          >
-            <form.Field name="carrier">
-              {(field) => (
-                <Field label="Carrier" hint="Internal, or a courier's name">
-                  <Input
-                    value={field.state.value}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                  />
-                </Field>
-              )}
-            </form.Field>
-            <form.Field name="plate">
-              {(field) => (
-                <Field label="Vehicle plate">
-                  <Input
-                    className="font-mono"
-                    autoCapitalize="characters"
-                    value={field.state.value}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                  />
-                </Field>
-              )}
-            </form.Field>
-            <form.Field name="driver">
-              {(field) => (
-                <Field label="Driver">
-                  <Input
-                    value={field.state.value}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                  />
-                </Field>
-              )}
-            </form.Field>
-
-            <Problem error={load.error} />
+      {/* Loading is one act: choose the consignments, name the vehicle, file
+          the run. It was a permanent column beside the list, which is half a
+          screen of form standing open for the ninety per cent of the day
+          nobody is loading a truck. */}
+      <Sheet
+        open={composing.value === true}
+        onOpenChange={(next) => {
+          if (!next) {
+            composing.close()
+            setChosen(new Set())
+            load.reset()
+          }
+        }}
+        width="wide"
+        title="New dispatch"
+        footer={
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="text-[0.75rem] text-mute">
+              {chosen.size === 0
+                ? "Tick the consignments going on it"
+                : `${count(chosen.size)} of ${count(rows.length)} consignments`}
+            </span>
+            <div className="flex-1" />
             <Button
-              variant="dark"
-              type="submit"
+              variant="primary"
               disabled={chosen.size === 0 || load.isPending}
+              onClick={() => form.handleSubmit()}
             >
-              {load.isPending
-                ? "Loading…"
-                : `Load ${count(chosen.size)} consignments`}
+              {load.isPending ? "Loading…" : "Create dispatch"}
             </Button>
-            <p className="text-[0.71875rem] text-mute">
-              Loading files the run and moves every carton on it onto the truck.
-              The goods are still here until the gate opens.
-            </p>
-          </form>
-        </Card>
-      </div>
+          </div>
+        }
+      >
+        <p className="text-[0.78125rem] text-body">
+          Loading files the run and moves every carton on it onto the truck. The
+          goods are still here until the gate opens — departing is a separate
+          act, on the run itself, and it is the one step that cannot be walked
+          back.
+        </p>
+
+        {queryState(waiting, {
+          loading: "Reading the dock…",
+          render: () =>
+            rows.length === 0 ? (
+              <EmptyState
+                action={
+                  <AppLink to="/operations/despatch" variant="soft">
+                    Build a shipment
+                  </AppLink>
+                }
+              >
+                Every consignment is on a truck run. Nothing is waiting on the
+                dock.
+              </EmptyState>
+            ) : (
+              <div className="mt-3 overflow-hidden rounded-inner border border-hairline">
+                {rows.map((row) => {
+                  const picked = chosen.has(row.shipment_id)
+                  return (
+                    <button
+                      key={row.shipment_id}
+                      type="button"
+                      onClick={() =>
+                        setChosen((current) => {
+                          const next = new Set(current)
+                          if (next.has(row.shipment_id))
+                            next.delete(row.shipment_id)
+                          else next.add(row.shipment_id)
+                          return next
+                        })
+                      }
+                      className={`flex min-h-tap w-full items-center gap-3 border-b border-hairline px-4 py-2.5 text-left transition-colors last:border-b-0 ${
+                        picked ? "bg-accent-bg" : "hover:bg-soft"
+                      }`}
+                    >
+                      <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-body">
+                        <FileText className="size-[0.9375rem]" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-mono text-id text-ink">
+                          {row.shipment_number}
+                        </span>
+                        <span className="block truncate text-[0.6875rem] text-mute">
+                          {row.destination_store_id} · {count(row.koli_count)}{" "}
+                          cartons
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[0.78125rem] text-body tabular-nums">
+                        {count(row.unit_count)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            ),
+        })}
+
+        <form
+          className="mt-4 grid gap-3 sm:grid-cols-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            form.handleSubmit()
+          }}
+        >
+          <form.Field name="carrier">
+            {(field) => (
+              <Field label="Carrier" hint="Internal, or a courier's name">
+                <Input
+                  value={field.state.value}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              </Field>
+            )}
+          </form.Field>
+          <form.Field name="plate">
+            {(field) => (
+              <Field label="Vehicle plate">
+                <Input
+                  className="font-mono"
+                  autoCapitalize="characters"
+                  value={field.state.value}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              </Field>
+            )}
+          </form.Field>
+          <form.Field name="driver">
+            {(field) => (
+              <Field label="Driver">
+                <Input
+                  value={field.state.value}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              </Field>
+            )}
+          </form.Field>
+        </form>
+
+        <Problem error={load.error} className="mt-3" />
+      </Sheet>
 
       <RunSheet id={dispatch.value ?? null} onClose={dispatch.close} />
     </PageContent>
@@ -422,7 +452,7 @@ function RunCard({
               </>
             }
             confirmLabel="It has left"
-            variant="dark"
+            variant="primary"
             pending={pending}
             onConfirm={onDepart}
           />

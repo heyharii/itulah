@@ -3,17 +3,18 @@
 use crate::edge::pricing;
 use crate::edge::{
     derive_allotment_status, validate_command, AdvanceKoliRequest, CatalogIdentity, CommandResult,
-    CreateKoliShipmentRequest, EdgeError, EdgeInventory, EdgeOfficialCountDetail,
-    EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole, FulfillmentProgressResult,
-    GoodsReceiptView, IntakeRequest, InventoryState, MoveRequest, MovementCause, MovementCommand,
-    MovementGroupId, MovementId, MovementLine, MovementView, NodeContext,
-    OfficialCountEntriesRequest, OfficialCountSubmitRequest, OfficialCountSubmitResult,
-    OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest, PickRequest, PickResult, Place,
-    PoolBalance, PurchaseCountAwaitingVerification, PurchaseCountRequest, PurchaseCountResult,
-    PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine,
-    ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, SaleRequest, SaleResult,
-    SegregationPolicy, SiteId, SiteKind, SubjectId, SystemPlace, TaggingConfirmRequest,
-    TaggingConfirmResult, TaggingWorkJob, TaggingWorkLine,
+    CreateKoliShipmentRequest, CreatePicklistRequest, EdgeError, EdgeInventory,
+    EdgeOfficialCountDetail, EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole,
+    FulfillmentProgressResult, GoodsReceiptView, IntakeRequest, InventoryState, InvoiceDocument,
+    InvoiceDocumentView, MoveRequest, MovementCause, MovementCommand, MovementGroupId, MovementId,
+    MovementLine, MovementView, NodeContext, OfficialCountEntriesRequest,
+    OfficialCountSubmitRequest, OfficialCountSubmitResult, OpenGoodsReceiptRequest,
+    OperationalPool, PackKoliRequest, PackRequest, PickRequest, PickResult, PicklistRefusal,
+    PicklistResult, Place, PoolBalance, PurchaseCountAwaitingVerification, PurchaseCountRequest,
+    PurchaseCountResult, PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult,
+    PurchaseWorkLine, ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, SaleRequest,
+    SaleResult, SegregationPolicy, SiteId, SiteKind, StoreInvoiceDocumentRequest, SubjectId,
+    SystemPlace, TaggingConfirmRequest, TaggingConfirmResult, TaggingWorkJob, TaggingWorkLine,
 };
 use crate::sync::workflow::{
     FulfillmentProgressPayload, FulfillmentStage, OfficialCountResultLine,
@@ -224,6 +225,14 @@ pub(crate) const MARKDOWN_CAMPAIGN_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0026_a_campaign_may_hold_markdowns.sql"
 ));
 
+/// The supplier's invoice as a page rather than a number. See the migration:
+/// the centre's file vault is reachable only through the conversation a file
+/// was posted in, and a DC has to take a delivery with that line down.
+const INVOICE_DOCUMENT_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0029_the_verifier_keeps_the_invoice.sql"
+));
+
 pub(crate) const TILL_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0024_a_sale_the_shop_can_take_back.sql"
@@ -358,6 +367,9 @@ impl SqliteEdge {
         connection.execute_batch(SYNC_SCHEMA).map_err(db)?;
         connection.execute_batch(CATALOG_SCHEMA).map_err(db)?;
         connection.execute_batch(PURCHASE_SCHEMA).map_err(db)?;
+        connection
+            .execute_batch(INVOICE_DOCUMENT_SCHEMA)
+            .map_err(db)?;
         connection.execute_batch(AUTH_SCHEMA).map_err(db)?;
         connection.execute_batch(WORK_SCHEMA).map_err(db)?;
         connection.execute_batch(TAGGING_SCHEMA).map_err(db)?;
@@ -2553,6 +2565,18 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::outbound::picklist(&connection)
     }
 
+    fn destinations_owed(
+        &self,
+    ) -> Result<Vec<crate::edge::outbound::DestinationDemand>, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::outbound::destinations_owed(&connection, &self.node.site_id.to_string())
+    }
+
+    fn list_picklists(&self) -> Result<Vec<crate::edge::outbound::PicklistSummary>, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::outbound::list_picklists(&connection)
+    }
+
     fn list_koli(
         &self,
         filter: crate::edge::outbound::ListFilter,
@@ -3166,6 +3190,318 @@ impl EdgeInventory for SqliteEdge {
         )?;
         tx.commit().map_err(db)?;
         Ok(response)
+    }
+
+    /// Raise a picklist. See [`CreatePicklistRequest`].
+    ///
+    /// The round is opened, walked and closed in one act, because that is what
+    /// the composer describes: somebody has read what is owed and decided what
+    /// this trip fetches. Leaving it open would be leaving it open for a
+    /// second person to add to a round they were not on.
+    ///
+    /// Each line is an ordinary pick — same event, same movement, same FIFO
+    /// off the rack — so nothing here reimplements picking. What it adds is a
+    /// document, and its own idempotency record over the top: a retry would
+    /// otherwise open a SECOND round, and the picks inside it would be written
+    /// against a session id the first attempt never saw.
+    fn create_picklist(
+        &self,
+        mut request: CreatePicklistRequest,
+    ) -> Result<PicklistResult, EdgeError> {
+        self.require_dc("outbound work happens at a DC")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let pool = OperationalPool::from_str(request.source_pool_id.trim())
+            .map_err(|error| EdgeError::Validation(error.to_string()))?;
+        request.source_pool_id = pool.id();
+        request.actor_id = request.actor_id.trim().to_owned();
+        request.idempotency_key = request.idempotency_key.trim().to_owned();
+        for line in &mut request.lines {
+            line.sku_code = line.sku_code.trim().to_ascii_uppercase();
+            if line.sku_code.is_empty() {
+                return Err(EdgeError::Validation("sku_code is required".into()));
+            }
+            if line.quantity <= 0 {
+                return Err(EdgeError::Validation(format!(
+                    "quantity for {} must be positive",
+                    line.sku_code
+                )));
+            }
+        }
+        request
+            .lines
+            .sort_by(|left, right| left.sku_code.cmp(&right.sku_code));
+        if request.lines.is_empty() {
+            return Err(EdgeError::Validation(
+                "a picklist needs at least one line; a round fetching nothing is a walk".into(),
+            ));
+        }
+        if request
+            .lines
+            .windows(2)
+            .any(|pair| pair[0].sku_code == pair[1].sku_code)
+        {
+            return Err(EdgeError::Validation(
+                "one SKU cannot appear on two lines of the same picklist".into(),
+            ));
+        }
+        let request_json = Self::encode_idempotent_request(&request)?;
+
+        // Already raised? Answer with the round it raised, rather than opening
+        // a second one that fetches the same garments again.
+        let existing: Option<(String, Option<String>, String)> = {
+            let connection = self.lock()?;
+            connection
+                .query_row(
+                    "SELECT operation,request_json,response_json FROM idempotency_response
+                      WHERE idempotency_key=?1",
+                    [&request.idempotency_key],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(db)?
+        };
+        if let Some((operation, stored_request, stored_response)) = existing {
+            if operation != "DC_PICKLIST" {
+                return Err(EdgeError::Conflict(format!(
+                    "idempotency key already belongs to {operation}"
+                )));
+            }
+            if stored_request.as_deref() != Some(request_json.as_str()) {
+                return Err(EdgeError::Conflict(
+                    "idempotency key was already used with a different request payload".into(),
+                ));
+            }
+            let session_id: String = serde_json::from_str(&stored_response)
+                .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+            let connection = self.lock()?;
+            return Ok(PicklistResult {
+                summary: crate::edge::outbound::pick_session_summary(&connection, &session_id)?,
+                refused: Vec::new(),
+            });
+        }
+
+        let session = {
+            let mut connection = self.lock()?;
+            crate::edge::outbound::open_session(
+                &mut connection,
+                crate::edge::outbound::SessionKind::Pick,
+                crate::edge::outbound::OpenSessionRequest {
+                    actor_id: request.actor_id.clone(),
+                    note: request.note.clone(),
+                },
+            )?
+        };
+
+        let mut refused = Vec::new();
+        for line in &request.lines {
+            // A line the racks cannot answer is a fact about the racks, not a
+            // failed request: the other thirty-nine lines are still worth
+            // fetching, and the round says which one came back empty.
+            if let Err(error) = self.pick_stock(PickRequest {
+                source_pool_id: request.source_pool_id.clone(),
+                sku_code: line.sku_code.clone(),
+                quantity: line.quantity,
+                actor_id: request.actor_id.clone(),
+                idempotency_key: format!("{}:{}", request.idempotency_key, line.sku_code),
+                pick_session_id: Some(session.session_id.clone()),
+            }) {
+                refused.push(PicklistRefusal {
+                    sku_code: line.sku_code.clone(),
+                    quantity: line.quantity,
+                    reason: error.to_string(),
+                });
+            }
+        }
+
+        let mut connection = self.lock()?;
+        crate::edge::outbound::close_session(
+            &mut connection,
+            crate::edge::outbound::SessionKind::Pick,
+            &session.session_id,
+        )?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "DC_PICKLIST",
+            &request_json,
+            &session.session_id,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(PicklistResult {
+            summary: crate::edge::outbound::pick_session_summary(&connection, &session.session_id)?,
+            refused,
+        })
+    }
+
+    /// Pack a carton from quantities. See [`PackRequest`].
+    ///
+    /// The pieces are chosen the way picking chooses them — oldest first, out
+    /// of the picking area — and then handed to `pack_koli`, which is where
+    /// packing actually happens. Nothing about the movement, the allotment
+    /// draw-down or the ledger differs from a swept box: this resolves a
+    /// sentence into EPCs and stops.
+    ///
+    /// Its own idempotency record sits over the top of `pack_koli`'s, and it
+    /// has to: a second attempt after a successful first would resolve
+    /// DIFFERENT pieces (the first box now holds the ones it took), so the
+    /// inner key would see a request it does not recognise and refuse. Here the
+    /// second attempt never gets that far — it is answered with the carton the
+    /// first one packed.
+    fn pack_by_quantity(
+        &self,
+        mut request: PackRequest,
+    ) -> Result<crate::edge::outbound::KoliManifest, EdgeError> {
+        self.require_dc("outbound work happens at a DC")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let destination_store = Self::normalized_store_id(&request.destination_store_id)?;
+        request.destination_store_id = destination_store.to_string();
+        request.actor_id = request.actor_id.trim().to_owned();
+        request.idempotency_key = request.idempotency_key.trim().to_owned();
+        for line in &mut request.lines {
+            line.sku_code = line.sku_code.trim().to_ascii_uppercase();
+            if line.sku_code.is_empty() {
+                return Err(EdgeError::Validation("sku_code is required".into()));
+            }
+            if line.quantity <= 0 {
+                return Err(EdgeError::Validation(format!(
+                    "quantity for {} must be positive",
+                    line.sku_code
+                )));
+            }
+        }
+        request
+            .lines
+            .sort_by(|left, right| left.sku_code.cmp(&right.sku_code));
+        if request.lines.is_empty() {
+            return Err(EdgeError::Validation(
+                "a pack needs at least one line; a carton holding nothing is a number nobody can explain".into(),
+            ));
+        }
+        if request
+            .lines
+            .windows(2)
+            .any(|pair| pair[0].sku_code == pair[1].sku_code)
+        {
+            return Err(EdgeError::Validation(
+                "one SKU cannot appear on two lines of the same pack".into(),
+            ));
+        }
+        let request_json = Self::encode_idempotent_request(&request)?;
+
+        // The picking area, which is where everything packable is standing.
+        // Picking put it there for nobody in particular; this is the moment it
+        // becomes a shop's.
+        let picking = Self::normal_place(OperationalPool::DcOutboundPicking {
+            dc_id: self.node.site_id.clone(),
+        });
+
+        let epcs = {
+            let connection = self.lock()?;
+            if let Some(response) = connection
+                .query_row(
+                    "SELECT operation,request_json,response_json FROM idempotency_response
+                      WHERE idempotency_key=?1",
+                    [&request.idempotency_key],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(db)?
+            {
+                let (operation, stored_request, stored_response) = response;
+                if operation != "DC_PACK_BY_QUANTITY" {
+                    return Err(EdgeError::Conflict(format!(
+                        "idempotency key already belongs to {operation}"
+                    )));
+                }
+                if stored_request.as_deref() != Some(request_json.as_str()) {
+                    return Err(EdgeError::Conflict(
+                        "idempotency key was already used with a different request payload".into(),
+                    ));
+                }
+                let koli_id: String = serde_json::from_str(&stored_response)
+                    .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+                return crate::edge::outbound::koli_manifest(&connection, &koli_id);
+            }
+
+            let mut statement = connection
+                .prepare(
+                    // Oldest first, and never a piece already in a live carton:
+                    // the ledger would allow it and `pack_koli` would refuse it
+                    // one EPC later, which is a worse way to find out.
+                    "SELECT subject.epc
+                       FROM inventory_projection projection
+                       JOIN inventory_subject subject ON subject.id=projection.subject_id
+                      WHERE projection.place_id=?1 AND projection.quantity>0
+                        AND subject.sku_code=?2 AND subject.subject_type='UNIT'
+                        AND subject.epc IS NOT NULL
+                        AND NOT EXISTS (SELECT 1 FROM koli_unit
+                                         WHERE koli_unit.epc=subject.epc
+                                           AND koli_unit.released_at IS NULL)
+                      ORDER BY subject.created_at,subject.id
+                      LIMIT ?3",
+                )
+                .map_err(db)?;
+            let mut epcs = Vec::new();
+            for line in &request.lines {
+                let found = statement
+                    .query_map(params![picking.id(), line.sku_code, line.quantity], |row| {
+                        row.get::<_, String>(0)
+                    })
+                    .map_err(db)?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(db)?;
+                // A short pack is not an ordinary outcome the way a short pick
+                // is. The sheet a packer works from already says how many are
+                // standing in the picking area, so asking for more than that is
+                // a mistake worth refusing rather than a fact worth recording.
+                if i64::try_from(found.len()).unwrap_or(0) < line.quantity {
+                    return Err(EdgeError::Conflict(format!(
+                        "only {} of {} is in the picking area; {} was asked for",
+                        found.len(),
+                        line.sku_code,
+                        line.quantity
+                    )));
+                }
+                epcs.extend(found);
+            }
+            epcs
+        };
+
+        let packed = self.pack_koli(PackKoliRequest {
+            destination_store_id: request.destination_store_id.clone(),
+            epcs,
+            actor_id: request.actor_id.clone(),
+            // Derived rather than shared: the two records describe two
+            // different requests, and one key cannot honestly stand for both.
+            idempotency_key: format!("{}:units", request.idempotency_key),
+        })?;
+        let koli_id = packed.koli_id.to_string();
+        if request.seal {
+            self.seal_koli(&koli_id, &request.actor_id)?;
+        }
+
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "DC_PACK_BY_QUANTITY",
+            &request_json,
+            &koli_id,
+        )?;
+        tx.commit().map_err(db)?;
+        crate::edge::outbound::koli_manifest(&connection, &koli_id)
     }
 
     fn create_fulfillment_shipment(
@@ -4258,6 +4594,17 @@ impl EdgeInventory for SqliteEdge {
         request: RecordInvoiceRequest,
     ) -> Result<GoodsReceiptView, EdgeError> {
         self.record_receipt_invoice_impl(request)
+    }
+
+    fn store_invoice_document(
+        &self,
+        request: StoreInvoiceDocumentRequest,
+    ) -> Result<InvoiceDocumentView, EdgeError> {
+        self.store_invoice_document_impl(request)
+    }
+
+    fn invoice_document(&self, receipt_id: Uuid) -> Result<InvoiceDocument, EdgeError> {
+        self.invoice_document_impl(receipt_id)
     }
 
     fn open_tagging_jobs(&self) -> Result<Vec<TaggingWorkJob>, EdgeError> {
@@ -5979,7 +6326,7 @@ impl SqliteEdge {
                 "SELECT c.count_id, c.po_line_id, o.po_number, o.supplier_id,
                         l.article_code, l.article_name, c.counted_quantity, c.counted_by,
                         c.counted_at, l.ordered_quantity,
-                        l.unit_price_minor, c.status
+                        l.unit_price_minor, c.status, c.receipt_id
                  FROM receiving_count c
                  JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
                  JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
@@ -5995,6 +6342,7 @@ impl SqliteEdge {
                 let expected = ordered;
                 Ok(PurchaseCountAwaitingVerification {
                     count_id: parse_uuid_row(row.get::<_, String>(0)?)?,
+                    receipt_id: parse_uuid_row(row.get::<_, String>(12)?)?,
                     po_line_id: parse_uuid_row(row.get::<_, String>(1)?)?,
                     po_number: row.get(2)?,
                     supplier_id: row.get(3)?,
@@ -6388,6 +6736,123 @@ impl SqliteEdge {
         )?;
         tx.commit().map_err(db)?;
         Ok(view)
+    }
+
+    /// Keep the invoice page against the delivery it came with.
+    ///
+    /// No idempotency key, unlike every write beside it, and that is on
+    /// purpose: this is not a fact and it moves nothing. Uploading the same
+    /// page twice leaves one row either way, because the delivery is the
+    /// primary key — the second upload is somebody who photographed a
+    /// crumpled page and then a flat one, and they meant the flat one.
+    fn store_invoice_document_impl(
+        &self,
+        request: StoreInvoiceDocumentRequest,
+    ) -> Result<InvoiceDocumentView, EdgeError> {
+        if request.bytes.is_empty() {
+            return Err(EdgeError::Validation(
+                "an empty file is not an invoice".into(),
+            ));
+        }
+        // Eight megabytes is a generous photograph of a page and a mean
+        // scanner PDF. The cap exists because this database sits on a machine
+        // in a warehouse with no operator, and a node that fills its own disk
+        // stops receiving goods.
+        const LIMIT: usize = 8 * 1024 * 1024;
+        if request.bytes.len() > LIMIT {
+            return Err(EdgeError::Validation(format!(
+                "an invoice page over {} MB is a scan setting, not a document",
+                LIMIT / (1024 * 1024)
+            )));
+        }
+        let filename = request.filename.trim();
+        if filename.is_empty() {
+            return Err(EdgeError::Validation(
+                "an uploaded file must arrive with a name".into(),
+            ));
+        }
+        let content_type = if request.content_type.trim().is_empty() {
+            "application/octet-stream"
+        } else {
+            request.content_type.trim()
+        };
+
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        let known: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM goods_receipt WHERE receipt_id = ?1",
+                params![request.receipt_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if known == 0 {
+            return Err(EdgeError::NotFound(format!(
+                "no delivery {}",
+                request.receipt_id
+            )));
+        }
+
+        let uploaded_at = Utc::now();
+        let byte_count = request.bytes.len() as i64;
+        tx.execute(
+            "INSERT INTO goods_receipt_invoice_document
+                 (receipt_id, filename, content_type, byte_count, bytes, uploaded_by, uploaded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(receipt_id) DO UPDATE SET
+                 filename = excluded.filename,
+                 content_type = excluded.content_type,
+                 byte_count = excluded.byte_count,
+                 bytes = excluded.bytes,
+                 uploaded_by = excluded.uploaded_by,
+                 uploaded_at = excluded.uploaded_at",
+            params![
+                request.receipt_id.to_string(),
+                filename,
+                content_type,
+                byte_count,
+                request.bytes,
+                request.actor_id,
+                time_text(uploaded_at)
+            ],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)?;
+
+        Ok(InvoiceDocumentView {
+            receipt_id: request.receipt_id,
+            filename: filename.to_string(),
+            content_type: content_type.to_string(),
+            byte_count,
+            uploaded_by: request.actor_id,
+            uploaded_at,
+        })
+    }
+
+    /// The page back, for a verifier who wants to read it again.
+    fn invoice_document_impl(&self, receipt_id: Uuid) -> Result<InvoiceDocument, EdgeError> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT filename, content_type, bytes
+                 FROM goods_receipt_invoice_document WHERE receipt_id = ?1",
+                params![receipt_id.to_string()],
+                |row| {
+                    Ok(InvoiceDocument {
+                        filename: row.get(0)?,
+                        content_type: row.get(1)?,
+                        bytes: row.get(2)?,
+                    })
+                },
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => EdgeError::NotFound(format!(
+                    "no invoice page on file for delivery {receipt_id}"
+                )),
+                other => db(other),
+            })
     }
 
     /// The print queue: jobs given to this DC and not yet confirmed.

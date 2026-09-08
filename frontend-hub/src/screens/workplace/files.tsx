@@ -594,7 +594,7 @@ function PickButton({
           event.target.value = ""
         }}
       />
-      <Button variant="dark" onClick={() => input.current?.click()}>
+      <Button variant="primary" onClick={() => input.current?.click()}>
         Add a file
       </Button>
     </>

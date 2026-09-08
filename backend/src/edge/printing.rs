@@ -16,9 +16,9 @@
 //! connection and nothing else, which keeps them testable and keeps this
 //! feature out of a file several other workstreams are editing.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -1200,6 +1200,122 @@ pub fn dispatch_chunk(host: &str, port: u16, labels: &[ClaimedLabel]) -> Vec<Pri
             error: send_one(&addresses, label.zpl.as_bytes()),
         })
         .collect()
+}
+
+/// What answered when the bench asked whether its printer is there.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PrinterProbe {
+    /// The address the host actually resolved to, so a bench pointed at a name
+    /// can see which machine that name means today.
+    pub address: String,
+    /// A socket opened. This is the whole of the test: it says the machine is
+    /// on, on the network, and listening — nothing about what it will do with
+    /// a label.
+    pub reachable: bool,
+    pub took_ms: u64,
+    /// What the printer said when asked to identify itself, if it said
+    /// anything. Silence is not failure: a TSC in its native mode ignores the
+    /// ZPL query, and plenty of printers only speak when handed a job.
+    pub identity: Option<String>,
+    /// Which language the reply proves, when a reply came back at all.
+    pub speaks: Option<PrinterLanguage>,
+    /// Why it did not answer. Present only when `reachable` is false.
+    pub error: Option<String>,
+}
+
+/// Ask the address in the print bench whether anything is there.
+///
+/// Deliberately sends no label. A test that printed would put a tag on the
+/// floor every time somebody checked a setting, and on RFID stock that tag
+/// carries an EPC — so the cheap, safe question is the only one asked here:
+/// can a socket be opened, and does the thing on the other end say who it is.
+///
+/// Identification is a bonus rather than the verdict. `~HI` is ZPL and `~!T`
+/// is TSPL, and a printer answering one of them settles an argument the bench
+/// otherwise settles by walking to the machine — but a printer that answers
+/// neither is still a reachable printer, because most only speak when handed
+/// work.
+pub fn probe_printer(host: &str, port: u16) -> Result<PrinterProbe, EdgeError> {
+    // Resolution failures and refused addresses are argument errors, not probe
+    // results: there is no machine to report on, and saying "unreachable"
+    // would suggest one exists and is merely off.
+    let addresses = resolve_printer(host, port)?;
+    let started = Instant::now();
+
+    let mut last = "printer had no reachable address".to_string();
+    for address in &addresses {
+        match TcpStream::connect_timeout(address, PRINTER_TIMEOUT) {
+            Ok(stream) => {
+                let took_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                let (identity, speaks) = identify(stream);
+                return Ok(PrinterProbe {
+                    address: address.to_string(),
+                    reachable: true,
+                    took_ms,
+                    identity,
+                    speaks,
+                    error: None,
+                });
+            }
+            Err(error) => last = format!("connect to {address} failed: {error}"),
+        }
+    }
+
+    Ok(PrinterProbe {
+        address: addresses
+            .first()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| format!("{host}:{port}")),
+        reachable: false,
+        took_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+        identity: None,
+        speaks: None,
+        error: Some(last),
+    })
+}
+
+/// Ask an open socket who it is, and take silence for an answer.
+///
+/// Both queries go down the one connection that is already open, ZPL first
+/// because that is what every tag in the field so far was written in. The read
+/// timeout is short on purpose: a printer answers a status query at once or
+/// never, and waiting longer only makes a silent printer take longer to report
+/// as silent.
+fn identify(mut stream: TcpStream) -> (Option<String>, Option<PrinterLanguage>) {
+    const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(1200);
+    if stream.set_write_timeout(Some(IDENTIFY_TIMEOUT)).is_err()
+        || stream.set_read_timeout(Some(IDENTIFY_TIMEOUT)).is_err()
+    {
+        return (None, None);
+    }
+    for (query, language) in [
+        (&b"~HI\r\n"[..], PrinterLanguage::Zpl),
+        (&b"~!T\r\n"[..], PrinterLanguage::Tspl),
+    ] {
+        if stream
+            .write_all(query)
+            .and_then(|()| stream.flush())
+            .is_err()
+        {
+            return (None, None);
+        }
+        let mut buffer = [0u8; 512];
+        match stream.read(&mut buffer) {
+            Ok(0) | Err(_) => continue,
+            Ok(read) => {
+                let said = String::from_utf8_lossy(&buffer[..read])
+                    .replace(['\r', '\n'], " ")
+                    .trim()
+                    .to_string();
+                if said.is_empty() {
+                    continue;
+                }
+                return (Some(said), Some(language));
+            }
+        }
+    }
+    (None, None)
 }
 
 /// Send one already-rendered job to a printer. Used for stickers and other

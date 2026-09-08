@@ -245,7 +245,7 @@ export function Nodes() {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => setRegistering(true)}>
+            <Button variant="primary" onClick={() => setRegistering(true)}>
               Register node
             </Button>
           </>

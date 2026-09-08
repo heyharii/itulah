@@ -8,8 +8,8 @@ use crate::edge::{
     IntakeRequest, MoveRequest, NodeContext, OfficialCountEntriesRequest,
     OfficialCountSubmitRequest, OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest,
     PickRequest, PoolBalance, PurchaseCountRequest, PurchaseVerifyRequest, ReceiveBatchRequest,
-    ReceiveRequest, RecordInvoiceRequest, SaleRequest, TaggingConfirmRequest,
-    RFID_OBSERVATION_PATH,
+    ReceiveRequest, RecordInvoiceRequest, SaleRequest, StoreInvoiceDocumentRequest,
+    TaggingConfirmRequest, RFID_OBSERVATION_PATH,
 };
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
 use axum::{
@@ -127,6 +127,11 @@ pub fn dc_router_with_sync(
         .route("/api/v1/dc/koli/{koli_id}/label", post(dc_print_koli_label))
         .route("/api/v1/dc/picklist", get(dc_picklist))
         .route(
+            "/api/v1/dc/picklists",
+            get(dc_picklists).post(dc_create_picklist),
+        )
+        .route("/api/v1/dc/packs", post(dc_pack_by_quantity))
+        .route(
             "/api/v1/dc/shipments",
             post(dc_create_shipment).get(dc_list_shipments),
         )
@@ -137,6 +142,7 @@ pub fn dc_router_with_sync(
             "/api/v1/dc/packing-boxes/{session_id}/capture",
             post(dc_capture_packing_box),
         )
+        .route("/api/v1/dc/destinations", get(dc_destinations))
         .route(
             "/api/v1/dc/destinations/{store_id}/outstanding",
             get(dc_outstanding),
@@ -161,6 +167,7 @@ pub fn dc_router_with_sync(
             "/api/v1/dc/allotment-lines/{allotment_line_id}/position",
             get(dc_allotment_line_position),
         )
+        .route("/api/v1/dc/printer/test", post(dc_test_printer))
         .route("/api/v1/dc/print-sessions", post(dc_open_print_session))
         .route(
             "/api/v1/dc/print-sessions/{session_id}",
@@ -208,6 +215,10 @@ pub fn dc_router_with_sync(
         .route(
             "/api/v1/dc/goods-receipts/{receipt_id}/invoice",
             post(dc_record_receipt_invoice),
+        )
+        .route(
+            "/api/v1/dc/goods-receipts/{receipt_id}/invoice-document",
+            get(dc_invoice_document).post(dc_store_invoice_document),
         )
         .route(
             "/api/v1/dc/purchase-counts",
@@ -640,9 +651,32 @@ fn name_the_actor(actor_id: &mut String) {
     }
 }
 
+/// Where to look for a printer. The same two fields the bench already holds,
+/// so a test and a run can never be asking about different machines.
+#[derive(Deserialize)]
+struct TestPrinterRequest {
+    printer_host: String,
+    #[serde(default = "default_printer_port")]
+    printer_port: u16,
+}
+
+fn default_printer_port() -> u16 {
+    9100
+}
+
 #[derive(Deserialize)]
 struct CaptureBoxRequest {
     reader_session_id: String,
+}
+
+/// Every shop this DC still owes something to. The packer's queue.
+async fn dc_destinations(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.destinations_owed()).await?;
+    Ok(Json(serde_json::json!({ "items": result })))
 }
 
 /// What is still picked and unpacked for a store — the list a packer is offered
@@ -912,6 +946,44 @@ async fn dc_list_packing_sessions(
     Ok(Json(serde_json::json!({ "items": result })))
 }
 
+/// Every picklist this DC has raised. The rounds themselves, not what is owed.
+async fn dc_picklists(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.list_picklists()).await?;
+    Ok(Json(serde_json::json!({ "items": result })))
+}
+
+/// Raise a picklist: a round opened, walked and closed in one act.
+async fn dc_create_picklist(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::contracts::CreatePicklistRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::DcOperate)? {
+        request.actor_id = principal.username;
+    }
+    name_the_actor(&mut request.actor_id);
+    let result = run_blocking(move || state.inventory.create_picklist(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
+/// Pack a carton by saying how much, and let the server name the pieces.
+async fn dc_pack_by_quantity(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::contracts::PackRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::DcOperate)? {
+        request.actor_id = principal.username;
+    }
+    name_the_actor(&mut request.actor_id);
+    let result = run_blocking(move || state.inventory.pack_by_quantity(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
 /// What is still owed, added up by SKU. The picker's sheet.
 async fn dc_picklist(
     State(state): State<EdgeState>,
@@ -991,6 +1063,28 @@ async fn dc_allotment_line_position(
     require_permission(&state, principal, EdgePermission::InventoryRead)?;
     let result =
         run_blocking(move || state.inventory.allotment_line_position(&allotment_line_id)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// Ask whether the machine the bench is pointed at is actually there.
+///
+/// A GET would be the obvious shape, but the address is the request body
+/// rather than the URL deliberately: a printer's host and port would otherwise
+/// sit in a query string, in the node's access log, in a browser's history and
+/// in whatever proxies the hub is behind. POST also keeps this from being a
+/// link anything can prefetch, and this handler opens a socket.
+///
+/// Prints nothing. See `printing::probe_printer`.
+async fn dc_test_printer(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<TestPrinterRequest>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::DcOperate)?;
+    let result = run_blocking(move || {
+        crate::edge::printing::probe_printer(&request.printer_host, request.printer_port)
+    })
+    .await?;
     Ok(Json(serde_json::to_value(result)?))
 }
 
@@ -2197,6 +2291,79 @@ async fn dc_record_receipt_invoice(
     request.receipt_id = receipt_id;
     let result = run_blocking(move || state.inventory.record_receipt_invoice(request)).await?;
     Ok(Json(serde_json::to_value(result)?))
+}
+
+/// The name and type of the page being uploaded.
+///
+/// Query parameters rather than a header, and rather than multipart, for the
+/// reasons `cloud/http/files.rs` gives: no cross-origin preflight has to be
+/// widened for them, and the browser hands the `File` straight to `fetch` as
+/// the body without re-encoding a scan.
+#[derive(Debug, Deserialize)]
+struct InvoiceUploadQuery {
+    name: String,
+    #[serde(rename = "type")]
+    content_type: Option<String>,
+    /// Who is uploading, when the node is running without authentication. A
+    /// node that knows who is signed in ignores this and uses that.
+    #[serde(default)]
+    actor: Option<String>,
+}
+
+/// Keep the supplier's invoice as the paper it is.
+///
+/// The numbers off it are recorded separately, through the route above, and
+/// they are what the system compares against the order. This is the page
+/// behind them, and it is what settles an argument about a total six weeks
+/// later when nobody can find the folder.
+async fn dc_store_invoice_document(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(receipt_id): Path<Uuid>,
+    Query(query): Query<InvoiceUploadQuery>,
+    bytes: Bytes,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let signed_in = require_permission(&state, principal, EdgePermission::DcOperate)?;
+    let actor = match signed_in {
+        Some(principal) => principal.username,
+        None => query.actor.unwrap_or_default(),
+    };
+    let request = StoreInvoiceDocumentRequest {
+        receipt_id,
+        filename: query.name,
+        content_type: query.content_type.unwrap_or_default(),
+        bytes: bytes.to_vec(),
+        actor_id: actor,
+    };
+    let stored = run_blocking(move || state.inventory.store_invoice_document(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(stored)?)))
+}
+
+/// The page back. Served inline so a verifier can read it in the browser
+/// rather than fishing it out of a downloads folder.
+async fn dc_invoice_document(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(receipt_id): Path<Uuid>,
+) -> Result<Response, ApiError> {
+    require_permission(&state, principal, EdgePermission::DcOperate)?;
+    let document = run_blocking(move || state.inventory.invoice_document(receipt_id)).await?;
+    let mut headers = HeaderMap::new();
+    // The stored type is whatever the browser said when it uploaded, so it is
+    // operator-supplied and cannot be trusted into a header unparsed. An
+    // unusable value falls back to bytes rather than failing the read.
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&document.content_type)
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+    // `inline`, and the filename deliberately left off: a stored name is
+    // operator text and a header is the wrong place to find out.
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("inline"),
+    );
+    Ok((headers, document.bytes).into_response())
 }
 
 /// The print queue: jobs head office has sent and the warehouse has not

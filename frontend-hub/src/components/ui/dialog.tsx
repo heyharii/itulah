@@ -1,4 +1,5 @@
 import { Dialog as BaseDialog } from "@base-ui/react/dialog"
+import { X } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -23,7 +24,7 @@ export function Dialog({
   children,
   confirm,
   cancel = "Cancel",
-  tone = "dark",
+  tone = "primary",
   pending = false,
   onConfirm,
 }: {
@@ -36,7 +37,7 @@ export function Dialog({
   confirm: React.ReactNode
   cancel?: React.ReactNode
   /// `danger` for anything that destroys or cannot be walked back.
-  tone?: "dark" | "danger"
+  tone?: "primary" | "danger"
   pending?: boolean
   onConfirm: () => void
 }) {
@@ -56,13 +57,68 @@ export function Dialog({
               render={<Button variant="ghost">{cancel}</Button>}
             />
             <Button
-              variant={tone === "danger" ? "danger" : "dark"}
+              variant={tone === "danger" ? "danger" : "primary"}
               disabled={pending}
               onClick={onConfirm}
             >
               {confirm}
             </Button>
           </div>
+        </BaseDialog.Popup>
+      </BaseDialog.Portal>
+    </BaseDialog.Root>
+  )
+}
+
+/// A dialog that holds a **working surface** rather than a question.
+///
+/// The one above asks something and takes two buttons. This one is a place to
+/// stand for a minute: the print queue, where somebody chooses a job, looks at
+/// the label, sends it and watches it come out. That used to be a screen, and
+/// a screen was wrong for it — walking to a second page meant re-choosing the
+/// article you were already looking at on the first.
+///
+/// Wider than a question and scrollable inside itself, so the page behind does
+/// not scroll and the panel never grows past the window. Same white veil, same
+/// card language, and Escape leaves — an overlay you cannot leave from the
+/// keyboard is a trap.
+export function Panel({
+  open,
+  onOpenChange,
+  title,
+  sub,
+  children,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  title: React.ReactNode
+  /// One line under the title, saying what the surface is for.
+  sub?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <BaseDialog.Root open={open} onOpenChange={onOpenChange}>
+      <BaseDialog.Portal>
+        <BaseDialog.Backdrop className="fixed inset-0 z-50 bg-[var(--scrim)]" />
+        <BaseDialog.Popup className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-3rem)] w-[52rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-card border border-hairline-2 bg-canvas shadow-float">
+          <div className="flex items-start gap-3 border-b border-hairline px-5 py-4">
+            <div className="min-w-0 flex-1">
+              <BaseDialog.Title className="text-card-title font-semibold text-ink">
+                {title}
+              </BaseDialog.Title>
+              {sub !== undefined && (
+                <p className="mt-0.5 text-[0.75rem] text-mute">{sub}</p>
+              )}
+            </div>
+            <BaseDialog.Close
+              render={
+                <Button variant="ghost" size="icon" aria-label="Close">
+                  <X />
+                </Button>
+              }
+            />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
         </BaseDialog.Popup>
       </BaseDialog.Portal>
     </BaseDialog.Root>
@@ -81,7 +137,7 @@ export function ConfirmButton({
   title,
   description,
   confirmLabel,
-  tone = "dark",
+  tone = "primary",
   variant = "ghost",
   disabled = false,
   pending = false,
@@ -92,8 +148,8 @@ export function ConfirmButton({
   title: React.ReactNode
   description: React.ReactNode
   confirmLabel: React.ReactNode
-  tone?: "dark" | "danger"
-  variant?: "dark" | "ghost" | "soft" | "quiet" | "danger"
+  tone?: "primary" | "danger"
+  variant?: "primary" | "ghost" | "soft" | "quiet" | "danger"
   disabled?: boolean
   pending?: boolean
   onConfirm: () => void

@@ -86,7 +86,15 @@ export function Sheet({
   /// next to it, and at two thirds of the glass that promise cannot be kept —
   /// and there is nothing to read next to a form that has not been filled in
   /// yet anyway.
-  width?: "rail" | "wide"
+  ///
+  /// `table` is the third and widest: a sheet whose body is a GRID, read
+  /// across rather than down. Receiving's verifier is the case it exists for —
+  /// six figures per line that only mean anything side by side, and in a
+  /// 27.5rem rail those six became a stack of cards a screen tall each, so
+  /// five garments off one lorry could not be seen at once. It behaves like
+  /// `wide` in every other way, and stops at 64rem because past that the
+  /// columns stop being a row the eye can track.
+  width?: "rail" | "wide" | "table"
   children: React.ReactNode
   className?: string
 }) {
@@ -124,9 +132,11 @@ export function Sheet({
             "inset-x-0 bottom-0 max-h-[90dvh] rounded-t-sheet pb-[env(safe-area-inset-bottom)]",
             // The desk and the tablet: the floating rail, inset on three sides.
             "md:inset-x-auto md:top-4 md:right-4 md:bottom-4 md:max-h-none md:max-w-[calc(100vw-2rem)] md:rounded-shell md:pb-0",
-            width === "wide"
-              ? "md:w-[clamp(27.5rem,66vw,46rem)]"
-              : "md:w-[27.5rem]",
+            width === "table"
+              ? "md:w-[clamp(27.5rem,92vw,64rem)]"
+              : width === "wide"
+                ? "md:w-[clamp(27.5rem,66vw,46rem)]"
+                : "md:w-[27.5rem]",
             className
           )}
         >

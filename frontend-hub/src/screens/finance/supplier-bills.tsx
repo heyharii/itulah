@@ -594,7 +594,7 @@ export function SupplierBills() {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => setRecording(true)}>
+            <Button variant="primary" onClick={() => setRecording(true)}>
               Record bill
             </Button>
           </>
@@ -965,7 +965,7 @@ function BillSheet({
               Posts on the invoice date unless the month is closed.
             </span>
             <Button
-              variant="dark"
+              variant="primary"
               disabled={post.isPending}
               onClick={() => post.mutate()}
             >
@@ -1434,7 +1434,7 @@ function RecordSheet({
                     : "Fill in the invoice and the amount"}
               </span>
               <Button
-                variant="dark"
+                variant="primary"
                 disabled={!totals.ready || record.isPending}
                 onClick={() => form.handleSubmit()}
               >

@@ -2,9 +2,14 @@
 
 export type RegisterAssetRequest = { asset_number: string, name: string, 
 /**
- * A family under `10215`.
+ * A family under `10215`, or under `10217` for an intangible.
  */
 category_code: string, site_id: string, acquired_on: string, serial_number: string | null, notes: string | null, 
+/**
+ * How many things this row is. Absent means one, which is the ordinary
+ * case; a lot is what the client's register keeps for hangers and pins.
+ */
+quantity?: number, 
 /**
  * The expense-bill line that bought it, when there is one. Optional
  * because most assets on day one predate this system, and because the

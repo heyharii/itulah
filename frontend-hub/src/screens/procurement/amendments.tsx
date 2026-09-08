@@ -319,7 +319,7 @@ function AmendmentSheet({
               Reject
             </Button>
             <Button
-              variant="dark"
+              variant="primary"
               className="flex-1"
               disabled={actor === "" || decide.isPending}
               onClick={() => decide.mutate("Approved")}

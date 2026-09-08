@@ -297,7 +297,7 @@ export function SegmentForm({
               : "The conditions are kept, never the list. Who is in it is worked out on every read."}
           </span>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={problem !== undefined || save.isPending}
             onClick={() => save.mutate()}
           >

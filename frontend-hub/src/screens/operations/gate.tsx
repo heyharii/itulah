@@ -52,11 +52,10 @@ export function OperationsGate({ children }: { children: React.ReactNode }) {
           title="Warehouse node"
           caption={
             where.data
-              ? `Sign in to ${where.data.site_id ?? where.data.node_id}. This is a separate account from your Cloud Hub sign-in.`
-              : "Sign in to the DC node. This is a separate account from your Cloud Hub sign-in."
+              ? `Sign in to ${where.data.site_id ?? where.data.node_id}. This is a separate account from your Central Dashboard sign-in.`
+              : "Sign in to the DC node. This is a separate account from your Central Dashboard sign-in."
           }
           problem={problem}
-          node={where.data ?? null}
           signIn={(username, password) => edgeAuth.login(username, password)}
           onSignedIn={(signedIn) => {
             // The token is what authorises everything after this, and it is

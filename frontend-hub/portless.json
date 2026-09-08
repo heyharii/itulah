@@ -1,0 +1,6 @@
+{
+  "name": "central",
+  "script": "preview:laptop",
+  "appPort": 4173,
+  "proxy": true
+}

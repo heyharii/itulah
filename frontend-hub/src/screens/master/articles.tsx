@@ -336,12 +336,18 @@ export function Articles() {
 
   return (
     <div className="flex h-full min-h-0">
-      {/* The filter column, the same 212 the catalogue's third column is given
-          everywhere else in this app. Four vocabularies stacked rather than a
-          filter bar of chips above the list: these are closed sets a person
-          browses to find out what exists, and a chip you have to open a menu
-          to read cannot tell you there are eleven divisions. */}
-      <aside className="flex w-[13.25rem] shrink-0 flex-col overflow-y-auto border-r border-hairline px-4 py-[1.125rem]">
+      {/* The filter column, the sidebar's own 248 rather than the 212 it used
+          to take. Four vocabularies stacked rather than a filter bar of chips
+          above the list: these are closed sets a person browses to find out
+          what exists, and a chip you have to open a menu to read cannot tell
+          you there are eleven divisions.
+
+          Matching the sidebar is not decoration — the two are the only two
+          columns of chrome on this screen, and 212 beside 248 read as a
+          mistake rather than as a hierarchy. The 36px buys the longest tag
+          this catalogue has ("Pakaian Dalam 60") a chip that does not wrap,
+          which is what the column is for. */}
+      <aside className="flex w-[15.5rem] shrink-0 flex-col overflow-y-auto border-r border-hairline px-4 py-[1.125rem]">
         <div className="mt-4 flex items-center justify-between">
           <b className="text-[0.9375rem] font-semibold text-ink">Filters</b>
           {filtered && (

@@ -310,7 +310,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
             all.length === 0 ? (
               <EmptyState
                 action={
-                  <Button variant="dark" onClick={() => setCreating(true)}>
+                  <Button variant="primary" onClick={() => setCreating(true)}>
                     New {vocabulary.one}
                   </Button>
                 }
@@ -610,7 +610,7 @@ function TermForm({
             <div className="flex items-center justify-end gap-2 pt-1">
               <Button
                 type="submit"
-                variant="dark"
+                variant="primary"
                 disabled={
                   save.isPending ||
                   problems.label !== undefined ||
@@ -676,7 +676,7 @@ function Retiring({
           : `Retired. It is not offered for new work, and the ${count(term.term.in_use)} articles already filed under it still read it.`}
       </p>
       <Button
-        variant={term.active ? "soft" : "dark"}
+        variant={term.active ? "soft" : "primary"}
         disabled={change.isPending}
         onClick={() => change.mutate(!term.active)}
       >

@@ -655,7 +655,7 @@ function Submit({
 }) {
   return (
     <Button
-      variant="dark"
+      variant="primary"
       className="self-start"
       disabled={disabled || busy}
       onClick={onClick}

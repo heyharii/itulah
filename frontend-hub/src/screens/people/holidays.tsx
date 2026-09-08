@@ -333,7 +333,7 @@ function PublishYear({ year }: { year: number }) {
         </Field>
         <div>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={
               holidays.length === 0 || reason.trim() === "" || publish.isPending
             }
@@ -397,7 +397,7 @@ function AmendYear({ year }: { year: number }) {
         </Field>
         <div>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={!ready || amend.isPending}
             onClick={() => amend.mutate()}
           >

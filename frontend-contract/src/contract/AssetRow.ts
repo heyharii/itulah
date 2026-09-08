@@ -10,13 +10,25 @@ export type AssetRow = { asset_id: string, asset_number: string, name: string, c
  */
 category_name: string, site_id: string, status: string, serial_number: string | null, acquired_on: string, 
 /**
+ * How many things this row is. 1 for one object; the client's register
+ * keeps lots, and 60,000 sensor pins are one row rather than 60,000.
+ */
+quantity: number, 
+/**
  * `CAPITALIZE`, `EXPENSE`, or absent when nobody has assessed it.
  *
  * Absent is a real state and not a default: "not assessed" is an open
  * control gap, "assessed and expensed" is a closed one, and a screen that
  * could not tell them apart would hide the first behind the second.
  */
-decision: string | null, capitalized_cost_minor: number | null, salvage_value_minor: number | null, useful_life_months: number | null, method: string | null, in_service_on: string | null, 
+decision: string | null, capitalized_cost_minor: number | null, salvage_value_minor: number | null, useful_life_months: number | null, method: string | null, 
+/**
+ * `DEPRECIATION`, `REPLACEMENT_RESERVE` or `AMORTISATION` — what the
+ * monthly charge is CALLED, and therefore which pair of accounts it lands
+ * in. Absent exactly when `decision` is, or when the decision was to
+ * expense: an expensed asset has no monthly charge to name.
+ */
+charge_kind: string | null, in_service_on: string | null, 
 /**
  * Summed from the depreciation entries. Not stored anywhere.
  */
@@ -37,8 +49,13 @@ book_value_minor: number | null,
  */
 last_depreciated_month: string | null, 
 /**
- * The bill line that bought this, as `PLN-0901 line 2`, when the books
- * bought it at all.
+ * Every bill line that bought this, as `PLN-0901 line 2, PLN-0912 line 1`,
+ * when the books bought it at all.
+ *
+ * Plural since 0160. One air conditioner at this client is a unit, an
+ * installation charge and sometimes an earlier payment — three lines and
+ * one thing — so a field that could name only one of them was showing a
+ * third of the answer and looking complete.
  *
  * Absent is the ordinary state for an asset the company already owned when
  * this system arrived, and it is an EXCEPTION for one that was

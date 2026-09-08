@@ -268,7 +268,7 @@ function FacetSheet({
               Clear {label.toLowerCase()}
             </Button>
           )}
-          <Button variant="dark" onClick={onClose} className="flex-1">
+          <Button variant="primary" onClick={onClose} className="flex-1">
             Done
           </Button>
         </div>

@@ -306,7 +306,7 @@ export function Composer({
         />
 
         <Button
-          variant="dark"
+          variant="primary"
           size="icon"
           aria-label="Send"
           disabled={!canSend}

@@ -2290,6 +2290,17 @@ fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
         .collect()
 }
 
+/// One search word, as the literal half of an ILIKE pattern.
+///
+/// `%` and `_` are wildcards there, and both turn up in things people type at a
+/// picker — an underscore lives in plenty of codes. Backslash goes first, or
+/// the two replacements below would escape each other's escape.
+fn escape_like(term: &str) -> String {
+    term.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 /// The products a price book can name.
 ///
 /// A merchandiser writing a book has to pick what it prices, and until this
@@ -2298,8 +2309,17 @@ fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
 /// an offer is written against. So the authoring screen had no way to turn
 /// "that white shirt" into a row the server would accept.
 ///
-/// Searchable by code or name, because those are the two things somebody has in
-/// front of them: a tag off a garment, or a description in a meeting.
+/// Searchable word by word, across every field the answer then prints, because
+/// what somebody has in front of them is a tag off a garment or a description
+/// in a meeting — and neither arrives as a tidy prefix of one column.
+///
+/// A single `%q%` was one substring, which is a stricter promise than a search
+/// box makes. "jeans slim" found `Celana Jeans Slim Fit` only because those two
+/// words happen to sit adjacent in that order; "slim jeans" — the same two
+/// words the other way round — found nothing at all. And "indigo" found nothing
+/// while this very endpoint was printing `Indigo` beside every row it returned,
+/// which is a picker disowning what it had just shown. So each word must match
+/// SOMETHING, and which field it lands in is not the searcher's problem.
 ///
 /// It answers with the CURRENT company price beside each product, and that is
 /// the point rather than a decoration. A book is a list of changes; an author
@@ -2311,10 +2331,14 @@ pub async fn commercial_products(
     limit: i64,
 ) -> Result<Value, AppError> {
     let limit = limit.clamp(1, 500);
-    let needle = query
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| format!("%{value}%"));
+    // Capped at eight words. A search box is not a query language, and a
+    // paragraph pasted into one should cost a scan, not a self-join per word.
+    let terms: Vec<String> = query
+        .unwrap_or_default()
+        .split_whitespace()
+        .take(8)
+        .map(|term| format!("%{}%", escape_like(term)))
+        .collect();
 
     let rows = sqlx::query(
         "SELECT s.id sku_id, s.sku_code, s.color, s.size,
@@ -2336,14 +2360,21 @@ pub async fn commercial_products(
            FROM sku s
            JOIN article a ON a.id = s.article_id
           WHERE s.active
-            AND ($1::text IS NULL
-                 OR s.sku_code ILIKE $1
-                 OR a.article_code ILIKE $1
-                 OR a.name ILIKE $1)
+            -- 'No word fails to match', which is how 'every word matches
+            -- something' is said to a database. The inner list is every
+            -- field a row in the picker actually prints.
+            AND NOT EXISTS (
+                  SELECT 1 FROM unnest($1::text[]) term
+                   WHERE s.sku_code NOT ILIKE term
+                     AND a.article_code NOT ILIKE term
+                     AND COALESCE(a.name, '') NOT ILIKE term
+                     AND COALESCE(s.color, '') NOT ILIKE term
+                     AND COALESCE(s.size, '') NOT ILIKE term
+                     AND COALESCE(a.division_code, '') NOT ILIKE term)
           ORDER BY a.article_code, s.sku_code
           LIMIT $2",
     )
-    .bind(needle.as_deref())
+    .bind(&terms)
     .bind(limit)
     .fetch_all(pool)
     .await?;

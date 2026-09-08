@@ -398,7 +398,9 @@ export function Pricelist() {
   const [pending, setPending] = useState<readonly PendingEdit[]>([])
   const [pricing, setPricing] = useState(false)
   const [publishing, setPublishing] = useState(false)
-  const [receipt, setReceipt] = useState<PublishReceipt | null>(null)
+  /// Every book the last publish wrote. Usually one; more when the batch held
+  /// prices starting on different days, which is one book each.
+  const [receipt, setReceipt] = useState<readonly PublishReceipt[]>([])
 
   /// The composer, in the URL like every other panel: a merchandiser sent
   /// "price these for Bandung" should land on the sheet, not on the grid with
@@ -514,7 +516,7 @@ export function Pricelist() {
   }, [priced, prices.data?.shops])
 
   return (
-    <PageContent>
+    <PageContent fill>
       <PageHeader
         crumb="Commercial"
         title="Pricelist"
@@ -575,38 +577,56 @@ export function Pricelist() {
               </Banner>
             )}
 
-            {receipt !== null && (
-              <Banner
-                tone={receipt.delivered_to.length > 0 ? "ok" : "warn"}
-                className="mb-4"
-                onDismiss={() => setReceipt(null)}
-              >
-                {receipt.delivered_to.length > 0 ? (
-                  <>
-                    “
-                    {bookNames.get(receipt.version) ??
-                      `Book v${receipt.version}`}
-                    ” published and queued for{" "}
-                    {count(receipt.delivered_to.length)} shop
-                    {receipt.delivered_to.length === 1 ? "" : "s"} (
-                    {receipt.delivered_to.join(", ")}). Each one starts charging
-                    it when it takes the message, which is a separate moment —
-                    open a cell to see who has.
-                  </>
-                ) : (
-                  // The important case, and the reason the receipt is a banner
-                  // rather than a toast: published and reaching nobody looks
-                  // exactly like success everywhere else on this screen.
-                  <>
-                    “
-                    {bookNames.get(receipt.version) ??
-                      `Book v${receipt.version}`}
-                    ” published, and queued for nobody. No shop origin is
-                    registered, so no till will ever see these prices.
-                  </>
-                )}
-              </Banner>
-            )}
+            {receipt.length > 0 &&
+              (() => {
+                // The books are reported together but judged separately: one of
+                // three reaching nobody is the case this banner exists for, and
+                // summing the deliveries would hide it behind the two that
+                // worked.
+                const named = (one: PublishReceipt) =>
+                  bookNames.get(one.version) ?? `Book v${one.version}`
+                const nowhere = receipt.filter(
+                  (one) => one.delivered_to.length === 0
+                )
+                const shops = [
+                  ...new Set(receipt.flatMap((one) => one.delivered_to)),
+                ]
+                return (
+                  <Banner
+                    tone={nowhere.length === 0 ? "ok" : "warn"}
+                    className="mb-4"
+                    onDismiss={() => setReceipt([])}
+                  >
+                    {nowhere.length === receipt.length ? (
+                      // The important case, and the reason the receipt is a
+                      // banner rather than a toast: published and reaching
+                      // nobody looks exactly like success everywhere else on
+                      // this screen.
+                      <>
+                        {receipt.map(named).join(", ")}{" "}
+                        {receipt.length === 1 ? "was" : "were"} published, and
+                        queued for nobody. No shop origin is registered, so no
+                        till will ever see these prices.
+                      </>
+                    ) : (
+                      <>
+                        {receipt.map(named).join(", ")}{" "}
+                        {receipt.length === 1 ? "was" : "were"} published and
+                        queued for {count(shops.length)} shop
+                        {shops.length === 1 ? "" : "s"} ({shops.join(", ")}).
+                        Each one starts charging when it takes the message,
+                        which is a separate moment — open a cell to see who has.
+                        {nowhere.length > 0 && (
+                          <>
+                            {" "}
+                            {nowhere.map(named).join(" and ")} reached nobody.
+                          </>
+                        )}
+                      </>
+                    )}
+                  </Banner>
+                )
+              })()}
 
             <EditBar
               selected={selection.length}
@@ -631,7 +651,7 @@ export function Pricelist() {
               }}
             />
 
-            <Card className="overflow-hidden">
+            <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {items.length === 0 ? (
                 needle === "" ? (
                   <EmptyState>
@@ -880,7 +900,7 @@ function PriceGrid({
   }, [upcoming])
 
   return (
-    <div className="max-h-[calc(100vh-19rem)] min-h-0 overflow-auto">
+    <div className="min-h-0 flex-1 overflow-auto">
       {/* Fixed layout and separated borders, so a column keeps its width as
           rows scroll past and every cell carries its own rule. A matrix is read
           across as much as down, and without the vertical rules the eye loses

@@ -1,9 +1,7 @@
 import type { ScreenMap } from "@/screens/registry"
 
-import { PrintBench } from "@/screens/operations/tagging/bench"
-import { TaggingJobs } from "@/screens/operations/tagging/jobs"
+import { Tagging } from "@/screens/operations/tagging/tagging"
 
 export const screens: ScreenMap = {
-  "/operations/tagging": TaggingJobs,
-  "/operations/tagging/bench": PrintBench,
+  "/operations/tagging": Tagging,
 }

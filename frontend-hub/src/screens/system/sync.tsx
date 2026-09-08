@@ -145,7 +145,7 @@ export function SyncLane() {
             >
               {breaker.isPending ? "Resetting…" : "Reset breaker"}
             </Button>
-            <Button variant="dark" onClick={() => setIssuing(true)}>
+            <Button variant="primary" onClick={() => setIssuing(true)}>
               Issue command
             </Button>
           </>

@@ -128,7 +128,7 @@ export function ComparisonPicker({
                   onChange({ mode: "custom", from, to })
                   setOpen(false)
                 }}
-                className="mt-2 h-8 w-full rounded-full bg-ink text-[0.78125rem] font-medium text-white transition-colors hover:bg-black disabled:opacity-40"
+                className="mt-2 h-8 w-full rounded-full bg-accent text-[0.78125rem] font-medium text-white transition-colors hover:brightness-95 disabled:opacity-40"
               >
                 Compare against that
               </button>

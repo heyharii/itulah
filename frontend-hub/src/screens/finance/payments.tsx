@@ -338,7 +338,7 @@ export function Payments() {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => setComposing(true)}>
+            <Button variant="primary" onClick={() => setComposing(true)}>
               Record payment
             </Button>
           </>
@@ -526,7 +526,7 @@ function PaymentSheet({
               Posts on the payment date unless the month is closed.
             </span>
             <Button
-              variant="dark"
+              variant="primary"
               disabled={post.isPending}
               onClick={() => post.mutate()}
             >
@@ -904,7 +904,7 @@ function ComposerSheet({
                           }`}
                 </span>
                 <Button
-                  variant="dark"
+                  variant="primary"
                   disabled={!totals.ready || record.isPending}
                   onClick={() => form.handleSubmit()}
                 >

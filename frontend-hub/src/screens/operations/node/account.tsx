@@ -128,7 +128,7 @@ function Bench() {
           )}
         </form.Field>
         <div className="flex gap-2">
-          <Button variant="dark" type="submit">
+          <Button variant="primary" type="submit">
             Save the name
           </Button>
           {bench !== null && (
@@ -235,7 +235,7 @@ function ChangePassword({ disabled }: { disabled: boolean }) {
 
           <Problem error={change.error} />
 
-          <Button variant="dark" type="submit" disabled={change.isPending}>
+          <Button variant="primary" type="submit" disabled={change.isPending}>
             {change.isPending ? "Changing…" : "Change it and sign out"}
           </Button>
         </form>

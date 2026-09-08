@@ -1,6 +1,5 @@
 import { Menu, Search, Sparkles } from "lucide-react"
 
-import { Mark } from "@/components/shell/mark"
 import { useNodeIdentity } from "@/lib/session"
 
 /// The bar that exists only at the widths where the sidebar cannot.
@@ -41,9 +40,6 @@ export function TopBar({
       >
         <Menu className="size-[1.125rem] stroke-[1.7]" />
       </button>
-      <span className="grid size-[1.6875rem] shrink-0 place-items-center text-ink">
-        <Mark className="h-[1.4375rem] w-[1.25rem]" />
-      </span>
       {/* The node, the same fact the sidebar's own head carries. Not the screen
           name: the page under this bar already opens with its crumb and title,
           and a bar that repeats them spends the one row a phone has on saying

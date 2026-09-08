@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- Pasangan LINK-IN-BIO-PLAN.md · 2026-09-06 · enam usaha, desktop/ponsel, editor; satu perender.
+     Buka langsung sebagai berkas, atau lewat entri prototypes-static di .claude/launch.json.
+     Font dari Google Fonts, pustaka QR dari cdnjs; tanpa keduanya halaman tetap terbaca. -->
+<meta charset="utf-8">
+<title>Prototipe Halaman Toko</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{
+    --bg:#FFFFFF; --ink:#0E0E0E; --muted:#787878; --muted-2:#A8A8A8; --line:rgba(0,0,0,.08); --soft:#F4F4F5;
+    --cell:172px; --gap:28px; --r:28px;
+    --ease:cubic-bezier(.16,1,.3,1);
+    --font:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.5 var(--font);-webkit-font-smoothing:antialiased;color-scheme:light}
+  button{font:inherit}
+  a{color:inherit;text-decoration:none}
+  :focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:6px}
+  @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} html{scroll-behavior:auto} }
+
+  /* ── Bilah atas ─────────────────────────────────────────────────────── */
+  .bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:14px;padding:10px 18px;background:rgba(255,255,255,.82);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
+  .brand{font:700 13px var(--font);letter-spacing:-.01em;white-space:nowrap}
+  .brand span{color:var(--muted);font-weight:500;margin-left:6px}
+  .tabs{display:flex;gap:2px;flex:1;overflow-x:auto;scrollbar-width:none;padding:2px}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{border:0;background:transparent;color:var(--muted);font:600 13px var(--font);padding:8px 13px;border-radius:999px;cursor:pointer;white-space:nowrap;transition:background .25s var(--ease),color .25s var(--ease)}
+  .tab:hover{background:var(--soft);color:var(--ink)}
+  .tab.on{background:var(--ink);color:#fff}
+  .ctrls{display:flex;align-items:center;gap:8px}
+  .seg{display:flex;background:var(--soft);border-radius:12px;padding:3px;gap:2px}
+  .seg button{border:0;background:transparent;color:var(--muted);font:600 12.5px var(--font);padding:6px 11px;border-radius:9px;cursor:pointer;transition:.2s}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .btn{border:0;border-radius:999px;padding:8px 15px;font:700 13px var(--font);cursor:pointer;background:var(--ink);color:#fff;transition:transform .2s var(--ease),background .2s;white-space:nowrap}
+  .btn:hover{transform:translateY(-1px)}
+  .btn.ghost{background:var(--soft);color:var(--ink)}
+  .btn.hidden{display:none}
+  @media (max-width:720px){ .brand span{display:none} .bar{gap:8px;padding:8px 12px} }
+
+  /* ── Halaman ────────────────────────────────────────────────────────── */
+  .stage{min-height:calc(100vh - 57px);position:relative}
+  .page{display:grid;grid-template-columns:minmax(240px,360px) max-content;gap:72px;justify-content:center;align-items:start;padding:72px 40px 140px;max-width:1280px;margin:0 auto}
+  .page.stack{grid-template-columns:minmax(0,1fr);gap:36px;padding:36px 20px 140px;max-width:640px}
+  .profile{position:sticky;top:92px;animation:rise .7s var(--ease) both}
+  .page.stack .profile{position:static}
+  .avatar{width:184px;height:184px;border-radius:50%;display:grid;place-items:center;font:800 60px var(--font);letter-spacing:-.04em;color:#fff;background:#ddd center/cover;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06),0 20px 50px -20px rgba(0,0,0,.25);text-shadow:0 2px 12px rgba(0,0,0,.25)}
+  .page.stack .avatar{width:112px;height:112px;font-size:38px}
+  .name{font:800 44px/1.04 var(--font);letter-spacing:-.035em;margin:30px 0 14px;text-wrap:balance}
+  .page.stack .name{font-size:32px;margin:18px 0 10px}
+  .bio{font:500 17px/1.55 var(--font);color:var(--muted);max-width:32ch;margin:0 0 18px;text-wrap:pretty}
+  .page.stack .bio{font-size:15.5px;max-width:none}
+  .meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;font:600 13.5px var(--font);color:var(--muted)}
+  .meta .st{display:inline-flex;align-items:center;gap:7px}
+  .meta .dot{width:8px;height:8px;border-radius:50%;background:#22C55E;box-shadow:0 0 0 4px rgba(34,197,94,.16)}
+  .meta .dot.off{background:#C4C4C4;box-shadow:0 0 0 4px rgba(0,0,0,.05)}
+  .gridwrap{min-width:0}
+  .grid{--cols:4;display:grid;grid-template-columns:repeat(var(--cols),var(--cell));grid-auto-rows:var(--cell);gap:var(--gap);grid-auto-flow:dense;position:relative;width:calc(var(--cols)*var(--cell) + (var(--cols) - 1)*var(--gap))}
+  .grid.editing{touch-action:none}
+  .slot{position:relative;min-width:0;will-change:transform}
+  .w2{grid-column:span 2}.h2{grid-row:span 2}
+  .slot.pop{animation:pop .65s var(--ease) both;animation-delay:calc(var(--i)*38ms)}
+  @keyframes pop{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .tile{position:relative;display:flex;flex-direction:column;width:100%;height:100%;border-radius:var(--r);background:#fff;border:1px solid var(--line);box-shadow:0 2px 6px rgba(0,0,0,.035);padding:20px;color:var(--ink);overflow:hidden;cursor:pointer;text-align:left;transition:transform .4s var(--ease),box-shadow .4s var(--ease);will-change:transform}
+  .tile:hover{transform:scale(1.024);box-shadow:0 18px 44px -8px rgba(0,0,0,.14),0 2px 6px rgba(0,0,0,.04)}
+  .tile:active{transform:scale(.985)}
+  .grid.editing .tile{cursor:grab}
+  .grid.editing .tile:active{cursor:grabbing}
+  .tile.bleed{padding:0}
+  .ico{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#fff;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.05);background:#111}
+  .ico svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .ico svg.f{fill:currentColor;stroke:none}
+  .ico b{font:800 14px var(--font);letter-spacing:-.03em}
+  .ico b.s{font-size:10.5px;letter-spacing:-.02em}
+  .ico.soft{background:var(--soft);color:var(--ink);box-shadow:none}
+  .ico.ring{background:#fff;color:#1A73E8;box-shadow:inset 0 0 0 1px var(--line)}
+  .tt{margin-top:13px;min-width:0}
+  .tl{display:block;font:700 15.5px/1.25 var(--font);letter-spacing:-.015em;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .tm{display:block;font:500 12.5px/1.35 var(--font);color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:999px;font:700 12px var(--font);color:#fff;background:var(--bc,#111);margin-top:auto;align-self:flex-start;white-space:nowrap}
+  .pill.lite{background:var(--soft);color:var(--ink)}
+  .h2 .pill,.w2 .pill{margin-top:auto}
+  .side{position:absolute;right:0;top:0;bottom:0;width:46%;display:flex;align-items:center;justify-content:center;pointer-events:none}
+  .side .big{width:112px;height:112px;border-radius:32px;opacity:.10;display:grid;place-items:center;color:#000}
+  .side .big svg{width:64px;height:64px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  .bubble{background:#DCF8C6;color:#0B3B1C;border-radius:16px 16px 16px 4px;padding:10px 12px;font:500 12.5px/1.4 var(--font);max-width:88%;box-shadow:0 2px 6px rgba(0,0,0,.06);position:relative}
+  .bubble small{display:block;text-align:right;font-size:10px;color:#4E7A5B;margin-top:3px}
+  /* foto & galeri */
+  .photo{position:absolute;inset:0;background:#e5e5e5 center/cover no-repeat}
+  .cap{position:absolute;left:14px;bottom:14px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-radius:999px;padding:6px 11px;font:600 12px var(--font);color:#111;box-shadow:0 2px 10px rgba(0,0,0,.14);max-width:calc(100% - 28px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .collage{position:absolute;inset:0;display:grid;gap:3px;background:#fff}
+  .collage.c3{grid-template-columns:1.2fr 1fr 1fr}
+  .collage.c4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+  .collage.c2{grid-template-columns:1fr 1fr}
+  .collage.c2v{grid-template-rows:1fr 1fr}
+  .collage div{background:#e5e5e5 center/cover}
+  /* katalog & menu */
+  .items{display:grid;gap:10px;margin-top:14px;min-width:0}
+  .items.g2{grid-template-columns:1fr 1fr}
+  .items.row{grid-template-columns:repeat(3,1fr)}
+  .it{display:grid;gap:6px;min-width:0}
+  .it .ph{aspect-ratio:1;border-radius:14px;background:#eee center/cover}
+  .it.h .ph{aspect-ratio:auto;height:56px}
+  .it b{font:700 12.5px/1.2 var(--font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .it span{font:600 12px var(--font);color:var(--muted);font-variant-numeric:tabular-nums}
+  .list{display:grid;gap:9px;margin-top:12px}
+  .list .li{display:flex;align-items:center;gap:10px;min-width:0}
+  .list .li i{width:36px;height:36px;border-radius:10px;background:#eee center/cover;flex:none}
+  .list .li b{font:700 12.5px var(--font);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .list .li span{font:600 12px var(--font);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .cat{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:3px;background:#fff}
+  .cat div{position:relative;background:#eee center/cover;overflow:hidden}
+  .cat div span{position:absolute;left:10px;right:10px;bottom:9px;display:flex;justify-content:space-between;gap:6px;font:700 11px var(--font);color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.55)}
+  .cat div span em{font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* teks */
+  .txt .tl{font-size:17px;-webkit-line-clamp:3}
+  .txt .tm{white-space:normal;-webkit-line-clamp:4;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;font-size:13.5px;line-height:1.45;margin-top:8px}
+  /* jam */
+  .days{display:flex;gap:5px;margin-top:auto}
+  .days i{flex:1;height:30px;border-radius:8px;background:var(--soft);display:grid;place-items:center;font:700 10px var(--font);color:var(--muted);font-style:normal}
+  .days i.on{background:#111;color:#fff}
+  .days i.x{background:#fff;box-shadow:inset 0 0 0 1px var(--line);color:#C9C9C9}
+  /* ulasan */
+  .stars{color:#F5A623;font-size:13px;letter-spacing:1px;margin-top:4px}
+  /* peta */
+  .map{position:absolute;inset:0;background:#EEEDE7}
+  .map svg{position:absolute;inset:0;width:100%;height:100%}
+  .pin{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:#EA4335;box-shadow:0 0 0 3px #fff,0 4px 12px rgba(0,0,0,.3)}
+  .pin::after{content:"";position:absolute;inset:-14px;border-radius:50%;border:2px solid rgba(234,67,53,.55);animation:pulse 2.2s var(--ease) infinite}
+  @keyframes pulse{0%{transform:scale(.4);opacity:1}100%{transform:scale(1.6);opacity:0}}
+  .pfoot{grid-column:1/-1;display:flex;justify-content:space-between;font:600 12.5px var(--font);color:var(--muted-2);padding-top:8px}
+  .pfoot a:hover{color:var(--ink)}
+
+  /* ── Ponsel ─────────────────────────────────────────────────────────── */
+  .device{width:390px;height:812px;margin:44px auto 120px;border-radius:52px;background:#fff;box-shadow:0 0 0 11px #0f0f0f,0 0 0 13px #2a2a2a,0 50px 100px -30px rgba(0,0,0,.45);overflow:hidden;position:relative;animation:rise .7s var(--ease) both}
+  .device .page{display:block;padding:52px 20px 48px;height:100%;overflow-y:auto;scrollbar-width:none;max-width:none;margin:0}
+  .device .page::-webkit-scrollbar{display:none}
+  .device .profile{position:static;animation:none;margin-bottom:26px}
+  .device .avatar{width:96px;height:96px;font-size:32px}
+  .device .name{font-size:30px;margin:16px 0 8px}
+  .device .bio{font-size:14.5px;margin-bottom:12px}
+  .device .meta{font-size:12.5px}
+  .device .grid{--cols:2;--cell:168px;--gap:14px}
+  .device .tile{padding:16px;--r:24px}
+  .device .ico{width:36px;height:36px;border-radius:11px}
+  .device .tl{font-size:14.5px}
+  .device .pfoot{padding-top:16px}
+  .notch{position:absolute;top:14px;left:50%;transform:translateX(-50%);width:110px;height:30px;border-radius:999px;background:#0f0f0f;z-index:2}
+  @media (max-width:440px){ .device{width:100%;height:auto;min-height:720px;border-radius:0;box-shadow:none;margin:0} .device .page{height:auto} .notch{display:none} }
+
+  /* ── Editor ─────────────────────────────────────────────────────────── */
+  .slot.sel .tile{box-shadow:0 0 0 2px var(--ink),0 18px 44px -8px rgba(0,0,0,.16)}
+  .slot.dragging .tile{opacity:.18;transform:none!important;box-shadow:none}
+  .slot.over .tile{transform:scale(.97)}
+  .tb{position:absolute;z-index:6;display:flex;align-items:center;gap:2px;padding:5px;background:#111;color:#fff;border-radius:14px;box-shadow:0 14px 34px -6px rgba(0,0,0,.45);transform:translate(-50%,10px);animation:pop .35s var(--ease) both}
+  .tb button{border:0;background:transparent;color:#fff;width:32px;height:32px;border-radius:9px;cursor:pointer;display:grid;place-items:center;opacity:.7;transition:.15s}
+  .tb button:hover,.tb button.on{opacity:1;background:rgba(255,255,255,.14)}
+  .tb button svg{width:16px;height:16px}
+  .tb .sep{width:1px;height:20px;background:rgba(255,255,255,.2);margin:0 4px}
+  .ghost{position:fixed;z-index:60;pointer-events:none;border-radius:var(--r);transform-origin:center;box-shadow:0 40px 80px -20px rgba(0,0,0,.45);transition:transform .08s linear}
+  .ghost .tile{transform:scale(1.045);box-shadow:none;cursor:grabbing}
+  [contenteditable="true"]{cursor:text;outline:none;border-radius:4px}
+  [contenteditable="true"]:hover{background:rgba(0,0,0,.04)}
+  [contenteditable="true"]:focus{background:rgba(0,0,0,.05);box-shadow:0 0 0 3px rgba(0,0,0,.05)}
+  .addbar{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:40;display:flex;gap:6px;align-items:center;background:#111;border-radius:22px;padding:8px;box-shadow:0 24px 60px -10px rgba(0,0,0,.5);animation:pop .45s var(--ease) both;max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}
+  .addbar input{border:0;background:rgba(255,255,255,.1);color:#fff;font:600 13.5px var(--font);border-radius:14px;padding:10px 14px;width:min(320px,60vw);outline:none}
+  .addbar input::placeholder{color:rgba(255,255,255,.5)}
+  .addbar input:focus{background:rgba(255,255,255,.16)}
+  .addbar .ab{border:0;background:transparent;color:#fff;font:600 12.5px var(--font);padding:9px 11px;border-radius:12px;cursor:pointer;opacity:.8;display:inline-flex;align-items:center;gap:6px;transition:.15s}
+  .addbar .ab:hover{opacity:1;background:rgba(255,255,255,.12)}
+  .addbar .ab svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .addbar .go{background:#fff;color:#111;opacity:1}
+  .addbar .go:disabled{opacity:.35;cursor:default}
+  .detect{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:40;font:600 12.5px var(--font);color:#fff;background:#111;padding:6px 12px;border-radius:999px;box-shadow:0 10px 30px -10px rgba(0,0,0,.4);animation:pop .3s var(--ease) both;white-space:nowrap}
+
+  /* ── Modal & toast ──────────────────────────────────────────────────── */
+  .modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.32);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);animation:fade .25s var(--ease) both}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .card{width:min(540px,100%);max-height:84vh;background:#fff;border-radius:30px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 40px 100px -20px rgba(0,0,0,.4);animation:pop .45s var(--ease) both}
+  .card.narrow{width:min(360px,100%)}
+  .ch{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:22px 24px 12px}
+  .ch b{font:800 22px/1.1 var(--font);letter-spacing:-.025em}
+  .ch span{display:block;font:500 13px var(--font);color:var(--muted);margin-top:3px}
+  .x{border:0;background:var(--soft);color:var(--ink);width:34px;height:34px;border-radius:50%;cursor:pointer;display:grid;place-items:center;flex:none;transition:.15s}
+  .x:hover{background:#e8e8ea}
+  .x svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+  .chips{display:flex;gap:6px;padding:4px 24px 14px;overflow-x:auto;scrollbar-width:none;flex:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:none;border:0;border-radius:999px;padding:7px 13px;font:600 12.5px var(--font);background:var(--soft);color:var(--ink);cursor:pointer;transition:.15s}
+  .chip.on{background:var(--ink);color:#fff}
+  .mlist{overflow-y:auto;padding:0 24px 24px;display:grid;gap:14px}
+  .mi{display:grid;grid-template-columns:60px 1fr auto;gap:14px;align-items:center}
+  .mi .mp{width:60px;height:60px;border-radius:16px;background:#eee center/cover}
+  .mi b{display:block;font:700 14.5px var(--font);letter-spacing:-.01em}
+  .mi small{display:block;font:500 12.5px var(--font);color:var(--muted);margin-top:2px}
+  .mi .mr{display:grid;gap:6px;justify-items:end}
+  .mi .pr{font:700 13.5px var(--font);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .mi .pr small{display:inline;color:var(--muted);font-weight:600;margin-left:1px}
+  .pill.wa{--bc:#25D366;margin:0}
+  .qwrap{display:grid;gap:12px;justify-items:center;padding:8px 24px 24px;text-align:center}
+  .qr{width:220px;height:220px;display:grid;place-items:center;border-radius:20px;box-shadow:inset 0 0 0 1px var(--line);padding:12px;background:#fff}
+  .qr canvas,.qr img{width:196px!important;height:196px!important;image-rendering:pixelated}
+  .qr table{border-collapse:collapse}
+  .qname{font:800 17px var(--font);letter-spacing:-.02em}
+  .qnote{font:500 12.5px var(--font);color:var(--muted);margin-top:-6px}
+  .qbtns{display:flex;gap:8px;width:100%;margin-top:6px}
+  .qbtns .btn{flex:1}
+  .fields{padding:0 24px 24px;display:grid;gap:14px;overflow-y:auto}
+  .fld{display:grid;gap:6px}
+  .fld label{font:600 11.5px var(--font);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .fld input,.fld textarea{font:500 14.5px var(--font);color:var(--ink);background:var(--soft);border:0;border-radius:12px;padding:11px 13px;width:100%;resize:none;outline:none}
+  .fld input:focus,.fld textarea:focus{box-shadow:0 0 0 2px var(--ink)}
+  .hint{font:500 13px var(--font);color:var(--muted);margin:0}
+  .toast{position:fixed;left:50%;bottom:96px;transform:translate(-50%,16px);z-index:70;background:#111;color:#fff;font:600 13px var(--font);padding:10px 16px;border-radius:999px;opacity:0;transition:.35s var(--ease);pointer-events:none;box-shadow:0 20px 40px -10px rgba(0,0,0,.4);white-space:nowrap}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+  .note{max-width:1200px;margin:0 auto;padding:0 40px 60px;color:var(--muted);font:500 13px/1.6 var(--font)}
+</style>
+
+</head>
+<body>
+<div class="bar">
+  <div class="brand">Prototipe halaman toko<span>enam usaha · satu perender</span></div>
+  <nav class="tabs" id="tabs" aria-label="Usaha"></nav>
+  <div class="ctrls">
+    <div class="seg" id="device"><button type="button" data-dev="desktop" class="on">Desktop</button><button type="button" data-dev="phone">Ponsel</button></div>
+    <button type="button" class="btn ghost hidden" id="publish">Terbitkan</button>
+    <button type="button" class="btn" id="edit">Edit</button>
+  </div>
+</div>
+<main class="stage" id="stage"></main>
+<p class="note">Foto adalah bidang warna buatan; di produk asli itu foto pemilik. Tautan merek membuka situs mereknya. Kode QR pada kartu QRIS dibuat dari teks contoh, bukan payload QRIS. Jam buka dihitung dari WIB saat ini.</p>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  'use strict';
+  /* ── Util ──────────────────────────────────────────────────────────── */
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const rp = n => 'Rp ' + Number(n).toLocaleString('id-ID');
+  const rpS = n => Number(n).toLocaleString('id-ID');
+  const waUrl = (num, text) => 'https://wa.me/' + num + '?text=' + encodeURIComponent(text);
+  const mapsUrl = q => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+  const fmtPhone = n => '+' + n.replace(/^(\d{2})(\d{3})(\d{4})(\d+)$/, '$1 $2-$3-$4');
+  const clone = o => JSON.parse(JSON.stringify(o));
+  let uid = 1; const nid = () => 't' + (uid++);
+  function nowWIB(){ const d = new Date(); return new Date(d.getTime() + (d.getTimezoneOffset() + 420) * 60000); }
+  const hm = t => t.replace(':', '.');
+  const DAYS = ['M','S','S','R','K','J','S']; const DAYN = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+  function hoursStatus(h){
+    if (h.always) return {open:true, short:'Buka 24 jam', text:'Buka 24 jam', sub:'Setiap hari, sepanjang hari'};
+    const n = nowWIB(), day = n.getDay(), mins = n.getHours()*60 + n.getMinutes();
+    const [oh, om] = h.open.split(':').map(Number), [ch, cm] = h.close.split(':').map(Number);
+    const o = oh*60 + om, c = ch*60 + cm, closed = (h.closed || []);
+    const days = closed.length ? 'Tutup ' + closed.map(d => DAYN[d]).join(', ') : 'Setiap hari';
+    const range = hm(h.open) + '–' + hm(h.close);
+    if (closed.includes(day)) return {open:false, short:'Tutup hari ini', text:'Tutup hari ini', sub:days + ' · ' + range};
+    if (mins < o) return {open:false, short:'Buka ' + hm(h.open), text:'Tutup · buka ' + hm(h.open), sub:days + ' · ' + range};
+    if (mins < c) return {open:true, short:'Buka sekarang', text:'Buka sekarang', sub:'Tutup ' + hm(h.close) + ' · ' + days};
+    return {open:false, short:'Sudah tutup', text:'Sudah tutup', sub:'Buka besok ' + hm(h.open) + ' · ' + range};
+  }
+
+  /* ── Ikon ──────────────────────────────────────────────────────────── */
+  const SVG = (inner, f) => '<svg viewBox="0 0 24 24"' + (f ? ' class="f"' : '') + '>' + inner + '</svg>';
+  const IC = {
+    chat: SVG('<path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/>'),
+    pin: SVG('<path d="M12 22s7-7.1 7-12a7 7 0 1 0-14 0c0 4.9 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>'),
+    clock: SVG('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+    star: SVG('<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/>', true),
+    qr: SVG('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3v3h-3zM18 18h3v3h-3zM14 20h1M20 14h1v1"/>'),
+    bag: SVG('<path d="M6 8h12l1 13H5L6 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>'),
+    tag: SVG('<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1.3"/>'),
+    bowl: SVG('<path d="M3 11h18a9 9 0 0 1-18 0z"/><path d="M7 7c1-2 3-2 4 0M13 7c1-2 3-2 4 0"/>'),
+    cup: SVG('<path d="M5 8h11v6a5 5 0 0 1-10 0V8z"/><path d="M16 9h2a2.5 2.5 0 0 1 0 5h-2M8 4c0 1 1 1 1 2M12 4c0 1 1 1 1 2"/>'),
+    hanger: SVG('<path d="M12 8a2 2 0 1 0-2-2"/><path d="M12 8l-9 7h18l-9-7z"/>'),
+    scissors: SVG('<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.5 15.5M20 20L8.5 8.5"/>'),
+    wash: SVG('<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="13" r="5"/><path d="M7 6.5h2"/>'),
+    camera: SVG('<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r=".8"/>'),
+    note: SVG('<circle cx="9" cy="17" r="3.5"/><path d="M12.5 17V4l6 2v3.5l-6-2"/>'),
+    play: SVG('<path d="M8 5v14l11-7z"/>', true),
+    text: SVG('<path d="M4 6h16M4 12h16M4 18h10"/>'),
+    image: SVG('<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/>'),
+    pencil: SVG('<path d="M4 20h4l10.5-10.5a2 2 0 0 0 0-2.8l-1.2-1.2a2 2 0 0 0-2.8 0L4 16v4z"/>'),
+    trash: SVG('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+    left: SVG('<path d="M14 6l-6 6 6 6"/>'), right: SVG('<path d="M10 6l6 6-6 6"/>'),
+    plus: SVG('<path d="M12 5v14M5 12h14"/>'), close: SVG('<path d="M6 6l12 12M18 6L6 18"/>'),
+    g: '<b style="font-family:var(--font)">G</b>'
+  };
+  const BRANDS = {
+    gofood:{name:'GoFood', host:'gofood.co.id', bg:'#00AA13', ico:'<b>go</b>', url:'https://gofood.co.id', cta:'Pesan'},
+    grabfood:{name:'GrabFood', host:'food.grab.com', bg:'#00B14F', ico:'<b class="s">Grab</b>', url:'https://food.grab.com/id/id/', cta:'Pesan'},
+    shopeefood:{name:'ShopeeFood', host:'shopee.co.id', bg:'#EE4D2D', ico:IC.bag, url:'https://shopee.co.id/m/shopeefood', cta:'Pesan'},
+    shopee:{name:'Shopee', host:'shopee.co.id', bg:'#EE4D2D', ico:IC.bag, url:'https://shopee.co.id', cta:'Belanja'},
+    tokopedia:{name:'Tokopedia', host:'tokopedia.com', bg:'#03AC0E', ico:'<b>T</b>', url:'https://www.tokopedia.com', cta:'Belanja'},
+    tiktokshop:{name:'TikTok Shop', host:'shop.tiktok.com', bg:'#111111', ico:IC.bag, url:'https://shop.tiktok.com', cta:'Belanja'},
+    instagram:{name:'Instagram', host:'instagram.com', bg:'linear-gradient(135deg,#F9CE34,#EE2A7B 50%,#6228D7)', ico:IC.camera, url:'https://instagram.com', cta:'Follow', cc:'#E1306C'},
+    tiktok:{name:'TikTok', host:'tiktok.com', bg:'#111111', ico:IC.note, url:'https://tiktok.com', cta:'Follow'},
+    youtube:{name:'YouTube', host:'youtube.com', bg:'#FF0000', ico:IC.play, url:'https://youtube.com', cta:'Subscribe'},
+    grabmart:{name:'GrabMart', host:'grab.com', bg:'#00B14F', ico:'<b class="s">Grab</b>', url:'https://www.grab.com/id/mart/', cta:'Pesan'},
+    gomart:{name:'GoMart', host:'gojek.com', bg:'#00AA13', ico:'<b>go</b>', url:'https://www.gojek.com/gomart', cta:'Pesan'}
+  };
+
+  /* ── Foto buatan (canvas) ──────────────────────────────────────────── */
+  const PH = {};
+  function glyph(g, kind, S){
+    g.save(); g.translate(S/2, S/2); g.strokeStyle = 'rgba(255,255,255,.9)'; g.fillStyle = 'rgba(255,255,255,.9)'; g.lineWidth = S*.035; g.lineCap = 'round'; g.lineJoin = 'round';
+    const u = S/100;
+    if (kind === 'bowl'){ g.beginPath(); g.moveTo(-34*u, -2*u); g.lineTo(34*u, -2*u); g.arc(0, -2*u, 34*u, 0, Math.PI); g.closePath(); g.fill(); g.beginPath(); [-16,0,16].forEach(x => { g.moveTo(x*u, -8*u); g.bezierCurveTo((x-6)*u, -18*u, (x+6)*u, -22*u, x*u, -32*u); }); g.stroke(); g.beginPath(); g.moveTo(-40*u, -34*u); g.lineTo(20*u, 6*u); g.moveTo(-32*u, -40*u); g.lineTo(26*u, 0); g.stroke(); }
+    else if (kind === 'cup'){ g.beginPath(); g.roundRect(-26*u, -14*u, 48*u, 44*u, [4*u, 4*u, 14*u, 14*u]); g.fill(); g.beginPath(); g.arc(24*u, 4*u, 12*u, -Math.PI/2, Math.PI/2); g.stroke(); g.beginPath(); [-12,2].forEach(x => { g.moveTo(x*u, -20*u); g.bezierCurveTo((x-6)*u, -28*u, (x+6)*u, -32*u, x*u, -40*u); }); g.stroke(); }
+    else if (kind === 'shirt'){ g.beginPath(); g.moveTo(-14*u, -34*u); g.lineTo(-38*u, -20*u); g.lineTo(-30*u, -2*u); g.lineTo(-20*u, -6*u); g.lineTo(-20*u, 34*u); g.lineTo(20*u, 34*u); g.lineTo(20*u, -6*u); g.lineTo(30*u, -2*u); g.lineTo(38*u, -20*u); g.lineTo(14*u, -34*u); g.quadraticCurveTo(0, -22*u, -14*u, -34*u); g.closePath(); g.fill(); }
+    else if (kind === 'hanger'){ g.beginPath(); g.arc(0, -30*u, 8*u, Math.PI*.2, Math.PI*1.9); g.stroke(); g.beginPath(); g.moveTo(0, -22*u); g.lineTo(0, -12*u); g.lineTo(-44*u, 16*u); g.lineTo(44*u, 16*u); g.lineTo(0, -12*u); g.stroke(); }
+    else if (kind === 'bag'){ g.beginPath(); g.moveTo(-28*u, -10*u); g.lineTo(28*u, -10*u); g.lineTo(34*u, 36*u); g.lineTo(-34*u, 36*u); g.closePath(); g.fill(); g.beginPath(); g.arc(0, -14*u, 14*u, Math.PI, 0); g.stroke(); }
+    else if (kind === 'bottle'){ g.beginPath(); g.roundRect(-14*u, -6*u, 28*u, 44*u, 8*u); g.fill(); g.beginPath(); g.roundRect(-7*u, -30*u, 14*u, 26*u, 3*u); g.fill(); }
+    else if (kind === 'scissors'){ g.beginPath(); g.arc(-18*u, 22*u, 10*u, 0, Math.PI*2); g.moveTo(28*u, 22*u); g.arc(18*u, 22*u, 10*u, 0, Math.PI*2); g.stroke(); g.beginPath(); g.moveTo(-12*u, 14*u); g.lineTo(24*u, -34*u); g.moveTo(12*u, 14*u); g.lineTo(-24*u, -34*u); g.stroke(); }
+    else if (kind === 'basket'){ g.beginPath(); g.moveTo(-36*u, -8*u); g.lineTo(36*u, -8*u); g.lineTo(28*u, 34*u); g.lineTo(-28*u, 34*u); g.closePath(); g.fill(); g.strokeStyle = 'rgba(0,0,0,.18)'; g.beginPath(); [-20,-7,7,20].forEach(x => { g.moveTo(x*u, -4*u); g.lineTo(x*u*.85, 30*u); }); g.stroke(); }
+    else if (kind === 'wash'){ g.beginPath(); g.arc(0, 0, 32*u, 0, Math.PI*2); g.stroke(); g.beginPath(); g.arc(0, 0, 20*u, 0, Math.PI*2); g.fill(); }
+    else if (kind === 'egg'){ g.beginPath(); g.ellipse(0, 4*u, 26*u, 32*u, 0, 0, Math.PI*2); g.fill(); }
+    else if (kind === 'rice'){ g.beginPath(); g.roundRect(-28*u, -30*u, 56*u, 64*u, 10*u); g.fill(); g.fillStyle = 'rgba(0,0,0,.15)'; g.beginPath(); g.roundRect(-18*u, -6*u, 36*u, 26*u, 6*u); g.fill(); }
+    else { g.beginPath(); g.arc(0, 0, 26*u, 0, Math.PI*2); g.fill(); }
+    g.restore();
+  }
+  function photo(h, kind, S){
+    S = S || 260; const key = h + '/' + kind + '/' + S; if (PH[key]) return PH[key];
+    const c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
+    const base = g.createLinearGradient(0, 0, S, S); base.addColorStop(0, 'hsl(' + h + ' 62% 74%)'); base.addColorStop(1, 'hsl(' + (h + 28) + ' 52% 40%)'); g.fillStyle = base; g.fillRect(0, 0, S, S);
+    let s = (h * 7919 + kind.length * 131 + 17) >>> 0; const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    for (let i = 0; i < 8; i++){ const x = rnd()*S, y = rnd()*S, r = S*(.12 + rnd()*.3); const rg = g.createRadialGradient(x, y, 0, x, y, r); const l = rnd() > .45; rg.addColorStop(0, l ? 'rgba(255,255,255,.42)' : 'rgba(0,0,0,.20)'); rg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = rg; g.fillRect(0, 0, S, S); }
+    const v = g.createRadialGradient(S/2, S/2, S*.25, S/2, S/2, S*.75); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.26)'); g.fillStyle = v; g.fillRect(0, 0, S, S);
+    if (kind !== 'none') glyph(g, kind, S);
+    return PH[key] = c.toDataURL('image/jpeg', .84);
+  }
+  const bg = (h, kind, S) => 'background-image:url(' + photo(h, kind, S) + ')';
+
+  /* ── Peta buatan (SVG) ─────────────────────────────────────────────── */
+  function mapSvg(seed){
+    const r = (seed * 37) % 60 - 30;
+    const road = (d, w) => '<path d="' + d + '" stroke="#DCD9D0" stroke-width="' + (w + 3) + '" fill="none" stroke-linecap="round"/><path d="' + d + '" stroke="#fff" stroke-width="' + w + '" fill="none" stroke-linecap="round"/>';
+    return '<svg viewBox="0 0 400 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true">' +
+      '<rect width="400" height="400" fill="#EFEDE6"/>' +
+      '<g transform="rotate(' + r + ' 200 200)">' +
+      '<rect x="-40" y="60" width="150" height="110" rx="18" fill="#DDE9D2"/>' +
+      '<path d="M300 -40 C 340 80, 260 160, 330 260 S 420 400, 380 460" stroke="#BFD9EE" stroke-width="34" fill="none" stroke-linecap="round"/>' +
+      '<rect x="40" y="250" width="120" height="90" rx="14" fill="#E6E3DA"/><rect x="200" y="80" width="90" height="70" rx="12" fill="#E6E3DA"/><rect x="170" y="290" width="150" height="70" rx="12" fill="#E6E3DA"/>' +
+      road('M-50 120 H 450', 10) + road('M-50 230 H 450', 14) + road('M-50 340 H 450', 8) + road('M90 -50 V 450', 9) + road('M200 -50 V 450', 14) + road('M310 -50 V 450', 8) + road('M-50 420 L 450 -20', 7) +
+      '</g></svg><span class="pin"></span>';
+  }
+
+  /* ── Data enam halaman ─────────────────────────────────────────────── */
+  const PAGES = [
+    { slug:'bakmitebet', name:'Bakmi Tebet', initials:'BT', hue:38, kind:'bowl', accent:'#E8A33D', type:'Restoran · warung',
+      bio:'Bakmi ayam buatan sendiri sejak 2014. Pangsit digoreng saat dipesan, es kopi susu dari biji Toraja.', area:'Tebet, Jakarta Selatan',
+      wa:'6281234567890', address:'Jl. Tebet Timur Dalam Raya No. 12, Jakarta Selatan', hours:{open:'09:00', close:'21:00'}, menuIcon:'bowl',
+      items:[
+        {cat:'Bakmi', name:'Bakmi ayam jamur', price:28000, h:38, k:'bowl', desc:'Mi telur, ayam kecap, jamur'},
+        {cat:'Bakmi', name:'Bakmi yamin manis', price:26000, h:30, k:'bowl', desc:'Kecap manis, bawang goreng'},
+        {cat:'Bakmi', name:'Bakmi pangsit komplit', price:34000, h:22, k:'bowl', desc:'Pangsit rebus + goreng, bakso'},
+        {cat:'Pelengkap', name:'Pangsit goreng (5)', price:18000, h:45, k:'egg', desc:'Isi ayam udang'},
+        {cat:'Pelengkap', name:'Bakso sapi (5)', price:20000, h:15, k:'bowl', desc:'Kuah kaldu'},
+        {cat:'Minuman', name:'Es kopi susu', price:22000, h:26, k:'cup', desc:'Gula aren'},
+        {cat:'Minuman', name:'Es teh manis', price:8000, h:35, k:'cup', desc:''},
+        {cat:'Minuman', name:'Es jeruk', price:12000, h:48, k:'cup', desc:'Jeruk peras'}
+      ],
+      tiles:[
+        {type:'wa', w:2, h:1, label:'Pesan via WhatsApp', msg:'Halo Bakmi Tebet, saya mau pesan'},
+        {type:'menu', w:2, h:2, label:'Menu'},
+        {type:'maps', w:1, h:1},
+        {type:'hours', w:1, h:1},
+        {type:'brand', brand:'gofood', w:1, h:1},
+        {type:'brand', brand:'grabfood', w:1, h:1},
+        {type:'brand', brand:'shopeefood', w:1, h:1},
+        {type:'qris', w:1, h:1},
+        {type:'gallery', w:2, h:1, shots:[[38,'bowl'],[22,'egg'],[26,'cup']]},
+        {type:'brand', brand:'instagram', w:1, h:1, handle:'@bakmitebet'},
+        {type:'text', w:1, h:1, heading:'Parkir', body:'Motor di depan, mobil di Jl. Tebet Timur 3.'}
+      ] },
+    { slug:'kopisenja', name:'Kopi Senja', initials:'KS', hue:24, kind:'cup', accent:'#C2703D', type:'Kafe',
+      bio:'Manual brew dan roti panggang di Cikini. Empat belas kursi, colokan di semua meja, buka sampai malam.', area:'Cikini, Menteng',
+      wa:'6281298765432', address:'Jl. Cikini Raya No. 58, Menteng, Jakarta Pusat', hours:{open:'15:00', close:'23:00'}, menuIcon:'cup',
+      items:[
+        {cat:'Kopi', name:'Es kopi susu senja', price:24000, h:26, k:'cup', desc:'Gula aren, susu segar'},
+        {cat:'Kopi', name:'Americano', price:22000, h:18, k:'cup', desc:'Panas / dingin'},
+        {cat:'Kopi', name:'Manual brew V60', price:32000, h:30, k:'cup', desc:'Kintamani / Gayo'},
+        {cat:'Non-kopi', name:'Matcha latte', price:30000, h:110, k:'cup', desc:''},
+        {cat:'Non-kopi', name:'Cokelat panas', price:26000, h:20, k:'cup', desc:''},
+        {cat:'Makanan', name:'Roti bakar keju', price:18000, h:40, k:'rice', desc:''},
+        {cat:'Makanan', name:'Croissant mentega', price:25000, h:42, k:'egg', desc:'Datang tiap pagi'},
+        {cat:'Makanan', name:'Kentang goreng', price:20000, h:46, k:'basket', desc:'Bumbu rumput laut'}
+      ],
+      tiles:[
+        {type:'wa', w:2, h:1, label:'Reservasi & pesan', msg:'Halo Kopi Senja, saya mau'},
+        {type:'promo', w:2, h:1, title:'Beli 2 gratis 1 es kopi susu', line:'Jumat–Minggu, 15.00–18.00', until:'28 Sep'},
+        {type:'menu', w:2, h:2, label:'Menu'},
+        {type:'hours', w:1, h:1},
+        {type:'maps', w:1, h:1},
+        {type:'brand', brand:'gofood', w:1, h:1},
+        {type:'brand', brand:'grabfood', w:1, h:1},
+        {type:'gallery', w:2, h:1, shots:[[24,'cup'],[200,'none'],[40,'rice']]},
+        {type:'brand', brand:'instagram', w:1, h:1, handle:'@kopisenja'},
+        {type:'brand', brand:'tiktok', w:1, h:1, handle:'@kopisenja'},
+        {type:'qris', w:1, h:1}
+      ] },
+    { slug:'larasati', name:'Butik Larasati', initials:'BL', hue:290, kind:'hanger', accent:'#8A4FA8', type:'Toko baju · butik',
+      bio:'Linen, katun, dan batik cap Pekalongan untuk perempuan. Ukuran S sampai XXL, ada penjahit untuk penyesuaian.', area:'Kemang, Jakarta Selatan',
+      wa:'6281311122233', address:'Jl. Kemang Selatan VIII No. 4, Jakarta Selatan', hours:{open:'10:00', close:'20:00'}, menuIcon:'hanger',
+      items:[
+        {cat:'Atasan', name:'Kemeja linen Larasati', price:189000, h:270, k:'shirt', desc:'S–XL · 5 warna'},
+        {cat:'Atasan', name:'Tunik batik cap', price:179000, h:30, k:'shirt', desc:'S–XXL'},
+        {cat:'Dress', name:'Dress kaftan katun', price:249000, h:320, k:'hanger', desc:'All size'},
+        {cat:'Bawahan', name:'Celana kulot linen', price:159000, h:200, k:'hanger', desc:'S–XL'},
+        {cat:'Luaran', name:'Outer kimono batik', price:199000, h:15, k:'shirt', desc:'All size'},
+        {cat:'Aksesori', name:'Hijab voal polos', price:65000, h:340, k:'none', desc:'12 warna'}
+      ],
+      tiles:[
+        {type:'catalog', w:2, h:2, label:'Katalog'},
+        {type:'wa', w:2, h:1, label:'Tanya stok & ukuran', msg:'Halo Larasati, saya mau tanya stok'},
+        {type:'photo', w:1, h:2, hue:285, kind:'hanger', caption:'Koleksi September'},
+        {type:'brand', brand:'shopee', w:1, h:1},
+        {type:'brand', brand:'tokopedia', w:1, h:1},
+        {type:'brand', brand:'tiktokshop', w:1, h:1},
+        {type:'maps', w:1, h:1},
+        {type:'hours', w:1, h:1},
+        {type:'brand', brand:'instagram', w:1, h:1, handle:'@butiklarasati'},
+        {type:'brand', brand:'tiktok', w:1, h:1, handle:'@butiklarasati'}
+      ] },
+    { slug:'warungbusari', name:'Warung Bu Sari', initials:'BS', hue:44, kind:'basket', accent:'#D98A2B', type:'Kelontong · retail',
+      bio:'Warung keluarga sejak 1998. Beras, minyak, gas, galon, jajanan. Antar gratis sekitar Tebet, minimal Rp 50.000.', area:'Tebet Barat',
+      wa:'6285712345678', address:'Jl. Tebet Barat Dalam IV No. 21, Jakarta Selatan', hours:{open:'06:00', close:'22:00'}, menuIcon:'bag',
+      items:[
+        {cat:'Sembako', name:'Beras Rojolele 5 kg', price:78000, h:50, k:'rice', desc:'Karung'},
+        {cat:'Sembako', name:'Minyak goreng 2 L', price:36000, h:48, k:'bottle', desc:'Pouch'},
+        {cat:'Sembako', name:'Gula pasir 1 kg', price:17000, h:40, k:'bag', desc:''},
+        {cat:'Sembako', name:'Telur ayam 1 kg', price:30000, h:35, k:'egg', desc:'± 16 butir'},
+        {cat:'Gas & air', name:'Gas LPG 3 kg', price:22000, h:150, k:'bottle', desc:'Tukar tabung'},
+        {cat:'Gas & air', name:'Galon isi ulang 19 L', price:6000, h:205, k:'bottle', desc:'Tukar galon'},
+        {cat:'Jajanan', name:'Indomie goreng (5)', price:16000, h:20, k:'bag', desc:''}
+      ],
+      tiles:[
+        {type:'wa', w:2, h:1, label:'Pesan antar via WhatsApp', msg:'Halo Bu Sari, saya mau pesan'},
+        {type:'maps', w:1, h:1},
+        {type:'hours', w:1, h:1},
+        {type:'menu', w:2, h:2, label:'Katalog'},
+        {type:'qris', w:1, h:1},
+        {type:'brand', brand:'grabmart', w:1, h:1},
+        {type:'text', w:2, h:1, heading:'Antar gratis', body:'Minimal belanja Rp 50.000, radius 2 km. Bayar di tempat atau QRIS.'},
+        {type:'brand', brand:'gomart', w:1, h:1}
+      ] },
+    { slug:'raniasalon', name:'Rambut Rania', initials:'RR', hue:340, kind:'scissors', accent:'#D65C8A', type:'Salon · jasa',
+      bio:'Potong, warna, dan perawatan rambut di Bintaro. Tiga kursi saja, jadi booking dulu lewat WhatsApp supaya tidak menunggu.', area:'Bintaro Sektor 3',
+      wa:'6281122334455', address:'Ruko Bintaro Sektor 3A No. 7, Tangerang Selatan', hours:{open:'10:00', close:'19:00', closed:[1]}, menuIcon:'scissors',
+      items:[
+        {cat:'Potong', name:'Potong + cuci + blow', price:65000, h:340, k:'scissors', desc:'± 45 menit'},
+        {cat:'Potong', name:'Potong poni', price:25000, h:330, k:'scissors', desc:''},
+        {cat:'Perawatan', name:'Creambath', price:90000, h:30, k:'bottle', desc:'± 60 menit'},
+        {cat:'Perawatan', name:'Hair spa', price:120000, h:200, k:'bottle', desc:'± 75 menit'},
+        {cat:'Warna & tekstur', name:'Hair colour', price:250000, h:10, k:'none', desc:'Mulai dari'},
+        {cat:'Warna & tekstur', name:'Smoothing', price:350000, h:260, k:'none', desc:'Mulai dari'}
+      ],
+      tiles:[
+        {type:'wa', w:2, h:1, label:'Booking via WhatsApp', msg:'Halo Rambut Rania, saya mau booking'},
+        {type:'menu', w:2, h:2, label:'Layanan'},
+        {type:'maps', w:1, h:1},
+        {type:'hours', w:1, h:1},
+        {type:'gallery', w:2, h:1, shots:[[340,'scissors'],[20,'none'],[300,'bottle']]},
+        {type:'review', w:1, h:1, rating:'4,8', count:212},
+        {type:'brand', brand:'instagram', w:1, h:1, handle:'@rambutrania'}
+      ] },
+    { slug:'laundrykilat', name:'Laundry Kilat 24', initials:'LK', hue:205, kind:'wash', accent:'#2C8ED1', type:'Laundry · jasa',
+      bio:'Buka 24 jam. Cuci kering lipat siap 24 jam, express 6 jam. Jemput dan antar gratis untuk Tebet, Manggarai, Pancoran.', area:'Manggarai',
+      wa:'6289900011122', address:'Jl. Manggarai Utara I No. 33, Jakarta Selatan', hours:{always:true}, menuIcon:'wash',
+      items:[
+        {cat:'Kiloan', name:'Cuci kering lipat', price:7000, unit:'/kg', h:205, k:'basket', desc:'Siap 24 jam'},
+        {cat:'Kiloan', name:'Cuci + setrika', price:9000, unit:'/kg', h:195, k:'shirt', desc:'Siap 24 jam'},
+        {cat:'Kiloan', name:'Setrika saja', price:5000, unit:'/kg', h:215, k:'shirt', desc:''},
+        {cat:'Kiloan', name:'Express 6 jam', price:15000, unit:'/kg', h:30, k:'wash', desc:'Masuk sebelum 14.00'},
+        {cat:'Satuan', name:'Bed cover', price:25000, unit:'/pcs', h:225, k:'none', desc:''},
+        {cat:'Satuan', name:'Sepatu', price:35000, unit:'/pasang', h:40, k:'none', desc:'Deep clean'}
+      ],
+      tiles:[
+        {type:'wa', w:2, h:1, label:'Jemput cucian', msg:'Halo Laundry Kilat, tolong jemput cucian di'},
+        {type:'menu', w:2, h:2, label:'Layanan'},
+        {type:'hours', w:1, h:1},
+        {type:'maps', w:1, h:1},
+        {type:'text', w:2, h:1, heading:'Antar-jemput gratis', body:'Tebet, Manggarai, Pancoran. Minimal 3 kg. Pesan sebelum 20.00 untuk dijemput hari yang sama.'},
+        {type:'qris', w:1, h:1},
+        {type:'review', w:1, h:1, rating:'4,7', count:96}
+      ] }
+  ];
+  PAGES.forEach(p => p.tiles.forEach(t => { t.id = nid(); }));
+
+  /* ── Perender tile ─────────────────────────────────────────────────── */
+  const ico = (inner, style, cls) => '<span class="ico' + (cls ? ' ' + cls : '') + '"' + (style ? ' style="' + style + '"' : '') + '>' + inner + '</span>';
+  const head = (i, title, sub, ed) => i + '<span class="tt"><span class="tl"' + (ed ? ' contenteditable="true" data-k="' + ed[0] + '"' : '') + '>' + esc(title) + '</span>' + (sub != null ? '<span class="tm"' + (ed && ed[1] ? ' contenteditable="true" data-k="' + ed[1] + '"' : '') + '>' + esc(sub) + '</span>' : '') + '</span>';
+  const pill = (t, c, lite) => '<span class="pill' + (lite ? ' lite' : '') + '" style="--bc:' + (c || '#111') + '">' + esc(t) + '</span>';
+  function tileInner(t, p, o){
+    const ed = o.edit, wide = t.w === 2, tall = t.h === 2, big = wide && tall;
+    const tag = (href, cls, extra) => ed ? '<div class="tile ' + (cls || '') + '" data-href="' + esc(href) + '"' + (extra || '') + '>' : '<a class="tile ' + (cls || '') + '" href="' + esc(href) + '" target="_blank" rel="noopener"' + (extra || '') + '>';
+    const end = ed ? '</div>' : '</a>';
+    const btn = (href, cls, extra) => ed ? '<div class="tile ' + (cls || '') + '"' + (extra || '') + '>' : '<button type="button" class="tile ' + (cls || '') + '"' + (extra || '') + '>';
+    const bend = ed ? '</div>' : '</button>';
+    switch (t.type){
+      case 'wa': {
+        const side = wide ? '<div class="side"><div class="bubble">' + esc(t.msg) + ' …<small>' + hm(nowWIB().toTimeString().slice(0,5)) + ' ✓✓</small></div></div>' : '';
+        return tag(waUrl(p.wa, t.msg + ' '), 'b-wa') + head(ico(IC.chat, 'background:#25D366'), t.label, fmtPhone(p.wa), ed && ['label']) + side + pill('Chat', '#25D366') + end;
+      }
+      case 'brand': {
+        const b = BRANDS[t.brand];
+        const side = wide || tall ? '<div class="side"' + (tall && !wide ? ' style="left:0;right:0;top:auto;height:52%;width:auto"' : '') + '><div class="big" style="background:' + b.bg + ';opacity:.14">' + (b.ico.indexOf('<svg') === 0 ? b.ico : '') + '</div></div>' : '';
+        return tag(b.url, 'b-brand') + head(ico(b.ico, 'background:' + b.bg), b.name, t.handle || b.host, ed && ['handle']) + side + pill(b.cta, b.cc || (b.bg.indexOf('gradient') < 0 ? b.bg : '#E1306C')) + end;
+      }
+      case 'link':
+        return tag(t.url, '') + head(ico(IC.text, 'background:#111'), t.label, t.host, ed && ['label']) + pill('Buka', '#111') + end;
+      case 'maps':
+        return tag(mapsUrl(p.address), 'bleed') + '<div class="map">' + mapSvg(p.slug.length) + '</div><span class="cap">' + IC.pin.replace('<svg', '<svg style="width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2"') + esc(p.area) + '</span>' + end;
+      case 'hours': {
+        const st = hoursStatus(p.hours), d = nowWIB().getDay();
+        const days = wide ? '<div class="days">' + DAYS.map((x, i) => '<i class="' + (i === d ? 'on' : (p.hours.closed || []).includes(i) ? 'x' : '') + '">' + x + '</i>').join('') + '</div>' : '';
+        return btn(null, 'b-hours') + head(ico(IC.clock, null, 'soft'), st.text, st.sub) + days + (!wide ? pill(p.hours.always ? '24 jam' : hm(p.hours.open) + '–' + hm(p.hours.close), null, true) : '') + bend;
+      }
+      case 'menu': {
+        const its = p.items, ic = ico(IC[p.menuIcon] || IC.bowl, 'background:#111');
+        let body = '';
+        if (big) body = '<div class="items g2">' + its.slice(0, 4).map(i => '<div class="it"><div class="ph" style="' + bg(i.h, i.k, 160) + '"></div><b>' + esc(i.name) + '</b><span>' + rpS(i.price) + (i.unit ? esc(i.unit) : '') + '</span></div>').join('') + '</div>';
+        else if (wide) body = '<div class="items row">' + its.slice(0, 3).map(i => '<div class="it h"><div class="ph" style="' + bg(i.h, i.k, 160) + '"></div><b>' + esc(i.name) + '</b><span>' + rpS(i.price) + '</span></div>').join('') + '</div>';
+        else if (tall) body = '<div class="list">' + its.slice(0, 3).map(i => '<div class="li"><i style="' + bg(i.h, i.k, 96) + '"></i><b>' + esc(i.name) + '</b><span>' + rpS(i.price) + '</span></div>').join('') + '</div>';
+        return btn(null, 't-menu', ' data-open="menu"') + head(ic, t.label, its.length + ' item', ed && ['label']) + body + (!big && !wide && !tall ? pill('Lihat', null, true) : (big ? '<span class="pill lite" style="margin-top:14px">Lihat semua ' + esc(t.label.toLowerCase()) + '</span>' : '')) + bend;
+      }
+      case 'catalog': {
+        const its = p.items;
+        if (big || (wide && !tall)) return btn(null, 'bleed', ' data-open="menu"') + '<div class="cat"' + (wide && !tall ? ' style="grid-template-rows:1fr"' : '') + '>' + its.slice(0, big ? 4 : 2).map(i => '<div style="' + bg(i.h, i.k, 220) + '"><span><em>' + esc(i.name) + '</em><b>' + rpS(i.price) + '</b></span></div>').join('') + '</div><span class="cap">' + esc(t.label) + ' · ' + its.length + ' produk</span>' + bend;
+        return btn(null, 'bleed', ' data-open="menu"') + '<div class="photo" style="' + bg(its[0].h, its[0].k, 260) + '"></div><span class="cap">' + esc(t.label) + '</span>' + bend;
+      }
+      case 'photo':
+        return btn(null, 'bleed') + '<div class="photo" style="' + bg(t.hue, t.kind, 320) + '"></div>' + (t.caption ? '<span class="cap"' + (ed ? ' contenteditable="true" data-k="caption"' : '') + '>' + esc(t.caption) + '</span>' : '') + bend;
+      case 'gallery': {
+        const sh = t.shots || [[30,'none'],[90,'none'],[200,'none']];
+        const cls = big ? 'c4' : wide ? 'c3' : tall ? 'c2v' : 'c2';
+        return btn(null, 'bleed') + '<div class="collage ' + cls + '">' + sh.slice(0, big ? 4 : wide ? 3 : 2).map(s => '<div style="' + bg(s[0], s[1], 220) + '"></div>').join('') + '</div>' + bend;
+      }
+      case 'text':
+        return btn(null, 'txt') + '<span class="tt" style="margin:0"><span class="tl"' + (ed ? ' contenteditable="true" data-k="heading"' : '') + '>' + esc(t.heading) + '</span><span class="tm"' + (ed ? ' contenteditable="true" data-k="body"' : '') + '>' + esc(t.body) + '</span></span>' + bend;
+      case 'qris': {
+        const side = wide ? '<div class="side"><div class="big" style="background:#111;opacity:.12">' + IC.qr + '</div></div>' : '';
+        return btn(null, 'b-qris', ' data-open="qris"') + head(ico(IC.qr, 'background:#111'), 'Bayar dengan QRIS', 'Semua bank & e-wallet') + side + pill('Lihat kode', null, true) + bend;
+      }
+      case 'promo':
+        return tag(waUrl(p.wa, 'Halo ' + p.name + ', saya mau klaim promo: ' + t.title), 'b-promo') + head(ico(IC.tag, 'background:' + p.accent), t.title, (t.line ? t.line + ' · ' : '') + 'sampai ' + t.until, ed && ['title', 'line']) + pill('Klaim', p.accent) + end;
+      case 'review':
+        return tag('https://www.google.com/maps', 'b-review') + head(ico(IC.g, null, 'ring'), t.rating + ' <span class="stars">★★★★★</span>', t.count + ' ulasan Google', ed && ['rating']).replace('>' + esc(t.rating + ' <span class="stars">★★★★★</span>') + '<', '>' + esc(t.rating) + ' <span class="stars">★★★★★</span><') + pill('Baca', null, true) + end;
+    }
+    return btn(null, '') + '<span class="tl">' + esc(t.type) + '</span>' + bend;
+  }
+  const TL = {wa:'WhatsApp', brand:'Merek', link:'Tautan', maps:'Lokasi', hours:'Jam buka', menu:'Menu', catalog:'Katalog', photo:'Foto', gallery:'Galeri', text:'Teks', qris:'QRIS', promo:'Promo', review:'Ulasan'};
+  const slotLabel = t => t.type === 'brand' ? BRANDS[t.brand].name : (t.label || t.heading || t.title || TL[t.type]);
+  function gridHtml(p, o){
+    return p.tiles.map((t, i) => '<div class="slot w' + t.w + ' h' + t.h + (o.pop ? ' pop' : '') + '" data-id="' + t.id + '" data-i="' + i + '" style="--i:' + i + '">' + tileInner(t, p, o) + '</div>').join('');
+  }
+  function profileHtml(p){
+    const st = hoursStatus(p.hours);
+    return '<aside class="profile"><div class="avatar" style="' + bg(p.hue, p.kind, 260) + '">' + esc(p.initials) + '</div><h1 class="name">' + esc(p.name) + '</h1><p class="bio">' + esc(p.bio) + '</p>' +
+      '<div class="meta"><span class="st">' + IC.pin.replace('<svg', '<svg style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2"') + esc(p.area) + '</span><span class="st"><span class="dot' + (st.open ? '' : ' off') + '"></span>' + esc(st.short) + (st.open && !p.hours.always ? ' · tutup ' + hm(p.hours.close) : '') + '</span></div></aside>';
+  }
+  function pageHtml(p, o){
+    const inner = profileHtml(p) + '<div class="gridwrap"><div class="grid' + (o.edit ? ' editing' : '') + '">' + gridHtml(p, o) + '</div></div><div class="pfoot"><a href="#">Dibuat dengan ·····</a><a href="#">Laporkan halaman</a></div>';
+    if (o.device === 'phone') return '<div class="device"><span class="notch"></span><div class="page">' + inner + '</div></div>';
+    return '<div class="page' + (o.stack ? ' stack' : '') + '">' + inner + '</div>';
+  }
+
+  /* ── Modal, toast ──────────────────────────────────────────────────── */
+  const toastEl = document.getElementById('toast');
+  function toast(t){ toastEl.textContent = t; toastEl.classList.add('on'); clearTimeout(toastEl._h); toastEl._h = setTimeout(() => toastEl.classList.remove('on'), 2000); }
+  function openModal(html, narrow){ closeModal(); const m = document.createElement('div'); m.className = 'modal'; m.innerHTML = '<div class="card' + (narrow ? ' narrow' : '') + '">' + html + '</div>'; m.addEventListener('click', ev => { if (ev.target === m || ev.target.closest('[data-close]')) closeModal(); }); document.body.appendChild(m); return m; }
+  function closeModal(){ const m = document.querySelector('.modal'); if (m) m.remove(); }
+  const xbtn = '<button type="button" class="x" data-close aria-label="Tutup">' + IC.close.replace('<svg', '<svg style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round"') + '</button>';
+  function openMenu(p, label){
+    const cats = [...new Set(p.items.map(i => i.cat))];
+    const m = openModal('<div class="ch"><div><b>' + esc(label) + '</b><span>' + p.items.length + ' item · pesan lewat WhatsApp</span></div>' + xbtn + '</div>' +
+      '<div class="chips"><button type="button" class="chip on" data-cat="">Semua</button>' + cats.map(c => '<button type="button" class="chip" data-cat="' + esc(c) + '">' + esc(c) + '</button>').join('') + '</div>' +
+      '<div class="mlist">' + p.items.map(i => '<div class="mi" data-cat="' + esc(i.cat) + '"><div class="mp" style="' + bg(i.h, i.k, 160) + '"></div><div><b>' + esc(i.name) + '</b><small>' + esc(i.desc || i.cat) + '</small></div><div class="mr"><span class="pr">' + rp(i.price) + (i.unit ? '<small>' + esc(i.unit) + '</small>' : '') + '</span><a class="pill wa" target="_blank" rel="noopener" href="' + waUrl(p.wa, 'Halo ' + p.name + ', saya mau pesan ' + i.name + ' (' + rp(i.price) + (i.unit || '') + ').') + '">Pesan</a></div></div>').join('') + '</div>');
+    m.addEventListener('click', ev => { const c = ev.target.closest('.chip'); if (!c) return; m.querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x === c)); m.querySelectorAll('.mi').forEach(r => { r.style.display = (!c.dataset.cat || r.dataset.cat === c.dataset.cat) ? '' : 'none'; }); });
+  }
+  function drawFallbackQr(el, seed){
+    const n = 29, c = document.createElement('canvas'); c.width = c.height = n*6; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#111';
+    let s = 0; for (let i = 0; i < seed.length; i++) s = (s*31 + seed.charCodeAt(i)) >>> 0;
+    const rnd = () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
+    const finder = (x, y) => { for (let i = 0; i < 7; i++) for (let j = 0; j < 7; j++){ if ((i===0||i===6||j===0||j===6) || (i>=2&&i<=4&&j>=2&&j<=4)) g.fillRect((x+i)*6, (y+j)*6, 6, 6); } };
+    for (let x = 0; x < n; x++) for (let y = 0; y < n; y++){ const inF = (x<8&&y<8)||(x>=n-8&&y<8)||(x<8&&y>=n-8); if (!inF && rnd() < .45) g.fillRect(x*6, y*6, 6, 6); }
+    finder(0, 0); finder(n-7, 0); finder(0, n-7); el.appendChild(c);
+  }
+  function openQris(p){
+    const m = openModal('<div class="ch"><div><b>QRIS</b><span>GPN · NMID contoh</span></div>' + xbtn + '</div><div class="qwrap"><div class="qr"></div><div class="qname">' + esc(p.name) + '</div><div class="qnote">Scan dengan aplikasi bank atau e-wallet mana pun</div><div class="qbtns"><button type="button" class="btn" data-save>Simpan gambar</button><button type="button" class="btn ghost" data-close>Tutup</button></div></div>', true);
+    const el = m.querySelector('.qr'), text = '00020101021126 contoh QRIS ' + p.name;
+    if (window.QRCode){ try { new QRCode(el, {text:text, width:196, height:196, correctLevel:QRCode.CorrectLevel.M}); } catch (e) { drawFallbackQr(el, text); } } else drawFallbackQr(el, text);
+    m.querySelector('[data-save]').addEventListener('click', () => toast('Di produk asli: PNG tersimpan ke galeri'));
+  }
+
+  /* ── State & render ────────────────────────────────────────────────── */
+  const S = { idx:0, device:'desktop', edit:false, pages: PAGES.map(clone), sel:null };
+  const stage = document.getElementById('stage'), tabsEl = document.getElementById('tabs');
+  const page = () => S.pages[S.idx];
+  function layoutVars(){
+    const W = stage.clientWidth;
+    if (S.device === 'phone') return {stack:false, cols:2, cell:168, gap:14};
+    if (W >= 1180) return {stack:false, cols:4, cell:172, gap:28};
+    if (W >= 900) return {stack:false, cols:3, cell:172, gap:24};
+    const avail = Math.min(W, 640) - 40; const gap = 14; return {stack:true, cols:2, cell:Math.floor((avail - gap) / 2), gap:gap};
+  }
+  function render(pop){
+    const v = layoutVars();
+    stage.innerHTML = pageHtml(page(), {device:S.device, edit:S.edit, pop:pop, stack:v.stack});
+    applyVars(v);
+    if (S.edit) bindEditor();
+  }
+  function applyVars(v){
+    const g = stage.querySelector('.grid'); if (!g) return;
+    if (S.device === 'phone') { g.style.cssText = ''; return; }
+    g.style.setProperty('--cols', v.cols); g.style.setProperty('--cell', v.cell + 'px'); g.style.setProperty('--gap', v.gap + 'px');
+  }
+  let lastStack = null;
+  new ResizeObserver(() => { const v = layoutVars(); const pg = stage.querySelector('.page'); if (!pg) return; if (S.device === 'desktop' && v.stack !== lastStack){ lastStack = v.stack; pg.classList.toggle('stack', v.stack); } applyVars(v); }).observe(stage);
+  function renderTabs(){
+    tabsEl.innerHTML = S.pages.map((p, i) => '<button type="button" class="tab' + (i === S.idx ? ' on' : '') + '" data-i="' + i + '">' + esc(p.name) + '</button>').join('');
+  }
+  tabsEl.addEventListener('click', ev => { const b = ev.target.closest('.tab'); if (!b) return; S.idx = +b.dataset.i; S.sel = null; renderTabs(); render(true); window.scrollTo({top:0, behavior:'smooth'}); });
+  document.getElementById('device').addEventListener('click', ev => { const b = ev.target.closest('[data-dev]'); if (!b) return; S.device = b.dataset.dev; document.querySelectorAll('#device button').forEach(x => x.classList.toggle('on', x === b)); S.sel = null; render(true); });
+  const editBtn = document.getElementById('edit'), pubBtn = document.getElementById('publish');
+  editBtn.addEventListener('click', () => { S.edit = !S.edit; S.sel = null; editBtn.textContent = S.edit ? 'Selesai' : 'Edit'; editBtn.classList.toggle('ghost', S.edit); pubBtn.classList.toggle('hidden', !S.edit); render(false); toggleAddbar(); if (S.edit) toast('Klik tile untuk ukuran, seret untuk memindah, klik teks untuk mengubah'); });
+  pubBtn.addEventListener('click', () => toast('Diterbitkan · brand.id/' + page().slug));
+
+  /* Klik di halaman (mode lihat): buka menu / QRIS */
+  stage.addEventListener('click', ev => {
+    if (S.edit) return;
+    const op = ev.target.closest('[data-open]'); if (!op) return;
+    const slot = op.closest('.slot'), t = page().tiles[+slot.dataset.i];
+    if (op.dataset.open === 'menu') openMenu(page(), t.label || 'Menu'); else openQris(page());
+  });
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape'){ closeModal(); if (S.sel){ S.sel = null; syncSel(); } } });
+
+  /* ── Editor ────────────────────────────────────────────────────────── */
+  function grid(){ return stage.querySelector('.grid'); }
+  function flip(mutate){
+    const g = grid(); const first = new Map(); g.querySelectorAll('.slot').forEach(s => first.set(s.dataset.id, s.getBoundingClientRect()));
+    mutate();
+    const g2 = grid();
+    g2.querySelectorAll('.slot').forEach(s => {
+      const f = first.get(s.dataset.id);
+      if (!f){ s.classList.add('pop'); s.style.setProperty('--i', 0); return; }
+      const l = s.getBoundingClientRect(); const dx = f.left - l.left, dy = f.top - l.top, sx = f.width / l.width, sy = f.height / l.height;
+      if (Math.abs(dx) < .5 && Math.abs(dy) < .5 && Math.abs(sx - 1) < .001 && Math.abs(sy - 1) < .001) return;
+      s.style.transformOrigin = '0 0'; s.style.transition = 'none'; s.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(' + sx + ',' + sy + ')';
+      requestAnimationFrame(() => requestAnimationFrame(() => { s.style.transition = 'transform .55s cubic-bezier(.16,1,.3,1)'; s.style.transform = ''; s.addEventListener('transitionend', () => { s.style.transition = ''; s.style.transformOrigin = ''; }, {once:true}); }));
+    });
+  }
+  function rerenderGrid(){ const g = grid(); g.innerHTML = gridHtml(page(), {edit:S.edit, pop:false}); syncSel(); }
+  function syncSel(){
+    const g = grid(); if (!g) return; g.querySelectorAll('.tb').forEach(x => x.remove());
+    g.querySelectorAll('.slot').forEach(s => s.classList.toggle('sel', s.dataset.id === S.sel));
+    if (!S.sel) return; const s = g.querySelector('[data-id="' + S.sel + '"]'); if (!s){ S.sel = null; return; }
+    const t = page().tiles.find(x => x.id === S.sel);
+    const sz = [[1,1,'Kecil'],[2,1,'Lebar'],[1,2,'Tinggi'],[2,2,'Besar']].map(z => '<button type="button" class="' + (z[0]===t.w && z[1]===t.h ? 'on' : '') + '" data-size="' + z[0] + 'x' + z[1] + '" title="' + z[2] + '" aria-label="' + z[2] + '"><svg viewBox="0 0 12 12">' + [[0,0],[1,0],[0,1],[1,1]].map(c => '<rect x="' + (c[0]*7) + '" y="' + (c[1]*7) + '" width="5" height="5" rx="1.2" fill="currentColor" opacity="' + ((c[0] < z[0] && c[1] < z[1]) ? 1 : .28) + '"/>').join('') + '</svg></button>').join('');
+    const tb = document.createElement('div'); tb.className = 'tb';
+    tb.innerHTML = sz + '<span class="sep"></span><button type="button" data-move="-1" title="Geser ke depan" aria-label="Geser ke depan">' + IC.left + '</button><button type="button" data-move="1" title="Geser ke belakang" aria-label="Geser ke belakang">' + IC.right + '</button><span class="sep"></span><button type="button" data-fields title="Ubah isi" aria-label="Ubah isi">' + IC.pencil + '</button><button type="button" data-del title="Hapus" aria-label="Hapus">' + IC.trash + '</button>';
+    tb.querySelectorAll('svg').forEach(v => { v.style.cssText = 'width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round'; if (v.getAttribute('viewBox') === '0 0 12 12') v.style.cssText = 'width:14px;height:14px'; });
+    tb.style.left = (s.offsetLeft + s.offsetWidth / 2) + 'px'; tb.style.top = (s.offsetTop + s.offsetHeight) + 'px';
+    g.appendChild(tb);
+  }
+  const FIELDS = {
+    wa:[['label','Tulisan di tile','input'],['msg','Awal pesan WhatsApp','textarea']], brand:[['handle','Nama akun / keterangan','input']], link:[['label','Tulisan di tile','input'],['url','Alamat tautan','input']],
+    text:[['heading','Judul','input'],['body','Isi','textarea']], promo:[['title','Judul promo','input'],['line','Keterangan','input'],['until','Berlaku sampai','input']],
+    menu:[['label','Nama tile','input']], catalog:[['label','Nama tile','input']], photo:[['caption','Keterangan','input']], review:[['rating','Nilai','input'],['count','Jumlah ulasan','input']],
+    maps:[['@address','Alamat lengkap','input'],['@area','Nama daerah di peta','input']], hours:[['@open','Buka (jj:mm)','input'],['@close','Tutup (jj:mm)','input']], gallery:[], qris:[]
+  };
+  function fieldsModal(t){
+    const p = page(), defs = FIELDS[t.type] || [];
+    const inputs = defs.map(d => { const key = d[0], v = key[0] === '@' ? (key === '@address' ? p.address : key === '@area' ? p.area : (p.hours[key.slice(1)] || '')) : (t[key] == null ? '' : t[key]);
+      return '<div class="fld"><label>' + esc(d[1]) + '</label>' + (d[2] === 'textarea' ? '<textarea rows="2" data-key="' + key + '">' + esc(v) + '</textarea>' : '<input type="text" data-key="' + key + '" value="' + esc(v) + '">') + '</div>'; }).join('');
+    const m = openModal('<div class="ch"><div><b>' + esc(slotLabel(t)) + '</b><span>Perubahan langsung terlihat di halaman</span></div>' + xbtn + '</div><div class="fields">' + (inputs || '<p class="hint">Tile ini tidak punya teks. Ukuran dan urutannya diatur lewat toolbar hitam di bawah tile.</p>') + '</div>', true);
+    m.addEventListener('input', ev => { const i = ev.target.closest('[data-key]'); if (!i) return; const key = i.dataset.key;
+      if (key === '@address') p.address = i.value; else if (key === '@area') p.area = i.value; else if (key[0] === '@') p.hours[key.slice(1)] = i.value; else t[key] = i.value;
+      const s = grid().querySelector('[data-id="' + t.id + '"]'); if (s) s.innerHTML = tileInner(t, p, {edit:true}); if (key[0] === '@') stage.querySelector('.profile').outerHTML = profileHtml(p); });
+  }
+  const HOSTS = [[/gofood\.co\.id|gofood\.link/i,'gofood'],[/food\.grab\.com|grab\.onelink/i,'grabfood'],[/shopeefood|shopee\.co\.id\/m\/food/i,'shopeefood'],[/shopee\.co\.id|shp\.ee/i,'shopee'],[/tokopedia/i,'tokopedia'],[/shop\.tiktok|tiktok\.com\/.*shop/i,'tiktokshop'],[/tiktok\.com/i,'tiktok'],[/instagram\.com/i,'instagram'],[/youtube\.com|youtu\.be/i,'youtube'],[/grabmart|grab\.com\/id\/mart/i,'grabmart'],[/gomart/i,'gomart']];
+  function detect(url){
+    const u = url.trim(); if (!u) return null;
+    if (/wa\.me|whatsapp\.com/i.test(u)) return {type:'wa', name:'WhatsApp'};
+    if (/maps\.app\.goo\.gl|google\.[a-z.]+\/maps|goo\.gl\/maps|maps\.google/i.test(u)) return {type:'maps', name:'Google Maps'};
+    for (const [re, b] of HOSTS) if (re.test(u)) return {type:'brand', brand:b, name:BRANDS[b].name};
+    try { const h = new URL(/^https?:/i.test(u) ? u : 'https://' + u).hostname.replace(/^www\./, ''); if (!h.includes('.')) return null; return {type:'link', host:h, name:h}; } catch (e) { return null; }
+  }
+  function newTile(kind, extra){
+    const p = page(), base = {id:nid(), w:1, h:1};
+    const T = { text:{type:'text', w:2, heading:'Judul baru', body:'Tulis sesuatu untuk pembeli.'}, promo:{type:'promo', w:2, title:'Promo baru', line:'Keterangan', until:'30 Sep'},
+      photo:{type:'photo', hue:Math.floor(Math.random()*360), kind:'none', caption:'Foto'}, gallery:{type:'gallery', w:2, shots:[[Math.floor(Math.random()*360),'none'],[120,'none'],[240,'none']]},
+      hours:{type:'hours'}, qris:{type:'qris'}, review:{type:'review', rating:'5,0', count:1}, menu:{type:'menu', w:2, h:2, label:'Menu'}, maps:{type:'maps'},
+      wa:{type:'wa', w:2, label:'Pesan via WhatsApp', msg:'Halo ' + p.name + ', saya mau pesan'} };
+    return Object.assign(base, T[kind] || {type:'text', heading:kind, body:''}, extra || {});
+  }
+  function addTile(t){ flip(() => { page().tiles.push(t); rerenderGrid(); }); S.sel = t.id; syncSel(); toast('Tile ' + slotLabel(t) + ' ditambahkan'); }
+
+  /* Addbar */
+  let addbar = null;
+  function toggleAddbar(){
+    if (addbar){ addbar.remove(); addbar = null; const d = document.querySelector('.detect'); if (d) d.remove(); }
+    if (!S.edit) return;
+    addbar = document.createElement('div'); addbar.className = 'addbar';
+    const ab = (k, label, icon) => '<button type="button" class="ab" data-add="' + k + '">' + icon + label + '</button>';
+    addbar.innerHTML = '<input type="text" data-paste placeholder="Tempel tautan GoFood, Shopee, Maps, Instagram…" aria-label="Tempel tautan"><button type="button" class="ab go" data-go disabled>' + IC.plus + 'Tambah</button>' +
+      ab('photo', 'Foto', IC.image) + ab('text', 'Teks', IC.text) + ab('maps', 'Peta', IC.pin) + ab('hours', 'Jam', IC.clock) + ab('promo', 'Promo', IC.tag) + ab('qris', 'QRIS', IC.qr) + ab('menu', 'Menu', IC.bowl);
+    document.body.appendChild(addbar);
+    const inp = addbar.querySelector('[data-paste]'), go = addbar.querySelector('[data-go]');
+    const showDetect = d => { let el = document.querySelector('.detect'); if (!d){ if (el) el.remove(); go.disabled = true; return; } if (!el){ el = document.createElement('div'); el.className = 'detect'; document.body.appendChild(el); } el.textContent = d.type === 'link' ? 'Tautan ' + d.name + ' · jadi kartu tautan' : 'Dikenali: ' + d.name + ' · jadi tile ' + d.name; go.disabled = false; };
+    inp.addEventListener('input', () => showDetect(detect(inp.value)));
+    const commit = () => { const d = detect(inp.value); if (!d) return; const t = d.type === 'brand' ? newTile('brand', {type:'brand', brand:d.brand}) : d.type === 'link' ? newTile('link', {type:'link', host:d.host, label:d.host, url:inp.value.trim()}) : newTile(d.type); addTile(t); inp.value = ''; showDetect(null); };
+    go.addEventListener('click', commit); inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') commit(); });
+    addbar.addEventListener('click', ev => { const b = ev.target.closest('[data-add]'); if (b) addTile(newTile(b.dataset.add)); });
+  }
+
+  /* Interaksi editor: pilih, toolbar, teks inline, seret */
+  function bindEditor(){
+    const g = grid();
+    g.addEventListener('click', ev => {
+      const tb = ev.target.closest('.tb');
+      if (tb){
+        const t = page().tiles.find(x => x.id === S.sel); const i = page().tiles.indexOf(t);
+        const sz = ev.target.closest('[data-size]'); if (sz){ const [w, h] = sz.dataset.size.split('x').map(Number); flip(() => { t.w = w; t.h = h; rerenderGrid(); }); return; }
+        const mv = ev.target.closest('[data-move]'); if (mv){ const j = i + (+mv.dataset.move); if (j < 0 || j >= page().tiles.length) return; flip(() => { const a = page().tiles; [a[i], a[j]] = [a[j], a[i]]; rerenderGrid(); }); return; }
+        if (ev.target.closest('[data-fields]')){ fieldsModal(t); return; }
+        if (ev.target.closest('[data-del]')){ flip(() => { page().tiles.splice(i, 1); S.sel = null; rerenderGrid(); }); return; }
+        return;
+      }
+      if (ev.target.isContentEditable) return;
+      const slot = ev.target.closest('.slot'); if (!slot){ S.sel = null; syncSel(); return; }
+      if (drag && drag.moved) return;
+      S.sel = slot.dataset.id === S.sel ? null : slot.dataset.id; syncSel();
+    });
+    g.addEventListener('input', ev => { const el = ev.target.closest('[contenteditable]'); if (!el) return; const slot = el.closest('.slot'); const t = page().tiles.find(x => x.id === slot.dataset.id); t[el.dataset.k] = el.textContent; });
+    g.addEventListener('keydown', ev => { if (ev.target.isContentEditable && ev.key === 'Enter'){ ev.preventDefault(); ev.target.blur(); } });
+    g.addEventListener('pointerdown', onDown);
+  }
+  let drag = null;
+  const prevent = e => e.preventDefault();
+  function onDown(ev){
+    if (!S.edit || ev.button > 0) return;
+    const slot = ev.target.closest('.slot'); if (!slot || ev.target.closest('.tb') || ev.target.isContentEditable) return;
+    drag = {id:slot.dataset.id, x0:ev.clientX, y0:ev.clientY, started:false, moved:false, timer:null, touch:ev.pointerType === 'touch', lastSwap:0};
+    if (drag.touch) drag.timer = setTimeout(() => startDrag(ev.clientX, ev.clientY), 320);
+    window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp); window.addEventListener('pointercancel', onUp);
+  }
+  function startDrag(x, y){
+    const g = grid(), slot = g.querySelector('[data-id="' + drag.id + '"]'); if (!slot) return;
+    const r = slot.getBoundingClientRect(); drag.started = true; drag.ox = x - r.left; drag.oy = y - r.top; drag.w = r.width; drag.h = r.height;
+    const ghost = document.createElement('div'); ghost.className = 'ghost'; ghost.style.cssText = 'left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;height:' + r.height + 'px'; ghost.innerHTML = slot.innerHTML; ghost.querySelectorAll('.tb').forEach(x => x.remove());
+    document.body.appendChild(ghost); drag.ghost = ghost; slot.classList.add('dragging'); S.sel = null; syncSel(); document.body.style.userSelect = 'none';
+    document.addEventListener('touchmove', prevent, {passive:false});
+  }
+  function onMove(ev){
+    if (!drag) return;
+    const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0, dist = Math.hypot(dx, dy);
+    if (!drag.started){ if (drag.touch){ if (dist > 10){ clearTimeout(drag.timer); cleanupDrag(); } return; } if (dist > 6) startDrag(ev.clientX, ev.clientY); else return; }
+    drag.moved = true;
+    drag.ghost.style.transform = 'translate(' + (ev.clientX - drag.ox - parseFloat(drag.ghost.style.left)) + 'px,' + (ev.clientY - drag.oy - parseFloat(drag.ghost.style.top)) + 'px)';
+    const now = Date.now(); if (now - drag.lastSwap < 160) return;
+    const el = document.elementFromPoint(ev.clientX, ev.clientY); const over = el && el.closest('.slot');
+    if (!over || over.dataset.id === drag.id) return;
+    const a = page().tiles, from = a.findIndex(t => t.id === drag.id), to = a.findIndex(t => t.id === over.dataset.id); if (from < 0 || to < 0) return;
+    drag.lastSwap = now;
+    flip(() => { const [m] = a.splice(from, 1); a.splice(to, 0, m); rerenderGrid(); const s = grid().querySelector('[data-id="' + drag.id + '"]'); if (s) s.classList.add('dragging'); });
+  }
+  function onUp(){
+    if (!drag) return; clearTimeout(drag.timer);
+    if (drag.started){
+      const slot = grid().querySelector('[data-id="' + drag.id + '"]'), ghost = drag.ghost;
+      if (slot){ const r = slot.getBoundingClientRect(); ghost.style.transition = 'transform .32s cubic-bezier(.16,1,.3,1)'; ghost.style.transform = 'translate(' + (r.left - parseFloat(ghost.style.left)) + 'px,' + (r.top - parseFloat(ghost.style.top)) + 'px)'; ghost.querySelector('.tile').style.transform = 'none'; ghost.querySelector('.tile').style.transition = 'transform .32s'; }
+      const done = () => { ghost.remove(); if (slot) slot.classList.remove('dragging'); };
+      setTimeout(done, 330);
+      const wasMoved = drag.moved; cleanupDrag(); if (wasMoved) setTimeout(() => { drag = null; }, 50); return;
+    }
+    cleanupDrag();
+  }
+  function cleanupDrag(){ window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', onUp); document.removeEventListener('touchmove', prevent); document.body.style.userSelect = ''; if (drag && !drag.started) drag = null; else if (drag && drag.started && !drag.moved) drag = null; }
+
+  renderTabs(); render(true);
+  setInterval(() => { if (!S.edit) render(false); }, 60000);
+})();
+</script>
+</body>
+</html>

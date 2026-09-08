@@ -1,4 +1,4 @@
-use super::sync::{inventory_dc_owner_tx, issue_command_tx};
+use super::sync::{inventory_dc_owner_tx, issue_command_tx, origin_site_id_tx, pool_id_for_site};
 use super::{apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest};
 use crate::cloud::{
     application::{
@@ -165,6 +165,15 @@ pub async fn create_allotment(
     } else {
         None
     };
+    // What that owner calls itself. `inventory_dc_owner_tx` resolves the
+    // centre's canonical `dc` to whichever origin is registered, and that
+    // origin is entitled to run as `dc-01` — so every name leaving this
+    // transaction for it has to be respelled. Identical to `source_site_id`
+    // whenever the two agree, which is every store. See `pool_id_for_site`.
+    let owner_site_id = match activation_target_origin_id.as_deref() {
+        Some(origin_id) => Some(origin_site_id_tx(&mut tx, origin_id).await?),
+        None => None,
+    };
 
     let allotment_id = Uuid::new_v4();
     let sequence = sqlx::query("SELECT nextval('allotment_number_sequence')::bigint sequence")
@@ -196,13 +205,21 @@ pub async fn create_allotment(
             activation_target_origin_id.as_deref()
         {
             (
+                // Facts, in the owner's namespace: `edge_inventory_fact_position`
+                // holds `place_id` exactly as the Edge emitted it.
                 edge_normal_balance_tx(
                     &mut tx,
                     origin_id,
-                    &line.identity.source_pool_id,
+                    &pool_id_for_site(
+                        &line.identity.source_pool_id,
+                        owner_site_id.as_deref().unwrap_or(&source_site_id),
+                    ),
                     &sku_code,
                 )
                 .await?,
+                // Reservations, in ours: both halves of that sum read cloud
+                // tables — `edge_allotment_line_progress` and `allotment_line`
+                // — which record what THIS node authored.
                 edge_active_allotment_tx(
                     &mut tx,
                     origin_id,
@@ -292,15 +309,21 @@ pub async fn create_allotment(
         .sum();
     let mut activation_command_id = None;
     if let Some(target_origin_id) = activation_target_origin_id.as_ref() {
+        // Everything below crosses the wire, so everything below is respelled.
+        // The Edge checks the site against its own `node_metadata` and the pool
+        // against its own place model, and refuses both if they name a
+        // warehouse it is not — which is what it should do, and why the
+        // translation belongs here rather than in a lenient parser over there.
+        let command_site_id = owner_site_id.as_deref().unwrap_or(&source_site_id);
         let command_lines = response_lines
             .iter()
             .map(|line| {
                 Ok(AllotmentActivationLine {
                     allotment_line_id: serde_json::from_value(line["id"].clone())?,
-                    source_pool_id: line["source_pool_id"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string(),
+                    source_pool_id: pool_id_for_site(
+                        line["source_pool_id"].as_str().unwrap_or_default(),
+                        command_site_id,
+                    ),
                     destination_type: line["destination_type"]
                         .as_str()
                         .unwrap_or_default()
@@ -321,7 +344,7 @@ pub async fn create_allotment(
             allotment_number: allotment_number.clone(),
             allotment_type: request.allotment_type.as_str().to_string(),
             status: "ACTIVE".into(),
-            source_site_id: source_site_id.clone(),
+            source_site_id: command_site_id.to_string(),
             created_by: request.actor_id.trim().to_string(),
             notes: request.notes.clone(),
             created_at: now,
@@ -487,11 +510,16 @@ pub async fn cancel_allotment(
             .ok_or_else(|| AppError::Conflict("invalid Edge reservation progress".into()))?;
         let cancellation_id = Uuid::new_v4();
         let requested_at = Utc::now();
+        // The owner's own name, for the same reason the activation carries it:
+        // the Edge matches this against its `node_metadata` and against the
+        // `dc_allotment_work` row it filed under that name, and a DC running as
+        // `dc-01` recognises neither under the centre's `dc`.
+        let command_site_id = origin_site_id_tx(&mut tx, &target_origin_id).await?;
         let command_payload = AllotmentCancellationPayload {
             schema_version: INVENTORY_WORKFLOW_SCHEMA_VERSION,
             cancellation_id,
             allotment_id,
-            source_site_id: source_site_id.clone(),
+            source_site_id: command_site_id,
             reason: request.reason.trim().to_string(),
             requested_by: request.actor_id.trim().to_string(),
             requested_at,

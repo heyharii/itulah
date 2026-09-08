@@ -114,7 +114,7 @@ export function Notifications() {
               onChange={setSlice}
             />
             <Button
-              variant="dark"
+              variant="primary"
               disabled={unread === 0 || readAll.isPending}
               onClick={() => readAll.mutate()}
             >

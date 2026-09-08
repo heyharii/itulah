@@ -9,7 +9,14 @@
  * verifier is comparing — against the count in front of them and the
  * supplier's invoice that arrived on the same lorry as the goods.
  */
-export type PurchaseCountAwaitingVerification = { count_id: string, po_line_id: string, po_number: string, supplier_id: string, article_code: string, article_name: string, counted_quantity: number, counted_by: string, counted_at: string, 
+export type PurchaseCountAwaitingVerification = { count_id: string, 
+/**
+ * The delivery document this count hangs off — and the only thing the
+ * supplier's invoice can be attached to. A verifier holding the paper
+ * would otherwise have to guess which of a supplier's open deliveries it
+ * belongs to, and on a busy bay that guess is wrong.
+ */
+receipt_id: string, po_line_id: string, po_number: string, supplier_id: string, article_code: string, article_name: string, counted_quantity: number, counted_by: string, counted_at: string, 
 /**
  * What the order expects, in the same unit the checker counted in.
  */

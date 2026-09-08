@@ -388,7 +388,7 @@ export function Campaigns() {
               placeholder="Search"
               className="h-8 w-44"
             />
-            <Button variant="dark" onClick={() => setWriting(true)}>
+            <Button variant="primary" onClick={() => setWriting(true)}>
               New campaign
             </Button>
           </>
@@ -600,7 +600,7 @@ function Poster({ line }: { line: CampaignLine }) {
       )}
       <div className="mt-2.5 flex items-center gap-2">
         <Button
-          variant="dark"
+          variant="primary"
           disabled={!changed || save.isPending}
           onClick={() => save.mutate()}
         >
@@ -945,7 +945,7 @@ function CampaignForm({
             )}
           </span>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={problem !== undefined || publish.isPending}
             onClick={() => publish.mutate()}
           >

@@ -4,7 +4,16 @@ export type AssessAssetRequest = {
 /**
  * `CAPITALIZE` or `EXPENSE`.
  */
-decision: string, capitalized_cost_minor: number | null, salvage_value_minor: number | null, useful_life_months: number | null, method: string | null, in_service_on: string | null, 
+decision: string, capitalized_cost_minor: number | null, salvage_value_minor: number | null, useful_life_months: number | null, method: string | null, 
+/**
+ * `DEPRECIATION`, `REPLACEMENT_RESERVE` or `AMORTISATION`.
+ *
+ * Required on CAPITALIZE and refused on EXPENSE, which is how the rest of
+ * the basis behaves and for the same reason. It is asked rather than
+ * inferred from the category, because inferring it would mean a posting
+ * rule choosing accounts from a client account code — see 0159.
+ */
+charge_kind: string | null, in_service_on: string | null, 
 /**
  * Why. Required on both decisions — an expensed asset with no reason is
  * the one somebody queries a year later.
@@ -16,4 +25,13 @@ reason: string,
  * because this is the moment a cost is named — which is the moment the
  * two figures can be checked against each other.
  */
-acquired_via_line_id?: string, };
+acquired_via_line_id?: string, 
+/**
+ * The other lines that bought it, when a purchase took more than one.
+ *
+ * Added alongside the singular rather than replacing it because the
+ * ordinary purchase is still one line, and because every caller that
+ * names one line should keep working. Both are accepted and the union is
+ * what gets attached.
+ */
+acquired_via_line_ids?: Array<string>, };

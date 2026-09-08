@@ -200,7 +200,7 @@ export function Sales() {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => setComposing(true)}>
+            <Button variant="primary" onClick={() => setComposing(true)}>
               New sale
             </Button>
           </>

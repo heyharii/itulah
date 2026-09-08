@@ -19,7 +19,7 @@ hmac = "=0.12.1"
 reqwest = { version = "=0.12.24", default-features = false, features = ["rustls-tls", "stream"] }
 serde = { version = "=1.0.219", features = ["derive"] }
 sha2 = "=0.10.9"
-thiserror = "=2.0.12"
+thiserror = "=2.0.20"
 
 [dev-dependencies]
 tokio = { version = "=1.45.1", features = ["macros", "rt-multi-thread"] }

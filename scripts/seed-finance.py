@@ -52,19 +52,40 @@ PLAIN: dict[str, str] = {
 }
 
 # The seven asset categories the register offers, and what each one means in
-# the client's chart. The depreciation run passes the category code as the
-# qualifier (`assets.rs:397`), so these three keys must be mapped per category
-# or a run is refused for that asset.
-CATEGORIES: list[tuple[str, str, str, str]] = [
-    # qualifier, asset account, accumulated, expense
-    ("1021501", "1021501001", "1021601002", "7010210001"),  # Tanah
-    ("1021502", "1021502001", "1021602001", "7010210001"),  # Bangunan
-    ("1021503", "1021503001", "1021603001", "7010211001"),  # Instalasi
-    ("1021504", "1021504001", "1021604001", "7010212001"),  # Machineries
-    ("1021505", "1021505001", "1021605001", "7010213001"),  # Kendaraan
-    ("1021506", "1021506001", "1021606001", "7010214001"),  # FFE
-    ("1021507", "1021507001", "1021607001", "7010215001"),  # Operating equip.
+# the client's chart. The monthly run passes the category code as the
+# qualifier (`assets.rs`), so the pair of keys a category charges through must
+# be mapped per category or a run is refused for that asset.
+#
+# WHICH pair depends on the charge kind, not on the category alone. Six
+# families depreciate; `1021507` does not — the client's chart calls its
+# contra `Reserve Replacement` and its expense `BIAYA REPLACEMENT`, because
+# racks and hangers are replaced rather than written down. See migration 0159.
+#
+# Tanah carries no contra and no expense, and that is not an omission. Freehold
+# land is not depreciated, and the client's chart agrees: under `1021601` the
+# only leaf is the one for HGB, and `70102` has no family for land at all.
+# Mapping it to Bangunan's expense account — which this table used to do —
+# describes a posting that must never happen.
+CATEGORIES: list[tuple[str, str, str | None, str | None, str]] = [
+    # qualifier, asset account, contra, expense, charge kind
+    ("1021501", "1021501001", None, None, "DEPRECIATION"),  # Tanah
+    ("1021502", "1021502001", "1021602001", "7010210001", "DEPRECIATION"),
+    ("1021503", "1021503001", "1021603001", "7010211001", "DEPRECIATION"),
+    ("1021504", "1021504001", "1021604001", "7010212001", "DEPRECIATION"),
+    ("1021505", "1021505001", "1021605001", "7010213001", "DEPRECIATION"),
+    ("1021506", "1021506001", "1021606001", "7010214001", "DEPRECIATION"),
+    ("1021507", "1021507001", "1021607001", "7010215001", "REPLACEMENT_RESERVE"),
 ]
+
+# The pair of meanings each charge kind posts through. Mirrors
+# `ChargeKind::charge_keys` in `domain/depreciation.rs`; if the two disagree,
+# the seed maps accounts the run never reads and the run refuses on accounts
+# the seed never mapped.
+CHARGE_KEYS: dict[str, tuple[str, str]] = {
+    "DEPRECIATION": ("depreciation_expense", "accumulated_depreciation"),
+    "REPLACEMENT_RESERVE": ("replacement_expense", "replacement_reserve"),
+    "AMORTISATION": ("amortisation_expense", "accumulated_amortisation"),
+}
 
 # Meanings that need narrowing but that nothing posts automatically yet. One
 # qualifier each is enough to close the gap the Account map screen counts,
@@ -172,12 +193,15 @@ def seed_account_map(api: Api, leaf: dict, report: dict) -> None:
                 },
             )
             written += ok is not None
-    for qualifier, asset, accum, expense in CATEGORIES:
+    for qualifier, asset, contra, expense, charge_kind in CATEGORIES:
+        expense_key, contra_key = CHARGE_KEYS[charge_kind]
         for key, code in (
             ("fixed_asset", asset),
-            ("accumulated_depreciation", accum),
-            ("depreciation_expense", expense),
+            (contra_key, contra),
+            (expense_key, expense),
         ):
+            if code is None:
+                continue
             for site in SITES:
                 account = leaf.get((code, site))
                 if account is None:
@@ -277,7 +301,7 @@ def seed_assets(api: Api, months, rng, report) -> None:
         "1021507": "Operating equipment",
     }
     for index in range(21):
-        qualifier, *_ = CATEGORIES[index % len(CATEGORIES)]
+        qualifier, _, _, _, charge_kind = CATEGORIES[index % len(CATEGORIES)]
         site = SITES[index % len(SITES)]
         year, month = months[0]
         acquired = date(year, month, 1) + timedelta(days=rng.randrange(28))
@@ -309,6 +333,9 @@ def seed_assets(api: Api, months, rng, report) -> None:
             "salvage_value_minor": None,
             "useful_life_months": None,
             "method": None,
+            # Carried by a capitalised asset and by nothing else, which is why
+            # it is set inside the branch below rather than here.
+            "charge_kind": None,
             "in_service_on": None,
             "reason": "Seed: penilaian awal",
         }
@@ -318,6 +345,7 @@ def seed_assets(api: Api, months, rng, report) -> None:
                 salvage_value_minor=0,
                 useful_life_months=0 if land else rng.choice([48, 60, 96, 120]),
                 method="NONE" if land else "STRAIGHT_LINE",
+                charge_kind=charge_kind,
                 in_service_on=acquired.isoformat(),
             )
         if api.post(f"/api/v1/finance/assets/{asset_id}/assess", body) is not None:

@@ -404,7 +404,7 @@ export function ItemFormSheet({
             Cancel
           </Button>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={!ready || save.isPending}
             onClick={() => save.mutate()}
           >

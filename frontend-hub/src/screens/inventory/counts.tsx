@@ -748,7 +748,7 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
           {(ready) => (
             <Button
               type="submit"
-              variant="dark"
+              variant="primary"
               disabled={!ready || create.isPending}
             >
               {create.isPending ? "Drafting…" : "Draft the count"}

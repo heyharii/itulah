@@ -1000,9 +1000,13 @@ def seed_accounts(db: str, api_base: str, password: str) -> None:
         if employee_id is None:
             print(f"    (no employee {employee_code} — run seed-people.py first)")
             continue
+        # `reason` is not optional and not decoration: binding a login to a
+        # person is a grant, and `access.authorize` records why it was made.
+        # Sending only the username gets a 422, the account is created but
+        # never bound, and the person can then see nothing but themselves.
         status, body = api(
             "POST", f"{api_base}/api/v1/employees/{employee_id}/account",
-            {"username": username},
+            {"username": username, "reason": "Seeded development account for this person"},
         )
         if status not in (200, 201, 409):
             print(f"    (employee {employee_code}: {status} {body})")

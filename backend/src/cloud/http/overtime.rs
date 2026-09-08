@@ -192,13 +192,15 @@ pub struct RatifyBody {
 pub async fn read_policy(
     State(state): State<AppState>,
 ) -> Result<Json<Option<OvertimePolicyView>>, AppError> {
-    Ok(Json(infrastructure::load_overtime_policy(&state.db).await?.map(
-        |policy| OvertimePolicyView {
-            version: policy.version(),
-            max_per_day_minutes: policy.max_per_day().get(),
-            max_per_week_minutes: policy.max_per_week().get(),
-        },
-    )))
+    Ok(Json(
+        infrastructure::load_overtime_policy(&state.db)
+            .await?
+            .map(|policy| OvertimePolicyView {
+                version: policy.version(),
+                max_per_day_minutes: policy.max_per_day().get(),
+                max_per_week_minutes: policy.max_per_week().get(),
+            }),
+    ))
 }
 
 /// Ratify the caps.
@@ -257,13 +259,9 @@ pub async fn list_orders(
     if !access.own {
         reaches_subject(&state, &access).await?;
     }
-    let records = infrastructure::overtime_orders_of(
-        &state.db,
-        &access.employee_id,
-        query.from,
-        query.to,
-    )
-    .await?;
+    let records =
+        infrastructure::overtime_orders_of(&state.db, &access.employee_id, query.from, query.to)
+            .await?;
     Ok(Json(records.iter().map(order_view).collect()))
 }
 
@@ -280,11 +278,9 @@ pub async fn awaiting(
             principal.username
         )));
     }
-    let records = infrastructure::awaiting_consent(
-        &state.db,
-        reach.sole_place().map(|place| place.as_str()),
-    )
-    .await?;
+    let records =
+        infrastructure::awaiting_consent(&state.db, reach.sole_place().map(|place| place.as_str()))
+            .await?;
     Ok(Json(records.iter().map(order_view).collect()))
 }
 
@@ -353,10 +349,7 @@ pub async fn issue(
     read_back(&state, order.id()).await
 }
 
-async fn read_back(
-    state: &AppState,
-    id: &OvertimeId,
-) -> Result<Json<OvertimeOrderView>, AppError> {
+async fn read_back(state: &AppState, id: &OvertimeId) -> Result<Json<OvertimeOrderView>, AppError> {
     let record = infrastructure::load_overtime_order(&state.db, id.as_str())
         .await?
         .ok_or_else(|| AppError::NotFound(format!("overtime order {id}")))?;
@@ -394,10 +387,9 @@ pub async fn consent(
     // The kernel checks the key again. Belt and braces on the one rule whose
     // failure is invisible afterwards: a stored consent carries no trace of
     // which gate let it through.
-    let answer = WorkerConsent::try_new(
-        access.authorize(actions::OVERTIME_CONSENT_OWN, &body.reason)?,
-    )
-    .map_err(infrastructure::overtime_error)?;
+    let answer =
+        WorkerConsent::try_new(access.authorize(actions::OVERTIME_CONSENT_OWN, &body.reason)?)
+            .map_err(infrastructure::overtime_error)?;
 
     if body.agreed {
         record.order.agree(answer)

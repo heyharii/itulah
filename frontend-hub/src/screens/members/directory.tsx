@@ -342,7 +342,7 @@ export function Members() {
                 directory could list members and the shopper's app could sign
                 them in, and nothing anywhere could create one — the chain was
                 broken at its first link. */}
-            <Button variant="dark" onClick={() => enrolling.open(true)}>
+            <Button variant="primary" onClick={() => enrolling.open(true)}>
               <UserPlus />
               Enrol a card
             </Button>

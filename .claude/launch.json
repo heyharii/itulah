@@ -224,7 +224,11 @@
         "dev"
       ],
       "cwd": "frontend-hub",
-      "port": 5273
+      "port": 5273,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8080",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8099"
+      }
     },
     {
       "name": "customer-verify",
@@ -754,6 +758,130 @@
         "INVENTORY_ORIGIN_GENERATION": "1",
         "OBSERVED_WINDOW_HOURS": "720",
         "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "hub-portless",
+      "runtimeExecutable": "/opt/homebrew/bin/portless",
+      "runtimeArgs": [
+        "run"
+      ],
+      "cwd": "frontend-hub",
+      "port": 4173
+    },
+    {
+      "name": "po-api",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8131,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_tanstack",
+        "BIND_ADDR": "127.0.0.1:8131",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "po-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5294",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5294,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8131"
+      }
+    },
+    {
+      "name": "hub-receiving",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5296",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5296,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8080",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8092"
+      }
+    },
+    {
+      "name": "prototypes-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5398",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "prototypes"
+      ],
+      "port": 5398
+    },
+    {
+      "name": "scratch-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5398",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/private/tmp/claude-501/-Users-hari-itulah/9f9bc12f-58ce-4239-8b13-bb300edff258/scratchpad"
+      ],
+      "port": 5398
+    },
+    {
+      "name": "cloud-rfid",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8080,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_rfid",
+        "BIND_ADDR": "127.0.0.1:8080",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "hub-render",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5297",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5297,
+      "env": {
+        "VITE_API_TARGET": "https://itulah-cloud.onrender.com",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8082"
       }
     }
   ]

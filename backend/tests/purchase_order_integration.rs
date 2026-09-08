@@ -20,6 +20,7 @@ use inventory_backend::cloud::postgres::{self as cloud, NewPurchaseLine, NewPurc
 use inventory_backend::edge::{
     EdgeInventory as _, EdgeRole, NodeContext, OpenGoodsReceiptRequest, PurchaseCountRequest,
     PurchaseVerifyDecision, PurchaseVerifyRequest, SiteId, SqliteEdge, SqliteSyncStore,
+    StoreInvoiceDocumentRequest,
 };
 use inventory_backend::sync::port::{SyncConfig, SyncTransport};
 use inventory_backend::sync::{run_cycle, CycleReport};
@@ -810,6 +811,93 @@ async fn the_checker_is_shown_nothing_to_confirm_and_the_verifier_everything_to_
         .counts_awaiting_verification()
         .unwrap_or_else(|e| panic!("queue 2: {e}"))
         .is_empty());
+}
+
+/// The verifier keeps the invoice, and the count says which delivery it goes on.
+///
+/// Two things are being asserted, and they are the same thing said from two
+/// ends. The page is kept on THIS node — a DC has to take a delivery with the
+/// line to head office down, so the centre's file vault is not an option. And
+/// the verifier's queue carries the delivery document the count hangs off,
+/// because a verifier holding a piece of paper would otherwise have to guess
+/// which of a supplier's open deliveries it belongs to.
+///
+/// A second upload replaces the first. Somebody photographs a crumpled page,
+/// flattens it, and photographs it again; they meant the second one, and two
+/// invoices on one delivery is a second liability the supplier never issued.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_verifier_keeps_the_invoice_against_the_delivery_the_count_names(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (po_id, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+    let po_line_id = line_of(&pool, po_id).await;
+    let receipt_id = delivery(&dc);
+
+    dc.count_purchase(PurchaseCountRequest {
+        receipt_id,
+        po_line_id,
+        counted_quantity: 120,
+        actor_id: "penerima-1".into(),
+        idempotency_key: "count-1".into(),
+    })
+    .unwrap_or_else(|e| panic!("count: {e}"));
+
+    let queue = dc
+        .counts_awaiting_verification()
+        .unwrap_or_else(|e| panic!("queue: {e}"));
+    assert_eq!(
+        queue[0].receipt_id, receipt_id,
+        "the verifier has to know which delivery the paper in their hand belongs to"
+    );
+
+    let stored = dc
+        .store_invoice_document(StoreInvoiceDocumentRequest {
+            receipt_id,
+            filename: "faktur-crumpled.jpg".into(),
+            content_type: "image/jpeg".into(),
+            bytes: b"the crumpled page".to_vec(),
+            actor_id: "supervisor-1".into(),
+        })
+        .unwrap_or_else(|e| panic!("upload: {e}"));
+    assert_eq!(stored.byte_count, 17);
+    assert_eq!(stored.uploaded_by, "supervisor-1");
+
+    let again = dc
+        .store_invoice_document(StoreInvoiceDocumentRequest {
+            receipt_id,
+            filename: "faktur.pdf".into(),
+            content_type: "application/pdf".into(),
+            bytes: b"the flat one".to_vec(),
+            actor_id: "supervisor-1".into(),
+        })
+        .unwrap_or_else(|e| panic!("re-upload: {e}"));
+    assert_eq!(again.filename, "faktur.pdf");
+
+    let page = dc
+        .invoice_document(receipt_id)
+        .unwrap_or_else(|e| panic!("read back: {e}"));
+    assert_eq!(page.content_type, "application/pdf");
+    assert_eq!(
+        page.bytes,
+        b"the flat one".to_vec(),
+        "the second photograph is the one they meant"
+    );
+
+    // An empty file is not a document, and a delivery nobody opened has
+    // nothing to attach one to.
+    assert!(dc
+        .store_invoice_document(StoreInvoiceDocumentRequest {
+            receipt_id,
+            filename: "nothing.pdf".into(),
+            content_type: "application/pdf".into(),
+            bytes: Vec::new(),
+            actor_id: "supervisor-1".into(),
+        })
+        .is_err());
+    assert!(dc.invoice_document(Uuid::new_v4()).is_err());
 }
 
 /// The buyer stops waiting for a delivery that is not coming.

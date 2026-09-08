@@ -365,7 +365,7 @@ export function Access() {
                 lists are two datasets, so one "add" for each would be two
                 primaries competing on one screen. */}
             <Button
-              variant="dark"
+              variant="primary"
               onClick={() =>
                 tab === "people" ? setGranting("new") : setRegistering(true)
               }

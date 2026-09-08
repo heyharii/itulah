@@ -476,7 +476,7 @@ function NewVersion({
           {(ready) => (
             <Button
               type="submit"
-              variant="dark"
+              variant="primary"
               className="self-start"
               disabled={!ready || write.isPending}
             >

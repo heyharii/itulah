@@ -252,9 +252,29 @@ function NavDrawer({
 /// protecting — a list of rows — has no need of that much air. The vertical
 /// padding comes down with it, because a screen whose first row is 24px below
 /// a 44px bar reads as a gap rather than as a page.
-export function PageContent({ children }: { children: React.ReactNode }) {
+///
+/// `fill` makes the column exactly as tall as the shell's scroll area and lays
+/// its children out as a flex column, so a screen whose subject is one long
+/// table can hand the table the leftover height with `flex-1` instead of
+/// guessing at it. The guess is what `max-h-[calc(100vh-19rem)]` was: a
+/// subtraction standing for a header, a search box and however many banners
+/// happen to be showing, which is wrong the moment a banner appears or does
+/// not — too short and the table stops halfway down an empty screen, too tall
+/// and the page grows a second scrollbar.
+export function PageContent({
+  fill = false,
+  children,
+}: {
+  fill?: boolean
+  children: React.ReactNode
+}) {
   return (
-    <div className="mx-auto max-w-[77.5rem] px-4 pt-4 pb-10 md:px-[1.875rem] md:pt-6 md:pb-14">
+    <div
+      className={cn(
+        "mx-auto max-w-[77.5rem] px-4 pt-4 pb-10 md:px-[1.875rem] md:pt-6 md:pb-14",
+        fill && "flex h-full min-h-0 flex-col"
+      )}
+    >
       {children}
     </div>
   )

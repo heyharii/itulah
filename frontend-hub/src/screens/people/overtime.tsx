@@ -450,7 +450,7 @@ function OrderOvertime() {
         </Field>
         <div>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={!ready || issue.isPending}
             onClick={() => issue.mutate()}
           >

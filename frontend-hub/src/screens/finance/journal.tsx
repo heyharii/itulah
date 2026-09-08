@@ -224,7 +224,7 @@ export function Journal() {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => setComposing(true)}>
+            <Button variant="primary" onClick={() => setComposing(true)}>
               New entry
             </Button>
           </>
@@ -655,7 +655,7 @@ function ComposerSheet({
                     : `Debits ${money(totals.debits)} · credits ${money(totals.credits)}`}
               </span>
               <Button
-                variant="dark"
+                variant="primary"
                 disabled={!totals.balanced || post.isPending}
                 onClick={() => form.handleSubmit()}
               >

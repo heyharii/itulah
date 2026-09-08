@@ -2640,12 +2640,34 @@ async fn apply_allotment_application_result(
             "application result line set differs from authored Allotment".into(),
         ));
     }
+    // The authored lines carry the CENTRE's site — `dc` — and the result
+    // carries the Edge's own, which a DC registered as `dc-01` is entitled to
+    // be. `validate_allotment_application_binding` above has already pinned
+    // `result.source_site_id` to this origin's registered site, so what makes
+    // the two one warehouse is that this origin OWNS the authored site — the
+    // same question `create_allotment` asked when it issued the command.
+    // Comparing the two strings instead refused every result a DC running
+    // under its own name ever sent back, and the allotment stayed PENDING for
+    // ever with nothing on screen to say why.
+    let authored_site: String = match authored.first() {
+        Some(row) => row.get("source_site_id"),
+        None => {
+            return Err(AppError::Validation(
+                "authored Allotment has no lines".into(),
+            ))
+        }
+    };
+    if inventory_dc_owner_tx(tx, &authored_site).await?.as_deref() != Some(origin_id) {
+        return Err(AppError::Validation(format!(
+            "application result came from {origin_id}, which does not own authored source site {authored_site}"
+        )));
+    }
     for row in &authored {
         let line_id: Uuid = row.get("id");
         let line = supplied.get(&line_id).ok_or_else(|| {
             AppError::Validation(format!("application result omits authored line {line_id}"))
         })?;
-        if row.get::<String, _>("source_site_id") != result.source_site_id
+        if row.get::<String, _>("source_site_id") != authored_site
             || row.get::<i64, _>("quantity") != line.planned_quantity
         {
             return Err(AppError::Validation(format!(
@@ -2701,7 +2723,10 @@ async fn apply_allotment_application_result(
         .bind(line_id)
         .bind(result.allotment_id)
         .bind(origin_id)
-        .bind(&result.source_site_id)
+        // The authored site, not the wire's: `source_pool_id` beside it is the
+        // centre's `dc.warehouse`, and a row reading `dc-01` / `dc.warehouse`
+        // is one nobody can join on.
+        .bind(&authored_site)
         .bind(row.get::<String, _>("source_pool_id"))
         .bind(row.get::<String, _>("destination_type"))
         .bind(row.get::<String, _>("destination_id"))
@@ -4252,6 +4277,57 @@ async fn sole_dc_origin_tx(tx: &mut Transaction<'_, Postgres>) -> Result<Option<
              than relying on the canonical `dc`"
                 .into(),
         )),
+    }
+}
+
+/// The site an origin actually runs as.
+///
+/// The other half of `inventory_dc_owner_tx`. That one answers "who owns the
+/// site the centre calls `dc`" and returns an ORIGIN; this answers "and what
+/// does that origin call itself", which is what has to go on the wire.
+pub(super) async fn origin_site_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+) -> Result<String, AppError> {
+    sqlx::query("SELECT site_id FROM sync_origin_credential WHERE origin_id=$1 FOR SHARE")
+        .bind(origin_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .map(|row| row.get::<String, _>("site_id"))
+        .ok_or_else(|| AppError::NotFound(format!("registered origin {origin_id}")))
+}
+
+/// A pool id, respelled for the site that owns it.
+///
+/// # The name gap this closes
+///
+/// Cloud's pool model has exactly one distribution centre and spells it into
+/// the id literally: `dc.warehouse`, `dc.outbound.picked.store-07`. The Edge
+/// parameterises the same grammar by the site it actually runs as, so the same
+/// two shelves are `dc-01.warehouse` and `dc-01.outbound.picked.store-07`.
+/// Stores never diverge — `store-07.floor` is `store-07.floor` on both sides —
+/// which is why this went unnoticed until the DC needed it.
+///
+/// `inventory_dc_owner_tx` already resolves the SITE half of that gap. Nothing
+/// resolved the POOL half, so every DC allotment failed three times over: the
+/// centre checked fact positions at a `place_id` the Edge never emits and read
+/// zero, the activation command carried a site the Edge refuses to answer to,
+/// and the pool on the line was not a fulfillment source for the Edge's own
+/// warehouse. All three were silent.
+///
+/// **A no-op wherever the names already agree**, which is every store and any
+/// DC registered as `dc` — the first segment is replaced with a value it
+/// already holds. That is what makes this safe to apply unconditionally at the
+/// boundary rather than behind a "is this the canonical DC" test.
+///
+/// The first segment IS the site: `SiteId` admits only lowercase letters,
+/// digits and `-`, so it can never contain the separator.
+pub(super) fn pool_id_for_site(pool_id: &str, site_id: &str) -> String {
+    match pool_id.split_once('.') {
+        Some((_, rest)) => format!("{site_id}.{rest}"),
+        // Not a pool id this grammar recognises. Handed back untouched so the
+        // parser downstream is the one that refuses it, with its own message.
+        None => pool_id.to_string(),
     }
 }
 
@@ -6723,4 +6799,58 @@ pub async fn close_purchase_line_short(
         "closed_by": closed_by,
         "order_closed": still_open == 0,
     }))
+}
+
+#[cfg(test)]
+mod pool_namespace_tests {
+    use super::pool_id_for_site;
+
+    /// The gap this whole translation exists to close. Cloud's pool model
+    /// spells its single distribution centre `dc`; an Edge DC registers under
+    /// the site it actually runs as.
+    #[test]
+    fn dc_pools_take_the_owner_site() {
+        assert_eq!(pool_id_for_site("dc.warehouse", "dc-01"), "dc-01.warehouse");
+        assert_eq!(
+            pool_id_for_site("dc.pending.untagged", "dc-01"),
+            "dc-01.pending.untagged"
+        );
+        assert_eq!(pool_id_for_site("dc.reject.dc", "dc-01"), "dc-01.reject.dc");
+    }
+
+    /// Only the first segment is the site. A pool named after a destination
+    /// store keeps that store.
+    #[test]
+    fn only_the_leading_segment_moves() {
+        assert_eq!(
+            pool_id_for_site("dc.outbound.picked.store-07", "dc-01"),
+            "dc-01.outbound.picked.store-07"
+        );
+        assert_eq!(
+            pool_id_for_site("dc.reject.store-07", "dc-01"),
+            "dc-01.reject.store-07"
+        );
+    }
+
+    /// The property that makes it safe to apply at the boundary without asking
+    /// whether this origin is the canonical DC: where the names already agree —
+    /// every store, and a DC registered as `dc` — nothing changes.
+    #[test]
+    fn agreeing_names_are_untouched() {
+        assert_eq!(
+            pool_id_for_site("store-07.floor", "store-07"),
+            "store-07.floor"
+        );
+        assert_eq!(pool_id_for_site("dc.warehouse", "dc"), "dc.warehouse");
+    }
+
+    /// Not a pool id. Handed back for the parser downstream to refuse with its
+    /// own message rather than mangled into one that looks plausible.
+    #[test]
+    fn a_string_without_a_segment_is_left_alone() {
+        assert_eq!(
+            pool_id_for_site("external/supplier", "dc-01"),
+            "external/supplier"
+        );
+    }
 }

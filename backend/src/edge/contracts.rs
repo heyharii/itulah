@@ -312,6 +312,55 @@ pub struct PickResult {
     pub occurred_at: DateTime<Utc>,
 }
 
+/// Raise a picklist: one trip round the racks, written down before it is walked.
+///
+/// The picks inside it are the same picks a handheld makes one at a time —
+/// same event, same movement, same pool. What this adds is the DOCUMENT: a
+/// round somebody can be handed, read back, and find again tomorrow. Before
+/// it, a picking round was a session that existed only if a person remembered
+/// to open one, and the sheet they worked from was recomputed under them as
+/// they walked.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CreatePicklistRequest {
+    /// The rack the goods come off. One per picklist: a round is a walk
+    /// through one place, and a sheet spanning two of them is two sheets.
+    pub source_pool_id: String,
+    pub lines: Vec<PickLine>,
+    pub actor_id: String,
+    pub note: Option<String>,
+    pub idempotency_key: String,
+}
+
+/// How much of one SKU this round is meant to fetch.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PickLine {
+    pub sku_code: String,
+    pub quantity: i64,
+}
+
+/// What the round actually came back with, and what it could not.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PicklistResult {
+    pub summary: super::outbound::PickSessionSummary,
+    /// The lines the racks did not answer. Reported rather than swallowed: a
+    /// picklist that quietly came back two lines short is a shop short two
+    /// lines, found out at the box.
+    pub refused: Vec<PicklistRefusal>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PicklistRefusal {
+    pub sku_code: String,
+    pub quantity: i64,
+    /// The node's own words, not a code. There is one caller and it shows this
+    /// to the person holding the trolley.
+    pub reason: String,
+}
+
 /// RFID Pack request. A package has one destination Store, while its EPCs may
 /// be attributed to many FIFO-picked Allotment lines.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -321,6 +370,42 @@ pub struct PackKoliRequest {
     pub epcs: Vec<String>,
     pub actor_id: String,
     pub idempotency_key: String,
+}
+
+/// Pack a carton by SAYING HOW MUCH, rather than by scanning each piece.
+///
+/// The EPC request above is the same act described by a reader: a packer
+/// sweeps a box and the tags name themselves. This one is the act described by
+/// a person — "eight of this, three of that, for shop 04" — and the server
+/// chooses which physical pieces answer to it, FIFO out of the picking area,
+/// exactly as picking chooses which garments come off a rack.
+///
+/// Both end in the same movement and the same koli. What differs is who names
+/// the units, and that is a question about the equipment on the bench, not
+/// about what packing means.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PackRequest {
+    pub destination_store_id: String,
+    pub lines: Vec<PackLine>,
+    pub actor_id: String,
+    pub idempotency_key: String,
+    /// Seal the carton as part of packing it.
+    ///
+    /// True is the ordinary case for a bench with no reader: the box is filled
+    /// from a sheet in one act, and leaving it open would be leaving it open
+    /// for nothing. False leaves it fillable, which is what a second pack into
+    /// the same carton would need.
+    #[serde(default)]
+    pub seal: bool,
+}
+
+/// How much of one SKU goes in the box.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PackLine {
+    pub sku_code: String,
+    pub quantity: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -621,13 +706,26 @@ pub trait EdgeInventory: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<super::outbound::PickSessionSummary, EdgeError>;
+    /// Every shop this DC still owes something to — see
+    /// [`super::outbound::destinations_owed`].
+    fn destinations_owed(&self) -> Result<Vec<super::outbound::DestinationDemand>, EdgeError>;
+    /// Every picklist this DC has raised — see [`super::outbound::list_picklists`].
+    fn list_picklists(&self) -> Result<Vec<super::outbound::PicklistSummary>, EdgeError>;
     fn allotment_line_position(
         &self,
         allotment_line_id: &str,
     ) -> Result<super::outbound::LinePosition, EdgeError>;
     fn intake_dc(&self, request: IntakeRequest) -> Result<CommandResult, EdgeError>;
     fn pick_stock(&self, request: PickRequest) -> Result<PickResult, EdgeError>;
+    /// Raise a whole picklist in one act — see [`CreatePicklistRequest`].
+    fn create_picklist(&self, request: CreatePicklistRequest) -> Result<PicklistResult, EdgeError>;
     fn pack_koli(&self, request: PackKoliRequest) -> Result<FulfillmentProgressResult, EdgeError>;
+    /// Pack a carton from quantities, letting the server name the pieces.
+    /// See [`PackRequest`].
+    fn pack_by_quantity(
+        &self,
+        request: PackRequest,
+    ) -> Result<super::outbound::KoliManifest, EdgeError>;
     fn create_fulfillment_shipment(
         &self,
         koli_id: Uuid,
@@ -825,6 +923,18 @@ pub trait EdgeInventory: Send + Sync {
         &self,
         request: RecordInvoiceRequest,
     ) -> Result<GoodsReceiptView, EdgeError>;
+    /// Keep the supplier's invoice as the paper it is.
+    ///
+    /// The numbers on it are recorded separately, and they are what the system
+    /// compares. This is the page behind them — what settles an argument about
+    /// a total six weeks later. One per delivery, because one lorry brings one
+    /// invoice; a second upload replaces the first.
+    fn store_invoice_document(
+        &self,
+        request: StoreInvoiceDocumentRequest,
+    ) -> Result<InvoiceDocumentView, EdgeError>;
+    /// The stored invoice's bytes, with the type they were uploaded as.
+    fn invoice_document(&self, receipt_id: uuid::Uuid) -> Result<InvoiceDocument, EdgeError>;
     /// Tagging jobs this DC has been given and not yet finished — the print
     /// queue, with the labels head office minted for each variant.
     fn open_tagging_jobs(&self) -> Result<Vec<TaggingWorkJob>, EdgeError>;
@@ -850,6 +960,37 @@ pub struct OpenGoodsReceiptRequest {
     pub arrived_at: Option<chrono::DateTime<chrono::Utc>>,
     pub actor_id: String,
     pub idempotency_key: String,
+}
+
+/// Uploading the invoice page. The bytes travel as the body; everything about
+/// them travels here.
+#[derive(Clone, Debug)]
+pub struct StoreInvoiceDocumentRequest {
+    pub receipt_id: uuid::Uuid,
+    pub filename: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+    pub actor_id: String,
+}
+
+/// What is on file against a delivery, without the bytes.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct InvoiceDocumentView {
+    pub receipt_id: uuid::Uuid,
+    pub filename: String,
+    pub content_type: String,
+    pub byte_count: i64,
+    pub uploaded_by: String,
+    pub uploaded_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// The page itself, on its way back to a browser.
+#[derive(Clone, Debug)]
+pub struct InvoiceDocument {
+    pub filename: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1103,6 +1244,11 @@ pub struct PurchaseVerifyResult {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PurchaseCountAwaitingVerification {
     pub count_id: uuid::Uuid,
+    /// The delivery document this count hangs off — and the only thing the
+    /// supplier's invoice can be attached to. A verifier holding the paper
+    /// would otherwise have to guess which of a supplier's open deliveries it
+    /// belongs to, and on a busy bay that guess is wrong.
+    pub receipt_id: uuid::Uuid,
     pub po_line_id: uuid::Uuid,
     pub po_number: String,
     pub supplier_id: String,

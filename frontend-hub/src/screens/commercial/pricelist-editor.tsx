@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Input, Money } from "@/components/ui/field"
@@ -98,6 +98,10 @@ export interface PendingPrice {
   /// It also makes the collision the constraint really has visible: a fleet
   /// price and a group price both store `site_id = NULL`, so they are one key,
   /// and one book cannot carry both for the same product.
+  ///
+  /// The start date is part of it too, because two rows that start on two days
+  /// are bound for two books — where the server's uniqueness does not reach,
+  /// and where collapsing them would silently drop one of the two decisions.
   readonly key: string
   readonly skuId: string
   readonly skuCode: string
@@ -118,6 +122,21 @@ export interface PendingPrice {
   readonly siteIds: readonly string[] | null
   /// How that scope reads out loud — "Every shop", "Toko Bandung", "3 shops".
   readonly where: string
+  /// When this price starts, when that is not when the book starts.
+  ///
+  /// `datetime-local` text, or `null` for "with the book". A price rule has no
+  /// dates of its own — `commercial_price_rule` carries none, and
+  /// `load_site_price_book` reads the *publication's* window for every price in
+  /// it — so a shop that starts a week later cannot be a different row. It is a
+  /// different book, and this field is what makes the publish sheet write one.
+  ///
+  /// A book carrying one shop's row is safe, and that is not obvious: the
+  /// loader takes every published book whose window is open, not the newest
+  /// one, and the engine ranks per product. So a second book naming Bandung
+  /// alone adds a rung at Bandung and leaves every other price standing. A
+  /// loader that read one book would have made this feature a way to wipe a
+  /// shop's range.
+  readonly from: string | null
   readonly sellable: boolean
   readonly taxCategory: string
   readonly taxRateBps: number
@@ -206,7 +225,7 @@ export function EditBar({
           </Button>
           {/* The one black CTA on this screen. Everything else here is soft or
               quiet, because there is exactly one act that reaches a till. */}
-          <Button variant="dark" onClick={onPublish}>
+          <Button variant="primary" onClick={onPublish}>
             Publish
           </Button>
         </>
@@ -296,7 +315,7 @@ export function SalePriceSheet({
             Held here until you publish. Nothing reaches a till yet.
           </span>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={!ready}
             onClick={() => {
               if (!ready) return
@@ -513,7 +532,9 @@ export function PublishSheet({
   edits: readonly PendingEdit[]
   nextVersion: number
   onClose: () => void
-  onPublished: (receipt: PublishReceipt) => void
+  /// Every book this publish wrote, in the order they went out. A list rather
+  /// than one receipt because a batch with two start dates is two books.
+  onPublished: (receipts: readonly PublishReceipt[]) => void
 }) {
   const client = useQueryClient()
   const actor = useActor()
@@ -550,15 +571,15 @@ export function PublishSheet({
   const sales = edits.filter((one) => one.kind === "markdown")
   const priced = edits.filter((one) => one.kind === "price")
 
-  /// One tax rule per category the prices in this book actually name.
+  /// One tax rule per category the prices in a book actually name.
   ///
   /// The server refuses both ways round: a book that sets prices needs at
   /// least one tax rule to categorise them, and a book that sets none may not
   /// carry any, because they would categorise nothing. Deriving the list from
   /// the prices themselves is what keeps both true without anybody choosing.
-  const taxRules: TaxRuleInput[] = [
+  const taxRulesOf = (prices: readonly PendingPrice[]): TaxRuleInput[] => [
     ...new Map(
-      priced.map((price) => [
+      prices.map((price) => [
         price.taxCategory,
         {
           tax_category: price.taxCategory,
@@ -569,85 +590,167 @@ export function PublishSheet({
     ).values(),
   ]
 
+  /// The books this publish will write: one per start date the prices ask for.
+  ///
+  /// A price rule has no dates. `commercial_price_rule` carries none, and
+  /// `load_site_price_book` reads the *publication's* window for every price in
+  /// it — so "Bandung starts a week later" cannot be a column on a row. It is a
+  /// second book, with its own version number and its own window, and this is
+  /// where the pending list splits into however many of them its dates ask for.
+  ///
+  /// That is safe, and it is worth saying why, because the obvious fear is that
+  /// a book naming one shop wipes the rest of its range: the loader takes
+  /// *every* published book whose window is open, not the newest one, and the
+  /// engine ranks per product. The later book adds a rung at Bandung and leaves
+  /// every other price standing.
+  ///
+  /// The markdowns all travel in the book that starts when this sheet says,
+  /// because a markdown takes the book's `effective_from` — its own dates are
+  /// the end date and the hours, which it already carries per row.
+  const books = useMemo(() => {
+    const by = new Map<string, PendingPrice[]>()
+    for (const price of priced) {
+      const at = price.from ?? ""
+      const held = by.get(at)
+      if (held !== undefined) held.push(price)
+      else by.set(at, [price])
+    }
+    if (!by.has("") && sales.length > 0) by.set("", [])
+    return [...by.entries()]
+      .map(([at, prices]) => ({
+        at,
+        prices,
+        from: at === "" ? effectiveFrom : instantOf(at),
+        markdowns: at === "" ? sales : [],
+      }))
+      .sort((left, right) =>
+        left.from === null || right.from === null
+          ? 0
+          : left.from === right.from
+            ? left.at === ""
+              ? -1
+              : 1
+            : left.from < right.from
+              ? -1
+              : 1
+      )
+    // `sales` and `priced` are derived from `edits` on every render, so they
+    // are new arrays each time and useless as dependencies. The list they come
+    // from is the honest one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edits, effectiveFrom])
+
   /// Two prices filed under one class at two different rates.
   ///
   /// A category is unique within a book — the server enforces that — so the
   /// list above would silently keep one of them and file both prices under it.
   /// That is a wrong tax on a real sale arrived at by a `Map` overwriting a
   /// key, so it is refused here instead, where the two batches that disagree
-  /// can still be seen.
-  const taxConflict = priced.find((price) => {
-    const filed = taxRules.find((tax) => tax.tax_category === price.taxCategory)
-    return (
-      filed !== undefined &&
-      (filed.rate_bps !== price.taxRateBps ||
-        filed.tax_inclusive !== price.taxInclusive)
-    )
-  })
-
-  /// A fresh key for each attempt, made where the command is built rather than
-  /// held for the life of the sheet.
-  ///
-  /// Reusing one key across attempts is what an idempotency key is usually for,
-  /// and here it would be wrong: a halted publish leaves a book behind, so the
-  /// *next* attempt asks for a higher version — a different payload under the
-  /// same key, which `command_deduplication` refuses outright. The guard
-  /// against a double click is the disabled button, and the guard against a
-  /// lost response is the version check, which refuses a second book at a
-  /// number already taken.
-  const publish = useMutation({
-    mutationFn: () => {
-      const offerRules: OfferRuleInput[] = priced.map((price) => ({
-        sku_id: price.skuId,
-        // Exactly one level, and `null` for the other — not `undefined`. The
-        // check constraint counts the ones that are set, and a group price
-        // that also carried a shop id would be refused by Postgres rather
-        // than by anything with a sentence to say about it.
-        site_id: price.siteId,
-        site_ids: price.siteIds,
-        channel: price.channel,
-        // Authored together with the price, because the server refuses one
-        // without the other: a priced product nobody may sell, or a sellable
-        // one with no price, both fail the publication's coherence check.
-        sellable: price.sellable,
-        currency: price.currency,
-        unit_price_minor: price.priceMinor,
-        tax_category: price.taxCategory,
-      }))
-      const markdowns: MarkdownInput[] = sales.map((edit) => ({
-        // Unique within the book, which is all the server asks, and readable
-        // in the cell that carries it: the drill-down prints this id beside
-        // the rung it came from, so "which decision made this price" is
-        // answerable from the screen rather than from the database.
-        markdown_id: `md-v${nextVersion}-${edit.articleCode}-${edit.siteId}`,
-        article_code: edit.articleCode,
-        site_id: edit.siteId,
-        replacement_unit_price_minor: edit.priceMinor,
-        priority: 0,
-        // The same schedule on every drop in the book. The server keeps it per
-        // row because a later book may reschedule one product without touching
-        // the rest, but nothing here needs that yet.
-        iso_weekdays: slotDays,
-        from_minute: slotStart,
-        to_minute: slotEnd,
-        effective_from: effectiveFrom!,
-        // The edit's own end date, not the book's. A book can carry sales that
-        // finish on different days, and forcing one window on all of them would
-        // make somebody publish three books to say three things.
-        effective_to: edit.until,
-      }))
-      return writeAndPublish({
-        ...NOTHING_TO_PUBLISH,
-        version: nextVersion,
-        name: name.trim(),
-        effective_from: effectiveFrom!,
-        effective_to: effectiveTo,
-        tax_rules: taxRules,
-        offer_rules: offerRules,
-        markdowns,
-        actor_id: actor,
-        idempotency_key: crypto.randomUUID(),
+  /// can still be seen. Asked per book: two books may disagree freely, which
+  /// is what "publish them separately" meant when this could only write one.
+  const taxConflict = books
+    .flatMap((book) => {
+      const filed = taxRulesOf(book.prices)
+      return book.prices.filter((price) => {
+        const rule = filed.find((tax) => tax.tax_category === price.taxCategory)
+        return (
+          rule !== undefined &&
+          (rule.rate_bps !== price.taxRateBps ||
+            rule.tax_inclusive !== price.taxInclusive)
+        )
       })
+    })
+    .at(0)
+
+  /// One book: its prices, its markdowns if it is the one the sheet dated, and
+  /// its own version number.
+  ///
+  /// A fresh idempotency key for each attempt, made where the command is built
+  /// rather than held for the life of the sheet. Reusing one key across
+  /// attempts is what an idempotency key is usually for, and here it would be
+  /// wrong: a halted publish leaves a book behind, so the *next* attempt asks
+  /// for a higher version — a different payload under the same key, which
+  /// `command_deduplication` refuses outright. The guard against a double click
+  /// is the disabled button, and the guard against a lost response is the
+  /// version check, which refuses a second book at a number already taken.
+  const publishOne = (book: (typeof books)[number], version: number) => {
+    const offerRules: OfferRuleInput[] = book.prices.map((price) => ({
+      sku_id: price.skuId,
+      // Exactly one level, and `null` for the other — not `undefined`. The
+      // check constraint counts the ones that are set, and a group price
+      // that also carried a shop id would be refused by Postgres rather
+      // than by anything with a sentence to say about it.
+      site_id: price.siteId,
+      site_ids: price.siteIds,
+      channel: price.channel,
+      // Authored together with the price, because the server refuses one
+      // without the other: a priced product nobody may sell, or a sellable
+      // one with no price, both fail the publication's coherence check.
+      sellable: price.sellable,
+      currency: price.currency,
+      unit_price_minor: price.priceMinor,
+      tax_category: price.taxCategory,
+    }))
+    const markdowns: MarkdownInput[] = book.markdowns.map((edit) => ({
+      // Unique within the book, which is all the server asks, and readable
+      // in the cell that carries it: the drill-down prints this id beside
+      // the rung it came from, so "which decision made this price" is
+      // answerable from the screen rather than from the database.
+      markdown_id: `md-v${version}-${edit.articleCode}-${edit.siteId}`,
+      article_code: edit.articleCode,
+      site_id: edit.siteId,
+      replacement_unit_price_minor: edit.priceMinor,
+      priority: 0,
+      // The same schedule on every drop in the book. The server keeps it per
+      // row because a later book may reschedule one product without touching
+      // the rest, but nothing here needs that yet.
+      iso_weekdays: slotDays,
+      from_minute: slotStart,
+      to_minute: slotEnd,
+      effective_from: book.from!,
+      // The edit's own end date, not the book's. A book can carry sales that
+      // finish on different days, and forcing one window on all of them would
+      // make somebody publish three books to say three things.
+      effective_to: edit.until,
+    }))
+    return writeAndPublish({
+      ...NOTHING_TO_PUBLISH,
+      version,
+      // Every book in a run is named for the day it starts. They arrive in a
+      // shop's activation log as separate entries, and three lines reading
+      // "Autumn repricing" would leave nobody able to tell which one their
+      // till had taken.
+      name:
+        books.length === 1
+          ? name.trim()
+          : `${name.trim()} · ${day(book.from!)}`,
+      effective_from: book.from!,
+      effective_to: effectiveTo,
+      tax_rules: taxRulesOf(book.prices),
+      offer_rules: offerRules,
+      markdowns,
+      actor_id: actor,
+      idempotency_key: crypto.randomUUID(),
+    })
+  }
+
+  /// The books that actually went out, kept across the failure of a later one.
+  ///
+  /// A run that publishes three books and fails on the third has changed what
+  /// two shops charge. "Publishing failed" would be a lie by omission, and the
+  /// mutation's own error carries nothing about what succeeded before it. State
+  /// rather than a ref, because the banner that says so has to be drawn.
+  const [sent, setSent] = useState<readonly PublishReceipt[]>([])
+
+  const publish = useMutation({
+    mutationFn: async () => {
+      const receipts: PublishReceipt[] = []
+      setSent([])
+      for (const [index, book] of books.entries()) {
+        receipts.push(await publishOne(book, nextVersion + index))
+        setSent([...receipts])
+      }
+      return receipts
     },
     onError: () => {
       // A failure between the two calls still wrote a book, so the number this
@@ -656,13 +759,13 @@ export function PublishSheet({
       // already refused once and the error never changes.
       client.invalidateQueries({ queryKey: commercialKeys.books() })
     },
-    onSuccess: (receipt) => {
+    onSuccess: (receipts) => {
       // The whole prefix, and this is the case that earns it: publishing a book
       // changes the books list, what every shop is charging, how far behind
       // each shop now is, and the limits the usage report joins against.
       // Naming five keys here would be naming every key this module has.
       client.invalidateQueries({ queryKey: commercialKeys.all })
-      onPublished(receipt)
+      onPublished(receipts)
       setName("")
       setUntil("")
     },
@@ -678,6 +781,10 @@ export function PublishSheet({
     // day. Refused at the button, where somebody can still see why.
     !slotBroken &&
     taxConflict === undefined &&
+    // A per-shop start that is not a date yet. The batch would silently go out
+    // as one book on the sheet's own date, which is the opposite of what was
+    // being typed.
+    books.every((book) => book.from !== null) &&
     edits.length > 0 &&
     !publish.isPending
 
@@ -706,7 +813,7 @@ export function PublishSheet({
             .
           </span>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={!ready}
             onClick={() => publish.mutate()}
           >
@@ -716,11 +823,43 @@ export function PublishSheet({
       }
     >
       <div className="flex flex-col gap-4">
+        {publish.isError && sent.length > 0 && (
+          // Said before the error itself, because it is the half that changed
+          // the world: those versions are live at the tills now, and retrying
+          // must not send them again.
+          <Banner tone="warn">
+            {sent.map((one) => `v${one.version}`).join(" and ")}{" "}
+            {sent.length === 1 ? "is" : "are"} already published and at the
+            tills. Only the {count(books.length - sent.length)} book
+            {books.length - sent.length === 1 ? "" : "s"} after{" "}
+            {sent.length === 1 ? "it" : "them"} failed — discard the prices that
+            did go out before trying again, or this will publish them twice
+            under two version numbers.
+          </Banner>
+        )}
+
         {halted !== null ? (
           <Banner tone="bad">{halted.message}</Banner>
         ) : publish.isError ? (
           <ErrorState error={publish.error} />
         ) : null}
+
+        {books.length > 1 && (
+          <Banner tone="info">
+            These prices do not all start on the same day, and a price carries
+            no date of its own — every till reads the book's window. So this
+            writes {count(books.length)} books, v{nextVersion} to v
+            {nextVersion + books.length - 1}, one per date:{" "}
+            {books
+              .map(
+                (book) =>
+                  `${book.from === null ? "an unreadable date" : day(book.from)} (${count(book.prices.length)} price${book.prices.length === 1 ? "" : "s"})`
+              )
+              .join(", ")}
+            . A shop reads every book whose window is open, so the later ones
+            add a price where they name one and leave the rest standing.
+          </Banner>
+        )}
 
         {taxConflict !== undefined && (
           <Banner tone="bad">
@@ -873,9 +1012,17 @@ export function PublishSheet({
                     />
                   </MiniCell>
                   <MiniCell>
-                    <span className="text-[0.71875rem] text-body">
+                    <span className="block text-[0.71875rem] text-body">
                       {price.where}
                     </span>
+                    {/* Only where it differs from the book's, because a date
+                        printed on every row would read as a per-row window,
+                        which is the one thing a price rule does not have. */}
+                    {price.from !== null && (
+                      <span className="block text-[0.6875rem] text-mute">
+                        from {day(instantOf(price.from) ?? price.from)}
+                      </span>
+                    )}
                   </MiniCell>
                   <MiniCell align="right">
                     {/* The figure it supersedes, struck, beside the new one.
@@ -895,10 +1042,10 @@ export function PublishSheet({
                 </MiniRow>
               ))}
             </MiniTable>
-            {taxRules.length > 0 && (
+            {taxRulesOf(priced).length > 0 && (
               <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
                 Filed under{" "}
-                {taxRules
+                {taxRulesOf(priced)
                   .map(
                     (tax) =>
                       `${tax.tax_category} at ${percent(tax.rate_bps)}${tax.tax_inclusive ? ", inclusive" : ", on top"}`
@@ -918,9 +1065,11 @@ export function PublishSheet({
           {priced.length > 0 && (
             <>
               {" "}
-              The window above is the whole of when these new prices apply: a
-              price rule carries no dates of its own, so the book's are the ones
-              every till reads.
+              A price rule carries no dates of its own, so the book's window is
+              the whole of when its prices apply.{" "}
+              {books.length > 1
+                ? "The one above belongs to the first book; the rest start on the days their prices asked for, and all of them end when “Until” says."
+                : "The one above is theirs."}
             </>
           )}
         </p>

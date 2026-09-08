@@ -191,7 +191,7 @@ export function ReportCard({
           </Button>
         ) : (
           <Button
-            variant="dark"
+            variant="primary"
             disabled={save.isPending}
             className="gap-1.5"
             onClick={() =>

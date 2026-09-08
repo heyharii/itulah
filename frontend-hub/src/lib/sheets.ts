@@ -317,42 +317,69 @@ export const SHEET_PARAMS = {
   // the node that nothing on the device points at any more — and the second
   // round they open is the paperwork saying they picked twice.
   //
-  /// The delivery document open on the bay. Named `delivery` and not
-  /// `receipt`: this registry already has a `receipt`, which is a *line*
+  /// The order being counted on the bay, by PO number. Named `delivery` and
+  /// not `receipt`: this registry already has a `receipt`, which is a *line*
   /// waiting to be told what it is over in Articles. Two meanings under one
   /// query parameter is a link that opens the wrong sheet in the wrong module.
+  ///
+  /// It carries an order rather than a delivery document because nobody opens
+  /// a document by hand any more — Receiving opens one underneath the first
+  /// count. What a person points at is the order.
   delivery: id,
-  /// One blind count waiting for a verifier. Named for the decision rather
-  /// than for the document, so it does not collide with `count` — the official
-  /// stock count, which is a different thing entirely.
+  /// The order whose counts are being verified, by PO number. Named for the
+  /// decision rather than for the document, so it does not collide with
+  /// `count` — the official stock count, which is a different thing entirely.
   verify: id,
   /// The purchase-order line a checker is counting against.
   line: id,
-  /// The tagging job whose labels are being printed or confirmed.
+  /// The tagging job being read: its variants, and the confirmation that the
+  /// labels are physically on.
   job: id,
+  /// **The print queue.** A dialog rather than a screen, and it answers "what
+  /// is left on this bench" — every article still waiting and how far its run
+  /// has got. In the URL like every other overlay, so the bench somebody
+  /// walked away from is a link rather than a state their tab happened to be
+  /// in.
+  queue: flag,
+  /// **The label.** Which job's tag is on screen: the drawing, the ZPL under
+  /// it, the stock it is drawn on, and the button that sends it. A different
+  /// question from `queue` — somebody who pressed Print on a row has already
+  /// chosen the article, and showing them a list is asking again. Separate
+  /// from `job` too: one is a record being read, the other is a machine being
+  /// driven, and a person can want the second without the first.
+  print: id,
   /// The print run. Held in the URL for the same reason as a session: a run is
   /// resumed at a different bench as often as it is finished at the first one.
   run: id,
   /// The printer settings panel — a fact about the bench, not about a record.
   printer: flag,
-  /// **The open pick round.** A handheld that slept mid-pick comes back here.
+  /// **One picklist**, read back: what came off the racks in that round.
+  ///
+  /// It used to mean the round somebody had OPEN — a handheld that slept
+  /// mid-pick came back to it. A picklist is composed and closed in one act
+  /// now, so there is no such thing as a round in progress, and the key names
+  /// the record instead of the session.
   pick: id,
   /// The rack stock is being taken off. A choice, not a record — but it is
   /// what every pick on the screen is written against, so it survives a reload
   /// with the round it belongs to.
   rack: id,
-  /// **The open packing round.**
-  pack: id,
-  /// **The open RFID box**: one carton being filled against a fixed target.
-  /// Different from `pack` — a box belongs to a round, but a round is a shift
-  /// and a box is ten minutes.
-  box: id,
   /// One carton, and its manifest.
   koli: id,
   /// The consignment note.
   shipment: id,
   /// The loading manifest for one truck run.
   dispatch: id,
+  /// **The four composers**, each over the list it is raised from.
+  ///
+  /// Flags rather than ids, like `new-order` and `new-price`: the thing each
+  /// one names does not exist yet and has nothing to identify it by. In the
+  /// URL all the same, because a composer somebody walked away from mid-shift
+  /// is a link rather than a state their tab happened to be in.
+  "new-pick": flag,
+  "new-pack": flag,
+  "new-shipment": flag,
+  "new-dispatch": flag,
   /// Which slice of a carton list is being read. A fixed set, because it
   /// reaches the node as `?ready=true` / `?unassigned=true` and nothing else is
   /// answerable.

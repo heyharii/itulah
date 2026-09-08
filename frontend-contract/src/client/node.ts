@@ -119,7 +119,10 @@ export class Node {
   /// The transport bits every request shares: who we are, and whether cookies
   /// travel. In one place because getting it wrong on one verb is a session
   /// that works for reads and 403s on writes.
-  private authorise(headers: Record<string, string>, method: string): RequestCredentials {
+  private authorise(
+    headers: Record<string, string>,
+    method: string,
+  ): RequestCredentials {
     if (this.bearer !== undefined) {
       headers["authorization"] = `Bearer ${this.bearer}`;
       return "omit";
@@ -162,8 +165,36 @@ export class Node {
   /// that reason: a loose `fetch` in one screen would be a write without the
   /// CSRF header, which the server refuses, and without the error shape every
   /// other call already knows how to read.
-  upload<T>(path: string, body: Blob, options: RequestOptions = {}): Promise<T> {
+  upload<T>(
+    path: string,
+    body: Blob,
+    options: RequestOptions = {},
+  ): Promise<T> {
     return this.send<T>("POST", path, body, {}, options);
+  }
+
+  /// A read whose answer is bytes rather than a document.
+  ///
+  /// The counterpart to `upload`, and it exists for the same reason: a page
+  /// cannot reach these bytes with an `<img src>` or a plain link, because
+  /// this node is authenticated with a bearer token that only this client
+  /// holds. The caller gets a `Blob` and makes an object URL out of it.
+  async download(path: string, options: RequestOptions = {}): Promise<Blob> {
+    const headers: Record<string, string> = {};
+    const credentials = this.authorise(headers, "GET");
+    for (const [name, value] of Object.entries(options.headers ?? {})) {
+      headers[name] = value;
+    }
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "GET",
+      headers,
+      credentials,
+      signal: options.signal,
+    });
+    if (!response.ok) {
+      throw await readError(response);
+    }
+    return response.blob();
   }
 
   private async send<T>(

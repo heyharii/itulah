@@ -260,7 +260,7 @@ function CloseMonth({ place }: { place: string }) {
         </Field>
         <div>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={period === "" || reason.trim() === "" || close.isPending}
             onClick={() => close.mutate()}
           >

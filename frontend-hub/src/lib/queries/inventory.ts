@@ -1223,6 +1223,8 @@ export const inventoryKeys = {
   pool: (id: string) => ["inventory", "pools", id] as const,
   availability: (poolId: string, search: string, cursor: string) =>
     ["inventory", "availability", poolId, search, cursor] as const,
+  poolAvailability: (poolId: string) =>
+    ["inventory", "availability", "whole", poolId] as const,
   asOf: (at: string, siteId: string, poolId: string) =>
     ["inventory", "as-of", at, siteId, poolId] as const,
   reconciliations: () => ["inventory", "reconciliations"] as const,
@@ -1324,6 +1326,54 @@ export function availability(
     })}`,
     { signal }
   )
+}
+
+/// The whole pool, not the first page of it.
+///
+/// The availability endpoint pages on a SKU-code cursor and caps a page at 500
+/// — it is written for a list somebody reads a screenful at a time. The
+/// allotment matrix is not that: its rows are the axis a person scans down
+/// while typing quantities across, and a matrix that stops at row 500 with a
+/// "next page" button is a matrix you cannot total. So the pages are walked
+/// here, in one query, and the caller gets one answer.
+///
+/// Cheap in practice — the seed's 2,740 SKUs come back in six requests and
+/// under a third of a second, because the expensive part is the ledger fold
+/// PostgreSQL does once per page over an index.
+///
+/// `PAGE_CAP` is a stop, not a limit anybody should reach: a server that
+/// returned a cursor it had already returned would otherwise loop forever, and
+/// an infinite `while` in a query function takes the tab with it.
+const PAGE_CAP = 60
+
+export async function poolAvailability(
+  sourcePoolId: string,
+  signal?: AbortSignal
+): Promise<Availability> {
+  const pages: Availability[] = []
+  let cursor = ""
+  for (let page = 0; page < PAGE_CAP; page += 1) {
+    const answer = await node.get<Availability>(
+      `/api/v1/inventory/availability${search({
+        source_pool_id: sourcePoolId,
+        cursor,
+        limit: 500,
+      })}`,
+      { signal }
+    )
+    pages.push(answer)
+    if (answer.next_cursor === null || answer.items.length === 0) break
+    cursor = answer.next_cursor
+  }
+  // The totals are the server's, computed over the whole matching set rather
+  // than over a page, so the first answer's are already the right ones — only
+  // the rows have to be joined back together.
+  const first = pages[0]
+  return {
+    ...first,
+    next_cursor: null,
+    items: pages.flatMap((page) => page.items),
+  }
 }
 
 /// The allotment book. `type` and `status` must be the exact wire spellings or

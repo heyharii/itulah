@@ -77,7 +77,7 @@ function SavedList({ onOpen }: { onOpen: (id: string) => void }) {
         sub="Definitions somebody kept. Each one runs against today's data, not the day it was written."
         actions={
           <Button
-            variant="dark"
+            variant="primary"
             onClick={() => assistant.setOpen(true)}
             className="gap-1.5"
           >
@@ -93,7 +93,7 @@ function SavedList({ onOpen }: { onOpen: (id: string) => void }) {
           page.items.length === 0 ? (
             <EmptyState
               action={
-                <Button variant="dark" onClick={() => assistant.setOpen(true)}>
+                <Button variant="primary" onClick={() => assistant.setOpen(true)}>
                   Ask the assistant
                 </Button>
               }

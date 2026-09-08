@@ -268,7 +268,7 @@ export function Catalogue() {
                   Sourcing browses what it makes. Until now it could only edit
                   them, so the one way to put something in the catalogue was a
                   three-field form buried in a supplier's record. */}
-              <Button variant="dark" onClick={() => adding.open(true)}>
+              <Button variant="primary" onClick={() => adding.open(true)}>
                 New item
               </Button>
             </>

@@ -243,6 +243,37 @@ export const DEPRECIATION_METHODS: readonly {
   { value: "NONE", label: "Tidak Disusutkan" },
 ]
 
+/// What a monthly charge is CALLED, which is not the same question as how the
+/// value is spread.
+///
+/// Six of the client's seven asset families depreciate. Operating equipment
+/// does not — their chart calls `1021607` *Reserve Replacement* and charges it
+/// through `7010215 BIAYA REPLACEMENT`, because racks and hangers are replaced
+/// rather than written down. Intangibles amortise. Same arithmetic in all
+/// three, different pair of accounts.
+export const CHARGE_KINDS: readonly {
+  value: string
+  label: string
+}[] = [
+  { value: "DEPRECIATION", label: "Penyusutan" },
+  { value: "REPLACEMENT_RESERVE", label: "Cadangan Penggantian" },
+  { value: "AMORTISATION", label: "Amortisasi" },
+]
+
+/// What the charge is most likely called, given the category the asset is
+/// filed under.
+///
+/// A SUGGESTION and nothing more: it seeds the form's select so the ordinary
+/// case is one fewer decision, and whoever assesses can change it. The server
+/// deliberately does not do this — inferring the charge from the category
+/// there would mean a posting rule choosing accounts out of a client account
+/// code, which is the thing the ledger's own design forbids.
+export function impliedChargeKind(categoryCode: string): string {
+  if (categoryCode.startsWith("1021507")) return "REPLACEMENT_RESERVE"
+  if (categoryCode.startsWith("10217")) return "AMORTISATION"
+  return "DEPRECIATION"
+}
+
 /// One bank line pasted out of a statement.
 ///
 /// Banks here export CSV and nothing else, so the import takes a paste rather

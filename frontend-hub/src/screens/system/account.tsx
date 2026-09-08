@@ -205,7 +205,7 @@ export function Account() {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => setAdding(true)}>
+            <Button variant="primary" onClick={() => setAdding(true)}>
               Add user
             </Button>
           </>

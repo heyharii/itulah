@@ -310,7 +310,7 @@ function PlanDay({
         </Field>
         <div>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={!ready || write.isPending}
             onClick={() => write.mutate()}
           >

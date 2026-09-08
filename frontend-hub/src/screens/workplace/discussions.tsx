@@ -216,7 +216,7 @@ function Board({ onOpen }: { onOpen: (id: string) => void }) {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => setOpening(true)}>
+            <Button variant="primary" onClick={() => setOpening(true)}>
               Open a thread
             </Button>
           </>
@@ -982,7 +982,7 @@ function OpenThreadSheet({
           <form.Subscribe selector={(state) => threadReady(state.values)}>
             {(ready) => (
               <Button
-                variant="dark"
+                variant="primary"
                 disabled={!ready || create.isPending}
                 onClick={() => form.handleSubmit()}
               >

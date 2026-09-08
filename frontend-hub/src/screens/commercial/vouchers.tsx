@@ -258,7 +258,7 @@ export function Vouchers() {
               placeholder="Card code or holder"
               className="h-8 w-52"
             />
-            <Button variant="dark" onClick={() => setIssuing(true)}>
+            <Button variant="primary" onClick={() => setIssuing(true)}>
               New voucher
             </Button>
           </>
@@ -314,7 +314,7 @@ export function Vouchers() {
               <EmptyState
                 action={
                   shown === "ALL" ? (
-                    <Button variant="dark" onClick={() => setIssuing(true)}>
+                    <Button variant="primary" onClick={() => setIssuing(true)}>
                       New voucher
                     </Button>
                   ) : undefined
@@ -519,13 +519,13 @@ function Actions({ voucher }: { voucher: VoucherRow }) {
     <div className="flex flex-col gap-3 rounded-inner border border-hairline-2 p-3.5">
       <div className="flex items-center gap-2">
         <Button
-          variant={doing === "REDEEM" ? "dark" : "ghost"}
+          variant={doing === "REDEEM" ? "primary" : "ghost"}
           onClick={() => setDoing(doing === "REDEEM" ? null : "REDEEM")}
         >
           Spend against a sale
         </Button>
         <Button
-          variant={doing === "VOID" ? "dark" : "ghost"}
+          variant={doing === "VOID" ? "primary" : "ghost"}
           onClick={() => setDoing(doing === "VOID" ? null : "VOID")}
         >
           Stop the card
@@ -641,7 +641,7 @@ function RedeemForm({
       <form.Subscribe selector={(state) => state.values.amount}>
         {(amount) => (
           <Button
-            variant="dark"
+            variant="primary"
             type="submit"
             disabled={
               spend.isPending ||
@@ -726,7 +726,7 @@ function VoidForm({
       <form.Subscribe selector={(state) => state.values.reason}>
         {(reason) => (
           <Button
-            variant="dark"
+            variant="primary"
             type="submit"
             disabled={stop.isPending || reason.trim().length < 4}
             className="self-start"
@@ -927,7 +927,7 @@ function IssueSheet({
         <form.Subscribe selector={(state) => state.values.amount}>
           {(amount) => (
             <Button
-              variant="dark"
+              variant="primary"
               type="submit"
               disabled={issue.isPending || minorFrom(amount) <= 0}
               className="self-start"

@@ -281,6 +281,25 @@ pub async fn payment(pool: &PgPool, payment_id: Uuid) -> Result<SupplierPayment,
     Ok(payment)
 }
 
+/// The meanings money is allowed to leave BY. Only ever a credit: this document
+/// settles bills, so `post_payment` credits the account named here and debits
+/// the payables. Nothing on it can put money into an account.
+///
+/// `cashier_float` is absent deliberately, and the omission is worth a sentence
+/// because it looks like a gap. Modal Kasir is the change in the drawer — a
+/// fixed sum head office sends so a cashier can break a note — and the owner's
+/// rule is that it pays for nothing. Adding it here would not let head office
+/// fund it, because there is no direction on this document that could; it would
+/// only let somebody settle the electricity out of the change float, which is
+/// the single thing that must never happen to it. `supplier_payment.account_key`
+/// in 0084 pins the same four in a CHECK for the same reason, so widening this
+/// list on its own would trade a sentence naming the four for SQLSTATE 23514
+/// arriving as "database operation failed".
+///
+/// Funding the float, and taking it back, is a movement between two pots at one
+/// site with no supplier in it. That document does not exist yet; until it does
+/// the act is a manual journal entry, which names account codes directly and so
+/// is not bounded by this list.
 const MONEY_KEYS: [&str; 4] = ["bank_giro", "bank_savings", "cash", "petty_cash"];
 const METHODS: [&str; 5] = ["TRANSFER", "CASH", "CHEQUE", "GIRO", "OTHER"];
 

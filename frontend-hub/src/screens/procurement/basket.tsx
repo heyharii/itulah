@@ -145,7 +145,7 @@ export function BasketSheet({
               Empty
             </Button>
             <Button
-              variant="dark"
+              variant="primary"
               disabled={lines.length === 0}
               onClick={() => {
                 composer.open(true)

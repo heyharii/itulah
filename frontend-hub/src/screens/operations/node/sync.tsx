@@ -81,7 +81,7 @@ export function Sync() {
         sub="What this warehouse has recorded, and whether the centre has it."
         actions={
           <Button
-            variant="dark"
+            variant="primary"
             disabled={send.isPending}
             onClick={() => send.mutate()}
           >

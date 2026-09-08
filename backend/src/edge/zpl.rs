@@ -509,88 +509,95 @@ fn xml(value: &str) -> String {
 /// The output is a complete description of the label: header geometry, every
 /// field, the RFID write, and how many copies. Nothing below decides how it is
 /// drawn.
+/// The margin every field on the tag starts at, in baseline dots.
+const MARGIN: i64 = 16;
+
 fn lay_out_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> Sheet {
     let l = Layout::resolve(size);
     let mut marks = Vec::with_capacity(7);
 
-    // The name of the shop, set as the largest thing on the tag after the
-    // price. It shrinks for a long name rather than growing into the SKU
-    // beside it: the brand is a parameter, and a tag that renders one shop's
-    // name cleanly and overprints another's is worse than one that sets a long
-    // name smaller.
-    let brand_text = truncate_chars(&escape(brand.0), 18);
-    let brand_font = brand_font_dots(brand_text.chars().count());
+    // The shop's name, and the SMALLEST thing on the tag.
+    //
+    // It used to be the largest after the price, which is backwards on a rail
+    // where every tag says the same word: the one line nobody needs to read
+    // was taking the space the ones they do need were fighting over. Fixed
+    // rather than fitted now — at this size even an eighteen-character name
+    // clears the column, so the shrink-to-fit the brand font did has nothing
+    // left to solve.
     marks.push(Mark::Text {
-        x: l.x(16),
-        y: l.y(14),
-        font: l.font(brand_font),
-        text: brand_text,
-    });
-
-    // The SKU rides in the top-right corner, small: it is for the person
-    // holding a stock list, not for the shopper, and every one of its eleven
-    // digits is already under the barcode for anyone who needs to read it.
-    marks.push(Mark::Text {
-        x: l.x(300),
-        y: l.y(28),
-        font: l.font(16),
-        text: truncate_chars(&escape(data.sku_code), 16),
+        x: l.x(MARGIN),
+        y: l.y(8),
+        font: l.font(17),
+        text: truncate_chars(&escape(brand.0), 18),
     });
 
     marks.push(Mark::Text {
-        x: l.x(16),
-        y: l.y(84),
-        font: l.font(21),
+        x: l.x(MARGIN),
+        y: l.y(32),
+        font: l.font(25),
         text: ellipsize(&escape(data.article_name), 32),
     });
 
-    // Size and colour share a baseline at two weights: the size is what a rail
-    // is shopped by, the colour merely confirms what the eye already sees.
-    let size_label = truncate_chars(&escape(data.size_label), 6);
-    let mut colour_x = l.x(16);
-    if !size_label.is_empty() {
-        colour_x = l.x(16 + text_dots(size_label.chars().count(), 44) + 16);
-        marks.push(Mark::Text {
-            x: l.x(16),
-            y: l.y(116),
-            font: l.font(44),
-            text: size_label,
-        });
-    }
+    // Colour and size on ONE line, joined by a middle dot.
+    //
+    // They were two fields at two weights sharing a baseline, which spent the
+    // width of a 44-dot size and bought nothing. The size still gets its own
+    // large setting in the corner — this line is what survives when the corner
+    // is under a thumb.
     let colour_label = ellipsize(&escape(data.colour_label), 18);
-    if !colour_label.is_empty() {
-        // Sitting on the size's baseline rather than its cap height, so the two
-        // read as one line instead of as a heading and a stray word.
+    let size_label = truncate_chars(&escape(data.size_label), 6);
+    let colour_size = match (colour_label.as_str(), size_label.as_str()) {
+        ("", "") => String::new(),
+        ("", size) => size.to_string(),
+        (colour, "") => colour.to_string(),
+        (colour, size) => format!("{colour} \u{00b7} {size}"),
+    };
+    if !colour_size.is_empty() {
         marks.push(Mark::Text {
-            x: colour_x,
-            y: l.y(134),
-            font: l.font(17),
-            text: colour_label,
+            x: l.x(MARGIN),
+            y: l.y(64),
+            font: l.font(20),
+            text: colour_size,
         });
     }
 
     if data.price_minor > 0 {
         marks.push(Mark::Text {
-            x: l.x(16),
-            y: l.y(178),
-            font: l.font(48),
+            x: l.x(MARGIN),
+            y: l.y(99),
+            font: l.font(43),
             text: format!("Rp {}", format_rupiah(data.price_minor)),
+        });
+    }
+
+    // The size again, alone in the corner and the biggest thing on the tag.
+    //
+    // This corner used to hold the SKU in eleven small digits — a number
+    // already printed under the barcode — set exactly where the one glance a
+    // person makes while pulling a garment off a rail lands. Size is what that
+    // glance is looking for.
+    if !size_label.is_empty() {
+        marks.push(Mark::Text {
+            x: l.x(318),
+            y: l.y(11),
+            font: l.font(64),
+            text: size_label.clone(),
         });
     }
 
     let barcode_payload = escape(data.barcode_payload);
     if !barcode_payload.is_empty() {
         marks.push(Mark::Barcode {
-            x: l.x(16),
-            y: l.y(238),
-            height: scale_round(50, l.scale_y),
+            x: l.x(MARGIN),
+            y: l.y(157),
+            height: scale_round(117, l.scale_y),
             module: barcode_module(
                 barcode_payload.chars().count(),
-                l.x(16),
+                l.x(MARGIN),
                 l.w_dots,
                 l.scale_x,
             ),
-            hri_font: l.font(18),
+            hri_font: l.font(24),
             payload: barcode_payload,
         });
     }

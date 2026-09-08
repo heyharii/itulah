@@ -269,7 +269,7 @@ export function Colours() {
             all.length === 0 ? (
               <EmptyState
                 action={
-                  <Button variant="dark" onClick={() => setCreating(true)}>
+                  <Button variant="primary" onClick={() => setCreating(true)}>
                     New colour
                   </Button>
                 }
@@ -681,7 +681,7 @@ function ColourForm({
 
             <Button
               type="submit"
-              variant="dark"
+              variant="primary"
               disabled={
                 save.isPending ||
                 Object.values(problems).some((one) => one !== undefined)

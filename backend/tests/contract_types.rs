@@ -136,6 +136,12 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PickResult: {e}"));
     inventory_backend::edge::PackKoliRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PackKoliRequest: {e}"));
+    inventory_backend::edge::contracts::PackRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PackRequest: {e}"));
+    inventory_backend::edge::contracts::CreatePicklistRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreatePicklistRequest: {e}"));
+    inventory_backend::edge::contracts::PicklistResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("PicklistResult: {e}"));
     // What packing answers: which allotment line each EPC in the box went
     // to. Attribution happens at the box, not at the rack, so this is the
     // only place a packer can see it.
@@ -157,6 +163,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PurchaseCountAwaitingVerification: {e}"));
     inventory_backend::edge::RecordInvoiceRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("RecordInvoiceRequest: {e}"));
+    inventory_backend::edge::InvoiceDocumentView::export_all(&config)
+        .unwrap_or_else(|e| panic!("InvoiceDocumentView: {e}"));
 
     // An Official Count as the warehouse works it: the sheet, the entries it
     // posts, and what submitting one answers.
@@ -185,6 +193,10 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PickedLine: {e}"));
     inventory_backend::edge::outbound::PickSessionSummary::export_all(&config)
         .unwrap_or_else(|e| panic!("PickSessionSummary: {e}"));
+    inventory_backend::edge::outbound::PicklistSummary::export_all(&config)
+        .unwrap_or_else(|e| panic!("PicklistSummary: {e}"));
+    inventory_backend::edge::outbound::DestinationDemand::export_all(&config)
+        .unwrap_or_else(|e| panic!("DestinationDemand: {e}"));
     inventory_backend::edge::outbound::PicklistLine::export_all(&config)
         .unwrap_or_else(|e| panic!("PicklistLine: {e}"));
     inventory_backend::edge::outbound::OutstandingLine::export_all(&config)
@@ -240,6 +252,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("ReprintRequest: {e}"));
     inventory_backend::edge::printing::PrintChunkReport::export_all(&config)
         .unwrap_or_else(|e| panic!("PrintChunkReport: {e}"));
+    inventory_backend::edge::printing::PrinterProbe::export_all(&config)
+        .unwrap_or_else(|e| panic!("PrinterProbe: {e}"));
 
     // Sourcing and suppliers: the first screens the centre gets.
     inventory_backend::cloud::domain::Supplier::export_all(&config)
@@ -473,6 +487,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("DepreciationLine: {e}"));
     inventory_backend::cloud::domain::DepreciationMethod::export_all(&config)
         .unwrap_or_else(|e| panic!("DepreciationMethod: {e}"));
+    inventory_backend::cloud::domain::ChargeKind::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChargeKind: {e}"));
     inventory_backend::cloud::domain::SkipReason::export_all(&config)
         .unwrap_or_else(|e| panic!("SkipReason: {e}"));
     // The other end of an asset's life, and the record of the one it had.
@@ -516,6 +532,20 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("ConfirmMatchRequest: {e}"));
     inventory_backend::cloud::postgres::BookBankLineRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("BookBankLineRequest: {e}"));
+    // The mail gateway. `settings` is deliberately `Record<string, unknown>`
+    // on the wire: the three readers want overlapping but different mappings,
+    // and a union that had to be widened every time a bank moved a column is
+    // a type that would be wrong more often than it was right.
+    inventory_backend::cloud::postgres::BankStatementSourceRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankStatementSourceRow: {e}"));
+    inventory_backend::cloud::postgres::SaveStatementSourceRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveStatementSourceRequest: {e}"));
+    inventory_backend::cloud::postgres::StatementIntakeRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("StatementIntakeRow: {e}"));
+    inventory_backend::cloud::intake::parse::StatementFormat::export_all(&config)
+        .unwrap_or_else(|e| panic!("StatementFormat: {e}"));
+    inventory_backend::cloud::http::statement_intake::IntakeRunOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("IntakeRunOutcome: {e}"));
     // Where the money is. Driven off `account_map`, so a meaning nobody has
     // mapped produces no row — which is the honest answer and a visible one.
     inventory_backend::cloud::postgres::MoneyOverview::export_all(&config)

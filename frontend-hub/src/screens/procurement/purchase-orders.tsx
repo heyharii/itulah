@@ -28,6 +28,7 @@ import {
   type PurchaseOrderScope,
 } from "@/lib/queries/procurement"
 import { OrderComposer } from "@/screens/procurement/composer"
+import { LinkButton } from "@/screens/procurement/controls"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -353,19 +354,29 @@ export function PurchaseOrders() {
         title="Purchase orders"
         sub="What has been ordered, what has arrived, and what is still owed."
         actions={
-          /* A blank order, raised here.
+          <div className="flex items-center gap-2">
+            {/* Sourcing, reached from here rather than from the sidebar.
 
-             This used to send people to Sourcing, on the reasoning that an
-             order starts by choosing goods. That is true of a buyer who does
-             not know what they want and false of everyone else: a repeat
-             order, or a supplier on the phone, is a list somebody already has
-             in their head, and making them walk a catalogue to type it is the
-             long way round. The composer is the same one the basket opens —
-             same document, same editable lines — it just starts empty and has
-             a box to add to it. */
-          <Button variant="dark" onClick={() => composer.open(true)}>
-            New order
-          </Button>
+                It is not a place a buyer sets out for; it is the answer to
+                "who sells this, and for how much", asked in the middle of
+                deciding what to order. A row of its own in the module made it
+                look like a second job — this says what it is: a detour from
+                the order book. */}
+            <LinkButton to="/procurement/sourcing">Sourcing</LinkButton>
+            {/* A blank order, raised here.
+
+                This used to send people to Sourcing, on the reasoning that an
+                order starts by choosing goods. That is true of a buyer who
+                does not know what they want and false of everyone else: a
+                repeat order, or a supplier on the phone, is a list somebody
+                already has in their head, and making them walk a catalogue to
+                type it is the long way round. The composer is the same one the
+                basket opens — same document, same editable lines — it just
+                starts empty and has a box to add to it. */}
+            <Button variant="primary" onClick={() => composer.open(true)}>
+              New order
+            </Button>
+          </div>
         }
       />
 

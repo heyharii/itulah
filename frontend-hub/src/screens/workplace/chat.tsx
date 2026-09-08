@@ -130,7 +130,7 @@ export function Chat() {
                 some of the time, an unread pill; at 375px the three of them
                 and a spelt-out label do not fit, and the label is the part
                 the icon already says. */}
-            <Button variant="dark" onClick={() => setStarting(true)}>
+            <Button variant="primary" onClick={() => setStarting(true)}>
               <MessageSquarePlus />
               {layout === "phone" ? "New" : "New conversation"}
             </Button>
@@ -313,7 +313,7 @@ function StartSheet({
             Private to whoever is in it.
           </span>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={!ready || start.isPending}
             onClick={() => start.mutate()}
           >

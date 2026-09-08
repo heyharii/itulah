@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Finance Module — End-to-End Posting Flow",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "operations", "label": "Business evidence" },
+    { "id": "finance_ui", "label": "Finance workspace" },
+    { "id": "rules", "label": "Accounting rules" },
+    { "id": "books", "label": "Books and controls" },
+    { "id": "proof", "label": "Proof and close" }
+  ],
+  "phases": [
+    { "id": "capture", "label": "Capture", "fromCol": 0, "toCol": 1 },
+    { "id": "post", "label": "Validate and post", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "prove", "label": "Prove and close", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["source_evidence", "finance_actions", "account_map", "poster", "journal", "projections"],
+  "nodes": [
+    { "id": "source_evidence", "lane": "operations", "col": 0, "type": "external", "label": "Evidence", "sublabel": "sales · bills · pay" },
+    { "id": "finance_actions", "lane": "finance_ui", "col": 1, "width": 116, "type": "frontend", "label": "Finance workspace", "sublabel": "work · books · setup" },
+    { "id": "account_map", "lane": "rules", "col": 2, "width": 100, "type": "security", "label": "Account map", "sublabel": "meaning → leaf" },
+    { "id": "poster", "lane": "rules", "col": 3, "width": 100, "type": "backend", "label": "Single poster", "sublabel": "balance · period" },
+    { "id": "journal", "lane": "books", "col": 4, "width": 116, "type": "database", "label": "Journal", "sublabel": "immutable debit / credit" },
+    { "id": "projections", "lane": "proof", "col": 5, "width": 100, "type": "backend", "label": "Prove & close", "sublabel": "reconcile · report" }
+  ],
+  "edges": [
+    { "from": "source_evidence", "to": "finance_actions", "label": "capture" },
+    { "from": "finance_actions", "to": "account_map", "label": "classify" },
+    { "from": "account_map", "to": "poster", "variant": "emphasis" },
+    { "from": "poster", "to": "journal", "label": "post", "variant": "emphasis" },
+    { "from": "journal", "to": "projections", "label": "sum and verify" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "One accounting truth", "items": ["Every monetary workflow converges on journal_entry and journal_line", "Balances are calculated from lines, never stored separately"] },
+    { "dot": "amber", "title": "Control gates", "items": ["Only active leaf accounts can receive postings", "Debits must equal credits and the fiscal period must be open"] },
+    { "dot": "emerald", "title": "Evidence stays intact", "items": ["Posted bills and entries are not edited", "Corrections append reversals; reconciliation records agreement"] }
+  ]
+}

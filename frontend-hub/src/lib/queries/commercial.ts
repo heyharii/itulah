@@ -658,8 +658,12 @@ export const commercialKeys = {
     // one's rows until something else invalidated them.
     ["commercial", "article-prices", channel, at, scope ?? null] as const,
   /// The product picker's search. Keyed by the words typed, so backspacing
-  /// re-uses the answer it already had.
-  products: (query: string) => ["commercial", "products", query] as const,
+  /// re-uses the answer it already had — and by the cap, because two callers
+  /// asking the same question with different ceilings are asking for different
+  /// answers, and sharing one entry hands the narrower one a list it thinks is
+  /// complete.
+  products: (query: string, limit: number) =>
+    ["commercial", "products", query, limit] as const,
 }
 
 // ── reads ──────────────────────────────────────────────────────────────────

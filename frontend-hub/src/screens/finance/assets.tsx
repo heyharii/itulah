@@ -48,7 +48,9 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import {
   ASSET_CATEGORIES,
+  CHARGE_KINDS,
   DEPRECIATION_METHODS,
+  impliedChargeKind,
   monthOf,
   parseMinor,
   todayIso,
@@ -362,7 +364,7 @@ export function AssetRegister() {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="dark" onClick={() => setRegistering(true)}>
+            <Button variant="primary" onClick={() => setRegistering(true)}>
               Register asset
             </Button>
           </>
@@ -749,6 +751,10 @@ interface AssessmentDraft {
   salvage: string
   life: string
   method: string
+  /// Empty means "take the suggestion the category implies". Stored that way
+  /// rather than pre-filled, because the sheet's form is built before the
+  /// asset it is about has arrived.
+  chargeKind: string
   inService: string
   reason: string
   acquiredVia: string
@@ -808,6 +814,13 @@ function AssetSheet({
         salvage_value_minor: capitalising ? parseMinor(draft.salvage) : null,
         useful_life_months: capitalising ? parseMinor(draft.life) : null,
         method: capitalising ? draft.method : null,
+        // What the charge is called travels with the basis and only with it.
+        // The suggestion the category implies is what the select is showing,
+        // so sending it is sending what somebody looked at — not an inference
+        // made behind their back.
+        charge_kind: capitalising
+          ? draft.chargeKind || impliedChargeKind(asset?.category_code ?? "")
+          : null,
         in_service_on: capitalising ? draft.inService : null,
         reason: draft.reason.trim(),
         // Absent and not `""`: the field is optional on the wire, and an empty
@@ -836,6 +849,7 @@ function AssetSheet({
       salvage: "0",
       life: "60",
       method: "STRAIGHT_LINE",
+      chargeKind: "",
       inService: todayIso(),
       reason: "",
       acquiredVia: "",
@@ -868,7 +882,7 @@ function AssetSheet({
             <form.Subscribe selector={(state) => assessmentReady(state.values)}>
               {(ready) => (
                 <Button
-                  variant="dark"
+                  variant="primary"
                   disabled={!ready || assess.isPending}
                   onClick={() => form.handleSubmit()}
                 >
@@ -929,6 +943,18 @@ function AssetSheet({
                     : (DEPRECIATION_METHODS.find(
                         (method) => method.value === asset.method
                       )?.label ?? label(asset.method))}
+                </Fact>
+                {/* What the monthly charge is called, in the client's own
+                    word. Operating equipment reads "Cadangan Penggantian"
+                    because their 1021607 is a reserve, not accumulated
+                    depreciation — and a screen that called it depreciation
+                    would be the only place that lie was told. */}
+                <Fact term="Charge">
+                  {asset.charge_kind === null
+                    ? "—"
+                    : (CHARGE_KINDS.find(
+                        (kind) => kind.value === asset.charge_kind
+                      )?.label ?? label(asset.charge_kind))}
                 </Fact>
                 <Fact term="Cost">{money(asset.capitalized_cost_minor)}</Fact>
                 <Fact term="Accumulated">{money(asset.accumulated_minor)}</Fact>
@@ -1104,6 +1130,28 @@ function AssetSheet({
                               </Field>
                             )}
                           </form.Field>
+                          <form.Field name="chargeKind">
+                            {(field) => (
+                              <Field label="Charge">
+                                <Select
+                                  value={
+                                    field.state.value ||
+                                    impliedChargeKind(asset.category_code)
+                                  }
+                                  onChange={(next) => field.handleChange(next)}
+                                >
+                                  {CHARGE_KINDS.map((option) => (
+                                    <option
+                                      key={option.value}
+                                      value={option.value}
+                                    >
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </Select>
+                              </Field>
+                            )}
+                          </form.Field>
                           <form.Field name="inService">
                             {(field) => (
                               <Field
@@ -1246,7 +1294,7 @@ function TransferForm({ asset }: { asset: AssetRow }) {
               Cancel
             </Button>
             <Button
-              variant="dark"
+              variant="primary"
               disabled={move.isPending}
               onClick={() => move.mutate()}
             >
@@ -1586,7 +1634,7 @@ function RegisterSheet({
           <form.Subscribe selector={(state) => registrationReady(state.values)}>
             {(ready) => (
               <Button
-                variant="dark"
+                variant="primary"
                 disabled={!ready || register.isPending}
                 onClick={() => form.handleSubmit()}
               >

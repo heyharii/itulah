@@ -236,7 +236,7 @@ export function EnrolCard({
             <Problem error={enrol.error} />
             <div>
               <Button
-                variant="dark"
+                variant="primary"
                 onClick={() => enrol.mutate()}
                 disabled={memberId.trim() === "" || enrol.isPending}
               >

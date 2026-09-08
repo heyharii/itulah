@@ -22,7 +22,9 @@
 use super::ledger::resolve_account;
 use super::poster::{post, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
-use crate::cloud::domain::{monthly_charge, Basis, DepreciationMethod, Outcome, SkipReason};
+use crate::cloud::domain::{
+    monthly_charge, Basis, ChargeKind, DepreciationMethod, Outcome, SkipReason,
+};
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -43,6 +45,9 @@ pub struct AssetRow {
     pub status: String,
     pub serial_number: Option<String>,
     pub acquired_on: NaiveDate,
+    /// How many things this row is. 1 for one object; the client's register
+    /// keeps lots, and 60,000 sensor pins are one row rather than 60,000.
+    pub quantity: i32,
 
     /// `CAPITALIZE`, `EXPENSE`, or absent when nobody has assessed it.
     ///
@@ -54,6 +59,11 @@ pub struct AssetRow {
     pub salvage_value_minor: Option<i64>,
     pub useful_life_months: Option<i32>,
     pub method: Option<String>,
+    /// `DEPRECIATION`, `REPLACEMENT_RESERVE` or `AMORTISATION` — what the
+    /// monthly charge is CALLED, and therefore which pair of accounts it lands
+    /// in. Absent exactly when `decision` is, or when the decision was to
+    /// expense: an expensed asset has no monthly charge to name.
+    pub charge_kind: Option<String>,
     pub in_service_on: Option<NaiveDate>,
 
     /// Summed from the depreciation entries. Not stored anywhere.
@@ -70,8 +80,13 @@ pub struct AssetRow {
     /// somebody open the schedule to find out.
     pub last_depreciated_month: Option<NaiveDate>,
 
-    /// The bill line that bought this, as `PLN-0901 line 2`, when the books
-    /// bought it at all.
+    /// Every bill line that bought this, as `PLN-0901 line 2, PLN-0912 line 1`,
+    /// when the books bought it at all.
+    ///
+    /// Plural since 0160. One air conditioner at this client is a unit, an
+    /// installation charge and sometimes an earlier payment — three lines and
+    /// one thing — so a field that could name only one of them was showing a
+    /// third of the answer and looking complete.
     ///
     /// Absent is the ordinary state for an asset the company already owned when
     /// this system arrived, and it is an EXCEPTION for one that was
@@ -93,12 +108,17 @@ pub struct AssetRow {
 pub struct RegisterAssetRequest {
     pub asset_number: String,
     pub name: String,
-    /// A family under `10215`.
+    /// A family under `10215`, or under `10217` for an intangible.
     pub category_code: String,
     pub site_id: String,
     pub acquired_on: NaiveDate,
     pub serial_number: Option<String>,
     pub notes: Option<String>,
+    /// How many things this row is. Absent means one, which is the ordinary
+    /// case; a lot is what the client's register keeps for hangers and pins.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub quantity: Option<i32>,
     /// The expense-bill line that bought it, when there is one. Optional
     /// because most assets on day one predate this system, and because the
     /// bill often arrives after the warehouse has registered the thing.
@@ -116,6 +136,13 @@ pub struct AssessAssetRequest {
     pub salvage_value_minor: Option<i64>,
     pub useful_life_months: Option<i32>,
     pub method: Option<String>,
+    /// `DEPRECIATION`, `REPLACEMENT_RESERVE` or `AMORTISATION`.
+    ///
+    /// Required on CAPITALIZE and refused on EXPENSE, which is how the rest of
+    /// the basis behaves and for the same reason. It is asked rather than
+    /// inferred from the category, because inferring it would mean a posting
+    /// rule choosing accounts from a client account code — see 0159.
+    pub charge_kind: Option<String>,
     pub in_service_on: Option<NaiveDate>,
     /// Why. Required on both decisions — an expensed asset with no reason is
     /// the one somebody queries a year later.
@@ -127,21 +154,32 @@ pub struct AssessAssetRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub acquired_via_line_id: Option<Uuid>,
+    /// The other lines that bought it, when a purchase took more than one.
+    ///
+    /// Added alongside the singular rather than replacing it because the
+    /// ordinary purchase is still one line, and because every caller that
+    /// names one line should keep working. Both are accepted and the union is
+    /// what gets attached.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub acquired_via_line_ids: Option<Vec<Uuid>>,
 }
 
 const ASSET_COLUMNS: &str = "a.asset_id, a.asset_number, a.name, a.category_code,
      c.name AS category_name, a.site_id, a.status, a.serial_number, a.acquired_on,
+     a.quantity,
      a.disposed_on, a.disposal_method, a.disposal_proceeds_minor, a.disposal_journal_entry_id,
      k.decision, k.capitalized_cost_minor, k.salvage_value_minor, k.useful_life_months,
-     k.method, k.in_service_on,
+     k.method, k.charge_kind, k.in_service_on,
      COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
                 WHERE d.asset_id = a.asset_id), 0)::bigint AS accumulated,
      (SELECT MAX(d.period_month) FROM asset_depreciation_entry d
        WHERE d.asset_id = a.asset_id) AS last_depreciated_month,
-     (SELECT si.invoice_number || ' line ' || bl.line_number
+     (SELECT string_agg(si.invoice_number || ' line ' || bl.line_number, ', '
+                        ORDER BY si.invoice_date, si.invoice_number, bl.line_number)
         FROM supplier_invoice_expense_line bl
         JOIN supplier_invoice si USING (invoice_id)
-       WHERE bl.line_id = a.acquired_via_line_id) AS acquired_via";
+       WHERE bl.asset_id = a.asset_id) AS acquired_via";
 
 /// The assessment in force is the highest sequence. A lateral join rather than
 /// a window, so the planner can stop at the first row per asset.
@@ -163,11 +201,13 @@ fn to_asset(row: &sqlx::postgres::PgRow) -> Result<AssetRow, AppError> {
         status: row.try_get("status")?,
         serial_number: row.try_get("serial_number")?,
         acquired_on: row.try_get("acquired_on")?,
+        quantity: row.try_get("quantity")?,
         decision: row.try_get("decision")?,
         capitalized_cost_minor: cost,
         salvage_value_minor: row.try_get("salvage_value_minor")?,
         useful_life_months: row.try_get("useful_life_months")?,
         method: row.try_get("method")?,
+        charge_kind: row.try_get("charge_kind")?,
         in_service_on: row.try_get("in_service_on")?,
         accumulated_minor: accumulated,
         book_value_minor: cost.map(|c| c - accumulated),
@@ -222,70 +262,128 @@ pub async fn asset(pool: &PgPool, asset_id: Uuid) -> Result<AssetRow, AppError> 
     to_asset(&row)
 }
 
-/// The family every fixed asset hangs under in the client's own chart.
+/// The families an asset's COST hangs under in the client's own chart:
+/// `10215 AKTIVA TETAP`, and `10217 INTANGIBLE ASSET` for the software they
+/// amortise.
 ///
 /// Named in Rust, which 0050 forbids for a POSTING RULE and permits here: this
 /// is not choosing an account, it is recognising one. `register_asset` has
-/// checked the same prefix since 0070.
-const ASSET_FAMILY: &str = "10215";
+/// checked `10215` since 0070; 0159 widened it, because until then an
+/// intangible could not be registered at all.
+const ASSET_FAMILIES: [&str; 2] = ["10215", "10217"];
 
-/// Check that a bill line could actually have bought this, and say what it was.
+fn is_asset_account(code: &str) -> bool {
+    ASSET_FAMILIES.iter().any(|family| code.starts_with(family))
+}
+
+/// Point one or more bill lines at this asset, refusing any that could not
+/// have bought it.
 ///
-/// Two things are asked, and both name their figures, because "invalid
-/// acquisition line" is a message that sends somebody to read code:
-///
-///   * the line's account is under `10215`, so the money went into the fixed
-///     asset family rather than into an expense;
-///   * the line's amount is the capitalised cost, when a cost has been
-///     decided. A bill line of 12,000,000 behind an asset capitalised at
-///     15,000,000 means the extra 3,000,000 is in the books somewhere else, and
-///     `fixed_asset` will not empty when the asset is disposed of.
+/// One thing is asked of each line and it names its figures, because "invalid
+/// acquisition line" is a message that sends somebody to read code: the line's
+/// account is under `10215` or `10217`, so the money went into an asset family
+/// rather than into an expense. A line already bought for a DIFFERENT asset is
+/// refused too — that is somebody attaching the wrong receipt, and it would
+/// silently move cost from one asset to another.
 ///
 /// The posting status of the bill is deliberately NOT required. A draft bill is
 /// a real document somebody is still checking, and refusing to link it would
 /// mean the register could only ever catch up after Finance posts. What counts
 /// as "the books bought it" is asked separately, by `acquisition_gap`, which
 /// looks only at POSTED lines.
-async fn check_acquisition_line(
-    pool: &PgPool,
-    line_id: Uuid,
-    capitalized_cost_minor: Option<i64>,
+async fn attach_acquisition_lines(
+    tx: &mut sqlx::PgConnection,
+    asset_id: Uuid,
+    line_ids: &[Uuid],
 ) -> Result<(), AppError> {
-    let row = sqlx::query(
-        "SELECT l.account_code, a.name AS account_name, l.amount_minor,
-                i.invoice_number, l.line_number
-           FROM supplier_invoice_expense_line l
-           JOIN supplier_invoice i USING (invoice_id)
-           JOIN ledger_account a ON a.account_code = l.account_code
-          WHERE l.line_id = $1",
-    )
-    .bind(line_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("bill line {line_id}")))?;
+    for line_id in line_ids {
+        let row = sqlx::query(
+            "SELECT l.account_code, a.name AS account_name, l.asset_id,
+                    i.invoice_number, l.line_number
+               FROM supplier_invoice_expense_line l
+               JOIN supplier_invoice i USING (invoice_id)
+               JOIN ledger_account a ON a.account_code = l.account_code
+              WHERE l.line_id = $1",
+        )
+        .bind(line_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("bill line {line_id}")))?;
 
-    let account_code: String = row.try_get("account_code")?;
-    let account_name: String = row.try_get("account_name")?;
-    let amount: i64 = row.try_get("amount_minor")?;
-    let invoice_number: String = row.try_get("invoice_number")?;
-    let line_number: i32 = row.try_get("line_number")?;
+        let account_code: String = row.try_get("account_code")?;
+        let account_name: String = row.try_get("account_name")?;
+        let invoice_number: String = row.try_get("invoice_number")?;
+        let line_number: i32 = row.try_get("line_number")?;
+        let claimed: Option<Uuid> = row.try_get("asset_id")?;
 
-    if !account_code.starts_with(ASSET_FAMILY) {
-        return Err(AppError::Validation(format!(
-            "{invoice_number} line {line_number} is coded to {account_code} {account_name}, which \
-             is not a fixed asset account; an acquisition is a bill line under {ASSET_FAMILY} \
-             AKTIVA TETAP"
-        )));
-    }
-    if let Some(cost) = capitalized_cost_minor {
-        if amount != cost {
+        if !is_asset_account(&account_code) {
             return Err(AppError::Validation(format!(
-                "{invoice_number} line {line_number} is {amount} and the asset is capitalised at \
-                 {cost}; the difference is {}. Capitalise it at what the bill charged, or point \
-                 at the line that actually bought it.",
-                (amount - cost).abs()
+                "{invoice_number} line {line_number} is coded to {account_code} {account_name}, \
+                 which is not an asset account; an acquisition is a bill line under 10215 AKTIVA \
+                 TETAP or 10217 INTANGIBLE ASSET"
             )));
         }
+        if let Some(other) = claimed {
+            if other != asset_id {
+                return Err(AppError::Validation(format!(
+                    "{invoice_number} line {line_number} was already bought for asset {other}; \
+                     one line buys one thing"
+                )));
+            }
+        }
+        sqlx::query("UPDATE supplier_invoice_expense_line SET asset_id = $2 WHERE line_id = $1")
+            .bind(line_id)
+            .bind(asset_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Check that what the books paid for this asset is what Finance capitalised.
+///
+/// 0099 asked this of ONE line and its argument is unchanged: capitalised
+/// above what the bill charged means the difference is in the books somewhere
+/// else, and `fixed_asset` will not empty when the asset is disposed of. What
+/// widened in 0160 is only the arithmetic — the client pays for a unit, its
+/// installation, and sometimes an earlier deposit, and all three are the
+/// acquisition of one air conditioner.
+///
+/// Silence when NOTHING is attached is deliberate, and is what 0070 and 0099
+/// both argue for: an asset the company already owned when this system arrived
+/// has no line behind it, and most of the register on day one is exactly that.
+/// `acquisition_gap` is what reports those, as a list rather than a refusal.
+async fn check_acquisition_total(
+    tx: &mut sqlx::PgConnection,
+    asset_id: Uuid,
+    capitalized_cost_minor: i64,
+) -> Result<(), AppError> {
+    let row = sqlx::query(
+        "SELECT COALESCE(SUM(l.amount_minor), 0)::bigint AS paid, COUNT(*)::bigint AS lines,
+                string_agg(i.invoice_number || ' line ' || l.line_number, ', '
+                           ORDER BY i.invoice_number, l.line_number) AS named
+           FROM supplier_invoice_expense_line l
+           JOIN supplier_invoice i USING (invoice_id)
+          WHERE l.asset_id = $1",
+    )
+    .bind(asset_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let paid: i64 = row.try_get("paid")?;
+    let lines: i64 = row.try_get("lines")?;
+    if lines == 0 {
+        return Ok(());
+    }
+    if paid != capitalized_cost_minor {
+        let named: String = row
+            .try_get::<Option<String>, _>("named")?
+            .unwrap_or_default();
+        return Err(AppError::Validation(format!(
+            "the books paid {paid} for this across {lines} line(s) — {named} — and it is \
+             capitalised at {capitalized_cost_minor}; the difference is {}. Capitalise it at what \
+             the bill charged, or name every line that bought it.",
+            (paid - capitalized_cost_minor).abs()
+        )));
     }
     Ok(())
 }
@@ -299,24 +397,33 @@ pub async fn register_asset(
     // Checked here so the message names the problem; the foreign key is the
     // guarantee.
     let category = request.category_code.trim();
-    if !category.starts_with("10215") {
+    if !is_asset_account(category) {
         return Err(AppError::Validation(format!(
             "{category} is not an asset category; they are the families under \
-             10215 AKTIVA TETAP"
+             10215 AKTIVA TETAP and 10217 INTANGIBLE ASSET"
         )));
     }
-    // No cost is known yet, so only the account can be checked. The amount is
-    // checked when Finance names a cost, in `assess_asset`.
-    if let Some(line_id) = request.acquired_via_line_id {
-        check_acquisition_line(pool, line_id, None).await?;
+    if let Some(quantity) = request.quantity {
+        if quantity < 1 {
+            return Err(AppError::Validation(
+                "a lot is at least one thing; leave the quantity out for a single object".into(),
+            ));
+        }
     }
-
     let asset_id = Uuid::new_v4();
+    // One transaction, and the asset is inserted BEFORE its line is attached:
+    // the line's foreign key points here, so the other order cannot work. A
+    // line that turns out not to be an asset purchase rolls the registration
+    // back with it.
+    //
+    // No cost is known yet, so only the account is checked. What the books
+    // paid is checked when Finance names a cost, in `assess_asset`.
+    let mut tx = pool.begin().await?;
     sqlx::query(
         "INSERT INTO fixed_asset
            (asset_id, asset_number, name, category_code, site_id, acquired_on,
-            serial_number, notes, registered_by, acquired_via_line_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+            serial_number, notes, registered_by, acquired_via_line_id, quantity)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
     )
     .bind(asset_id)
     .bind(request.asset_number.trim())
@@ -328,8 +435,13 @@ pub async fn register_asset(
     .bind(request.notes.as_deref())
     .bind(actor)
     .bind(request.acquired_via_line_id)
-    .execute(pool)
+    .bind(request.quantity.unwrap_or(1))
+    .execute(&mut *tx)
     .await?;
+    if let Some(line_id) = request.acquired_via_line_id {
+        attach_acquisition_lines(&mut tx, asset_id, &[line_id]).await?;
+    }
+    tx.commit().await?;
     asset(pool, asset_id).await
 }
 
@@ -375,41 +487,86 @@ pub async fn assess_asset(
         }
     }
 
-    // The line to check is the one being set now, or the one already on the
-    // asset — either way the cost being named has to be the cost the bill
-    // charged. Read before the assessment is written so a mismatch refuses
-    // instead of leaving an assessment nobody can reconcile.
-    let stored: Option<Uuid> =
-        sqlx::query("SELECT acquired_via_line_id FROM fixed_asset WHERE asset_id = $1")
-            .bind(asset_id)
-            .fetch_optional(pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound("asset".into()))?
-            .try_get("acquired_via_line_id")?;
-    if let Some(line_id) = request.acquired_via_line_id.or(stored) {
-        check_acquisition_line(
-            pool,
-            line_id,
-            (request.decision.trim() == "CAPITALIZE")
-                .then_some(request.capitalized_cost_minor)
-                .flatten(),
-        )
-        .await?;
+    // What the charge is CALLED is asked, never inferred, and a capitalised
+    // asset may not leave it unsaid. Silence here would have to be resolved
+    // into something, and the only available something is "depreciation" —
+    // which is exactly the wrong answer for the 200 operating-equipment rows
+    // the client's own register labels NON DEPRECIABLE while charging them
+    // every month. 0159 has the whole argument.
+    //
+    // The message names the values because "violates check constraint
+    // asset_capitalization_charge_kind_follows_decision" is not a sentence
+    // anybody can act on.
+    let capitalising = request.decision.trim() == "CAPITALIZE";
+    let charge_kind = match request.charge_kind.as_deref().map(str::trim) {
+        Some(raw) if !raw.is_empty() => {
+            if ChargeKind::parse(raw).is_none() {
+                return Err(AppError::Validation(format!(
+                    "unknown charge kind {raw}; expected DEPRECIATION, REPLACEMENT_RESERVE or \
+                     AMORTISATION"
+                )));
+            }
+            if !capitalising {
+                return Err(AppError::Validation(
+                    "an expensed asset has no monthly charge, so it names no charge kind".into(),
+                ));
+            }
+            Some(raw)
+        }
+        _ if capitalising => {
+            return Err(AppError::Validation(
+                "say what the monthly charge is: DEPRECIATION, REPLACEMENT_RESERVE for operating \
+                 equipment (the client's 1021607 is a reserve, not accumulated depreciation), or \
+                 AMORTISATION for an intangible"
+                    .into(),
+            ))
+        }
+        _ => None,
+    };
+
+    sqlx::query("SELECT 1 FROM fixed_asset WHERE asset_id = $1")
+        .bind(asset_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("asset".into()))?;
+
+    // Both spellings, unioned. A caller that names one line and a caller that
+    // names three are the same act, and the lines already attached from an
+    // earlier assessment stay attached — the sum below counts all of them,
+    // which is what makes "the books paid this" answerable at all.
+    let mut named: Vec<Uuid> = request.acquired_via_line_ids.clone().unwrap_or_default();
+    if let Some(one) = request.acquired_via_line_id {
+        if !named.contains(&one) {
+            named.push(one);
+        }
+    }
+
+    // Everything from here is one transaction, so a cost that does not
+    // reconcile leaves neither an assessment nor a half-attached bill. The
+    // order matters: attach first, because the sum has to see the lines being
+    // named now, not only the ones named before.
+    let mut tx = pool.begin().await?;
+    attach_acquisition_lines(&mut tx, asset_id, &named).await?;
+    if capitalising {
+        if let Some(cost) = request.capitalized_cost_minor {
+            check_acquisition_total(&mut tx, asset_id, cost).await?;
+        }
     }
 
     let next: i32 = sqlx::query(
         "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM asset_capitalization WHERE asset_id = $1",
     )
     .bind(asset_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?
     .try_get("next")?;
 
     sqlx::query(
         "INSERT INTO asset_capitalization
            (capitalization_id, asset_id, sequence, decision, capitalized_cost_minor,
-            salvage_value_minor, useful_life_months, method, in_service_on, reason, assessed_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+            salvage_value_minor, useful_life_months, method, charge_kind, in_service_on,
+            reason, assessed_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
     )
     .bind(Uuid::new_v4())
     .bind(asset_id)
@@ -419,21 +576,25 @@ pub async fn assess_asset(
     .bind(request.salvage_value_minor)
     .bind(request.useful_life_months)
     .bind(request.method.as_deref())
+    .bind(charge_kind)
     .bind(request.in_service_on)
     .bind(request.reason.trim())
     .bind(actor)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
-    // Set after the assessment, so a refused assessment leaves no link behind.
-    // Never cleared: `None` means "not saying", not "detach it".
+    // The display pointer, set after the assessment so a refused one leaves no
+    // link behind. Never cleared: `None` means "not saying", not "detach it".
+    // Since 0160 the truth is `supplier_invoice_expense_line.asset_id` and this
+    // is the first line of it, kept because screens still read it.
     if let Some(line_id) = request.acquired_via_line_id {
         sqlx::query("UPDATE fixed_asset SET acquired_via_line_id = $2 WHERE asset_id = $1")
             .bind(asset_id)
             .bind(line_id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
     }
+    tx.commit().await?;
     asset(pool, asset_id).await
 }
 
@@ -497,7 +658,7 @@ pub async fn run_depreciation(
     let rows = sqlx::query(
         "SELECT a.asset_id, a.asset_number, a.name, a.category_code, a.site_id,
                 k.capitalized_cost_minor, k.salvage_value_minor, k.useful_life_months,
-                k.method, k.in_service_on,
+                k.method, k.charge_kind, k.in_service_on,
                 COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
                            WHERE d.asset_id = a.asset_id), 0)::bigint AS accumulated,
                 EXISTS (SELECT 1 FROM asset_depreciation_entry d
@@ -541,6 +702,14 @@ pub async fn run_depreciation(
         let in_service: NaiveDate = row.try_get("in_service_on")?;
         let method = DepreciationMethod::parse(&row.try_get::<String, _>("method")?)
             .unwrap_or(DepreciationMethod::None);
+        // Defaulted rather than refused: 0159's CHECK guarantees a capitalised
+        // row names one, and a monthly run is the wrong place to stop the world
+        // over a value the schema already will not admit.
+        let kind = row
+            .try_get::<Option<String>, _>("charge_kind")?
+            .as_deref()
+            .and_then(ChargeKind::parse)
+            .unwrap_or(ChargeKind::Depreciation);
         let basis = Basis {
             method,
             capitalized_cost_minor: row.try_get("capitalized_cost_minor")?,
@@ -581,17 +750,25 @@ pub async fn run_depreciation(
                 // `AST-0007` said so only inside a memo string. It is also what
                 // the schema's own CHECK asks for: a non-MANUAL, non-REVERSAL
                 // entry must carry a source.
+                //
+                // `source_kind` stays DEPRECIATION for all three charge kinds.
+                // It names the RULE that wrote the entry — the monthly asset
+                // run — not what the charge is called, and one rule with three
+                // source kinds would mean widening 0083's CHECK so that a
+                // Journal filter could split a single rule's output three ways,
+                // which no reader has asked for. What the charge is called is
+                // in the memo, and the asset it charged is in `source_id`.
                 let intent = PostingIntent {
                     posting_date: period,
                     source_kind: "DEPRECIATION".into(),
                     source_id: Some(asset_id.to_string()),
                     rule_version: "depreciation/1".into(),
                     currency: "IDR".into(),
-                    memo: Some(format!("Penyusutan {period} — {asset_number} {name}")),
+                    memo: Some(format!("{} {period} — {asset_number} {name}", kind.label())),
                     lines: vec![
-                        PostingLine::debit("depreciation_expense", &site, amount)
+                        PostingLine::debit(kind.expense_key(), &site, amount)
                             .with_qualifier(&category),
-                        PostingLine::credit("accumulated_depreciation", &site, amount)
+                        PostingLine::credit(kind.contra_key(), &site, amount)
                             .with_qualifier(&category),
                     ],
                 };
@@ -641,7 +818,7 @@ pub async fn run_depreciation(
 /// of refusals.
 pub async fn unmapped_categories(pool: &PgPool) -> Result<Vec<String>, AppError> {
     let rows = sqlx::query(
-        "SELECT DISTINCT a.category_code, a.site_id FROM fixed_asset a
+        "SELECT DISTINCT a.category_code, a.site_id, k.charge_kind FROM fixed_asset a
            JOIN LATERAL (
                SELECT * FROM asset_capitalization x
                 WHERE x.asset_id = a.asset_id ORDER BY x.sequence DESC LIMIT 1
@@ -654,7 +831,16 @@ pub async fn unmapped_categories(pool: &PgPool) -> Result<Vec<String>, AppError>
     for row in &rows {
         let category: String = row.try_get("category_code")?;
         let site: String = row.try_get("site_id")?;
-        for key in ["depreciation_expense", "accumulated_depreciation"] {
+        // An operating-equipment category needs `replacement_*` mapped and an
+        // intangible needs `amortisation_*`; reporting the depreciation pair
+        // as missing for either would send somebody to map an account that
+        // will never be read.
+        let kind = row
+            .try_get::<Option<String>, _>("charge_kind")?
+            .as_deref()
+            .and_then(ChargeKind::parse)
+            .unwrap_or(ChargeKind::Depreciation);
+        for key in kind.charge_keys() {
             if resolve_account(pool, key, &site, &category).await.is_err() {
                 missing.push(format!("{key} for {category} at {site}"));
             }
@@ -895,12 +1081,21 @@ pub async fn dispose_asset(
     let accumulated = existing.accumulated_minor;
     let site = existing.site_id.clone();
     let category = existing.category_code.clone();
+    // Where the cost sits and what its contra is called both follow the charge
+    // kind: an intangible's cost is not under `10215`, and operating
+    // equipment's contra is a reserve. The same two lines, through whichever
+    // pair of meanings this asset was charged through every month.
+    let kind = existing
+        .charge_kind
+        .as_deref()
+        .and_then(ChargeKind::parse)
+        .unwrap_or(ChargeKind::Depreciation);
 
-    let mut lines = vec![PostingLine::credit("fixed_asset", &site, cost).with_qualifier(&category)];
+    let mut lines =
+        vec![PostingLine::credit(kind.cost_key(), &site, cost).with_qualifier(&category)];
     if accumulated > 0 {
         lines.push(
-            PostingLine::debit("accumulated_depreciation", &site, accumulated)
-                .with_qualifier(&category),
+            PostingLine::debit(kind.contra_key(), &site, accumulated).with_qualifier(&category),
         );
     }
     if request.proceeds_minor > 0 {
@@ -1036,20 +1231,25 @@ pub async fn transfer_asset(
     let accumulated = existing.accumulated_minor;
     let from_site = existing.site_id.clone();
     let category = existing.category_code.clone();
+    let kind = existing
+        .charge_kind
+        .as_deref()
+        .and_then(ChargeKind::parse)
+        .unwrap_or(ChargeKind::Depreciation);
 
     let mut tx = pool.begin().await?;
     let entry_id = if capitalised && cost > 0 {
         let mut lines = vec![
-            PostingLine::credit("fixed_asset", &from_site, cost).with_qualifier(&category),
-            PostingLine::debit("fixed_asset", to_site, cost).with_qualifier(&category),
+            PostingLine::credit(kind.cost_key(), &from_site, cost).with_qualifier(&category),
+            PostingLine::debit(kind.cost_key(), to_site, cost).with_qualifier(&category),
         ];
         if accumulated > 0 {
             lines.push(
-                PostingLine::debit("accumulated_depreciation", &from_site, accumulated)
+                PostingLine::debit(kind.contra_key(), &from_site, accumulated)
                     .with_qualifier(&category),
             );
             lines.push(
-                PostingLine::credit("accumulated_depreciation", to_site, accumulated)
+                PostingLine::credit(kind.contra_key(), to_site, accumulated)
                     .with_qualifier(&category),
             );
         }
@@ -1346,11 +1546,18 @@ pub async fn acquisition_gap(pool: &PgPool) -> Result<AcquisitionGap, AppError> 
            FROM supplier_invoice_expense_line l
            JOIN supplier_invoice i USING (invoice_id)
            JOIN ledger_account c ON c.account_code = l.account_code
-          WHERE l.account_code LIKE '10215%'
+          WHERE l.account_code LIKE ANY($1)
             AND i.status = 'POSTED'
-            AND NOT EXISTS (SELECT 1 FROM fixed_asset a
-                             WHERE a.acquired_via_line_id = l.line_id)
+            AND l.asset_id IS NULL
           ORDER BY i.invoice_date DESC, i.invoice_number, l.line_number",
+    )
+    // Bound from `ASSET_FAMILIES` rather than written into the SQL, so
+    // widening the register is one edit and not two that must agree.
+    .bind(
+        ASSET_FAMILIES
+            .iter()
+            .map(|family| format!("{family}%"))
+            .collect::<Vec<_>>(),
     )
     .fetch_all(pool)
     .await?;

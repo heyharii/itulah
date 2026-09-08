@@ -381,7 +381,7 @@ export function Control() {
                     {repost.isPending ? "Rebuilding…" : "Repost the projection"}
                   </Button>
                   <Button
-                    variant="dark"
+                    variant="primary"
                     disabled={actor === "" || replay.isPending}
                     onClick={() => replay.mutate()}
                   >

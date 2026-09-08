@@ -220,7 +220,7 @@ function AgreePay({ employeeId }: { employeeId: string }) {
         </Field>
         <div>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={
               effectiveFrom === "" ||
               Number(base) <= 0 ||
@@ -304,7 +304,7 @@ function SetAccount({ employeeId }: { employeeId: string }) {
         </Field>
         <div>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={
               bank.trim() === "" ||
               number.trim() === "" ||

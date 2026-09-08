@@ -275,7 +275,7 @@ function RunSheet({
           <div className="flex flex-wrap gap-2">
             {run.state === "DRAFT" && (
               <Button
-                variant="dark"
+                variant="primary"
                 disabled={!ready}
                 onClick={() => step.mutate("verify")}
               >
@@ -287,7 +287,7 @@ function RunSheet({
               // verified. The screen cannot know who is looking at it, and
               // guessing would hide the button from the wrong person.
               <Button
-                variant="dark"
+                variant="primary"
                 disabled={!ready}
                 onClick={() => step.mutate("approve")}
               >
@@ -296,7 +296,7 @@ function RunSheet({
             )}
             {run.state === "APPROVED" && (
               <Button
-                variant="dark"
+                variant="primary"
                 disabled={!ready}
                 onClick={() => step.mutate("seal")}
               >
@@ -380,7 +380,7 @@ function OpenRun() {
         </Field>
         <div>
           <Button
-            variant="dark"
+            variant="primary"
             disabled={
               placeId.trim() === "" ||
               period === "" ||

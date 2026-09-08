@@ -65,6 +65,103 @@ impl DepreciationMethod {
     }
 }
 
+/// What a monthly charge against an asset is CALLED, which is a different
+/// question from how it is worked out.
+///
+/// Six of the client's seven asset families depreciate. The seventh does not,
+/// and their chart says so in its own words: `1021607` is *Reserve
+/// Replacement - Operating Equipment*, and its expense side is `7010215 BIAYA
+/// REPLACEMENT`. Racks and hangers are not written down over a useful life,
+/// they are replaced, and the cost of replacing them is accrued. One family
+/// further on, `10217 INTANGIBLE ASSET` is amortised through `1021702` and
+/// `7010216`.
+///
+/// The arithmetic is identical in all three cases — that is why this is not a
+/// `DepreciationMethod` variant. `method` answers "how is the value spread";
+/// this answers "what is the charge, and therefore which pair of accounts does
+/// it land in". Keeping them apart is what stops the client's own register
+/// from switching an accrual off: it writes `NON DEPRECIABLE` against 200
+/// operating-equipment rows that it charges every single month.
+///
+/// The accounts themselves are still never named here. Each variant names
+/// three MEANINGS, and `account_map` turns a meaning plus a site plus a
+/// qualifier into the client's account — exactly as every other posting rule
+/// resolves one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub enum ChargeKind {
+    /// Penyusutan. Six families, and the ordinary case.
+    Depreciation,
+    /// Cadangan Penggantian. Operating equipment: accrued to be replaced, and
+    /// credited to a reserve rather than to accumulated depreciation.
+    ReplacementReserve,
+    /// Amortisasi. Intangibles.
+    Amortisation,
+}
+
+impl ChargeKind {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "DEPRECIATION" => Some(Self::Depreciation),
+            "REPLACEMENT_RESERVE" => Some(Self::ReplacementReserve),
+            "AMORTISATION" => Some(Self::Amortisation),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Depreciation => "DEPRECIATION",
+            Self::ReplacementReserve => "REPLACEMENT_RESERVE",
+            Self::Amortisation => "AMORTISATION",
+        }
+    }
+
+    /// What the client calls it, for the same reason `DepreciationMethod` has
+    /// one: an accountant should recognise their own policy on the screen
+    /// rather than translate it.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Depreciation => "Penyusutan",
+            Self::ReplacementReserve => "Cadangan Penggantian",
+            Self::Amortisation => "Amortisasi",
+        }
+    }
+
+    /// Where the asset's COST sits. Operating equipment is still a fixed asset
+    /// — `1021507` is a family under `10215` — so only an intangible differs.
+    pub const fn cost_key(self) -> &'static str {
+        match self {
+            Self::Depreciation | Self::ReplacementReserve => "fixed_asset",
+            Self::Amortisation => "intangible_asset",
+        }
+    }
+
+    /// The contra account the monthly charge credits, and disposal debits back.
+    pub const fn contra_key(self) -> &'static str {
+        match self {
+            Self::Depreciation => "accumulated_depreciation",
+            Self::ReplacementReserve => "replacement_reserve",
+            Self::Amortisation => "accumulated_amortisation",
+        }
+    }
+
+    /// The expense account the monthly charge debits.
+    pub const fn expense_key(self) -> &'static str {
+        match self {
+            Self::Depreciation => "depreciation_expense",
+            Self::ReplacementReserve => "replacement_expense",
+            Self::Amortisation => "amortisation_expense",
+        }
+    }
+
+    /// Both accounts a run needs, in the order a reader expects them.
+    pub const fn charge_keys(self) -> [&'static str; 2] {
+        [self.expense_key(), self.contra_key()]
+    }
+}
+
 /// One asset's depreciable state for one month.
 #[derive(Clone, Copy, Debug)]
 pub struct Basis {

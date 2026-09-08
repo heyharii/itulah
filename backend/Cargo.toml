@@ -54,9 +54,19 @@ argon2 = "=0.5.3"
 axum = { version = "=0.8.4", features = ["json", "macros"] }
 # Server-sent events need a Stream; this is the one already in the tree.
 futures-util = "=0.3.34"
+calamine = { version = "=0.36.1", features = ["dates"] }
 chrono = { version = "=0.4.41", features = ["serde"] }
+csv = "=1.3.1"
 dotenvy = "=0.15.7"
 hex = "=0.4.3"
+# The mail gateway: a blocking IMAP client (on rustls, never native-tls, so the
+# binary keeps one TLS stack), the MIME parser that gets attachments off a
+# message, and the three readers that turn one into statement lines.
+imap = { version = "=3.0.0-alpha.15", default-features = false, features = ["rustls-tls"] }
+mail-parser = "=0.11.8"
+office-crypto = "=0.3.0"
+pdf-extract = "=0.12.0"
+regex = "=1.13.1"
 http = "=1.3.1"
 # `stream` is what lets the assistant read Claude's answer as it is written
 # rather than after it is finished; see `cloud/http/assistant.rs`.
@@ -68,7 +78,10 @@ serde = { version = "=1.0.219", features = ["derive"] }
 serde_json = "=1.0.140"
 sha2 = "=0.10.9"
 sqlx = { version = "=0.8.6", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "rust_decimal", "migrate"] }
-thiserror = "=2.0.12"
+# Pinned at 2.0.20 rather than 2.0.12 because `office-crypto` wants >= 2.0.17,
+# and a patch bump of a derive macro is a cheaper way to get an encrypted
+# workbook open than a second error crate.
+thiserror = "=2.0.20"
 tokio = { version = "=1.45.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tower-http = { version = "=0.6.6", features = ["cors", "fs", "trace"] }
 tracing = "=0.1.41"

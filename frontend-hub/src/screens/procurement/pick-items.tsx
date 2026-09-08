@@ -141,7 +141,7 @@ export function CataloguePicker({
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button variant="dark" disabled={held.length === 0} onClick={add}>
+            <Button variant="primary" disabled={held.length === 0} onClick={add}>
               {held.length === 0
                 ? "Put on the order"
                 : `Put ${count(held.length)} on the order`}

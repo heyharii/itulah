@@ -14,8 +14,12 @@ import type { AppModule } from "@/lib/navigation"
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
-/// **Two sub-items.** Sourcing · Purchase orders: find the goods, then order
-/// them. That is a buyer's day, and the module says so.
+/// **No sub-items.** The module's row lands on Purchase orders and stays a
+/// single row: an order book is what a buyer opens the app for, and everything
+/// else in the module is somewhere they arrive at from it. Sourcing is one of
+/// those now — a button in the order book's header rather than a peer of it,
+/// because "who sells this" is a question asked while raising an order, not
+/// instead of one.
 ///
 /// It used to be eight rows under two headings. Eight is a table of contents,
 /// not navigation — it made one job look like eight, and the four filed under
@@ -37,6 +41,8 @@ import type { AppModule } from "@/lib/navigation"
 ///    performs that write.
 ///  - **Price amendments** is where a supplier's price change is accepted or
 ///    refused — and `system/notifications.tsx` sends people straight to it.
+///  - **Sourcing** answers "who sells this, and for how much". It is reached
+///    from the button in the order book's header and from the basket.
 ///  - **Catalogue** is the only screen that creates a supplier item. Sourcing
 ///    browses what it makes; it cannot make one.
 ///  - **Destinations** answers "where may a delivery land", parked at the user's
@@ -48,31 +54,26 @@ export const procurementNav: AppModule = {
   id: "procurement",
   label: "Procurement",
   icon: ShoppingCart,
-  // Sourcing is named in its own URL rather than inheriting the module's.
-  //
-  // Every other module puts its first screen at the bare module path, and here
-  // that put `/procurement` — the name of the DEPARTMENT — on the address bar
-  // of a page called Sourcing. It was the only screen in the module whose URL
-  // did not say what it was, and it was the one people arrive at first.
-  //
-  // `base` is what keeps the rest working: the module still owns everything
-  // under `/procurement`, so `/procurement/orders` draws this sidebar, and
-  // `routes.tsx` redirects the bare path here so old links and bookmarks land
-  // on the screen they always did.
-  home: "/procurement/sourcing",
+  // No screen sits at the bare `/procurement`, which is the name of the
+  // DEPARTMENT rather than of a page. `base` is what keeps the rest working:
+  // the module still owns everything under `/procurement`, so every screen
+  // below draws this sidebar, and `routes.tsx` redirects the bare path to
+  // `home` so old links and bookmarks land on a screen.
+  home: "/procurement/orders",
   base: "/procurement",
   sections: [
     {
       items: [
         {
-          path: "/procurement/sourcing",
-          label: "Sourcing",
-          icon: PackageSearch,
-        },
-        {
           path: "/procurement/orders",
           label: "Purchase orders",
           icon: ClipboardList,
+        },
+        {
+          path: "/procurement/sourcing",
+          label: "Sourcing",
+          icon: PackageSearch,
+          hidden: true,
         },
         {
           path: "/procurement/outstanding",
