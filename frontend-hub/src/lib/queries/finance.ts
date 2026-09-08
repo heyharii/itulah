@@ -99,6 +99,11 @@ export const financeKeys = {
   accountMap: (site: string | null) =>
     ["finance", "account-map", site] as const,
   periods: () => ["finance", "periods"] as const,
+  /// Keyed by the month it was asked about, because the answer is about that
+  /// month and a tab left open across midnight on the first should not keep
+  /// showing December's answer.
+  attention: (year: number, month: number) =>
+    ["finance", "attention", year, month] as const,
 
   journal: (
     from: string | null,
@@ -294,6 +299,33 @@ export function setAccountMapping(
 // ---------------------------------------------------------------------------
 // Periods
 // ---------------------------------------------------------------------------
+
+/// The three numbers the sidebar's Finance badge draws.
+///
+/// One request of about a hundred bytes, in place of the bill list, the period
+/// list and the whole account map — 165 KB of mappings — which the sidebar
+/// used to pull on every cold load of every screen in the app just to count
+/// them.
+///
+/// The month is sent rather than left to the server: this browser's month is
+/// the operator's month, and the node keeps UTC.
+export interface FinanceAttention {
+  readonly overdue_bills: number
+  readonly unmapped_pairs: number
+  readonly month_not_open: number
+  readonly attention: number
+}
+
+export function financeAttention(
+  year: number,
+  month: number,
+  signal?: AbortSignal
+): Promise<FinanceAttention> {
+  return node.get<FinanceAttention>(
+    `/api/v1/finance/attention?year=${year}&month=${month}`,
+    { signal }
+  )
+}
 
 export function listPeriods(signal?: AbortSignal): Promise<FiscalPeriod[]> {
   return node.get<FiscalPeriod[]>("/api/v1/finance/periods", { signal })

@@ -94,11 +94,16 @@ fn adjust_event(
         .with_origin(origin)
 }
 
+/// Every reader in this file folds the log once — `final_state` for the
+/// projection comparisons and the what-if base, one `state_at_seq` for the
+/// state read — and none of them probes. Checkpointing the log for them cost
+/// thirty-four world clones and thirty-four Merkle roots per request, which is
+/// what made `/inventory/time-machine/state` the slowest route in the app.
 fn build_timeline(
     source: tm::StateSource,
     events: Vec<tm::Event>,
 ) -> Result<tm::Timeline, AppError> {
-    tm::Timeline::build(source, events).map_err(|error| {
+    tm::Timeline::build_for_single_fold(source, events).map_err(|error| {
         AppError::Conflict(format!("time machine cannot replay this log: {error}"))
     })
 }

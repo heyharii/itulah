@@ -85,6 +85,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/inventory/allotments/by-store/{store_id}",
             get(allotments_by_store),
         )
+        .route(
+            "/api/v1/inventory/allotments/by-article",
+            get(allotments_by_article),
+        )
         .route("/api/v1/inventory/allotments/{id}", get(allotment_detail))
         .route(
             "/api/v1/inventory/allotments/{id}/cancel",
@@ -730,6 +734,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/finance/periods",
             get(finance::periods).post(finance::open_period),
         )
+        .route("/api/v1/finance/attention", get(finance::attention))
         .route("/api/v1/finance/periods/close", post(finance::close_period))
         .route(
             "/api/v1/finance/journal",
@@ -1167,6 +1172,14 @@ async fn allotments_by_store(
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(
         infrastructure::list_allotments_by_store(&s.db, &store_id).await?,
+    ))
+}
+async fn allotments_by_article(
+    State(s): State<AppState>,
+    Query(q): Query<AllotmentQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::list_allotments_by_article(&s.db, q).await?,
     ))
 }
 async fn allotment_detail(

@@ -156,6 +156,73 @@ fn key(key: &str, label: &str, expects: &str, qualified: bool, needed_for: &str)
     }
 }
 
+/// The three numbers the sidebar's Finance badge draws.
+///
+/// Every screen in the app mounts that sidebar, so the badge was three
+/// requests on every cold load: the bill list, the period list, and the whole
+/// account map — 695 mappings, 165 KB — read to the browser so it could count
+/// to three. The counting belongs where the rows are.
+///
+/// `year` and `month` are the caller's, not `now()`'s, because "this month" is
+/// the operator's month: the node keeps UTC and the shop keeps WIB, and for
+/// seven hours of every day those two disagree about which month it is.
+///
+/// The overdue count is also no longer capped. The browser was counting a
+/// page of bills — whatever the list endpoint's limit handed it — so a house
+/// with more unpaid bills than that page held was told a smaller number than
+/// the truth.
+pub async fn finance_attention_counts(
+    pool: &PgPool,
+    year: i32,
+    month: i32,
+) -> Result<serde_json::Value, AppError> {
+    let overdue: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM supplier_invoice i
+          WHERE i.status <> 'POSTED' AND i.due_date < CURRENT_DATE",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let required: Vec<String> = required_semantic_keys()
+        .into_iter()
+        .map(|doc| doc.key)
+        .collect();
+    let site_count: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM site")
+        .fetch_one(pool)
+        .await?;
+    // A pair is set when the meaning has any account at that site; the
+    // qualifier splits one meaning across banks and does not make a second
+    // pair, which is why it is not counted here.
+    let mapped_pairs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM (
+             SELECT DISTINCT m.semantic_key, m.site_id
+               FROM account_map m
+               JOIN site s ON s.id = m.site_id
+              WHERE m.semantic_key = ANY($1)
+         ) pair",
+    )
+    .bind(&required)
+    .fetch_one(pool)
+    .await?;
+
+    let month_open: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM fiscal_period p
+                        WHERE p.year = $1 AND p.month = $2 AND p.status = 'OPEN')",
+    )
+    .bind(year)
+    .bind(month)
+    .fetch_one(pool)
+    .await?;
+
+    let unmapped_pairs = (required.len() as i64 * site_count - mapped_pairs).max(0);
+    Ok(serde_json::json!({
+        "overdue_bills": overdue,
+        "unmapped_pairs": unmapped_pairs,
+        "month_not_open": i64::from(!month_open),
+        "attention": overdue + unmapped_pairs + i64::from(!month_open),
+    }))
+}
+
 /// A location the books are kept for.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]

@@ -180,6 +180,32 @@ pub async fn set_account_map(
     Ok(Json(json!(mapping)))
 }
 
+/// What Finance is wearing on the sidebar, as three integers.
+///
+/// The month is the caller's: a browser in WIB and a node in UTC disagree
+/// about which month it is for seven hours a day, and the badge is about the
+/// operator's day. Absent, the node's own month is used.
+#[derive(Debug, Deserialize)]
+pub struct AttentionQuery {
+    pub year: Option<i32>,
+    pub month: Option<i32>,
+}
+
+pub async fn attention(
+    State(state): State<AppState>,
+    Query(query): Query<AttentionQuery>,
+) -> Result<Json<Value>, AppError> {
+    let today = chrono::Utc::now().date_naive();
+    let year = query.year.unwrap_or_else(|| today.year());
+    let month = query.month.unwrap_or_else(|| today.month() as i32);
+    if !(1..=12).contains(&month) {
+        return Err(AppError::Validation("month must be between 1 and 12".into()));
+    }
+    Ok(Json(
+        infrastructure::finance_attention_counts(&state.db, year, month).await?,
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Periods
 // ---------------------------------------------------------------------------

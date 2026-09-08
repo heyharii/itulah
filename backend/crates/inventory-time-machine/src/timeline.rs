@@ -84,6 +84,26 @@ impl Timeline {
         })
     }
 
+    /// A log that will be folded exactly once.
+    ///
+    /// Checkpoints are an index for *repeated* probing: a binary search over
+    /// time reads them and replays at most `interval` events per probe. A
+    /// caller that asks for one state — the final world, or the world at one
+    /// sequence — reads none of them, and building them is not free: every
+    /// checkpoint clones the whole world and takes a Merkle root over every
+    /// subject in it. On a ledger of eight thousand events that is thirty-four
+    /// full-world clones and thirty-four Merkle roots computed and thrown away.
+    ///
+    /// So this is the constructor for that caller. Checkpoint zero still
+    /// exists — `state_at_prefix` resumes from it — and folding from zero is
+    /// the linear pass the caller was going to pay for anyway.
+    pub fn build_for_single_fold(
+        source: StateSource,
+        events: Vec<Event>,
+    ) -> Result<Self, ReplayError> {
+        Self::build_with_interval(source, events, usize::MAX)
+    }
+
     pub fn source(&self) -> StateSource {
         self.source
     }

@@ -870,6 +870,14 @@ pub struct AvailabilityQuery {
     /// were handed — after the server had folded the ledger for all of them
     /// and serialised them.
     pub held: Option<bool>,
+    /// Only the SKUs promised out beyond what is there.
+    ///
+    /// `on_hand` is what the pool holds minus what is already promised, so a
+    /// negative one is an over-promise. The allotment list shows exactly those
+    /// rows and no others, and used to find them by reading all 2,740 rows of
+    /// the catalogue projection and keeping a handful — the reading, not the
+    /// ledger fold, is what made that list slow.
+    pub shortfall: Option<bool>,
     /// Internal projections may need the complete set for correctness. HTTP
     /// input cannot set this field.
     #[serde(skip)]

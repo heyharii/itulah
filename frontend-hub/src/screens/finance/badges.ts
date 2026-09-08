@@ -2,9 +2,8 @@ import { useQuery } from "@tanstack/react-query"
 
 import {
   accountMap,
+  financeAttention,
   financeKeys,
-  listBills,
-  listPeriods,
   type AccountMapView,
 } from "@/lib/queries/finance"
 
@@ -30,13 +29,18 @@ import {
 ///
 /// # What this costs
 ///
-/// Nothing that was not already being fetched. Each hook reuses the exact key
-/// of the screen it points at, so the sidebar warms three caches the overview
-/// reads anyway, and clicking through to any of the three finds its answer
-/// already in hand. It is a real cost on the screens that do not want it — the
-/// journal, say, now holds a list of bills it never draws — and that is the
-/// trade a badge is: three cached lists against three states that otherwise go
-/// unnoticed until a posting is refused.
+/// One request of about a hundred bytes, shared by all four hooks.
+///
+/// It used to be three, and the claim written here was that they cost nothing
+/// because each reused the key of the screen it pointed at. That was true of
+/// the cache and false of the wire: the sidebar is mounted on EVERY screen, so
+/// every cold load of the journal, of Sales, of anything at all pulled the
+/// bill list, the period list and the whole account map — 695 mappings, 165 KB
+/// — to arrive at three integers. Counting belongs where the rows are.
+///
+/// What is lost is the warm cache on the three screens the badges point at:
+/// they now fetch their own lists when opened. That is one request on the
+/// screen that wants it, instead of three on every screen that does not.
 ///
 /// Every hook answers `null` while its query is pending. Not `0`: "no bills are
 /// overdue" and "we have not asked yet" are different facts, and a badge that
@@ -102,20 +106,34 @@ export function accountMapGaps(view: AccountMapView | undefined): MapGaps {
 // The three hooks the sidebar calls
 // ---------------------------------------------------------------------------
 
+/// The one read behind all four badges.
+///
+/// The month is this browser's, because "this month is not open" is a
+/// statement about the operator's day; a node in UTC and a shop in WIB
+/// disagree about the answer for the first seven hours of every month.
+function useAttention() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth() + 1
+  return useQuery({
+    queryKey: financeKeys.attention(year, month),
+    queryFn: ({ signal }) => financeAttention(year, month, signal),
+    staleTime: 60_000,
+  })
+}
+
 /// Bills that are recorded, not posted, and past their due date.
 ///
 /// Recorded-and-not-posted is not by itself a problem — a bill can arrive, be
 /// queried and be held on purpose. Past due while still unposted is the pair
 /// that means somebody stopped.
+///
+/// Counted by the server over every bill. The browser used to count the page
+/// of bills the list endpoint handed it, which is the same number until a
+/// house has more unpaid bills than one page holds.
 export function useOverdueBillCount(): number | null {
-  const bills = useQuery({
-    queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({}, signal),
-  })
-  if (bills.data === undefined) return null
-  return bills.data.filter(
-    (bill) => bill.status.toUpperCase() !== "POSTED" && bill.days_overdue > 0
-  ).length
+  const attention = useAttention()
+  return attention.data?.overdue_bills ?? null
 }
 
 /// Meanings with no account behind them, counted per location.
@@ -123,12 +141,8 @@ export function useOverdueBillCount(): number | null {
 /// Drawn as `bad` and not `warn`: every posting that needs one of these is
 /// refused outright, so this is not a backlog, it is a stoppage.
 export function useUnmappedMeaningCount(): number | null {
-  const map = useQuery({
-    queryKey: financeKeys.accountMap(null),
-    queryFn: ({ signal }) => accountMap(undefined, signal),
-  })
-  if (map.data === undefined) return null
-  return accountMapGaps(map.data).pairs
+  const attention = useAttention()
+  return attention.data?.unmapped_pairs ?? null
 }
 
 /// One, when this calendar month is not open for posting.
@@ -138,19 +152,8 @@ export function useUnmappedMeaningCount(): number | null {
 /// that has been sealed counts here too, since nothing can be posted into that
 /// one either and the answer is the same: open the next one.
 export function useMonthNotOpenCount(): number | null {
-  const periods = useQuery({
-    queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal),
-  })
-  if (periods.data === undefined) return null
-
-  const now = new Date()
-  const current = periods.data.find(
-    (row) => row.year === now.getFullYear() && row.month === now.getMonth() + 1
-  )
-  return current !== undefined && current.status.toUpperCase() === "OPEN"
-    ? 0
-    : 1
+  const attention = useAttention()
+  return attention.data?.month_not_open ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -170,10 +173,6 @@ export function useMonthNotOpenCount(): number | null {
 /// `null` until at least one has answered, so the row draws nothing on a cold
 /// load rather than counting up as each query lands.
 export function useFinanceAttentionCount(): number | null {
-  const overdue = useOverdueBillCount()
-  const unmapped = useUnmappedMeaningCount()
-  const closed = useMonthNotOpenCount()
-
-  if (overdue === null && unmapped === null && closed === null) return null
-  return (overdue ?? 0) + (unmapped ?? 0) + (closed ?? 0)
+  const attention = useAttention()
+  return attention.data?.attention ?? null
 }
