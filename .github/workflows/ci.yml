@@ -1,0 +1,151 @@
+# The first thing that reads this repository other than a person.
+#
+# It exists because the guards were already written and nothing ran them. The
+# migration gate had been red since 234db01 and the estate carried on; a shop
+# migration sat on disk unapplied for weeks, and the till it broke was found by
+# reading rather than by failing. A gate nobody runs is a comment.
+#
+# WHAT IS GREEN ON THE COMMITTED TREE, MEASURED THE DAY THIS LANDED (2026-09-09,
+# from 43b4e85). Read this before deciding which jobs to require on a branch —
+# requiring a job that cannot pass teaches everyone to ignore the tick.
+#
+#   gates   GREEN. Formatting, and the four structural tests that pass on the
+#           committed tree: kernel_purity, write_authority, migration_hygiene,
+#           route_catalog. Cheap, no database. Require this one.
+#
+#   lints   RED — 21 files, of which 19 are committed. Mostly `unwrap_err()`
+#           inside `#[cfg(test)]` modules tripping the workspace's
+#           `unwrap_used = "deny"`, plus a handful of ordinary clippy
+#           suggestions. That is a real backlog, not noise, and it is nobody's
+#           lane today. Left blocking and left failing on purpose: the number
+#           is the work, and hiding it behind `continue-on-error` is how the
+#           previous gate died.
+#
+#   tests   RED, three ways, none of them this lane's:
+#             - 19 of ~464 unit tests: `edge::zpl` and `edge::printing` while
+#               the hang-tag layout is reshaped, and `cloud::http::assistant`
+#               declaring `describe_schema` with no arm in `run_tool`.
+#             - `pricing_authority::only_the_snapshot_loaders_may_reach_the_price_tables`:
+#               four committed files name a price table without being on that
+#               test's ALLOWED list. It is the fifth structural gate and the
+#               only one still red, so it is deliberately NOT in `gates` —
+#               putting it there would make the requirable job unrequirable.
+#               Its finding is worth reading rather than silencing.
+#
+# When a job here turns green, say so above and require it. When one is made
+# advisory, write the date and the owner next to it, or it will still be
+# advisory in a year.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A CI build is a cold build; debuginfo is minutes spent on nothing.
+  CARGO_PROFILE_TEST_DEBUG: 0
+
+jobs:
+  gates:
+    name: gates (fmt + structure)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Formatting
+        working-directory: backend
+        run: cargo fmt --all -- --check
+
+      # These read Rust source and the migration folders. They need no
+      # database, which is why they are here rather than in `tests`: a
+      # structural failure should be reported in a minute, not after a
+      # Postgres has booted and four hundred tests have run.
+      #
+      # `route_catalog` is the one that fails on a route nobody meant to add.
+      # `migration_hygiene` is the one that would have caught the till.
+      #
+      # `pricing_authority` is the fifth of these and is absent on purpose: it
+      # is red on the committed tree, and a job that cannot pass is a job that
+      # cannot be required. It runs in `tests` below, where its failure is
+      # visible without disarming this one. Add it back the day it is green.
+      - name: Structural gates
+        working-directory: backend
+        run: |
+          cargo test --test migration_hygiene \
+                     --test route_catalog \
+                     --test kernel_purity \
+                     --test write_authority
+
+  lints:
+    name: lints (clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      # `-D warnings` is the repository's own standard: `make check` has said so
+      # since before this file existed. It is red today, and the header says by
+      # how much.
+      - name: Clippy
+        working-directory: backend
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  tests:
+    name: tests (unit + integration)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        # Without the health gate the first test races the database's own
+        # startup, and the failure reads like a bug in whatever ran first.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # `#[sqlx::test]` makes a throwaway database per test from this one, so it
+      # points at the maintenance database rather than at anything seeded.
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Unit tests
+        working-directory: backend
+        run: cargo test --workspace --lib
+
+      - name: Integration tests
+        working-directory: backend
+        run: cargo test --workspace --tests

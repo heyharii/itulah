@@ -165,6 +165,20 @@ pub(crate) const SALE_TENDER_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0020_sale_tenders.sql"
 ));
 
+/// The fifth tender: a gift card. See the migration for why a basket settled
+/// by one was being recorded as OTHER, and why that overstates the day's cash.
+///
+/// Registered here because `migration_hygiene` found it on disk with nothing
+/// applying it — the same fault, and the same remedy, as `0023` below. Its
+/// cost was higher. `PaymentMethod::Voucher` has existed since the centre's
+/// `0090`, and `as_str` renders it `VOUCHER`, so a till offering it produced a
+/// row the CHECK did not list; the constraint failed and took the whole sale
+/// down with it. Every layer above this file was ready.
+pub(crate) const VOUCHER_TENDER_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0028_a_till_can_be_paid_with_a_voucher.sql"
+));
+
 /// The tier, removed. See the migration for why a level nothing can match is
 /// worse than no level at all.
 pub(crate) const RETIRE_TIER_SCHEMA: &str = include_str!(concat!(
@@ -657,6 +671,28 @@ impl SqliteEdge {
             .map_err(db)?;
         if a_sale_can_be_taken_back == 0 {
             connection.execute_batch(TILL_SCHEMA).map_err(db)?;
+        }
+        // Asks the constraint itself, because that is the only place the
+        // answer is written: SQLite cannot alter a CHECK, so `0028` rebuilds
+        // the table, and a database's own DDL is what says which of the two
+        // versions it holds.
+        //
+        // After the till's day rather than in numeric order beside `0020`,
+        // because `0024` above drops and renames `sale`, and `sale_tender`
+        // points at it. Rebuilding the child either side of a parent rebuild
+        // resolves, but only one order needs the reader to prove that.
+        let a_voucher_may_settle_a_basket: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type='table' AND name='sale_tender' AND sql LIKE '%VOUCHER%'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_voucher_may_settle_a_basket == 0 {
+            connection
+                .execute_batch(VOUCHER_TENDER_SCHEMA)
+                .map_err(db)?;
         }
         let catalogue_carries_its_photograph: i64 = connection
             .query_row(
@@ -5448,6 +5484,75 @@ mod tests {
                 idempotency_key: "card-sale".into(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
+        let report = store
+            .active_shift(None)
+            .unwrap_or_else(|error| panic!("active: {error}"))
+            .unwrap_or_else(|| panic!("a shift is open"));
+        assert_eq!(report.non_cash_minor, 150_000);
+        assert_eq!(report.cash_sales_minor, 0);
+        assert_eq!(report.expected_cash_minor, 100_000);
+    }
+
+    /// The fifth tender — and the migration that sat on disk with nothing
+    /// applying it.
+    ///
+    /// This test fails at `complete_sale` rather than at an assertion when
+    /// `0028` is unregistered: the CHECK `0020` wrote lists four methods,
+    /// `VOUCHER` violates it, and the constraint failure rolls the basket back
+    /// whole. That is what a shop saw — a till that offered the tender and
+    /// then refused the sale.
+    #[test]
+    fn a_voucher_settles_a_basket_and_stays_out_of_the_drawer() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 100_000,
+                actor_id: "siti".into(),
+                idempotency_key: "voucher-shift".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+        store
+            .receive_store(ReceiveRequest {
+                epc: "EPC-VOUCHER-001".into(),
+                sku_code: "SKU-001".into(),
+                unit_price_minor: 150_000,
+                source_dc_id: None,
+                shipment_reference: None,
+                actor_id: "store-receiver".into(),
+                idempotency_key: "voucher-receive".into(),
+            })
+            .unwrap_or_else(|error| panic!("receive: {error}"));
+        move_epc(
+            &store,
+            "EPC-VOUCHER-001",
+            "store-07.warehouse:on_hand",
+            "store-07.floor:on_hand",
+            "voucher-floor",
+        );
+
+        let sale = store
+            .complete_sale(SaleRequest {
+                coupon_codes: Vec::new(),
+                customer_id: None,
+                epcs: vec!["EPC-VOUCHER-001".into()],
+                tenders: vec![crate::tender::SaleTender {
+                    method: crate::tender::PaymentMethod::Voucher,
+                    amount_minor: 150_000,
+                    reference: Some("GIFT-0001".into()),
+                }],
+                actor_id: "siti".into(),
+                idempotency_key: "voucher-sale".into(),
+            })
+            .unwrap_or_else(|error| panic!("sale: {error}"));
+        assert_eq!(sale.total_minor, 150_000);
+        // No money arrived at the counter, so none can be handed back.
+        assert_eq!(sale.change_minor, 0);
+
+        // And the drawer is untouched, which is the reason the voucher is its
+        // own method rather than OTHER: the money arrived when the card was
+        // sold, possibly at another shop and possibly last year.
         let report = store
             .active_shift(None)
             .unwrap_or_else(|error| panic!("active: {error}"))

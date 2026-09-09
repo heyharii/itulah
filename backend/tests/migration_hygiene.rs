@@ -16,6 +16,12 @@
 //! and each picks "the next free number" by reading the directory. Two people
 //! reading it at the same moment pick the same number.
 //!
+//! The remedy the lanes settled on is to claim a *distant block* instead of the
+//! next number, which means the numbering is deliberately full of holes. So the
+//! second cloud guard is not "no gaps" but "no gap nobody claimed": see
+//! `RESERVED` below, where each hole is written down with the reason it is one.
+//! An unexplained gap is still a missing file, and still worth stopping for.
+//!
 //! **The edge is ordered by the code.** Its migrations are `include_str!`-ed
 //! into constants and applied in an order written out by hand in
 //! `src/edge/sqlite.rs` — which today applies `0005` before `0004`. So the
@@ -90,18 +96,113 @@ fn no_two_cloud_migrations_claim_the_same_number() {
     );
 }
 
+/// The number blocks this estate has deliberately left empty, and why.
+///
+/// A gap is normally a missing file, and a missing file is a table absent from
+/// every database built from scratch — found far from here and long after. But
+/// several sessions work this repository at once, and the convention that stops
+/// two of them claiming one number is to take a *distant block* rather than the
+/// next free number. Those blocks are gaps on purpose, and they stay gaps: a
+/// number that has been applied to a live database cannot be renumbered,
+/// because its checksum is what `sqlx::migrate!` compares.
+///
+/// So the guard cannot be "no gaps". It is "no gap nobody claimed" — which is
+/// still the guard worth having, because an accidentally skipped number looks
+/// exactly like a reserved one until somebody writes down which it is. That is
+/// what this table is for. Anything outside it is a missing file.
+const RESERVED: &[(u32, u32, &str)] = &[
+    (
+        47,
+        49,
+        "left to the finance lane, which was writing 0050_ledger and its \
+         successors in parallel (docs/hr-port-provenance.md)",
+    ),
+    (
+        53,
+        59,
+        "the remainder of that finance block; the HR port starts at 0060",
+    ),
+    (
+        62,
+        69,
+        "held open for the HR port after it landed 0060 and 0061",
+    ),
+    (
+        100,
+        100,
+        "a proposed-hires feature the owner decided against, removed before it \
+         reached git; deliberately not reused because 0101 is already applied \
+         and renumbering it would change its checksum",
+    ),
+    (
+        107,
+        158,
+        "the asset lane's block: 146115e filed 0106 and then jumped to 0159 \
+         rather than crowd the next number",
+    ),
+];
+
 #[test]
-fn the_cloud_migration_numbers_run_without_gaps() {
+fn the_cloud_migration_numbers_run_without_unclaimed_gaps() {
     let versions: Vec<u32> = migration_files("postgres")
         .into_iter()
         .map(|(version, _)| version)
         .collect();
-    let expected: Vec<u32> = (1..=versions.len() as u32).collect();
-    assert_eq!(
-        versions, expected,
-        "the cloud migrations skip a number. A missing file is a table that \
-         will be absent from every database built from scratch, which shows up \
-         far from here and long after."
+    let claimed = |number: u32| {
+        RESERVED
+            .iter()
+            .any(|(first, last, _)| number >= *first && number <= *last)
+    };
+
+    let highest = versions.last().copied().unwrap_or(0);
+    let unclaimed: Vec<u32> = (1..=highest)
+        .filter(|number| !versions.contains(number) && !claimed(*number))
+        .collect();
+
+    assert!(
+        unclaimed.is_empty(),
+        "the cloud migrations skip {} nobody has claimed: {}\n\n\
+         A missing file is a table that will be absent from every database \
+         built from scratch, which shows up far from here and long after. If \
+         the gap is deliberate — a lane holding a block, or a number retired \
+         rather than reused — add it to RESERVED in this file with the reason, \
+         so the next reader can tell your gap from a lost file.",
+        if unclaimed.len() == 1 {
+            "a number"
+        } else {
+            "numbers"
+        },
+        unclaimed
+            .iter()
+            .map(|number| format!("{number:04}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+}
+
+#[test]
+fn no_reserved_block_is_dead_weight() {
+    // A block that has filled up is a block nobody is holding any more, and
+    // leaving it here turns the next genuinely missing file into a permitted
+    // gap. Same reasoning as the matrix check in `write_authority`: the
+    // allowlist has to be guarded, or it rots into a blindfold.
+    let versions: Vec<u32> = migration_files("postgres")
+        .into_iter()
+        .map(|(version, _)| version)
+        .collect();
+
+    let full: Vec<String> = RESERVED
+        .iter()
+        .filter(|(first, last, _)| (*first..=*last).all(|number| versions.contains(&number)))
+        .map(|(first, last, reason)| format!("  {first:04}-{last:04}: {reason}"))
+        .collect();
+
+    assert!(
+        full.is_empty(),
+        "these reserved blocks now hold a file at every number:\n{}\n\n\
+         Delete the entry. The block did its job; keeping it means a file lost \
+         from that range would never be reported.",
+        full.join("\n")
     );
 }
 
