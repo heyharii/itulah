@@ -188,6 +188,7 @@ cloud	PATCH	/api/v1/vocabulary/{kind}/{code}	Supervisor
 cloud	POST	/api/v1/article-codes	Supervisor
 cloud	POST	/api/v1/article-setups	Supervisor
 cloud	POST	/api/v1/article-setups/{id}/issue	Supervisor
+cloud	POST	/api/v1/articles/{article_code}/consequences	Supervisor
 cloud	POST	/api/v1/assistant/ask	Supervisor
 cloud	POST	/api/v1/attendance-periods/{place}/{period}/closure	Supervisor
 cloud	POST	/api/v1/attendance-periods/{place}/{period}/reopening	Supervisor

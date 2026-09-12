@@ -8,7 +8,7 @@
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
-    postgres::{self as infrastructure, UpdateArticleRequest},
+    postgres::{self as infrastructure, ProposedArticle, UpdateArticleRequest},
 };
 use axum::{
     extract::{Path, Query, State},
@@ -199,4 +199,24 @@ pub async fn update_article(
     .await?;
     let version = detail.article.version;
     versioned_response(StatusCode::OK, detail, version)
+}
+/// What editing this article would do to the promotions around it.
+///
+/// A POST that writes nothing, and the verb is the body's fault rather than a
+/// statement about the operation: the question is "what would happen if this
+/// article looked like THIS", and the proposed state is a division and a set of
+/// tags. A GET carrying a tag list in the query string would be the same
+/// question with a length limit and worse escaping.
+///
+/// Answered before a save rather than after it, because after it the answer is
+/// a fact somebody has to undo. See `postgres::eligibility` for what separates
+/// a promotion this can still change from one it cannot.
+pub async fn article_consequences(
+    State(state): State<AppState>,
+    Path(article_code): Path<String>,
+    Json(proposed): Json<ProposedArticle>,
+) -> Result<Json<infrastructure::ArticleConsequences>, AppError> {
+    Ok(Json(
+        infrastructure::article_change_consequences(&state.db, &article_code, &proposed).await?,
+    ))
 }

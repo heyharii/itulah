@@ -267,6 +267,14 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/articles/{article_code}",
             get(articles::article_detail).patch(articles::update_article),
         )
+        // What an edit to this article would do to the promotions around it.
+        // A POST that writes nothing: the question carries a proposed division
+        // and a set of tags, and it is asked before the save rather than after,
+        // when the answer would be something to undo.
+        .route(
+            "/api/v1/articles/{article_code}/consequences",
+            post(articles::article_consequences),
+        )
         // The colour master. Picked from, never typed into — which is why the
         // only way a colour is created is deliberately, here.
         .route(

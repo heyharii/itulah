@@ -101,6 +101,16 @@ async fn run_catalog_publisher(pool: sqlx::PgPool) {
             Ok(None) => {}
             Err(error) => tracing::error!(%error, "failed to publish the product list"),
         }
+        // On the same tick, and for a related reason: nothing in this estate
+        // fires when a timestamp goes by, so a promotion whose window opened at
+        // midnight is noticed by a pass rather than by an event. This resolves
+        // what such a rule matched and writes it down once. See
+        // `postgres::eligibility`.
+        match postgres::freeze_started_rule_eligibility(&pool).await {
+            Ok(0) => {}
+            Ok(frozen) => info!(%frozen, "resolved what newly started promotions match"),
+            Err(error) => tracing::error!(%error, "failed to resolve promotion eligibility"),
+        }
     }
 }
 

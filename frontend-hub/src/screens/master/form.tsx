@@ -1,13 +1,20 @@
-import { useForm } from "@tanstack/react-form"
-import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useForm, useStore } from "@tanstack/react-form"
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select } from "@/components/ui/field"
 import { Segmented } from "@/components/ui/segmented"
 import { Banner } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { day } from "@/lib/format"
 import {
+  articleConsequences,
   articleKeys,
   updateArticle,
   type ArticleColourwayInput,
@@ -17,7 +24,10 @@ import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import { ColourPicker } from "@/screens/master/colour-picker"
 import { useIdempotencyKey } from "@/screens/procurement/shared"
 import { ApiError } from "@itulah/contract/client"
-import type { CatalogueVocabulary } from "@itulah/contract"
+import type {
+  ArticleConsequence,
+  CatalogueVocabulary,
+} from "@itulah/contract"
 
 /// Correcting an article — its attributes, never its identity.
 ///
@@ -163,6 +173,11 @@ export function ArticleForm({
     save.error instanceof ApiError &&
     (save.error.status === 409 || save.error.status === 412)
 
+  /// Whether the consequences below have been read and pressed past. Cleared
+  /// by every further edit — what was accepted was a specific consequence, not
+  /// a mood. Set by the Save button's first press; see there.
+  const [accepted, setAccepted] = useState(false)
+
   const form = useForm({
     defaultValues: {
       name: article.name,
@@ -177,6 +192,47 @@ export function ArticleForm({
     } as ArticleDraft,
     onSubmit: ({ value }) => save.mutate(value),
   })
+
+  /// What the form is proposing, read from the form itself.
+  ///
+  /// Derived rather than kept beside it: a second copy of the draft is a
+  /// second thing to keep in step, and the copy is the one that goes stale —
+  /// the question asked would then be about an article nobody is editing.
+  ///
+  /// The tags are sorted so that ticking A then B asks the same question as
+  /// ticking B then A. It IS the same question, and a query key that says
+  /// otherwise pays for the answer twice.
+  const draft = useStore(form.store, (state) => state.values)
+  const proposed = useMemo(
+    () => ({
+      division_code: draft.division === "" ? null : draft.division,
+      tags: [...draft.tags].sort(),
+    }),
+    [draft.division, draft.tags]
+  )
+  const settled = useMemo(
+    () => ({
+      division_code: article.division_code,
+      tags: [...article.tags].sort(),
+    }),
+    [article.division_code, article.tags]
+  )
+  const changed =
+    proposed.division_code !== settled.division_code ||
+    proposed.tags.join("\u0000") !== settled.tags.join("\u0000")
+
+  /// Only asked once the edit differs from what is on record. An article
+  /// opened and read asks nothing, which is most of what happens in this
+  /// sheet.
+  const consequences = useQuery({
+    queryKey: articleKeys.consequences(article.article_code, proposed),
+    queryFn: ({ signal }) =>
+      articleConsequences(article.article_code, proposed, signal),
+    enabled: changed,
+    staleTime: 30 * 1000,
+  })
+  const scheduled = changed ? (consequences.data?.scheduled ?? []) : []
+  const started = changed ? (consequences.data?.started ?? []) : []
 
   return (
     <form
@@ -247,7 +303,10 @@ export function ArticleForm({
           >
             <Select
               value={field.state.value}
-              onChange={(next) => field.handleChange(next)}
+              onChange={(next) => {
+                field.handleChange(next)
+                setAccepted(false)
+              }}
             >
               <option value="">Unclassified</option>
               {(vocabulary?.divisions ?? []).map((term) => (
@@ -305,7 +364,7 @@ export function ArticleForm({
                       key={term.code}
                       type="button"
                       aria-pressed={on}
-                      onClick={() =>
+                      onClick={() => {
                         field.handleChange(
                           on
                             ? field.state.value.filter(
@@ -313,7 +372,8 @@ export function ArticleForm({
                               )
                             : [...field.state.value, term.code]
                         )
-                      }
+                        setAccepted(false)
+                      }}
                       className={
                         on
                           ? "inline-flex h-[1.625rem] items-center rounded-full bg-accent-bg px-2.5 text-[0.71875rem] font-medium text-info-fg"
@@ -338,11 +398,12 @@ export function ArticleForm({
                       type="button"
                       aria-pressed
                       title="Retired. It can be taken off, not put back."
-                      onClick={() =>
+                      onClick={() => {
                         field.handleChange(
                           field.state.value.filter((each) => each !== code)
                         )
-                      }
+                        setAccepted(false)
+                      }}
                       className="inline-flex h-[1.625rem] items-center gap-1.5 rounded-full border border-dashed border-hairline-2 px-2.5 text-[0.71875rem] font-medium text-body"
                     >
                       {retiredLabel(retiredTags.data, code)}
@@ -391,18 +452,77 @@ export function ArticleForm({
         )}
       </form.Field>
 
+      {/* What this edit would do to the offers around it.
+      
+          Above the button rather than behind it, and shown while somebody is
+          still editing rather than only when they press Save: the useful
+          moment is the one where the tag is still in their hand. */}
+      {(scheduled.length > 0 || started.length > 0) && (
+        <div className="flex flex-col gap-2.5 rounded-inner border border-warn-fg/30 bg-warn-bg px-3.5 py-3">
+          {scheduled.length > 0 && (
+            <div>
+              <p className="text-meta font-medium text-ink">
+                This change affects{" "}
+                {scheduled.length === 1
+                  ? "a promotion that has not started"
+                  : `${scheduled.length} promotions that have not started`}
+                .
+              </p>
+              <ul className="mt-1.5 flex flex-col gap-1">
+                {scheduled.map((one) => (
+                  <ConsequenceLine key={one.rule_id} one={one} />
+                ))}
+              </ul>
+              <p className="mt-1.5 text-[0.71875rem] text-warn-fg">
+                Their products are worked out when they start, so they will be
+                worked out against this article as it is then.
+              </p>
+            </div>
+          )}
+
+          {/* The quiet half. A promotion already running is not a reason to
+              stop somebody editing an article, and saying so in the same voice
+              as the half above is how a warning becomes wallpaper. */}
+          {started.length > 0 && (
+            <div className={scheduled.length > 0 ? "border-t border-hairline pt-2.5" : ""}>
+              <p className="text-[0.71875rem] text-body">
+                {consequences.data?.started_note}
+              </p>
+              <ul className="mt-1.5 flex flex-col gap-1">
+                {started.map((one) => (
+                  <ConsequenceLine key={one.rule_id} one={one} />
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-1 flex items-center gap-2">
         <form.Subscribe selector={(state) => state.values.name.trim() !== ""}>
-          {(ready) => (
-            <Button
-              type="submit"
-              variant="primary"
-              className="flex-1"
-              disabled={save.isPending || stale || !ready}
-            >
-              {save.isPending ? "Saving…" : "Save"}
-            </Button>
-          )}
+          {(ready) => {
+            // Two presses when something moves, one when nothing does. The
+            // first press is not a save — it is the moment the list above
+            // stops being scenery and becomes the thing being agreed to. The
+            // word changes on the second press rather than the first, which is
+            // the same shape the delete on a master value uses.
+            const guarded = scheduled.length > 0 && !accepted
+            return (
+              <Button
+                type={guarded ? "button" : "submit"}
+                variant="primary"
+                className="flex-1"
+                disabled={save.isPending || stale || !ready}
+                onClick={guarded ? () => setAccepted(true) : undefined}
+              >
+                {save.isPending
+                  ? "Saving…"
+                  : accepted && scheduled.length > 0
+                    ? "Save anyway"
+                    : "Save"}
+              </Button>
+            )
+          }}
         </form.Subscribe>
         <Button variant="quiet" onClick={onCancel} disabled={save.isPending}>
           Cancel
@@ -415,5 +535,30 @@ export function ArticleForm({
         quietly winning.
       </p>
     </form>
+  )
+}
+
+/// One promotion an edit moves this article into or out of.
+///
+/// The name, which way it moves, and when it starts — the three things that
+/// make the line worth reading. "Used by a promotion" is not one of them: that
+/// is true of the tag and says nothing about this article.
+function ConsequenceLine({ one }: { one: ArticleConsequence }) {
+  return (
+    <li className="flex items-baseline justify-between gap-3 text-meta">
+      <span className="min-w-0 truncate text-ink">{one.name}</span>
+      <span className="shrink-0 text-body">
+        {one.gains ? "would join" : "would leave"}
+        {/* When it starts, for one that has not — that is the fact somebody
+            is deciding against. For one already running, when its products
+            were worked out, which is the fact that says what the record
+            beside it means. */}
+        {one.phase === "SCHEDULED" && one.starts_at !== null
+          ? ` · starts ${day(one.starts_at)}`
+          : one.resolved_at !== null
+            ? ` · resolved ${day(one.resolved_at)}`
+            : ""}
+      </span>
+    </li>
   )
 }

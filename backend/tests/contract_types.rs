@@ -371,6 +371,17 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("MasterUsage: {e}"));
     inventory_backend::cloud::postgres::MasterReference::export_all(&config)
         .unwrap_or_else(|e| panic!("MasterReference: {e}"));
+    // What an edit to an article would do to the promotions around it. The
+    // browser asks this before a save and prints the answer, so the shape of
+    // the answer is not something a screen should be transcribing.
+    inventory_backend::cloud::postgres::ArticleConsequences::export_all(&config)
+        .unwrap_or_else(|e| panic!("ArticleConsequences: {e}"));
+    inventory_backend::cloud::postgres::ArticleConsequence::export_all(&config)
+        .unwrap_or_else(|e| panic!("ArticleConsequence: {e}"));
+    inventory_backend::cloud::postgres::ProposedArticle::export_all(&config)
+        .unwrap_or_else(|e| panic!("ProposedArticle: {e}"));
+    inventory_backend::cloud::postgres::RulePhase::export_all(&config)
+        .unwrap_or_else(|e| panic!("RulePhase: {e}"));
     // What a buyer has already ordered of one supplier item. Carried on every
     // sourcing row, so the browser must not be transcribing its shape.
     inventory_backend::cloud::postgres::PurchaseHistory::export_all(&config)

@@ -1,4 +1,5 @@
 import { node } from "@/lib/api"
+import type { ArticleConsequences, ProposedArticle } from "@itulah/contract"
 
 /// The master product — article and SKU — read as itself rather than as a
 /// side-effect of pricing it or counting it.
@@ -202,6 +203,11 @@ export const articleKeys = {
   all: ["articles"] as const,
   list: (scope: ArticleScope) => ["articles", "list", scope] as const,
   article: (code: string) => ["articles", code] as const,
+  /// What editing this article would do, keyed by the edit itself: the answer
+  /// is about the proposed state, so two different proposals are two different
+  /// questions and must not share a cache entry.
+  consequences: (code: string, proposed: ProposedArticle) =>
+    ["articles", code, "consequences", proposed] as const,
 }
 
 // ---------------------------------------------------------------------------
@@ -290,4 +296,25 @@ export async function updateArticle(
     { signal, headers: guarded(idempotencyKey, version) }
   )
   return flatten(wire)
+}
+
+/// What editing this article would do to the promotions around it.
+///
+/// Asked with the state the form is PROPOSING, not with a diff: the server
+/// compares it against what is on record. A promotion that has not started can
+/// still change what it will cover, so that is the half worth interrupting
+/// somebody for; the started half is reported separately and quietly.
+///
+/// A POST because the question carries a set of tags, and a GET would put them
+/// in a query string with a length limit and worse escaping. It writes nothing.
+export function articleConsequences(
+  articleCode: string,
+  proposed: ProposedArticle,
+  signal?: AbortSignal
+) {
+  return node.post<ArticleConsequences>(
+    `/api/v1/articles/${encodeURIComponent(articleCode)}/consequences`,
+    proposed,
+    { signal }
+  )
 }

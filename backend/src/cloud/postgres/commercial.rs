@@ -617,6 +617,11 @@ WHERE NOT EXISTS(
         .await?;
     let delivered_to =
         dispatch_publication(&mut tx, publication_id, request.actor_id.trim()).await?;
+    // A rule whose window is already open starts the moment the book is
+    // published, so it is resolved here rather than up to five minutes later
+    // by the pass on the timer. Inside the same transaction: either the book is
+    // published and what its live rules cover is written down, or neither.
+    super::eligibility::freeze_started_rules(&mut tx, Utc::now()).await?;
     let response = json!({"id":publication_id,"version":version,"status":"PUBLISHED","offer_rule_count":offer_count,"published_at":Utc::now(),"delivered_to":delivered_to});
     complete_idempotent(&mut tx, &request.idempotency_key, &response).await?;
     tx.commit().await?;

@@ -183,3 +183,70 @@ The four master lists get no permanent filter sidebar. `[All] [Active]
 [Retired]` and a search box is the whole of what they need; the numeric
 "Articles is 0" clause they already had opens the same right-hand panel from the
 same kind of button.
+
+## 8. What a promotion resolved to, and what an article edit changes
+
+Added 2026-09-12, immediately after the master lifecycle above, because it is
+the other half of the same objection: a tag is not just a word in a list, it is
+what a promotion selects on.
+
+### The promotion state machine, as it actually exists
+
+Nothing here was invented, and there is no Draft anywhere in it that was not
+already there:
+
+| Where | States |
+| --- | --- |
+| `commercial_publication.status` | `DRAFT`, `PUBLISHED` (a price book, not a promotion) |
+| `RuleStatus` (in the rule document) | `DRAFT`, `ACTIVE`, `PAUSED`, `EXPIRED` — **and nothing ever writes `EXPIRED`** |
+| `CampaignStatus` | `DRAFT`, `SCHEDULED`, `ACTIVE`, `PAUSED`, `EXPIRED`, `CANCELLED` |
+| The phase people read | derived, not stored: `ACTIVE`, `PAUSED`, `ENDED`, `SCHEDULED` |
+
+The phase comes from the status plus `conditions.effective_from` /
+`effective_to` in the rule document — `phaseOf` in
+`screens/commercial/promotions.tsx` is the definition, and the comment there
+says why: a status meaning "the date has passed" is wrong from the moment it is
+written unless something rewrites it at midnight.
+
+So "scheduled" is a real, existing thing: a published rule, `ACTIVE`, whose
+window has not opened. There is no activation event — nothing in the estate
+fires when a timestamp goes by.
+
+### Freezing
+
+`0175` adds `commercial_rule_eligibility` (+ its SKU rows). When a rule's
+window is found open, its selector is resolved once against the catalogue and
+the answer is kept with the selector and the timestamp. Written once, never
+rewritten: re-resolving a running promotion is a decision, not a background job.
+
+The pass runs in the transaction that publishes a book (for rules already
+in-window) and on the catalogue publisher's five-minute tick (for windows that
+open later). Keyed by `rule_id`, like `commercial_usage`, because the shop's
+model is `DISTINCT ON (rule_id)` — a promotion republished is one promotion
+amended.
+
+**The honest limit, stated plainly.** This is the centre's record. A till still
+matches `Applicability::Tag` against the tags in its own copy of the catalogue,
+so an article edit does still reach a running promotion. Making the frozen set
+what shops price against means the set has to travel — either inside the
+published rule document (which is immutable once published, so it would take a
+new publication) or as a new field the engine reads (in a crate a second lane is
+rewriting this week). Neither was in scope here, and the UI does not claim
+otherwise: the warning says what is true today.
+
+### The consequence check
+
+`POST /api/v1/articles/{code}/consequences` takes the state the form is
+proposing — a division and a complete tag set — and answers with the promotions
+whose membership would change, split in two:
+
+- **scheduled**: has not started, so its product set will be resolved against
+  whatever the article looks like then. This is the half worth interrupting
+  somebody for, and the article form shows it above the Save button with the
+  promotion's name and start date, then takes two presses to save.
+- **started**: already running. Reported quietly, with when it resolved and
+  whether this article was in that answer.
+
+Usage and consequence are deliberately different queries. "This tag is used by
+40 promotions" is not a reason to stop editing an article; "removing this tag
+takes this article out of Denim Weekend, which starts on Saturday" is.
