@@ -22,7 +22,9 @@ use pricing_engine::{
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
+use crate::cloud::domain::FrozenEligibility;
 use crate::edge::EdgeError;
+use std::collections::BTreeMap;
 
 /// The sales channel a till serves. Shops sell over the counter; the other
 /// channels the centre publishes for are priced elsewhere.
@@ -433,7 +435,60 @@ fn load_markdowns(
 /// worse than a shop that sells without that promotion. The prices themselves
 /// are unaffected — those come down a path that does block on the unknown,
 /// because a price that cannot be read is a price that cannot be charged.
+/// What each started promotion covers, as the centre resolved it.
+///
+/// Read as a map so `load_rules` can amend a rule without a query per rule. A
+/// rule with a row and no SKUs is a rule that matched nothing when it started,
+/// and it must stay in the map: dropping it would let its selector be read
+/// again, which is the whole failure this table exists to end.
+fn load_frozen_eligibility(
+    connection: &Connection,
+) -> Result<BTreeMap<String, FrozenEligibility>, EdgeError> {
+    let mut frozen: BTreeMap<String, FrozenEligibility> = BTreeMap::new();
+    let mut heads = connection
+        .prepare("SELECT rule_id FROM commercial_rule_eligibility")
+        .map_err(db)?;
+    for row in heads
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db)?
+    {
+        frozen.insert(row.map_err(db)?, FrozenEligibility::default());
+    }
+
+    let mut statement = connection
+        .prepare("SELECT rule_id, sku_code, role FROM commercial_rule_eligibility_sku")
+        .map_err(db)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(db)?;
+    for row in rows {
+        let (rule_id, sku_code, role) = row.map_err(db)?;
+        let entry = frozen.entry(rule_id).or_default();
+        if role == "EFFECT_ON" {
+            entry
+                .effect_on
+                .get_or_insert_with(Default::default)
+                .insert(sku_code);
+        } else {
+            entry.applies_to.insert(sku_code);
+        }
+    }
+    Ok(frozen)
+}
+
 fn load_rules(connection: &Connection, usage: &UsageCounts) -> Result<Vec<Rule>, EdgeError> {
+    // What the centre resolved each started promotion to. Applied below in
+    // place of the selector, so a promotion that has begun covers the products
+    // it covered then rather than the ones this shop's catalogue would match
+    // this morning. A rule absent from here has not started; its selector is
+    // still read, which is what makes a scheduled promotion behave.
+    let frozen = load_frozen_eligibility(connection)?;
     let mut statement = connection
         .prepare("SELECT definition_json FROM commercial_rule ORDER BY rule_id")
         .map_err(db)?;
@@ -449,6 +504,9 @@ fn load_rules(connection: &Connection, usage: &UsageCounts) -> Result<Vec<Rule>,
                     rule.caps,
                     usage.get(&("RULE".to_string(), rule.rule_id.clone())),
                 );
+                if let Some(eligibility) = frozen.get(&rule.rule_id) {
+                    crate::cloud::domain::narrow_to_frozen(&mut rule, eligibility);
+                }
                 rules.push(rule);
             }
             Err(error) => {

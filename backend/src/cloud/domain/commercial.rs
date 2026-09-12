@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
+use pricing_engine::rule::{Applicability, Rule};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 use uuid::Uuid;
@@ -106,4 +108,66 @@ pub enum CommercialError {
     InvalidChannel(String),
     #[error("invalid ISO-style currency code: {0}")]
     InvalidCurrency(String),
+}
+
+// ---------------------------------------------------------------------------
+// What a started promotion covers.
+
+/// The products a rule resolved to when its window opened.
+///
+/// See `COMMAND_COMMERCIAL_ELIGIBILITY` for how it reaches a shop and
+/// `postgres::eligibility` for how the centre works it out.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FrozenEligibility {
+    /// What `scope.applicability` resolved to.
+    pub applies_to: BTreeSet<String>,
+    /// What `scope.effect_on` resolved to, when the rule had one. `None` and
+    /// an empty set are different: the first means the rule never had a second
+    /// scope, the second means it had one that matched nothing.
+    pub effect_on: Option<BTreeSet<String>>,
+}
+
+/// Replace a rule's product scopes with the set it resolved to when it started.
+///
+/// **This is the single definition of "a started promotion's membership does
+/// not move".** The centre calls it while building its own snapshot and a shop
+/// calls it while building the till's, so there is one answer to who is in an
+/// offer rather than two that agree until somebody edits an article.
+///
+/// It amends a COPY of the rule as the snapshot is built. Nothing is written:
+/// the document the shop holds is the one that was published, and the frozen
+/// set is a separate fact applied over it — the same shape `caps` already uses
+/// to fold in usage counts at the same moment.
+///
+/// # What it deliberately leaves alone
+///
+/// [`Applicability::WholeCart`] and a rule with no applicability at all: the
+/// basket is their subject and no product is "in" or "out" of them, so there is
+/// nothing a SKU set could say. Forcing one into a snapshot would invent a
+/// membership the rule never had.
+///
+/// `excluded_sku_codes` is untouched. It is a carve-out the author made, not a
+/// membership the catalogue decided, and a hole that could be closed by a
+/// freeze would be a hole that healed itself.
+pub fn narrow_to_frozen(rule: &mut Rule, frozen: &FrozenEligibility) {
+    if let Some(applicability) = rule.scope.applicability.as_mut() {
+        if is_product_scope(applicability) {
+            *applicability = Applicability::Sku {
+                sku_codes: frozen.applies_to.clone(),
+            };
+        }
+    }
+    if let (Some(effect_on), Some(codes)) = (rule.scope.effect_on.as_mut(), &frozen.effect_on) {
+        if is_product_scope(effect_on) {
+            *effect_on = Applicability::Sku {
+                sku_codes: codes.clone(),
+            };
+        }
+    }
+}
+
+/// Whether a selector names products at all — the question of whether there is
+/// anything to freeze.
+pub fn is_product_scope(applicability: &Applicability) -> bool {
+    !matches!(applicability, Applicability::WholeCart)
 }

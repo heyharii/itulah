@@ -247,6 +247,14 @@ const INVOICE_DOCUMENT_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0029_the_verifier_keeps_the_invoice.sql"
 ));
 
+/// What a started promotion covers, as the centre resolved it. See the
+/// migration's own header, and `COMMAND_COMMERCIAL_ELIGIBILITY` for the lane
+/// it arrives on.
+const RULE_ELIGIBILITY_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0037_a_shop_holds_what_a_started_promotion_covers.sql"
+));
+
 pub(crate) const TILL_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0024_a_sale_the_shop_can_take_back.sql"
@@ -755,6 +763,11 @@ impl SqliteEdge {
                 )
                 .map_err(db)?;
         }
+        // Idempotent on its own — every statement in it is `IF NOT EXISTS` —
+        // so it needs no probe of its own the way the rebuilds above do.
+        connection
+            .execute_batch(RULE_ELIGIBILITY_SCHEMA)
+            .map_err(db)?;
         let existing: Option<(String, String, String)> = connection
             .query_row(
                 "SELECT node_id,role,site_id FROM node_metadata WHERE singleton=1",

@@ -13,7 +13,7 @@
 
 use inventory_backend::cloud::domain::{
     catalog_content_hash, sign_command, CatalogItem, PushedCommand, COMMAND_ACTIVATE_PUBLICATION,
-    COMMAND_CATALOG_CHUNK, COMMAND_COMMERCIAL_CAMPAIGN,
+    COMMAND_CATALOG_CHUNK, COMMAND_COMMERCIAL_CAMPAIGN, COMMAND_COMMERCIAL_ELIGIBILITY,
 };
 use inventory_backend::cloud::postgres::command_signing_key;
 use inventory_backend::edge::{
@@ -1988,4 +1988,212 @@ async fn a_clearance_published_with_hours_only_charges_within_them() {
         );
         assert_eq!(catalogue[0].price_source, "COMPANY_PRICE");
     }
+}
+
+// ---------------------------------------------------------------------------
+// A promotion that has started stops moving
+// ---------------------------------------------------------------------------
+
+impl Shop {
+    /// The centre's product list, with each product's tags said out loud.
+    ///
+    /// `deliver_catalogue` sends none, which is right for the price tests
+    /// above and useless here: a promotion that selects on a tag is a promotion
+    /// whose membership is decided by exactly this field.
+    async fn deliver_tagged_catalogue(&mut self, rows: &[(&str, &[&str])]) {
+        let items: Vec<CatalogItem> = rows
+            .iter()
+            .map(|(sku, tags)| CatalogItem {
+                sku_code: (*sku).into(),
+                name: format!("Celana {sku}"),
+                uom: "EA".into(),
+                barcode: None,
+                tax_category: "STANDARD".into(),
+                active: true,
+                base_price_minor: Some(INTAKE_PRICE),
+                article_code: Some(format!("ART-{sku}")),
+                division_code: Some("MENSWEAR".into()),
+                tags: tags.iter().map(|tag| (*tag).to_string()).collect(),
+                image_url: None,
+            })
+            .collect();
+        let payload = json!({
+            "snapshot_id": Uuid::new_v4(),
+            "generation": 1,
+            "chunk_index": 0,
+            "chunk_count": 1,
+            "content_hash": catalog_content_hash(&items),
+            "items": items,
+        });
+        self.deliver(COMMAND_CATALOG_CHUNK, payload).await;
+    }
+
+    /// What the centre resolved each started promotion to.
+    ///
+    /// The lane that makes a running promotion's membership stop moving. Sent
+    /// after the book, as it is in production: the book is published in August
+    /// and frozen, and the rule's window opens on a Saturday morning.
+    async fn deliver_eligibility(&mut self, frozen: &[(&str, &[&str])]) {
+        let payload = json!({
+            "resolved_at": "2026-09-12T03:00:00Z",
+            "rules": frozen
+                .iter()
+                .map(|(rule_id, skus)| json!({
+                    "rule_id": rule_id,
+                    "resolved_at": "2026-09-12T03:00:00Z",
+                    "applies_to": skus,
+                    "effect_on": null,
+                }))
+                .collect::<Vec<_>>(),
+        });
+        self.deliver(COMMAND_COMMERCIAL_ELIGIBILITY, payload).await;
+    }
+}
+
+/// A promotion that reads a tag rather than naming its products.
+fn tag_promotion(id: &str, tag: &str, bps: i64) -> serde_json::Value {
+    let mut promotion = percent_off(id, bps);
+    promotion["scope"] = json!({ "applicability": { "on": "TAG", "tags": [tag] } });
+    promotion
+}
+
+/// Without a frozen set, a shop decides membership from today's catalogue.
+///
+/// Here to prove what the next test changes. This is not a bug being
+/// documented — it is the correct behaviour for a promotion the centre has not
+/// resolved yet, which is any promotion that has not started.
+#[tokio::test]
+async fn an_unfrozen_promotion_reads_the_catalogue_as_it_stands() {
+    let mut shop = Shop::open();
+    shop.deliver_tagged_catalogue(&[("CEL001", &[])]).await;
+    shop.deliver_commercial(
+        1,
+        vec![rule("CEL001", None, 200_000)],
+        vec![],
+        vec![tag_promotion("R-DENIM", "DENIM", 2_500)],
+        vec![],
+    )
+    .await;
+
+    shop.stock_one("EPC20000001", "CEL001");
+    let before = shop.sell("EPC20000001", 200_000, &[]);
+    assert_eq!(before.total_minor, 200_000, "no tag, no promotion");
+
+    // The article is tagged at head office and the list comes down again.
+    shop.deliver_tagged_catalogue(&[("CEL001", &["DENIM"])])
+        .await;
+    shop.stock_one("EPC20000002", "CEL001");
+    let after = shop.sell("EPC20000002", 150_000, &[]);
+    assert_eq!(
+        after.total_minor, 150_000,
+        "an unfrozen promotion follows the catalogue"
+    );
+}
+
+/// A promotion that has started prices the products it started with.
+///
+/// The three cases the owner set out, in the one place they are actually
+/// decided — the till, on a real sale, through the pricing engine:
+///
+///  1. a product the promotion resolved to is still in it;
+///  2. a product tagged AFTERWARDS does not join it;
+///  3. a product that LOSES the tag afterwards does not fall out of it.
+///
+/// Before the frozen set reached the shop, (2) and (3) both silently followed
+/// the catalogue, which meant an edit to an article at head office quietly
+/// changed what a running promotion gave away in thirteen shops.
+#[tokio::test]
+async fn a_started_promotion_prices_the_products_it_started_with() {
+    let mut shop = Shop::open();
+    shop.deliver_tagged_catalogue(&[
+        ("CEL001", &["DENIM"]),
+        ("CEL002", &["DENIM"]),
+        ("CEL003", &[]),
+    ])
+    .await;
+    shop.deliver_commercial(
+        1,
+        vec![
+            rule("CEL001", None, 200_000),
+            rule("CEL002", None, 200_000),
+            rule("CEL003", None, 200_000),
+        ],
+        vec![],
+        vec![tag_promotion("R-DENIM", "DENIM", 2_500)],
+        vec![],
+    )
+    .await;
+    // The window opened; the centre resolved the tag to the two products that
+    // carried it at that moment.
+    shop.deliver_eligibility(&[("R-DENIM", &["CEL001", "CEL002"])])
+        .await;
+
+    shop.stock_one("EPC20000010", "CEL001");
+    let inside = shop.sell("EPC20000010", 150_000, &[]);
+    assert_eq!(inside.total_minor, 150_000, "it was in the answer");
+    assert_eq!(inside.promotions.len(), 1);
+    assert!(inside.promotions[0].applied);
+
+    // Tomorrow: a third product is given the tag.
+    shop.deliver_tagged_catalogue(&[
+        ("CEL001", &["DENIM"]),
+        ("CEL002", &["DENIM"]),
+        ("CEL003", &["DENIM"]),
+    ])
+    .await;
+    shop.stock_one("EPC20000011", "CEL003");
+    let joined_late = shop.sell("EPC20000011", 200_000, &[]);
+    assert_eq!(
+        joined_late.total_minor, 200_000,
+        "tagging an article does not put it into a promotion that has already started"
+    );
+    assert!(
+        joined_late.promotions.iter().all(|one| !one.applied),
+        "and nothing came off it: {:?}",
+        joined_late.promotions
+    );
+
+    // And the tag is taken off one that was in the answer.
+    shop.deliver_tagged_catalogue(&[
+        ("CEL001", &["DENIM"]),
+        ("CEL002", &[]),
+        ("CEL003", &["DENIM"]),
+    ])
+    .await;
+    shop.stock_one("EPC20000012", "CEL002");
+    let still_inside = shop.sell("EPC20000012", 150_000, &[]);
+    assert_eq!(
+        still_inside.total_minor, 150_000,
+        "untagging an article does not take it out of a promotion that has already started"
+    );
+    assert!(still_inside.promotions[0].applied);
+}
+
+/// A frozen set that matched nothing is an answer, not a missing one.
+///
+/// The failure this guards is the tempting shortcut: treating an empty set as
+/// "nothing frozen" and falling back to the selector. A promotion that matched
+/// no products when it started gives nothing away until somebody decides
+/// otherwise, and the till must not decide it by reading tomorrow's catalogue.
+#[tokio::test]
+async fn a_promotion_frozen_over_nothing_gives_nothing_away() {
+    let mut shop = Shop::open();
+    shop.deliver_tagged_catalogue(&[("CEL001", &["DENIM"])])
+        .await;
+    shop.deliver_commercial(
+        1,
+        vec![rule("CEL001", None, 200_000)],
+        vec![],
+        vec![tag_promotion("R-DENIM", "DENIM", 2_500)],
+        vec![],
+    )
+    .await;
+    shop.deliver_eligibility(&[("R-DENIM", &[])]).await;
+
+    shop.stock_one("EPC20000020", "CEL001");
+    let sale = shop.sell("EPC20000020", 200_000, &[]);
+    assert_eq!(
+        sale.total_minor, 200_000,
+        "it matched nothing when it started, and the tag on this garment is not a second chance"
+    );
 }

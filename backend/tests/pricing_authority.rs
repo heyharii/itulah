@@ -43,7 +43,7 @@ const PRICE_TABLES: [&str; 5] = [
 /// engine its inputs, one per node. The rest only ever WRITE: authoring,
 /// publishing, and the sync lanes that carry a book to a shop and apply it
 /// there. Nothing else has business knowing these tables exist.
-const ALLOWED: [(&str, &str); 9] = [
+const ALLOWED: [(&str, &str); 11] = [
     (
         "src/cloud/postgres/pricing.rs",
         "reads: builds the centre's snapshot for the engine",
@@ -79,6 +79,20 @@ const ALLOWED: [(&str, &str); 9] = [
         "src/cloud/postgres/sales.rs",
         "reads ONE thing: which currency a shop sells in, to open a sale. It \
          must never resolve a price — see the test below.",
+    ),
+    (
+        "src/cloud/postgres/vocabulary.rs",
+        "reads ONE thing: whether any promotion's scope names a division or a \
+         tag, so a master value a live offer selects on cannot be deleted. It \
+         reads `definition` as a document and never a price — the answer is a \
+         count, and the only thing it can stop is a DELETE.",
+    ),
+    (
+        "src/cloud/postgres/eligibility.rs",
+        "reads the rule documents to resolve what a started promotion covers, \
+         and writes only its own tables. It decides MEMBERSHIP, never money: \
+         the set it stores is handed back to `pricing.rs`, which is still the \
+         one place a price is answered.",
     ),
 ];
 

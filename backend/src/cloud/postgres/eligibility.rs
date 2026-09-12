@@ -43,10 +43,11 @@
 
 use super::pricing::{load_merchandise, Merchandise};
 use crate::cloud::application::AppError;
+use crate::cloud::domain::FrozenEligibility;
 use chrono::{DateTime, Utc};
 use pricing_engine::rule::{Applicability, Rule, RuleStatus};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
@@ -199,6 +200,126 @@ pub async fn freeze_started_rule_eligibility(pool: &PgPool) -> Result<usize, App
     let mut tx = pool.begin().await?;
     let frozen = freeze_started_rules(&mut tx, Utc::now()).await?;
     tx.commit().await?;
+    if frozen > 0 {
+        // A frozen set the shops never receive would leave the centre saying
+        // one thing and every till doing another, which is worse than not
+        // freezing at all. Sent after the commit rather than inside it: the
+        // command is a message about a fact, and the fact has to be true first.
+        publish_rule_eligibility_to_fleet(pool, "system:eligibility-pass").await?;
+    }
+    Ok(frozen)
+}
+
+/// Send every frozen rule to every shop.
+///
+/// Whole rather than incremental, exactly like the usage counts and the
+/// campaign switches this rides beside: a shop that missed one message is
+/// behind rather than permanently wrong, and the next pass repairs it. See
+/// `COMMAND_COMMERCIAL_ELIGIBILITY`.
+///
+/// A DC gets it too. It prices nothing today, but the command is the fleet's
+/// statement of what a promotion covers, and a node that holds half of that is
+/// a node that will answer half a question later.
+pub async fn publish_rule_eligibility_to_fleet(
+    pool: &PgPool,
+    issued_by: &str,
+) -> Result<Option<Uuid>, AppError> {
+    let targets: Vec<String> = sqlx::query_scalar(
+        "SELECT origin_id FROM sync_origin_credential
+          WHERE site_id IS NOT NULL ORDER BY origin_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    if targets.is_empty() {
+        return Ok(None);
+    }
+
+    let rows = sqlx::query(
+        "SELECT e.rule_id, e.resolved_at,
+                COALESCE(
+                    array_agg(s.sku_code ORDER BY s.sku_code)
+                        FILTER (WHERE s.role = 'APPLIES_TO'),
+                    '{}'
+                ) AS applies_to,
+                array_agg(s.sku_code ORDER BY s.sku_code)
+                    FILTER (WHERE s.role = 'EFFECT_ON') AS effect_on
+           FROM commercial_rule_eligibility e
+           LEFT JOIN commercial_rule_eligibility_sku s ON s.rule_id = e.rule_id
+          GROUP BY e.rule_id, e.resolved_at
+          ORDER BY e.rule_id",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let rules: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            json!({
+                "rule_id": row.get::<String, _>("rule_id"),
+                "resolved_at": row.get::<DateTime<Utc>, _>("resolved_at"),
+                "applies_to": row.get::<Vec<String>, _>("applies_to"),
+                // Null, not an empty list: a rule with no second scope must not
+                // arrive looking like one whose second scope matched nothing.
+                "effect_on": row.get::<Option<Vec<String>>, _>("effect_on"),
+            })
+        })
+        .collect();
+
+    let payload = json!({ "resolved_at": Utc::now(), "rules": rules });
+    let (command_id, _sent_to) = super::sync::issue_command(
+        pool,
+        crate::cloud::domain::COMMAND_COMMERCIAL_ELIGIBILITY,
+        &payload,
+        issued_by,
+        // No expiry, for the reason the usage and switch lanes have none: a
+        // shop back from a week offline needs the newest answer it can get,
+        // and a stale frozen set is nearer the truth than the selector it
+        // would otherwise re-evaluate against today's catalogue.
+        None,
+        &targets,
+    )
+    .await?;
+    Ok(Some(command_id))
+}
+
+/// What each frozen rule covers, for a caller that is about to price with it.
+///
+/// The centre's own pricing path reads this so that a simulation, a resolved
+/// offer list and a till agree about who is in an offer. See
+/// `domain::commercial::narrow_to_frozen`, which is what both of them do with
+/// the answer.
+pub async fn frozen_eligibility(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<BTreeMap<String, FrozenEligibility>, AppError> {
+    let rows = sqlx::query(
+        "SELECT rule_id, role, array_agg(sku_code ORDER BY sku_code) AS codes
+           FROM commercial_rule_eligibility_sku
+          GROUP BY rule_id, role",
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    // Every frozen rule, including one whose set is empty: a rule that matched
+    // nothing when it started matches nothing now, and leaving it out would let
+    // the selector be read again.
+    let mut frozen: BTreeMap<String, FrozenEligibility> =
+        sqlx::query_scalar::<_, String>("SELECT rule_id FROM commercial_rule_eligibility")
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .map(|rule_id| (rule_id, FrozenEligibility::default()))
+            .collect();
+    for row in rows {
+        let rule_id: String = row.try_get("rule_id")?;
+        let role: String = row.try_get("role")?;
+        let codes: Vec<String> = row.try_get("codes")?;
+        let entry = frozen.entry(rule_id).or_default();
+        if role == "EFFECT_ON" {
+            entry.effect_on = Some(codes.into_iter().collect());
+        } else {
+            entry.applies_to = codes.into_iter().collect();
+        }
+    }
     Ok(frozen)
 }
 
@@ -236,17 +357,28 @@ pub(super) async fn freeze_started_rules(
     let articles = articles_from(&merchandise);
 
     for one in &pending {
-        let matched: Vec<String> = merchandise
-            .iter()
-            .filter(|(_, facts)| {
-                articles
-                    .get(&facts.article_code)
-                    .is_some_and(|article| covered_by_rule(&one.rule, article))
-            })
-            .map(|(sku_code, _)| sku_code.clone())
-            .collect();
+        // The two halves, kept apart. `scope.applicability` is what the offer
+        // reads and `scope.effect_on` is where the money lands when that is
+        // somewhere else; a shop that replaced the first with the union of both
+        // would turn every shirt in "buy a suit, get 50% off a shirt" into a
+        // buyer. See migration 0181.
+        let applies_to = matching(
+            &merchandise,
+            &articles,
+            one.rule.scope.applicability.as_ref(),
+        );
+        let effect_on = one
+            .rule
+            .scope
+            .effect_on
+            .as_ref()
+            .map(|scope| matching(&merchandise, &articles, Some(scope)));
 
         let selector = serde_json::to_value(&one.rule.scope.applicability)?;
+        let counted: BTreeSet<&String> = applies_to
+            .iter()
+            .chain(effect_on.iter().flatten())
+            .collect();
         sqlx::query(
             "INSERT INTO commercial_rule_eligibility
                  (rule_id, publication_id, resolved_at, selector, sku_count)
@@ -257,23 +389,56 @@ pub(super) async fn freeze_started_rules(
         .bind(one.publication_id)
         .bind(at)
         .bind(&selector)
-        .bind(matched.len() as i64)
+        .bind(counted.len() as i64)
         .execute(&mut **tx)
         .await?;
 
-        if !matched.is_empty() {
+        for (role, codes) in [
+            ("APPLIES_TO", Some(&applies_to)),
+            ("EFFECT_ON", effect_on.as_ref()),
+        ] {
+            let Some(codes) = codes else { continue };
+            if codes.is_empty() {
+                continue;
+            }
             sqlx::query(
-                "INSERT INTO commercial_rule_eligibility_sku (rule_id, sku_code)
-                 SELECT $1, code FROM unnest($2::text[]) AS code
+                "INSERT INTO commercial_rule_eligibility_sku (rule_id, sku_code, role)
+                 SELECT $1, code, $3 FROM unnest($2::text[]) AS code
                  ON CONFLICT DO NOTHING",
             )
             .bind(&one.rule_id)
-            .bind(&matched)
+            .bind(codes)
+            .bind(role)
             .execute(&mut **tx)
             .await?;
         }
     }
     Ok(pending.len())
+}
+
+/// Every SKU one scope covers, in catalogue order.
+///
+/// `None` — a rule with no applicability — matches nothing rather than
+/// everything: the freeze pass never offers such a rule in the first place, and
+/// answering "everything" to a question nobody asked is how a promotion widens
+/// itself.
+fn matching(
+    merchandise: &BTreeMap<String, Merchandise>,
+    articles: &BTreeMap<String, ArticleFacts>,
+    scope: Option<&Applicability>,
+) -> Vec<String> {
+    let Some(scope) = scope else {
+        return Vec::new();
+    };
+    merchandise
+        .iter()
+        .filter(|(_, facts)| {
+            articles
+                .get(&facts.article_code)
+                .is_some_and(|article| covers(scope, article))
+        })
+        .map(|(sku_code, _)| sku_code.clone())
+        .collect()
 }
 
 /// The catalogue as articles rather than as SKUs.
@@ -348,11 +513,13 @@ pub struct ArticleConsequences {
     /// changes: their product set is resolved when their window opens, so it
     /// will be resolved against whatever the article looks like then.
     pub scheduled: Vec<ArticleConsequence>,
-    /// Promotions already running that this article's SKUs are inside.
+    /// Promotions already running whose selector this edit would have moved
+    /// the article across, had they not already been resolved.
     ///
-    /// Informational, and honest about which way it cuts — see
-    /// `started_note`. Never the loud half of a warning: an edit that changes
-    /// nothing anybody can act on is noise.
+    /// Listed precisely because that is the thing somebody fears when they
+    /// untick a tag, and answered rather than left to be guessed: their
+    /// membership was fixed when the window opened and this edit does not
+    /// touch it. Never the loud half of a warning — see `started_note`.
     pub started: Vec<ArticleConsequence>,
     /// What is true today about a started promotion and this edit, in one
     /// sentence the screen can print without having to know the plumbing.
@@ -361,15 +528,23 @@ pub struct ArticleConsequences {
 
 /// The sentence the UI prints above the started list.
 ///
-/// It says what is true of THIS build, and it is deliberately not the sentence
-/// the frozen set will eventually justify. The centre records what a started
-/// promotion resolved to; the till still matches the rule against the tags in
-/// its own copy of the catalogue, so an edit does reach a running promotion
-/// until that set is what the shops price against. Telling somebody their edit
-/// is harmless when it is not would be worse than saying nothing.
-const STARTED_NOTE: &str = "These promotions have already started. What each \
-resolved to when it began is recorded, but a shop still matches the rule \
-against the product as it stands — so this edit reaches them too.";
+/// It changed on 2026-09-12, when the frozen set began reaching the shops. Up
+/// to then it had to say the opposite — that an edit reached a running
+/// promotion too — because the till was still matching the rule against the
+/// tags in its own copy of the catalogue, and telling somebody their edit was
+/// harmless when it was not would have been worse than saying nothing.
+///
+/// It is true now because of a specific path, not a wish: the centre resolves a
+/// rule when its window opens, sends the answer down
+/// `commercial.eligibility.v1`, and both the till and the centre's own pricing
+/// replace the rule's product scope with it (`domain::commercial::
+/// narrow_to_frozen`). The proof is a checkout, in
+/// `tests/store_pricing_integration.rs::a_started_promotion_prices_the_products_it_started_with`:
+/// a product tagged after the window opened does not join, and one untagged
+/// after it does not fall out.
+const STARTED_NOTE: &str = "These promotions have already started. Each one \
+covers the products it resolved to when it began, and a shop prices against \
+that answer — so this edit does not change what they give away.";
 
 pub async fn article_change_consequences(
     pool: &PgPool,

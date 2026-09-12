@@ -663,6 +663,75 @@ pub struct CampaignSwitchEntry {
     pub terms: Option<String>,
 }
 
+/// Which products a started promotion actually covers.
+///
+/// A fourth lane beside the publication, the usage counts and the campaign
+/// switch, and it exists for the reason all three of those do: it is decided
+/// *between* publications. A rule's window opens on a Saturday morning; the
+/// book that carries the rule was published in August and is frozen. Something
+/// has to tell the shop what that rule resolved to, and it cannot be the book.
+///
+/// **This is what makes a started promotion's membership stop moving.** Until
+/// it existed, a shop matched `Applicability::Tag` against the tags in its own
+/// copy of the catalogue on every basket, so tagging an article on Tuesday
+/// silently changed what a promotion that started on Monday gave away. With it,
+/// the shop replaces the rule's product scope with the set the centre resolved
+/// when the window opened — see `domain::commercial::narrow_to_frozen`, which
+/// both the till and the centre's own pricing call, so the two cannot come to
+/// different answers about who is in the offer.
+///
+/// It never rewrites a rule. The document a shop holds is the one that was
+/// published; the frozen set is applied to a copy of it while the snapshot is
+/// being built, exactly as usage counts are folded into `caps` at the same
+/// moment.
+pub const COMMAND_COMMERCIAL_ELIGIBILITY: &str = "commercial.eligibility.v1";
+
+/// The `commercial.eligibility.v1` payload: every frozen rule, not a delta.
+///
+/// Whole for the reason usage and switches are whole — a shop that missed one
+/// is behind rather than permanently wrong, and the next pass repairs it.
+///
+/// A rule appears here only once its window has opened and the centre has
+/// resolved it. A rule that is not in the payload is not "unfrozen": it is a
+/// rule the centre has not frozen, and the shop goes on reading its selector,
+/// which is right for one that has not started.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RuleEligibilityPayload {
+    pub resolved_at: DateTime<Utc>,
+    pub rules: Vec<RuleEligibilityEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RuleEligibilityEntry {
+    pub rule_id: String,
+    /// When the centre resolved this rule. Per rule rather than per message,
+    /// because the message carries every frozen rule and they were frozen on
+    /// different days.
+    pub resolved_at: DateTime<Utc>,
+    /// The products `scope.applicability` resolved to. May be empty: a rule
+    /// that matched nothing when it started matches nothing now, and that is a
+    /// fact rather than a missing answer.
+    pub applies_to: Vec<String>,
+    /// The products `scope.effect_on` resolved to, for a rule that lands its
+    /// discount somewhere other than where it was triggered. `None` when the
+    /// rule has no second scope — which is not the same as an empty list, and
+    /// telling them apart is what stops "buy a suit, get a shirt" turning into
+    /// "buy a suit, get nothing".
+    #[serde(default)]
+    pub effect_on: Option<Vec<String>>,
+}
+
+pub fn parse_rule_eligibility(payload: &Value) -> Result<RuleEligibilityPayload, String> {
+    let parsed: RuleEligibilityPayload = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {COMMAND_COMMERCIAL_ELIGIBILITY} payload: {e}"))?;
+    for rule in &parsed.rules {
+        if rule.rule_id.trim().is_empty() {
+            return Err("a frozen eligibility must name its rule".into());
+        }
+    }
+    Ok(parsed)
+}
+
 pub fn parse_campaign_switch(payload: &Value) -> Result<CampaignSwitchPayload, String> {
     let parsed: CampaignSwitchPayload = serde_json::from_value(payload.clone())
         .map_err(|e| format!("malformed {COMMAND_COMMERCIAL_CAMPAIGN} payload: {e}"))?;

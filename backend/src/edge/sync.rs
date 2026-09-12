@@ -637,6 +637,50 @@ fn apply_commercial_campaign(
     Ok(())
 }
 
+/// Replace what this shop believes each started promotion covers.
+///
+/// **Replace, not merge.** The message carries every frozen rule, so the set it
+/// brings IS the answer; keeping a rule the centre no longer names would be
+/// keeping a membership nothing stands behind. A shop that misses a message is
+/// behind by one pass rather than permanently wrong, which is the same bargain
+/// the usage counts and the campaign switches make.
+///
+/// Nothing here touches `commercial_rule`. The published document is what it
+/// always was, and this is a separate fact applied over it while the pricing
+/// snapshot is built — see `edge::pricing::load_rules`.
+fn apply_rule_eligibility(
+    tx: &Transaction<'_>,
+    payload: &crate::cloud::domain::RuleEligibilityPayload,
+) -> Result<(), SyncError> {
+    tx.execute("DELETE FROM commercial_rule_eligibility_sku", [])
+        .map_err(err)?;
+    tx.execute("DELETE FROM commercial_rule_eligibility", [])
+        .map_err(err)?;
+    for rule in &payload.rules {
+        tx.execute(
+            "INSERT INTO commercial_rule_eligibility (rule_id, resolved_at) VALUES (?1, ?2)",
+            params![rule.rule_id.trim(), time_text(rule.resolved_at)],
+        )
+        .map_err(err)?;
+        for (role, codes) in [
+            ("APPLIES_TO", Some(&rule.applies_to)),
+            ("EFFECT_ON", rule.effect_on.as_ref()),
+        ] {
+            let Some(codes) = codes else { continue };
+            for sku_code in codes {
+                tx.execute(
+                    "INSERT OR IGNORE INTO commercial_rule_eligibility_sku
+                         (rule_id, sku_code, role)
+                     VALUES (?1, ?2, ?3)",
+                    params![rule.rule_id.trim(), sku_code.trim(), role],
+                )
+                .map_err(err)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Land one catalogue chunk, and swap the whole snapshot in when the last
 /// one arrives.
 ///
@@ -2229,6 +2273,11 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             let switches =
                 crate::cloud::domain::parse_campaign_switch(&command.payload).map_err(err)?;
             apply_commercial_campaign(tx, &switches)
+        }
+        crate::cloud::domain::COMMAND_COMMERCIAL_ELIGIBILITY => {
+            let frozen =
+                crate::cloud::domain::parse_rule_eligibility(&command.payload).map_err(err)?;
+            apply_rule_eligibility(tx, &frozen)
         }
         COMMAND_PURCHASE_ORDER_ACTIVATE => {
             let order = parse_purchase_order(&command.payload).map_err(err)?;

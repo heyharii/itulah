@@ -318,6 +318,12 @@ async fn load_rules(
     tx: &mut Transaction<'_, Postgres>,
     usage: &UsageCounts,
 ) -> Result<Vec<Rule>, AppError> {
+    // What each started promotion resolved to when its window opened. Read
+    // once for the whole snapshot, and applied below in place of the selector:
+    // a promotion that has begun covers the products it covered then, not the
+    // ones today's catalogue would match. See `domain::commercial::
+    // narrow_to_frozen`, which the till calls with the same answer.
+    let frozen = super::eligibility::frozen_eligibility(tx).await?;
     let mut rules = Vec::new();
     for row in sqlx::query(
         // One row per rule_id, newest book wins — the shop's model, which is
@@ -345,6 +351,9 @@ async fn load_rules(
                     rule.caps,
                     usage.get(&("RULE".to_string(), rule.rule_id.clone())),
                 );
+                if let Some(eligibility) = frozen.get(&rule.rule_id) {
+                    crate::cloud::domain::narrow_to_frozen(&mut rule, eligibility);
+                }
                 rules.push(rule);
             }
             Err(error) => tracing::warn!(

@@ -548,16 +548,25 @@ function ConsequenceLine({ one }: { one: ArticleConsequence }) {
     <li className="flex items-baseline justify-between gap-3 text-meta">
       <span className="min-w-0 truncate text-ink">{one.name}</span>
       <span className="shrink-0 text-body">
-        {one.gains ? "would join" : "would leave"}
-        {/* When it starts, for one that has not — that is the fact somebody
-            is deciding against. For one already running, when its products
-            were worked out, which is the fact that says what the record
-            beside it means. */}
-        {one.phase === "SCHEDULED" && one.starts_at !== null
-          ? ` · starts ${day(one.starts_at)}`
-          : one.resolved_at !== null
-            ? ` · resolved ${day(one.resolved_at)}`
-            : ""}
+        {/* Two different sentences, because two different things are true.
+        
+            A promotion that has not started will be worked out against the
+            article as it is then, so the edit moves it: "would leave", and the
+            date somebody is deciding against.
+        
+            One that has started was worked out when it began and a shop prices
+            against that answer, so the edit moves nothing. Saying "would
+            leave" of it would be a lie in the one place somebody is looking
+            for permission to make a change. */}
+        {one.phase === "SCHEDULED"
+          ? `${one.gains ? "would join" : "would leave"}${
+              one.starts_at !== null ? ` · starts ${day(one.starts_at)}` : ""
+            }`
+          : `${one.in_frozen_set ? "stays included" : "stays out"}${
+              one.resolved_at !== null
+                ? ` · resolved ${day(one.resolved_at)}`
+                : ""
+            }`}
       </span>
     </li>
   )

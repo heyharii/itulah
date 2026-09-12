@@ -734,3 +734,125 @@ async fn a_promotion_selecting_on_a_tag_is_a_reference(pool: PgPool) {
         "so it may not be deleted, despite Articles reading 0: {usage}"
     );
 }
+
+/// A value that predates the mark cannot be deleted, whatever its counts say.
+///
+/// `0167` backfilled `ever_used` from what was referenced at that moment, which
+/// marked a tag unpicked from its last article in June as never used — and
+/// therefore deletable, taking with it a word that a printed label, a report
+/// and an audit line still read. `0180` closes that the only way it can be
+/// closed, since the evidence to tell "never used" from "used and unpicked"
+/// was never recorded: everything that already existed is assumed to have meant
+/// something.
+///
+/// The seed's own terms are the fixture. They are exactly the population the
+/// policy is about — rows that existed before the mark did — and a test that
+/// planted its own would be testing the trigger instead.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_term_that_predates_the_mark_is_retire_only(pool: PgPool) {
+    let listed = ok(&pool, "GET", "/api/v1/vocabulary/divisions", &[], None).await;
+    let seeded = term(&listed, "MENSWEAR");
+    assert_eq!(
+        seeded["ever_used"], true,
+        "a division from the seed is assumed to have meant something: {seeded}"
+    );
+
+    let usage = ok(
+        &pool,
+        "GET",
+        "/api/v1/vocabulary/divisions/MENSWEAR/usage",
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(usage["can_delete"], false, "so it may not be deleted: {usage}");
+
+    let (status, refused) = call(
+        &pool,
+        "DELETE",
+        "/api/v1/vocabulary/divisions/MENSWEAR",
+        &[("if-match", &format!("\"{}\"", version_of(seeded)))],
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "and the server refuses it: {refused}"
+    );
+}
+
+/// A value created after the mark starts deletable and stops being so on first
+/// use — and does not become deletable again when the use goes away.
+///
+/// The three states in one test because they are one rule read at three
+/// moments, and the third is the one that would be got wrong: a tag unticked
+/// from the only article that had it looks untouched and is not.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_term_created_after_the_mark_is_deletable_until_it_is_used(pool: PgPool) {
+    let created = ok(
+        &pool,
+        "POST",
+        "/api/v1/vocabulary/tags",
+        &[("idempotency-key", "fresh-tag")],
+        Some(json!({ "code": "TEST_FRESH", "label": "Test Fresh" })),
+    )
+    .await;
+    assert_eq!(
+        created["ever_used"], false,
+        "a value the lifecycle mechanism watched from birth starts unused: {created}"
+    );
+    let before = ok(
+        &pool,
+        "GET",
+        "/api/v1/vocabulary/tags/TEST_FRESH/usage",
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(before["can_delete"], true, "and is deletable: {before}");
+
+    let article = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO article (id, article_code, name) VALUES ($1, '89000003', 'Test Fresh Shirt')",
+    )
+    .bind(article)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("plant article: {e}"));
+    sqlx::query("INSERT INTO article_tag (article_id, tag_code) VALUES ($1, 'TEST_FRESH')")
+        .bind(article)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("tag the article: {e}"));
+
+    let used = ok(
+        &pool,
+        "GET",
+        "/api/v1/vocabulary/tags/TEST_FRESH/usage",
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(used["ever_used"], true, "first use sets the mark: {used}");
+    assert_eq!(used["can_delete"], false, "{used}");
+
+    sqlx::query("DELETE FROM article_tag WHERE tag_code = 'TEST_FRESH'")
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("untag: {e}"));
+    let after = ok(
+        &pool,
+        "GET",
+        "/api/v1/vocabulary/tags/TEST_FRESH/usage",
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(after["total"], 0, "nothing points at it now: {after}");
+    assert_eq!(
+        after["ever_used"], true,
+        "and the mark does not come off: {after}"
+    );
+    assert_eq!(after["can_delete"], false, "{after}");
+}
