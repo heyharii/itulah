@@ -1,8 +1,8 @@
 # Promotion eligibility — what a promotion covers, and what an article edit moves
 
-**Status:** implemented and in the tree, with one half deliberately unfinished
-and named in §3. Owner decisions of 2026-09-12 are incorporated. Code
-references are read off `feat/handheld-rfid` at `eabc58c`.
+**Status:** implemented end to end, including the till. Owner decisions of
+2026-09-12 are incorporated. Code references are read off `feat/handheld-rfid`
+at `eb53b99`.
 
 Before this: [product master](./product-master.md) — the four lists a promotion
 selects on. Beside it: the Commercial V1 baseline, in Indonesian
@@ -70,17 +70,26 @@ a shirt has left that promotion just as surely as one that stops being a suit
 
 **Target.**
 
-> When a rule's window opens, its selector is resolved **once** against the
-> catalogue as it stands. The answer, the selector that produced it and the
-> timestamp are kept. It is never re-resolved on its own.
+> On the **first eligibility pass after a rule's window has opened**, its
+> selector is resolved **once** against the catalogue as it stands at that
+> moment. The answer, the selector that produced it and the timestamp are kept.
+> It is never re-resolved on its own.
 
 **As-is.** Migration `0175` adds `commercial_rule_eligibility` and its SKU rows.
 
 - **When.** In the transaction that publishes a book, for a rule whose window
   is already open (`postgres/commercial.rs:632`), and on the catalogue
   publisher's five-minute tick for the windows that open later
-  (`bin/cloud.rs:109`). Within one tick of the instant, and honest about being
-  a pass — see §1.
+  (`bin/cloud.rs:109`).
+
+  **A pass, not an instant, and the difference is visible.** A promotion whose
+  window opens at 10:00 is resolved by the pass that runs at, say, 10:05, and
+  the set it stores is the catalogue **as it stood at 10:05** — an article
+  tagged at 10:02 is inside it. That delay is accepted for V1 rather than
+  papered over: building a scheduler to fire on a timestamp would be a new
+  moving part for five minutes of precision on a promotion that runs for a
+  fortnight. What must never happen is the pass running twice and changing its
+  mind, which is `a_second_pass_does_not_rewrite_what_the_first_resolved`.
 - **Keyed by `rule_id`**, not by publication. The shop's model is
   `DISTINCT ON (rule_id)`, newest published book wins, and `commercial_usage`
   counts the same way: a promotion republished is one promotion amended, not
@@ -98,34 +107,59 @@ a shirt has left that promotion just as surely as one that stops being a suit
 
 ---
 
-## 3. What the till actually prices against
+## 3. What the till prices against
 
-**This is the half that is not done, and the UI does not pretend otherwise.**
+**The frozen set, since 2026-09-12.** This section used to say the opposite,
+and the change is the point of the work rather than a detail of it.
 
-A shop matches `Applicability::Tag` against the tags in **its own copy of the
-catalogue**, which the fleet catalogue snapshot carries per SKU and refreshes
-whenever the product list is republished (`line_for`,
-`backend/src/edge/pricing.rs:672`). So today an article edit still reaches a
-promotion that has already started.
+A shop matched `Applicability::Tag` against the tags in **its own copy of the
+catalogue** on every basket (`line_for`, `backend/src/edge/pricing.rs`), so
+tagging an article at head office changed what a promotion that had already
+started gave away, in every shop, silently.
 
-Making the frozen set what shops price against means the set has to travel, and
-both routes are larger than this work:
+**How the frozen set gets there.** `commercial.eligibility.v1` — a fourth lane
+beside the publication, the usage counts and the campaign switch, and it exists
+for the reason those three do: it is decided *between* publications. The rule's
+book was published in August and is frozen; its window opens on a Saturday
+morning; something has to carry the answer, and it cannot be the book.
 
-| Route | What it costs |
-|---|---|
-| Put the resolved SKUs in the published rule document | `commercial_rule` is immutable once published (`protect_commercial_rule`), so it takes a **new publication** — an automatic, machine-issued publish of the whole book, which is a business act nobody has decided to automate |
-| Add a field the engine reads beside the selector | A change to `pricing-engine`'s `Rule`, in a crate a second lane is rewriting this week, plus the sync payload and the edge |
+```text
+centre                                        shop
+──────                                        ────
+window opens
+  → freeze pass resolves the selector
+  → commercial_rule_eligibility (+ per role)
+  → commercial.eligibility.v1 ──────────────▶ commercial_rule_eligibility
+                                                (SQLite, migration 0037)
+                                                        │
+publish / price a basket                                ▼
+  postgres/pricing.rs::load_rules            edge/pricing.rs::load_rules
+        │                                              │
+        └────────► domain::commercial::narrow_to_frozen ◄────────┘
+                   replaces scope.applicability (and
+                   effect_on) with the frozen SKU set
+```
 
-Until one is taken, `commercial_rule_eligibility` is the **centre's record**:
-what a promotion meant when it began, and the baseline every later question is
-asked against. The sentence the screen prints says exactly that
-(`STARTED_NOTE`, `eligibility.rs:370`):
+Three properties this shape was chosen for:
 
-> These promotions have already started. What each resolved to when it began is
-> recorded, but a shop still matches the rule against the product as it stands —
-> so this edit reaches them too.
+- **Nothing is republished.** A book is a decision somebody makes; a background
+  job that issued one would be a machine making it.
+- **No published rule is mutated.** `commercial_rule.definition_json` at the
+  shop is the document that was sent. The frozen set is applied to a *copy* while
+  the snapshot is built — the same place and the same moment `caps` already
+  absorbs usage counts.
+- **One definition of membership.** `narrow_to_frozen` is called by the till and
+  by the centre's own pricing, so a simulation, a resolved-offer list and a
+  receipt cannot disagree.
 
----
+`WholeCart` is never frozen and never narrowed: the basket is its subject and no
+product is in or out of it. `excluded_sku_codes` is untouched — a carve-out the
+author made is not a membership the catalogue decided.
+
+**What a shop does with a rule it has no frozen set for:** it reads the
+selector, exactly as before. That is not a gap; it is what a scheduled
+promotion needs, and `an_unfrozen_promotion_reads_the_catalogue_as_it_stands`
+holds it down.
 
 ## 4. What an article edit would move
 
@@ -150,10 +184,11 @@ one promotion whose membership actually moves is.
   a complete tag set, both required, neither meaning "unchanged" — and writes
   nothing. It is a POST because the question carries a set of tags; a GET would
   put them in a query string with a length limit and worse escaping.
-- It answers in two lists (`article_change_consequences`,
-  `eligibility.rs:374`): **`scheduled`**, which an edit really changes, soonest
-  first; and **`started`**, with `resolved_at` and whether this article was in
-  that answer.
+- It answers in two lists (`article_change_consequences`): **`scheduled`**,
+  which an edit really changes, soonest first; and **`started`**, which it does
+  not — those were resolved when their windows opened, and the line says
+  "stays included · resolved 12 Sep 2026" rather than "would leave". Until the
+  frozen set reached the shops that sentence had to say the opposite, and did.
 - The article form asks it as the person edits, not only when they press Save,
   and only once the draft differs from what is on record
   (`frontend-hub/src/screens/master/form.tsx`). The proposal is **derived from
@@ -165,14 +200,16 @@ one promotion whose membership actually moves is.
 
 ```
 This change affects a promotion that has not started.
-Denim Weekend                      would leave · starts 20 Sep 2026
+Denim Weekend                   would leave · starts 20 Sep 2026
 Their products are worked out when they start, so they will be worked
 out against this article as it is then.
 
-These promotions have already started. …
-Denim September                    would leave · resolved 12 Sep 2026
+These promotions have already started. Each one covers the products it
+resolved to when it began, and a shop prices against that answer — so
+this edit does not change what they give away.
+Denim September              stays included · resolved 12 Sep 2026
 
-              [ Save ]   Cancel        →  [ Save anyway ]   Cancel
+              [ Save ]   Cancel     →  [ Save anyway ]   Cancel
 ```
 
 ---
@@ -185,10 +222,14 @@ Denim September                    would leave · resolved 12 Sep 2026
 3. A rule that has not started has no eligibility row.
 4. The consequence answer names only promotions whose membership actually
    changes — never "this tag is used".
-5. A started promotion is never reported as changeable, and never claimed to be
-   unaffected either (§3).
-6. Matching uses the engine's own `Applicability`, including `effect_on`. There
-   is no second reading of what a tag rule means.
+5. A started promotion's membership is what it resolved to. Republishing the
+   same `rule_id`, re-running the pass, or editing an article does not replace
+   it — only an explicit workflow could, and none exists yet (§7.2).
+6. What the centre records and what a till prices against are the same set,
+   through the same function.
+7. Matching uses the engine's own `Applicability`, including `effect_on`, and
+   the two halves are frozen apart. There is no second reading of what a tag
+   rule means.
 
 ---
 
@@ -196,8 +237,9 @@ Denim September                    would leave · resolved 12 Sep 2026
 
 | | Gap | Evidence | Fix |
 |---|---|---|---|
-| **E1** | The till still matches live, so an article edit reaches a started promotion | `edge/pricing.rs:672` | §3 — one of the two routes, as a separate decision |
-| **E2** | Eligibility is resolved up to five minutes after the window opens | `bin/cloud.rs:109` | Acceptable for a promotion; only a real scheduler would close it |
+| ~~**E1**~~ | ~~The till still matches live~~ | **Closed 2026-09-12.** `commercial.eligibility.v1` carries the frozen set and both pricing paths narrow to it; proven at a checkout in `store_pricing_integration.rs` | — |
+| **E2** | Eligibility is resolved on the first pass after the window opens, up to five minutes late, and reflects the catalogue at that moment rather than at the start time | `bin/cloud.rs:109` | Accepted for V1 and documented in §2. Only a scheduler firing on the timestamp would close it, and that is a new moving part for five minutes |
+| **E6** | A shop that misses the eligibility message keeps the previous one until the next pass | whole-payload replace in `edge/sync.rs` | Deliberate, and the same bargain the usage counts and campaign switches make |
 | **E3** | A rule amended in a later book keeps the first book's resolution | `freeze_started_rules` skips rules that have a row | Deliberate. Re-resolving a live promotion needs an explicit workflow, not a pass |
 | **E4** | A rule document this build cannot read is silently skipped | `live_rules`, `eligibility.rs:102` | Deliberate; the alternative breaks an unrelated screen. Worth a count in the log if it ever happens |
 | **E5** | Colour and Size cannot be selected on, so neither can be a consequence | the engine has no such `Applicability` arm | Only if the business asks for it; the plumbing is generic |
@@ -206,14 +248,16 @@ Denim September                    would leave · resolved 12 Sep 2026
 
 ## 7. Open decisions
 
-1. **Dynamic membership, or a snapshot?** Today it is **dynamic**, and the code
-   says so: the till reads the product's current division and tags out of its
-   own catalogue copy when it prices a basket, and the engine matches against
-   that. So tagging an article tomorrow puts it into today's promotion, as soon
-   as the catalogue reaches the shop — dynamic against the *last published
-   catalogue*, not against head office's screen.
-   The record in §2 exists so that the other answer is available without
-   guesswork. Choosing it is choosing one of the two routes in §3.
-2. **What happens when a running promotion must change.** Not "refresh
-   eligibility" — an explicit workflow, designed on purpose, so that widening a
-   live offer is an act somebody performs and can be read back.
+1. ~~**Dynamic membership, or a snapshot?**~~ **Decided and built, 2026-09-12:
+   a snapshot, from the moment a promotion starts.** Before its window opens a
+   rule is dynamic — deliberately, since its products have not been decided —
+   and from the first pass after it opens the resolved set is what both the
+   centre and every till price against. What remains of the old answer is the
+   five minutes in §2 and the wording that says so.
+2. **What happens when a running promotion must change.** Nothing here can do
+   it, and that is on purpose: the pass will not re-resolve, a republished book
+   will not replace a frozen set, and there is no "refresh" anywhere. Widening
+   or narrowing a live offer needs an explicit workflow — an act somebody
+   performs, with a record of who and why — and designing it is its own piece
+   of work. Until then the answer to "the promotion is covering the wrong
+   products" is to stop it and start another.

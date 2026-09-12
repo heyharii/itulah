@@ -1,7 +1,8 @@
 # Product master — the article and the four lists it is described with
 
 **Status:** implemented and in the tree. Owner decisions of 2026-09-12 are
-incorporated. Code references are read off `feat/handheld-rfid` at `eabc58c`.
+incorporated, including the conservative `ever_used` policy of §4.2. Code
+references are read off `feat/handheld-rfid` at `eb53b99`.
 
 Vocabulary: [`../CONTEXT.md`](../CONTEXT.md) — note especially that *article*,
 *product* and *SKU* all mean **our** identity, which does not exist until
@@ -70,9 +71,32 @@ hierarchy, no second taxonomy. There is deliberately no
 category/subcategory/sub-subcategory anywhere: one division, many tags, a
 colour and a size is the whole model.
 
-**Colour** and **Size** describe the variant. A size code is two digits and is
-the last two characters of every eleven-digit SKU — `03` is M on every article
-in the company — so it is a position in a code rather than a name.
+**Colour** and **Size** describe the variant, and both are positions in the
+SKU rather than names beside it:
+
+```text
+   1 2 3 4 5 6 7 8   9   10 11
+   └──── article ─┘   │   └ size ┘
+                   colour
+        12345678       1      03
+```
+
+| Digits | What it is | Where it comes from |
+|---|---|---|
+| 1–8 | **Article code** | Minted by the setup session. Eight digits, fixed for the life of the article. |
+| 9 | **Colour digit** | An index **into this article's own colourways**, 0–9 — not a company-wide colour id. `article_colour(article_id, colour_digit) → colour_code` is the mapping, and the screen calls the ten slots "0 of 10 digits used". |
+| 10–11 | **Size code** | The global two-digit code from the size master. `03` is M on every article in the company. |
+
+`cloud/domain/identity.rs:31` is the authority, and its golden vectors are
+lifted from the handhelds already in the field. Two consequences worth stating
+where somebody will look for them:
+
+- **Ten colourways per article, permanently.** The colour is one digit, so the
+  eleventh cannot be expressed. Not "awkwardly many" — ten.
+- **The EPC carries these same eleven digits** as BCD under the `0xA0` retail
+  private header, plus a 44-bit serial. A SKU code that moved would strand
+  every tag already sewn into a garment, which is why neither the article code
+  nor the size code is editable (§4).
 
 **As-is.** All four are controlled lists with tables since `0022`, `0027`,
 `0081` and endpoints since `0091`. Nothing about the article model changed on
@@ -199,7 +223,7 @@ engine; if one is added it belongs in the same sweep
 including the ones counting zero — plus `ever_used`, `can_delete` and, when it
 cannot, `blocked`: the sentence saying why.
 
-### 4.2 `ever_used`, and the one thing it cannot see
+### 4.2 `ever_used`, and why everything old carries it
 
 "Nothing references it **today**" is not "nothing ever did". `article_tag` rows
 go when a merchandiser unticks a tag; a tag that clothed eighty articles last
@@ -214,10 +238,25 @@ and never cleared. Statement-level with an `AND NOT ever_used` guard: a setup
 session minting a few thousand SKUs of one size runs one no-op `UPDATE`, not one
 per row, and takes no lock after the first use of that code.
 
-> **The hole, named.** The backfill marks what was referenced at migration time.
-> A value used and then unpicked *before* 2026-09-12 looks never-used and is
-> deletable. It closes with time, and it is smaller than never letting a typo be
-> removed.
+**`0180` closes the hole `0167` left.** That first backfill marked only what was
+referenced at the moment it ran, so a value used and unpicked *before* it looked
+never-used — and was therefore deletable. Since the evidence to tell the two
+apart was never written down, the policy assumes the worst about everything that
+already existed:
+
+```text
+a row that predates the mark  → ever_used = true  → retire only, forever
+a row created after the mark  → ever_used = false → deletable while unused
+                                first durable use → true, and never back
+```
+
+The cost is real and accepted: a typo made before 2026-09-12 can only be
+retired, which leaves a misspelling in a list. The alternative cost is deleting
+a division that names twelve thousand transactions in last year's report. Those
+are not comparable.
+
+From here the flag means what it says for every value that will ever be
+created, which is what makes delete safe to offer at all.
 
 ---
 
@@ -228,7 +267,7 @@ per row, and takes no lock after the first use of that code.
    offered for nothing new.
 3. Retiring never rewrites a reference. There is no cascade anywhere.
 4. A value with `ever_used = true` cannot be deleted, whatever its live counts
-   say.
+   say — and every value that existed before 2026-09-12 carries it.
 5. A value with any live reference cannot be deleted, whatever `ever_used`
    says.
 6. A code, once used, is never reissued with a new meaning.
@@ -244,7 +283,7 @@ per row, and takes no lock after the first use of that code.
 | **P1** | A retired term reads as its code in a facet — `MENSWEAR`, not "Menswear" | `catalogue_vocabulary` returns active terms only (`postgres/suppliers.rs`), while the article search returns facets that include retired ones | An `include=retired` parameter on that endpoint, with the two pickers filtering for themselves — rather than each screen reading the master lists |
 | **P2** | Duplicates cannot be folded together | no merge anywhere | Phase two: repoint every reference — including the jsonb rule documents — and leave the old value as merged rather than erased |
 | **P3** | Saved reports and saved filters are not swept before a delete | `report_version.spec` is jsonb; a filter clause lives in a URL (`?f=`) outside the database | Left deliberately: a text match on a two-digit size code is false precision, and `ever_used` covers the realistic case |
-| **P4** | `ever_used` cannot see before 2026-09-12 | backfill in `0167` | Nothing to do; it closes with time |
+| **P4** | A master value created before 2026-09-12 can never be hard-deleted, even if it was genuinely never used | `0180` marks every pre-existing row | **None — this is the decision, not a defect.** The evidence to tell "never used" from "used and unpicked" was never recorded, so the safe reading is the only honest one. Retire covers the case; the list carries one misspelling rather than the risk of losing a word the history still reads |
 
 ---
 
