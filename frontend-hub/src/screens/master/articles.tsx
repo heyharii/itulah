@@ -1,17 +1,20 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { LayoutGrid, ListChecks, Rows3, Search } from "lucide-react"
+import { LayoutGrid, ListFilter, Rows3, Search, X } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
+import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { CHIP } from "@/lib/filter-chrome"
 import { count, money } from "@/lib/format"
 import {
   articleKeys,
@@ -22,9 +25,8 @@ import {
 import { colourKeys, listColours, type ColourTerm } from "@/lib/queries/colours"
 import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
+import { cn } from "@/lib/utils"
 import { useSheet } from "@/lib/sheets"
-import { useAwaitingIdentity } from "@/screens/master/queue"
-import { SetupSheets } from "@/screens/master/setups"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { FacetGroup } from "@/components/ui/facets"
 import { ColourSwatch, Swatches } from "@/components/ui/swatch"
@@ -187,6 +189,15 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
   },
 ]
 
+/// One facet that is currently on, as the chip row and the trigger both read
+/// it. `leading` is the colour swatch and nothing else has one.
+interface ChosenFacet {
+  readonly key: string
+  readonly label: string
+  readonly leading?: React.ReactNode
+  readonly drop: () => void
+}
+
 export function Articles() {
   /// Which article is open. In the URL rather than in state beside the list,
   /// so a merchandiser can send "look at this one" and so the back button
@@ -334,33 +345,301 @@ export function Articles() {
     search.close()
   }
 
-  return (
-    <div className="flex h-full min-h-0">
-      {/* The filter column, the sidebar's own 248 rather than the 212 it used
-          to take. Four vocabularies stacked rather than a filter bar of chips
-          above the list: these are closed sets a person browses to find out
-          what exists, and a chip you have to open a menu to read cannot tell
-          you there are eleven divisions.
+  /// Open or shut in the URL, like every other panel in this app — and the
+  /// same `?filters=` flag the tables elsewhere use, so a person who has
+  /// learnt one has learnt all of them.
+  const panel = useSheet("filters")
 
-          Matching the sidebar is not decoration — the two are the only two
-          columns of chrome on this screen, and 212 beside 248 read as a
-          mistake rather than as a hierarchy. The 36px buys the longest tag
-          this catalogue has ("Pakaian Dalam 60") a chip that does not wrap,
-          which is what the column is for. */}
-      <aside className="flex w-[15.5rem] shrink-0 flex-col overflow-y-auto border-r border-hairline px-4 py-[1.125rem]">
-        <div className="mt-4 flex items-center justify-between">
-          <b className="text-[0.9375rem] font-semibold text-ink">Filters</b>
-          {filtered && (
+  /// What is currently narrowing the list, as one flat row of chips.
+  ///
+  /// Built here rather than inside the chip row so the count on the trigger
+  /// and the chips above the results cannot disagree — they are the same
+  /// array, read twice.
+  const chosen = useMemo<ChosenFacet[]>(
+    () => [
+      ...divisions.map((code) => ({
+        key: `division:${code}`,
+        label: divisionLabel(code),
+        drop: () => setDivisions((was) => was.filter((one) => one !== code)),
+      })),
+      ...tags.map((code) => ({
+        key: `tag:${code}`,
+        label: tagLabel(code),
+        drop: () => setTags((was) => was.filter((one) => one !== code)),
+      })),
+      ...sizes.map((code) => ({
+        key: `size:${code}`,
+        // Prefixed, because "M" on its own beside a division and a tag reads
+        // as a word rather than as a size.
+        label: `Size ${sizeLabelOf(code)}`,
+        drop: () => setSizes((was) => was.filter((one) => one !== code)),
+      })),
+      ...colours.map((code) => ({
+        key: `colour:${code}`,
+        label: colourLabel(code),
+        leading: <ColourSwatch hex={colourTerms.get(code)?.hex_code ?? null} />,
+        drop: () => setColours((was) => was.filter((one) => one !== code)),
+      })),
+    ],
+    [
+      divisions,
+      tags,
+      sizes,
+      colours,
+      divisionLabel,
+      tagLabel,
+      sizeLabelOf,
+      colourLabel,
+      colourTerms,
+    ]
+  )
+
+  return (
+    /* One column, not two.
+    
+       The facets stood in a 15.5rem column on the left until 2026-09-12, which
+       made the screen read as three layers of chrome before any work: rail,
+       module sidebar, filters, and only then the catalogue. The owner's
+       objection is the right one — a filter is not navigation. It does not say
+       where you are; it says which part of what you are looking at you want to
+       see, and that belongs on the side the rest of this app already puts
+       contextual things on.
+    
+       So the facets moved into the panel every other list in this app uses:
+       `<Sheet>`, which at 96rem and up docks a 27.5rem column on the RIGHT and
+       lets the shell narrow the page into what is left, and below that arrives
+       over the page like any other sheet. Nothing here re-decides that
+       boundary, and the panel is wider than the column it replaces — the
+       colour master and a nineteen-tag vocabulary were the two things the old
+       212-and-then-248px column could never really show. */
+    <div className="@container">
+      <PageContent>
+        <PageHeader
+          title="Articles"
+          sub="Every article the company sells, with the colourways, sizes and SKUs minted against it."
+        />
+
+        {/* The search sits over the list, not in the filter column: it asks a
+              different question. The facets narrow what is already being
+              shown; this changes what is being looked for.
+
+              One box for the identifiers, because somebody holding a garment
+              does not know which of them they are holding: the swing tag has a
+              QR, the label has a SKU and the carton has the supplier's own
+              code. Asking them to pick the right box first is asking them for
+              the answer. The server does the matching, so all this sends is
+              `q`.
+
+              EPC is not named, on the owner's instruction of 2026-09-12,
+              though the server still accepts one. An EPC identifies a PHYSICAL
+              UNIT — one tag sewn into one garment — and this screen is the
+              product definition, where the honest answer to a scan is a whole
+              article rather than the piece in somebody's hand. That question
+              belongs to Inventory and to global search. */}
+        <div className="relative mb-4">
+          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-line-ico" />
+          <input
+            value={search.value ?? ""}
+            onChange={(event) =>
+              event.target.value === ""
+                ? search.close()
+                : search.open(event.target.value)
+            }
+            placeholder="Search article, SKU, name, QR or supplier code"
+            aria-label="Search the article master"
+            className="h-10 w-full rounded-full border border-transparent bg-soft-2 pr-4 pl-10 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 hover:bg-soft-3"
+          />
+        </div>
+
+        <Toolbar>
+          <Segmented
+            options={[
+              {
+                value: "grid",
+                label: (
+                  <span className="inline-flex items-center gap-1.5">
+                    <LayoutGrid className="size-3.5" />
+                    Grid
+                  </span>
+                ),
+              },
+              {
+                value: "table",
+                label: (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Rows3 className="size-3.5" />
+                    Table
+                  </span>
+                ),
+              },
+            ]}
+            value={view}
+            onChange={setView}
+          />
+          {/* The way to the facets, and how many are on.
+            
+                A chip rather than a permanent column: on a catalogue of five
+                hundred articles most people are looking rather than
+                narrowing, and the count is what tells somebody who IS
+                narrowing that the panel they shut is still doing something. */}
+          <button
+            type="button"
+            onClick={() => (panel.isOpen ? panel.close() : panel.open(true))}
+            aria-expanded={panel.isOpen}
+            className={cn(
+              CHIP,
+              "items-center gap-1.5 border border-dashed border-hairline-strong px-2.5 text-body transition-colors hover:bg-soft-2 hover:text-ink",
+              // Pressed-looking while the panel stands, so the docked column
+              // has a visible origin on the screen it belongs to.
+              panel.isOpen && "border-solid bg-soft-2 text-ink"
+            )}
+          >
+            <ListFilter className="size-3.5" />
+            Filters
+            {chosen.length > 0 && (
+              <span className="text-mute tabular-nums">{chosen.length}</span>
+            )}
+          </button>
+          <Toolbar.Spacer />
+          <span className="text-[0.84375rem] text-body">
+            <b className="font-medium text-ink">{count(articles.length)}</b>{" "}
+            {filtered
+              ? catalogue.hasNextPage
+                ? "shown, more to load"
+                : articles.length === 1
+                  ? "article matches"
+                  : "articles match"
+              : `of ${count(searchable)} shown`}
+          </span>
+        </Toolbar>
+
+        {/* What is narrowing the list, said above the list itself.
+          
+              The panel is dismissible and the chips are not: a filtered list
+              with nothing on screen to say so is how somebody reads a short
+              list as the whole catalogue and then reports that half the
+              articles are missing. Every chip drops its own facet; the word at
+              the end drops the lot, search included. */}
+        {chosen.length > 0 && (
+          <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem]">
+            {chosen.map((one) => (
+              <button
+                key={one.key}
+                type="button"
+                onClick={one.drop}
+                aria-label={`Stop filtering by ${one.label}`}
+                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-hairline-2 bg-soft-2 pr-2 pl-2.5 text-meta font-medium text-ink transition-colors hover:bg-hairline"
+              >
+                {one.leading}
+                {one.label}
+                <X className="size-3.5 text-line-ico" />
+              </button>
+            ))}
             <button
               type="button"
               onClick={clear}
-              className="text-[0.75rem] font-medium text-body transition-colors hover:text-ink"
+              className="px-1 text-meta font-medium text-body transition-colors hover:text-ink"
             >
-              Clear
+              Clear all
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
+        {queryState(catalogue, {
+          loading: "Reading the article master…",
+          render: () =>
+            rows.length === 0 ? (
+              <EmptyState>
+                {filtered
+                  ? "No article matches that. Widen the filters, or search the whole master."
+                  : "No article has been minted yet. Articles are created by an article setup session in Procurement."}
+              </EmptyState>
+            ) : (
+              <>
+                {view === "grid" ? (
+                  /* Container queries, not viewport ones. This column's
+                       width is whatever the rail, the sidebar and — from 96rem
+                       up — the docked filter panel leave it, so a `md:`
+                       breakpoint reading the viewport puts three cards in a
+                       space that fits two and truncates every name. It is also
+                       what makes opening the panel re-lay the grid rather than
+                       squeeze it. */
+                  <div className="grid grid-cols-1 gap-[1.125rem] @sm:grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-4">
+                    {rows.map((row) => (
+                      <ArticleCard
+                        key={row.article.article_code}
+                        row={row}
+                        onOpen={() => article.open(row.article.article_code)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <Card className="overflow-hidden">
+                    {/* Sorting is over what has been loaded, not over the
+                          whole catalogue: the cursor is keyed on article code,
+                          so a sort by price can only order the pages already
+                          fetched. That is honest as long as the count above
+                          says how many are shown — which is why it does. */}
+                    <DataTable<CatalogueRow>
+                      table={table}
+                      onRowClick={(row) =>
+                        article.open(row.article.article_code)
+                      }
+                      isSelected={(row) =>
+                        row.article.article_code === article.value
+                      }
+                      className="max-h-[calc(100vh-22rem)]"
+                    />
+                  </Card>
+                )}
+
+                {catalogue.hasNextPage && (
+                  <div className="mt-6 flex justify-center">
+                    <Button
+                      onClick={() => void catalogue.fetchNextPage()}
+                      disabled={catalogue.isFetchingNextPage}
+                    >
+                      {catalogue.isFetchingNextPage ? "Fetching…" : "Show more"}
+                    </Button>
+                  </div>
+                )}
+              </>
+            ),
+        })}
+      </PageContent>
+
+      {/* The facets, in the panel this app opens everything else in.
+      
+          Docked on the right from 96rem up and over the page below that —
+          `<Sheet>` decides which, and `lib/layout.ts` decides where the line
+          is. Mounted whatever the state of the flag, because a sheet that only
+          exists once its button has been pressed is a `?filters=1` link that
+          works for the person who clicked it and nobody else. */}
+      <Sheet
+        open={panel.isOpen}
+        onOpenChange={(open) => {
+          if (!open) panel.close()
+        }}
+        title="Filters"
+        // Pinned to the foot rather than sitting at the end of the stack: the
+        // fullest panel is exactly the one where it would have scrolled out of
+        // sight, and a panel with four facets ticked is when somebody most
+        // wants to drop the lot.
+        footer={
+          chosen.length > 0 ? (
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate text-meta text-mute">
+                {chosen.length === 1
+                  ? "1 filter is narrowing this list"
+                  : `${chosen.length} filters are narrowing this list`}
+              </span>
+              <Button variant="quiet" onClick={clear}>
+                Clear all
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
         <FacetGroup
           label="Division"
           values={facets?.divisions}
@@ -409,184 +688,14 @@ export function Articles() {
             <ColourSwatch hex={colourTerms.get(value)?.hex_code ?? null} />
           )}
         />
-      </aside>
-
-      <div className="@container min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[77.5rem] px-[1.875rem] pt-6 pb-14">
-          <PageHeader
-            crumb="Master data"
-            title="Articles"
-            sub="Every article we sell, with the colourways, sizes and SKUs minted against it."
-            actions={<SetupTrigger />}
-          />
-
-          {/* The search sits over the list, not in the filter column: it asks a
-              different question. The facets narrow what is already being
-              shown; this changes what is being looked for.
-
-              One box for six identifiers, because somebody holding a garment
-              does not know which of them they are holding: the swing tag has a
-              QR, the label has a SKU, the carton has the supplier's own code
-              and the tag sewn inside has an EPC. Asking them to pick the right
-              box first is asking them for the answer. The server does the
-              matching — including decoding an EPC back to its SKU — so all
-              this sends is `q`. */}
-          <div className="relative mb-4">
-            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-line-ico" />
-            <input
-              value={search.value ?? ""}
-              onChange={(event) =>
-                event.target.value === ""
-                  ? search.close()
-                  : search.open(event.target.value)
-              }
-              placeholder="Article, SKU, name, QR, EPC or supplier's code"
-              aria-label="Search the article master"
-              className="h-10 w-full rounded-full border border-transparent bg-soft-2 pr-4 pl-10 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 hover:bg-soft-3"
-            />
-          </div>
-
-          <Toolbar>
-            <Segmented
-              options={[
-                {
-                  value: "grid",
-                  label: (
-                    <span className="inline-flex items-center gap-1.5">
-                      <LayoutGrid className="size-3.5" />
-                      Grid
-                    </span>
-                  ),
-                },
-                {
-                  value: "table",
-                  label: (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Rows3 className="size-3.5" />
-                      Table
-                    </span>
-                  ),
-                },
-              ]}
-              value={view}
-              onChange={setView}
-            />
-            <Toolbar.Spacer />
-            <span className="text-[0.84375rem] text-body">
-              <b className="font-medium text-ink">{count(articles.length)}</b>{" "}
-              {filtered
-                ? catalogue.hasNextPage
-                  ? "shown, more to load"
-                  : articles.length === 1
-                    ? "article matches"
-                    : "articles match"
-                : `of ${count(searchable)} shown`}
-            </span>
-          </Toolbar>
-
-          {queryState(catalogue, {
-            loading: "Reading the article master…",
-            render: () =>
-              rows.length === 0 ? (
-                <EmptyState>
-                  {filtered
-                    ? "No article matches that. Widen the filters, or search the whole master."
-                    : "No article has been minted yet. Articles are created by an article setup session in Procurement."}
-                </EmptyState>
-              ) : (
-                <>
-                  {view === "grid" ? (
-                    /* Container queries, not viewport ones. This column's
-                       width is whatever the rail and the filter column leave
-                       it, so a `md:` breakpoint reading the viewport puts
-                       three cards in a space that fits two and truncates every
-                       name. */
-                    <div className="grid grid-cols-1 gap-[1.125rem] @sm:grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-4">
-                      {rows.map((row) => (
-                        <ArticleCard
-                          key={row.article.article_code}
-                          row={row}
-                          onOpen={() => article.open(row.article.article_code)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <Card className="overflow-hidden">
-                      {/* Sorting is over what has been loaded, not over the
-                          whole catalogue: the cursor is keyed on article code,
-                          so a sort by price can only order the pages already
-                          fetched. That is honest as long as the count above
-                          says how many are shown — which is why it does. */}
-                      <DataTable<CatalogueRow>
-                        table={table}
-                        onRowClick={(row) =>
-                          article.open(row.article.article_code)
-                        }
-                        isSelected={(row) =>
-                          row.article.article_code === article.value
-                        }
-                        className="max-h-[calc(100vh-22rem)]"
-                      />
-                    </Card>
-                  )}
-
-                  {catalogue.hasNextPage && (
-                    <div className="mt-6 flex justify-center">
-                      <Button
-                        onClick={() => void catalogue.fetchNextPage()}
-                        disabled={catalogue.isFetchingNextPage}
-                      >
-                        {catalogue.isFetchingNextPage
-                          ? "Fetching…"
-                          : "Show more"}
-                      </Button>
-                    </div>
-                  )}
-                </>
-              ),
-          })}
-        </div>
-      </div>
+      </Sheet>
 
       <ArticleSheet
         articleCode={article.value ?? null}
         open={article.isOpen}
         onClose={article.close}
       />
-      {/* Mounted here rather than behind the trigger, because two of its three
-          sheets are opened by URL from elsewhere: `/articles?setup=<id>` is
-          the link an article's detail follows back to the delivery that minted
-          it. A sheet that only exists while its button has been pressed is a
-          link that works for the person who clicked it and nobody else. */}
-      <SetupSheets />
     </div>
-  )
-}
-
-/// The way into a setup, and the count that makes it worth pressing.
-///
-/// A trigger and not a menu row: a setup is done to one delivery, so what this
-/// opens is a queue to pick from. The number is the whole argument for the
-/// button — "Set up deliveries" alone says a thing exists, while "3" says
-/// three deliveries are sitting in the warehouse under a code nobody can sell
-/// against. Nothing is drawn while the count is unknown, and the button goes
-/// quiet rather than away at zero: it is still how you reach the sessions
-/// already open.
-function SetupTrigger() {
-  const queue = useSheet("setups")
-  const waiting = useAwaitingIdentity()
-  const pending = waiting.data?.length ?? 0
-
-  return (
-    <Button variant="soft" onClick={() => queue.open(true)}>
-      <ListChecks className="size-4 stroke-[1.7]" />
-      Set up deliveries
-      {pending > 0 && (
-        <span className="ml-0.5 rounded-full bg-warn-bg px-[0.375rem] py-px text-[0.65625rem] font-semibold text-warn-fg tabular-nums">
-          {count(pending)}
-        </span>
-      )}
-    </Button>
   )
 }
 

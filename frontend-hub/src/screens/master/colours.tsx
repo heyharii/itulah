@@ -9,17 +9,20 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { SubHead } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
 import {
   colourKeys,
+  colourUsage,
   createColour,
+  deleteColour,
   listColours,
   updateColour,
   type ColourTerm,
@@ -27,6 +30,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { ColourField } from "@/screens/master/colour-field"
+import { MasterLifecycle } from "@/screens/master/lifecycle"
 import { HEX, mistakenFor } from "@/screens/master/colour-hex"
 import { ColourSwatch } from "@/screens/master/colour-picker"
 
@@ -45,10 +49,13 @@ import { ColourSwatch } from "@/screens/master/colour-picker"
 /// the word the entire catalogue will use.
 ///
 /// Two rules this screen is written to *explain* rather than merely enforce. A
-/// colour articles already point at cannot be deleted, only retired. And no two
-/// colours may share a label: checked here against the loaded list so a clash is
-/// named while somebody is still typing, and checked again by the unique index,
-/// which is the actual authority.
+/// colour that has ever been worn cannot be deleted, only retired — it is on a
+/// printed label and inside colourways somebody can still scan, and "nothing
+/// wears it today" is not the same statement. What may be deleted is the row
+/// created a minute ago with the word spelt wrong; see `lifecycle.tsx`. And no
+/// two colours may share a label: checked here against the loaded list so a
+/// clash is named while somebody is still typing, and checked again by the
+/// unique index, which is the actual authority.
 
 interface ColourRow {
   readonly term: ColourTerm
@@ -131,30 +138,47 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     accessorFn: (row) => row.term.in_use,
     header: "Articles",
     size: 120,
-    meta: { align: "right" },
-    // The number that decides what can be done to a row: nothing pointing at a
-    // colour makes retiring it a tidy-up, and twelve articles pointing at it
-    // make deletion impossible. Zero is worded rather than drawn as 0, because
-    // "unused" is the state somebody is scanning for.
-    cell: ({ row }) =>
-      row.original.term.in_use === 0 ? (
-        <span className="text-mute">Unused</span>
-      ) : (
-        <span className="text-[0.8125rem] text-text tabular-nums">
-          {count(row.original.term.in_use)}
-        </span>
-      ),
+    // The one question this list is asked that a sort answers badly: "is 0"
+    // is the set of colours that can be deleted rather than retired, and a
+    // curator tidying up wants that set, not the top of an order.
+    meta: {
+      align: "right",
+      filter: { kind: "number", label: "Articles", unit: "articles" },
+    },
+    // Zero is drawn as 0, not as "Unused". It was worded, on the argument that
+    // "unused" is the state somebody scans for — but it read as a licence to
+    // delete, which it is not: what a colour may be deleted on is whether
+    // anything has EVER worn it, and that answer is in the sheet.
+    cell: ({ row }) => (
+      <span
+        className={
+          row.original.term.in_use === 0
+            ? "text-[0.8125rem] text-mute tabular-nums"
+            : "text-[0.8125rem] text-text tabular-nums"
+        }
+      >
+        {count(row.original.term.in_use)}
+      </span>
+    ),
   },
   {
-    id: "offered",
+    id: "status",
     accessorFn: (row) => (row.active ? 1 : 0),
-    header: "Offered",
+    header: "Status",
     size: 110,
+    // **No filter here, on purpose.** The segment above the table asks exactly
+    // this question and asks it of the SERVER's rows before they reach the
+    // table, so a second control saying the same thing could disagree with it
+    // on screen — "Retired" selected, "Offered is Offered" in a chip, and an
+    // empty list with two controls each insisting they are right.
+    // Active and Retired, not Offered and Retired. "Offered" made the reader
+    // guess who it was offered to; Active says what it means — this may be
+    // chosen when a colourway is mapped — and matches the segment above.
     // Retired is `neutral`, not `bad`: a colour taken out of the picker is a
     // decision somebody made, not a fault in the row.
     cell: ({ row }) =>
       row.original.active ? (
-        <Pill tone="ok">Offered</Pill>
+        <Pill tone="ok">Active</Pill>
       ) : (
         <Pill tone="neutral">Retired</Pill>
       ),
@@ -192,18 +216,24 @@ export function Colours() {
     [all, shown]
   )
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: ColourRow) => row.term.code,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -222,9 +252,8 @@ export function Colours() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Master data"
         title="Colours"
-        sub="The words the catalogue is allowed to use for colour. Picked on an article, never typed."
+        sub="Standard colours used across articles and variants."
         actions={
           <>
             <Input
@@ -248,13 +277,14 @@ export function Colours() {
       <Toolbar>
         <Segmented
           options={[
-            { value: "ALL", label: "Everything" },
-            { value: "ACTIVE", label: "Offered" },
+            { value: "ALL", label: "All" },
+            { value: "ACTIVE", label: "Active" },
             { value: "RETIRED", label: "Retired" },
           ]}
           value={shown}
           onChange={setShown}
         />
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         <span className="text-[0.75rem] text-mute tabular-nums">
           {count(all.length)} colours · {count(retired)} retired
@@ -366,7 +396,7 @@ function ColourSheet({
           existing={existing}
           onSaved={onClose}
         />
-        {colour && <Retiring colour={colour} />}
+        {colour && <ColourLifecycle colour={colour} onGone={onClose} />}
       </div>
     </Sheet>
   )
@@ -700,59 +730,56 @@ function ColourForm({
   )
 }
 
-/// Retiring, and why there is no delete.
+/// Retire, restore or delete one colour, and the counts behind each.
 ///
-/// Every article wearing this colour holds its code, and every printed label
-/// already carries the name as a snapshot. Deleting a colour would not tidy any
-/// of that up — it would orphan the colourways that point at it and leave goods
-/// on a shelf naming a word the catalogue no longer has. So the list only ever
-/// grows, and the way out is to stop offering it: the articles that have it keep
-/// it, and nobody can choose it for a new one.
+/// The rule and the buttons are `MasterLifecycle`, shared with the three word
+/// lists; this is the part that differs — which endpoints the verbs go to.
 ///
-/// Said in the sheet rather than enforced by a missing button, because "why can
-/// I not delete this" is a question somebody will otherwise ask a developer.
-function Retiring({ colour }: { colour: ColourRow }) {
+/// Every article wearing a colour holds its code, and every printed label
+/// already carries the name as a snapshot, which is why retiring rather than
+/// deleting is the ordinary way out: the articles that have it keep it, and
+/// nobody can choose it for a new one.
+function ColourLifecycle({
+  colour,
+  onGone,
+}: {
+  colour: ColourRow
+  onGone: () => void
+}) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
 
-  const change = useMutation({
-    mutationFn: (active: boolean) =>
-      updateColour(
-        colour.term.code,
-        { active },
-        colour.term.version,
-        idempotency.key
-      ),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: colourKeys.all })
-      idempotency.rotate()
-    },
+  const usage = useQuery({
+    queryKey: colourKeys.usage(colour.term.code),
+    queryFn: ({ signal }) => colourUsage(colour.term.code, signal),
   })
 
+  const invalidate = () => {
+    void client.invalidateQueries({ queryKey: colourKeys.all })
+    void client.invalidateQueries({ queryKey: ["articles"] })
+    idempotency.rotate()
+  }
+
   return (
-    <div>
-      <SubHead>{colour.active ? "Retiring" : "Retired"}</SubHead>
-      <Banner tone="info" className="mb-2.5">
-        {!colour.active
-          ? "Not offered for new articles. Everything already wearing it keeps it, and every report that ever grouped on it still reads the same."
-          : colour.term.in_use > 0
-            ? `${count(colour.term.in_use)} articles are wearing this colour, so it cannot be deleted — their colourways point at this code and their labels are already printed. Retiring it stops it being offered for new articles and changes nothing about the ones that have it.`
-            : "Nothing is wearing it yet. There is still no delete: a colour code stays addressable once it has existed, so retiring is how a word leaves the picker."}
-      </Banner>
-      <div className="flex items-center gap-2.5">
-        <Button
-          variant={colour.active ? "ghost" : "soft"}
-          disabled={change.isPending}
-          onClick={() => change.mutate(!colour.active)}
-        >
-          {colour.active ? "Retire" : "Offer again"}
-        </Button>
-        {change.isError && (
-          <span className="text-[0.71875rem] text-bad">
-            {said(change.error)}
-          </span>
-        )}
-      </div>
-    </div>
+    <MasterLifecycle
+      subject="colour"
+      label={colour.term.label}
+      active={colour.active}
+      usage={usage}
+      onSetActive={async (active) => {
+        await updateColour(
+          colour.term.code,
+          { active },
+          colour.term.version,
+          idempotency.key
+        )
+        invalidate()
+      }}
+      onDelete={async () => {
+        await deleteColour(colour.term.code, colour.term.version)
+        invalidate()
+      }}
+      onDeleted={onGone}
+    />
   )
 }

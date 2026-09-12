@@ -15,7 +15,7 @@ use crate::cloud::{
     postgres::{self as infrastructure, CreateTermRequest, UpdateTermRequest, Vocabulary},
 };
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::Response,
     Extension, Json,
@@ -43,9 +43,10 @@ fn vocabulary(segment: &str) -> Result<Vocabulary, AppError> {
 pub async fn list_terms(
     State(state): State<AppState>,
     Path(kind): Path<String>,
+    Query(scope): Query<infrastructure::MasterScope>,
 ) -> Result<Json<infrastructure::MasterVocabulary>, AppError> {
     Ok(Json(
-        infrastructure::vocabulary_terms(&state.db, vocabulary(&kind)?).await?,
+        infrastructure::vocabulary_terms(&state.db, vocabulary(&kind)?, scope).await?,
     ))
 }
 
@@ -70,10 +71,10 @@ pub async fn create_term(
 
 /// Rename, reorder or retire one term.
 ///
-/// There is no delete, and that is the point of the module: a term with
-/// articles behind it cannot be removed without leaving goods filed under
-/// nothing, so retiring is the operation that means what people reach for
-/// delete to do.
+/// The code is never among the fields: it is what `article.division_code`,
+/// `sku.size_code` and `article_tag.tag_code` hold, so a code that moved would
+/// be a rename that lost the goods. A term whose code is wrong and which has
+/// never been used can be deleted and written again — see `delete_term`.
 pub async fn update_term(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -95,4 +96,37 @@ pub async fn update_term(
         .await?;
     let version = term.version;
     versioned_response(StatusCode::OK, term, version)
+}
+
+/// What speaks for one term, and whether it may be deleted.
+///
+/// Every place at once, including the ones that count zero: "Articles 0" is
+/// the number somebody reaches for delete on, and the four lines under it are
+/// why they may not.
+pub async fn term_usage(
+    State(state): State<AppState>,
+    Path((kind, code)): Path<(String, String)>,
+) -> Result<Json<infrastructure::MasterUsage>, AppError> {
+    Ok(Json(
+        infrastructure::term_usage(&state.db, vocabulary(&kind)?, &code).await?,
+    ))
+}
+
+/// Remove a term that has never meant anything.
+///
+/// `If-Match` is required for the same reason a rename needs it: the version
+/// the caller saw is the version being deleted, and a term that was used
+/// between the screen drawing its button and the click arriving must not
+/// vanish underneath the article that just took it.
+///
+/// The rule is enforced in `postgres::delete_term`, not here, so that the
+/// screen and the server cannot disagree about what "never used" means.
+pub async fn delete_term(
+    State(state): State<AppState>,
+    Path((kind, code)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, AppError> {
+    let version = expected_version(&headers)?;
+    infrastructure::delete_term(&state.db, vocabulary(&kind)?, &code, version).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

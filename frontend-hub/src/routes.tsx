@@ -152,11 +152,31 @@ const movedRedirects = [...modules, ...asides].flatMap((module) =>
   )
 )
 
+/// And the same for a SCREEN that changed modules.
+///
+/// Suppliers is the one today: it moved from `/master/suppliers` to
+/// `/procurement/suppliers` on 2026-09-12. `AppModule.moved` cannot express
+/// that — it redirects to the module's `home`, which here is the order book —
+/// so the old path is declared on the item and lands on the item's own path,
+/// search parameters and all.
+const movedItemRedirects = allNavItems.flatMap((item) =>
+  (item.moved ?? []).map((path) =>
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path,
+      beforeLoad: ({ search }) => {
+        throw redirect({ to: item.path, search })
+      },
+    })
+  )
+)
+
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
     indexRoute,
     ...baseRedirects,
     ...movedRedirects,
+    ...movedItemRedirects,
     ...routes,
   ]),
   defaultPreload: "intent",

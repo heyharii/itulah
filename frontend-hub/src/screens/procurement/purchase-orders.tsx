@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { ListChecks } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -28,6 +29,8 @@ import {
   type PurchaseOrderScope,
 } from "@/lib/queries/procurement"
 import { OrderComposer } from "@/screens/procurement/composer"
+import { useAwaitingIdentity } from "@/screens/procurement/queue"
+import { SetupSheets } from "@/screens/procurement/setups"
 import { LinkButton } from "@/screens/procurement/controls"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -362,6 +365,15 @@ export function PurchaseOrders() {
                 deciding what to order. A row of its own in the module made it
                 look like a second job — this says what it is: a detour from
                 the order book. */}
+            {/* The deliveries that arrived under no article, and the way
+                into declaring one.
+
+                It stood in the Articles header until 2026-09-12, where it was
+                the one operational act on a screen of master data — and the
+                owner's objection was that setting a delivery up is not
+                curating the catalogue, it is finishing a purchase. It is the
+                same three sheets; only the header they hang from changed. */}
+            <SetupTrigger />
             <LinkButton to="/procurement/sourcing">Sourcing</LinkButton>
             {/* A blank order, raised here.
 
@@ -449,7 +461,40 @@ export function PurchaseOrders() {
       </Card>
 
       <OrderSheet id={order.value ?? null} onClose={order.close} />
+      {/* Mounted here rather than behind the trigger, because two of its three
+          sheets are opened by URL from elsewhere: `?setup=<id>` is the link an
+          article's detail follows back to the delivery that minted it. A sheet
+          that only exists while its button has been pressed is a link that
+          works for the person who clicked it and nobody else. */}
+      <SetupSheets />
     </PageContent>
+  )
+}
+
+/// The way into a setup, and the count that makes it worth pressing.
+///
+/// A trigger and not a menu row: a setup is done to one delivery, so what this
+/// opens is a queue to pick from. The number is the whole argument for the
+/// button — "Set up deliveries" alone says a thing exists, while "3" says
+/// three deliveries are sitting in the warehouse under a code nobody can sell
+/// against. Nothing is drawn while the count is unknown, and the button goes
+/// quiet rather than away at zero: it is still how you reach the sessions
+/// already open.
+function SetupTrigger() {
+  const queue = useSheet("setups")
+  const waiting = useAwaitingIdentity()
+  const pending = waiting.data?.length ?? 0
+
+  return (
+    <Button variant="soft" onClick={() => queue.open(true)}>
+      <ListChecks className="size-4 stroke-[1.7]" />
+      Set up deliveries
+      {pending > 0 && (
+        <span className="ml-0.5 rounded-full bg-warn-bg px-[0.375rem] py-px text-[0.65625rem] font-semibold text-warn-fg tabular-nums">
+          {count(pending)}
+        </span>
+      )}
+    </Button>
   )
 }
 

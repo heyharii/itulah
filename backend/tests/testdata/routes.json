@@ -1,6 +1,8 @@
 cloud	DELETE	/api/v1/assistant/conversations/{id}	Supervisor
+cloud	DELETE	/api/v1/colours/{code}	Supervisor
 cloud	DELETE	/api/v1/finance/bank-lines/{id}/match	Admin
 cloud	DELETE	/api/v1/finance/statement-sources/{id}	Admin
+cloud	DELETE	/api/v1/vocabulary/{kind}/{code}	Supervisor
 cloud	GET	/api/v1/article-setups	Cashier
 cloud	GET	/api/v1/article-setups/unidentified	Cashier
 cloud	GET	/api/v1/article-setups/{id}	Cashier
@@ -29,6 +31,7 @@ cloud	GET	/api/v1/chat/conversations/{id}/messages	Cashier
 cloud	GET	/api/v1/chat/events	Cashier
 cloud	GET	/api/v1/chat/stream	Cashier
 cloud	GET	/api/v1/colours	Cashier
+cloud	GET	/api/v1/colours/{code}/usage	Cashier
 cloud	GET	/api/v1/commercial/activation	Cashier
 cloud	GET	/api/v1/commercial/article-prices	Cashier
 cloud	GET	/api/v1/commercial/campaigns	Cashier
@@ -171,6 +174,7 @@ cloud	GET	/api/v1/sync/origins	Admin
 cloud	GET	/api/v1/sync/reconciliation	Cashier
 cloud	GET	/api/v1/sync/status	Cashier
 cloud	GET	/api/v1/vocabulary/{kind}	Cashier
+cloud	GET	/api/v1/vocabulary/{kind}/{code}/usage	Cashier
 cloud	GET	/metrics	Cashier
 cloud	PATCH	/api/v1/articles/{article_code}	Supervisor
 cloud	PATCH	/api/v1/assistant/conversations/{id}	Supervisor

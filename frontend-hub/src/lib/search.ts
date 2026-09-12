@@ -231,7 +231,7 @@ export const searchSources: readonly SearchSource[] = [
     },
   },
   {
-    module: "master",
+    module: "procurement",
     label: "Suppliers",
     run: async (query, client, signal) => {
       const suppliers = await client.fetchQuery({
@@ -247,7 +247,7 @@ export const searchSources: readonly SearchSource[] = [
           id: supplier.supplier_id,
           title: supplier.name,
           subtitle: supplier.supplier_code,
-          to: "/master/suppliers",
+          to: "/procurement/suppliers",
           sheet: { key: "supplier" as const, value: supplier.supplier_id },
         }))
     },

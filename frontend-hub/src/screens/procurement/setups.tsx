@@ -40,7 +40,7 @@ import {
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
-import { useAwaitingIdentity } from "@/screens/master/queue"
+import { useAwaitingIdentity } from "@/screens/procurement/queue"
 import type { CatalogueVocabulary } from "@itulah/contract"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import {

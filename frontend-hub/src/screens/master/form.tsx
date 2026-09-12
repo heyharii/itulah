@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query"
 import { useMemo } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,7 @@ import {
   type ArticleColourwayInput,
   type ArticleDetail,
 } from "@/lib/queries/articles"
+import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import { ColourPicker } from "@/screens/master/colour-picker"
 import { useIdempotencyKey } from "@/screens/procurement/shared"
 import { ApiError } from "@itulah/contract/client"
@@ -57,6 +58,57 @@ export function ArticleForm({
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
+
+  /// The words this article already holds that the pickers no longer offer.
+  ///
+  /// `/catalogue/vocabulary` returns only active terms, which is right for
+  /// choosing and wrong for showing: an article filed under a division that
+  /// has since been retired opened with the Division box BLANK — the value was
+  /// there, the option was not — and its retired tags were simply absent from
+  /// the chips, held in the draft and invisible. Both are the same failure of
+  /// the rule the master screens enforce: visible historically, unavailable
+  /// prospectively.
+  ///
+  /// The master lists carry retired terms, so they are read — and only when
+  /// this article actually needs them, which is almost never. `useQueries`
+  /// rather than two `useQuery` calls so the pair is one hook whatever the
+  /// answer is.
+  const offered = useMemo(
+    () => ({
+      divisions: new Set((vocabulary?.divisions ?? []).map((one) => one.code)),
+      tags: new Set((vocabulary?.tags ?? []).map((one) => one.code)),
+    }),
+    [vocabulary]
+  )
+  const needsDivisions =
+    article.division_code !== null &&
+    !offered.divisions.has(article.division_code)
+  const needsTags = article.tags.some((code) => !offered.tags.has(code))
+  const [retiredDivisions, retiredTags] = useQueries({
+    queries: [
+      {
+        queryKey: vocabularyKeys.list("divisions"),
+        queryFn: ({ signal }: { signal?: AbortSignal }) =>
+          listTerms("divisions", signal),
+        enabled: needsDivisions,
+      },
+      {
+        queryKey: vocabularyKeys.list("tags"),
+        queryFn: ({ signal }: { signal?: AbortSignal }) =>
+          listTerms("tags", signal),
+        enabled: needsTags,
+      },
+    ],
+  })
+
+  /// One code's word, for a term the picker has stopped offering. The code
+  /// itself while the list is still loading, and forever if it never does: a
+  /// box reading `DIVIDED` is worse than one reading "Divided" and far better
+  /// than one reading nothing at all.
+  const retiredLabel = (
+    list: { terms: readonly { code: string; label: string }[] } | undefined,
+    code: string
+  ) => list?.terms.find((one) => one.code === code)?.label ?? code
 
   /// Which digits are settled, counted off the article's own SKUs.
   ///
@@ -203,6 +255,16 @@ export function ArticleForm({
                   {term.label}
                 </option>
               ))}
+              {/* The one this article is already filed under, when it has
+                  been retired since. Selectable only because it is already
+                  selected: picking another is a one-way door, which is what
+                  retiring a division means. */}
+              {needsDivisions && article.division_code !== null && (
+                <option value={article.division_code}>
+                  {retiredLabel(retiredDivisions.data, article.division_code)} ·
+                  Retired
+                </option>
+              )}
             </Select>
           </Field>
         )}
@@ -230,7 +292,7 @@ export function ArticleForm({
             <span className="text-[0.78125rem] font-medium text-text">
               Tags
             </span>
-            {(vocabulary?.tags ?? []).length === 0 ? (
+            {(vocabulary?.tags ?? []).length === 0 && !needsTags ? (
               <span className="text-[0.71875rem] text-mute">
                 The vocabulary has no tags in it yet.
               </span>
@@ -262,6 +324,31 @@ export function ArticleForm({
                     </button>
                   )
                 })}
+                {/* Tags this article carries that are no longer offered. On
+                    the chips rather than hidden in the draft: they were being
+                    submitted unseen, so nobody could tell that an article was
+                    tagged with a word the company had stopped using — or take
+                    it off. Removable, never re-addable: clicking one drops it,
+                    and it does not come back. */}
+                {field.state.value
+                  .filter((code) => !offered.tags.has(code))
+                  .map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      aria-pressed
+                      title="Retired. It can be taken off, not put back."
+                      onClick={() =>
+                        field.handleChange(
+                          field.state.value.filter((each) => each !== code)
+                        )
+                      }
+                      className="inline-flex h-[1.625rem] items-center gap-1.5 rounded-full border border-dashed border-hairline-2 px-2.5 text-[0.71875rem] font-medium text-body"
+                    >
+                      {retiredLabel(retiredTags.data, code)}
+                      <span className="text-mute">Retired</span>
+                    </button>
+                  ))}
               </div>
             )}
           </div>

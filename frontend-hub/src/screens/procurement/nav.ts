@@ -1,4 +1,5 @@
 import {
+  Building2,
   ClipboardList,
   Hourglass,
   Package,
@@ -14,10 +15,10 @@ import type { AppModule } from "@/lib/navigation"
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
-/// **No sub-items.** The module's row lands on Purchase orders and stays a
-/// single row: an order book is what a buyer opens the app for, and everything
-/// else in the module is somewhere they arrive at from it. Sourcing is one of
-/// those now — a button in the order book's header rather than a peer of it,
+/// **Two sub-items, and one of them is new.** The module's row lands on
+/// Purchase orders: an order book is what a buyer opens the app for, and most
+/// of what else is here is somewhere they arrive at from it. Sourcing is one
+/// of those — a button in the order book's header rather than a peer of it,
 /// because "who sells this" is a question asked while raising an order, not
 /// instead of one.
 ///
@@ -25,12 +26,18 @@ import type { AppModule } from "@/lib/navigation"
 /// not navigation — it made one job look like eight, and the four filed under
 /// "Master data" were read once a month while taking up half the panel.
 ///
-/// **Suppliers left for the Master data module** on 2026-09-03, at the owner's
-/// request. The firm itself is a record the whole business reads — Finance pays
-/// it, Articles is minted from what it ships — while what a buyer does with it
-/// lives here: its offering is browsed in Sourcing and ordered from in a PO.
-/// The screen still reads `queries/procurement`, because where a screen lives
-/// and where its data comes from are different questions.
+/// **Suppliers came back** on 2026-09-12, reversing its move to Master data on
+/// 2026-09-03. That module has since been renamed after the record it holds —
+/// Articles — and the four lists under it are the words an article is
+/// described with. A supplier is not one of those; it is a party the company
+/// transacts with, which is this module's subject. The old path is declared on
+/// the item as `moved`, so every link anybody has sent still opens the screen.
+///
+/// **Article setups arrived with it.** A setup turns a delivery that came in
+/// under no article into one, and a delivery is a purchase: the trigger and
+/// its three sheets sat in Articles' header until 2026-09-12, where they were
+/// the one operational act on a master-data screen. They are mounted on the
+/// order book now — see `SetupTrigger` and `SetupSheets` in `setups.tsx`.
 ///
 /// The other four paths stay declared here, and that is what keeps them routed,
 /// linkable and findable in ⌘K. `hidden` only means "not a sub-item": each of
@@ -68,6 +75,14 @@ export const procurementNav: AppModule = {
           path: "/procurement/orders",
           label: "Purchase orders",
           icon: ClipboardList,
+        },
+        {
+          path: "/procurement/suppliers",
+          label: "Suppliers",
+          icon: Building2,
+          // Every link to it anybody has sent, every bookmark, and the two
+          // screens that deep-link a supplier from an item.
+          moved: ["/master/suppliers"],
         },
         {
           path: "/procurement/sourcing",

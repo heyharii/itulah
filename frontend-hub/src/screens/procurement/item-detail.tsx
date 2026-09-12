@@ -81,7 +81,7 @@ export function ItemDetail({
           {/* No dead ends: the supplier this is offered by is one click away,
               and the same link works in the other direction from there. */}
           <AppLink
-            to="/master/suppliers"
+            to="/procurement/suppliers"
             sheet={{ key: "supplier", value: item.supplier_id }}
             className="text-accent hover:underline"
           >

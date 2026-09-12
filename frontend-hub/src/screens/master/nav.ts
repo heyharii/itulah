@@ -1,12 +1,4 @@
-import {
-  Building2,
-  FolderTree,
-  Library,
-  Palette,
-  Ruler,
-  Shirt,
-  Tag,
-} from "lucide-react"
+import { FolderTree, Palette, Ruler, Shirt, Tag } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
@@ -14,56 +6,56 @@ import type { AppModule } from "@/lib/navigation"
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
-/// # Master data, and why it is one module rather than six
+/// # Articles, and the four lists it is described with
 ///
-/// Requested by the owner 2026-09-03: Articles, Suppliers, Divisions, Colours,
-/// Sizes and Tags in one place. Before this they were scattered by *who used
-/// them* — Articles was its own module, Suppliers sat in Procurement, Colours
-/// hid under Articles, and Divisions, Sizes and Tags existed only as tables
-/// nothing could edit. Grouping them by *what they are* is what makes the last
-/// three findable at all.
+/// The module is named after the record rather than after the filing cabinet.
+/// It was "Master data" until 2026-09-12, and the owner's objection was the
+/// right one: "master data" is a data-modelling word, not a thing anybody in
+/// the business does. Nobody opens the app to visit master data — they open it
+/// to look at an article. The four lists under it are how an article is
+/// described, so they sit beneath it rather than beside it under a heading
+/// that names a category of table.
+///
+/// The heading they used to sit under — "Vocabulary" — went with it, and what
+/// replaces it is a rule rather than a word. A section with no label after the
+/// first draws a hairline (see `ModuleScreens` in `components/shell/sidebar`),
+/// which says "these belong to the row above" without naming a concept the
+/// business does not have.
 ///
 /// **The chart of accounts is deliberately not here.** It is master data by
 /// every definition — 7,528 code-and-label rows — but nobody looks for an
 /// account outside Finance, and the posting rules that consume it are three
-/// rows from it in that module's sidebar. A master-data drawer that pulls a
-/// screen away from the only place it is asked for is filing, not navigation.
+/// rows from it in that module's sidebar.
 ///
-/// # What this reverses, on purpose
-///
-/// Articles was made a module of its own on 2026-09-02, on the argument that
-/// the master product is read by everyone and filing it under one department
-/// would make it read as that department's property. That argument still
-/// holds — and this module is the version of it that costs nothing, because
-/// "Master data" is not a department. Nobody owns it, which is exactly why
-/// Procurement, Commercial and Inventory can all reach into it without one of
-/// them appearing to lend it out.
-///
-/// The risk being taken is the other one this repo has already been bitten by:
-/// Procurement once filed four screens under a "Master data" heading and they
-/// went unread for a month while taking up half the panel (see
-/// `procurement/nav.ts`). The difference is that these six are the *subject*
-/// of the module rather than an annex to a busier one, and two of them —
-/// Articles and Suppliers — are daily screens that keep the row warm.
+/// **Suppliers left for Procurement** on 2026-09-12, reversing the move that
+/// brought it here on 2026-09-03. A supplier is a party the company transacts
+/// with, not a word an article is described with, and this module is now the
+/// second of those. Its old path redirects — see `moved` on the Procurement
+/// item.
 export const masterNav: AppModule = {
   id: "master",
-  label: "Master data",
-  icon: Library,
+  label: "Articles",
+  icon: Shirt,
   home: "/master",
   sections: [
     {
-      /// The two records. What we sell, and who we buy it from.
-      items: [
-        { path: "/master", label: "Articles", icon: Shirt },
-        { path: "/master/suppliers", label: "Suppliers", icon: Building2 },
-      ],
+      /// The record itself.
+      items: [{ path: "/master", label: "Articles", icon: Shirt }],
     },
     {
-      /// The words those records are described with. Four lists of the same
-      /// shape — code, label, order, active — which is why one screen serves
-      /// three of them and Colours keeps its own: a colour also carries a hex
-      /// value and a preview, and nothing else here has a picture.
-      label: "Vocabulary",
+      /// The four lists an article is described with, in the order the owner
+      /// fixed on 2026-09-12: Divisions, Colours, Sizes, Tags. Unlabelled on
+      /// purpose — the rule the sidebar draws above them is the whole heading
+      /// they need.
+      ///
+      /// Tags last because it is the loose one: the other three are closed
+      /// sets an article has exactly one of (division) or picks from a fixed
+      /// vocabulary (colour, size), and a tag is the flexible secondary
+      /// classification an article may carry none or several of.
+      ///
+      /// One screen serves three of them — code, label, order, active is one
+      /// shape — and Colours keeps its own, because a colour also carries a
+      /// hex value and a preview and nothing else here has a picture.
       items: [
         { path: "/master/divisions", label: "Divisions", icon: FolderTree },
         { path: "/master/colours", label: "Colours", icon: Palette },

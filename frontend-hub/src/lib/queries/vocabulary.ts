@@ -35,9 +35,41 @@ export interface MasterTerm {
   /// Guards the edit. Renaming a term renames it on every article filed under
   /// it, so two people renaming one row in two tabs must not both succeed.
   readonly version: number
-  /// Articles filed under it. What makes a "retire" control safe to offer at
-  /// all: a term in use cannot be deleted, only deactivated.
+  /// Articles filed under it. One of the several things that can name a term,
+  /// and the one worth a column: it is what a merchandiser is deciding about.
   readonly in_use: number
+  /// Whether anything has EVER named it — not whether anything does now.
+  /// Stamped by the triggers in migration `0167` and never cleared. A term
+  /// that has ever meant something may only be retired; see `TermUsage`.
+  readonly ever_used: boolean
+}
+
+/// One place a term can be spoken for, and how loudly.
+export interface MasterReference {
+  readonly key: string
+  readonly label: string
+  readonly count: number
+}
+
+/// Everything that speaks for one term, and what may therefore be done to it.
+///
+/// Read before the sheet decides which buttons to draw, and computed by the
+/// same function the DELETE enforces — so a Delete button is never offered for
+/// something the server will refuse.
+///
+/// **`in_use` is not this question.** Articles are one of five tables that can
+/// name a tag, and a promotion can select on one from inside a jsonb rule
+/// document with no foreign key at all. "Articles: 0" has never been a licence
+/// to delete.
+export interface TermUsage {
+  readonly code: string
+  /// Every place, including the ones counting zero.
+  readonly references: readonly MasterReference[]
+  readonly total: number
+  readonly ever_used: boolean
+  readonly can_delete: boolean
+  /// Why not, in a sentence somebody can act on. Null when it can.
+  readonly blocked: string | null
 }
 
 export interface MasterVocabulary {
@@ -59,6 +91,8 @@ export interface UpdateTermRequest {
 export const vocabularyKeys = {
   all: ["vocabulary"] as const,
   list: (kind: VocabularyKind) => ["vocabulary", kind] as const,
+  usage: (kind: VocabularyKind, code: string) =>
+    ["vocabulary", kind, code, "usage"] as const,
 }
 
 /// One whole list. Small enough to hold: a company has five divisions, a dozen
@@ -107,5 +141,41 @@ export function updateTerm(
     `/api/v1/vocabulary/${kind}/${encodeURIComponent(code)}`,
     request,
     { signal, headers: guarded(idempotencyKey, version) }
+  )
+}
+
+/// What speaks for one term, and whether it may be deleted.
+///
+/// Asked when the sheet opens rather than carried on every row: it is three to
+/// six counting queries, and the list is forty rows nobody is asking this of.
+export function termUsage(
+  kind: VocabularyKind,
+  code: string,
+  signal?: AbortSignal
+) {
+  return node.get<TermUsage>(
+    `/api/v1/vocabulary/${kind}/${encodeURIComponent(code)}/usage`,
+    { signal }
+  )
+}
+
+/// Remove a term that has never meant anything.
+///
+/// The version is required for the same reason it is on a rename: the row the
+/// caller saw is the row being deleted, and a term used between the screen
+/// drawing its button and the click arriving must not vanish underneath the
+/// article that just took it. The server re-runs the whole sweep regardless;
+/// this call can be refused, and the refusal is a sentence worth showing.
+export function deleteTerm(
+  kind: VocabularyKind,
+  code: string,
+  version: number,
+  signal?: AbortSignal
+) {
+  return node.request<void>(
+    "DELETE",
+    `/api/v1/vocabulary/${kind}/${encodeURIComponent(code)}`,
+    undefined,
+    { signal, headers: { "If-Match": `"${version}"` } }
   )
 }

@@ -205,7 +205,7 @@ function Overview({
           // No dead ends: the delivery that prompted this product is one click
           // away, which is the only route from a thing back to why it exists.
           <AppLink
-            to="/master"
+            to="/procurement/orders"
             sheet={{ key: "setup", value: article.created_by_session_id }}
             className="font-mono text-id text-accent hover:underline"
           >
@@ -397,7 +397,7 @@ function Suppliers({ article }: { article: ArticleDetail }) {
         <MiniRow key={offer.supplier_item_id}>
           <MiniCell>
             <AppLink
-              to="/master/suppliers"
+              to="/procurement/suppliers"
               sheet={{ key: "supplier", value: offer.supplier_id }}
               className="block text-[0.78125rem] text-accent hover:underline"
             >

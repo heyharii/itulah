@@ -78,6 +78,18 @@ export interface NavItem {
   /// per caller by the module's `useAudience`. A module that declares neither
   /// is unaffected by any of it.
   readonly audience?: Audience
+  /// Paths this screen used to answer at, redirected here.
+  ///
+  /// The item-level twin of `AppModule.moved`, and for a case that one cannot
+  /// express: Suppliers moved BETWEEN modules on 2026-09-12, so redirecting
+  /// `/master/suppliers` to the new module's `home` would land somebody on the
+  /// order book rather than on the screen they asked for. These redirect to
+  /// `path` — the screen itself — carrying their search parameters, so a link
+  /// with `?supplier=` still opens the record it named.
+  ///
+  /// Not nav entries: `routes.tsx` generates redirects from them, and a row in
+  /// ⌘K that opens a redirect is a row naming a page nobody can point at.
+  readonly moved?: readonly string[]
   /// Routed and findable, but not a sub-item in the sidebar.
   ///
   /// For a screen its module reaches by a link from another screen rather than

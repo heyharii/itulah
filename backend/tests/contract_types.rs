@@ -363,6 +363,14 @@ fn the_wire_types_are_written_for_the_browser() {
     // must not be transcribing its shape.
     inventory_backend::cloud::postgres::AuditEntry::export_all(&config)
         .unwrap_or_else(|e| panic!("AuditEntry: {e}"));
+    // What speaks for one master value, and whether it may therefore be
+    // deleted. The browser must not be deciding this for itself: the screen
+    // that draws a Delete button and the handler that honours one have to be
+    // reading the same answer.
+    inventory_backend::cloud::postgres::MasterUsage::export_all(&config)
+        .unwrap_or_else(|e| panic!("MasterUsage: {e}"));
+    inventory_backend::cloud::postgres::MasterReference::export_all(&config)
+        .unwrap_or_else(|e| panic!("MasterReference: {e}"));
     // What a buyer has already ordered of one supplier item. Carried on every
     // sourcing row, so the browser must not be transcribing its shape.
     inventory_backend::cloud::postgres::PurchaseHistory::export_all(&config)

@@ -273,7 +273,13 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/colours",
             get(colours::list_colours).post(colours::create_colour),
         )
-        .route("/api/v1/colours/{code}", patch(colours::update_colour))
+        .route(
+            "/api/v1/colours/{code}",
+            patch(colours::update_colour).delete(colours::delete_colour),
+        )
+        // What speaks for one colour. Read before a screen offers to delete
+        // it, and the same sweep the delete itself runs.
+        .route("/api/v1/colours/{code}/usage", get(colours::colour_usage))
         // Divisions, sizes and tags. One route pair for the three, because
         // they are one shape — code, label, order, active — and nine handlers
         // differing in one word is where the ninth forgets the auth check.
@@ -285,7 +291,14 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/vocabulary/{kind}/{code}",
-            patch(vocabulary::update_term),
+            patch(vocabulary::update_term).delete(vocabulary::delete_term),
+        )
+        // Every table and rule document that names one term. A delete is only
+        // ever allowed for a term nothing has ever named — 0167 — and this is
+        // how a screen knows before it offers one.
+        .route(
+            "/api/v1/vocabulary/{kind}/{code}/usage",
+            get(vocabulary::term_usage),
         )
         // The drawer. Upload goes past this process to the bucket; everything
         // else is small enough to come through it.

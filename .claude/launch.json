@@ -968,6 +968,35 @@
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8080"
       }
+    },
+    {
+      "name": "master-api",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "port": 8093,
+      "cwd": "backend",
+      "env": {
+        "DATABASE_URL": "postgresql:///master_check",
+        "BIND_ADDR": "127.0.0.1:8093",
+        "INVENTORY_AUTH_MODE": "disabled"
+      }
+    },
+    {
+      "name": "hub-master",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5292",
+        "--strictPort"
+      ],
+      "port": 5292,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8093"
+      }
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { node } from "@/lib/api"
+import type { TermUsage } from "@/lib/queries/vocabulary"
 
 /// The colour master, and the reason it exists.
 ///
@@ -34,10 +35,13 @@ export interface ColourTerm {
   /// Guards the edit. Renaming a colour renames it on every article wearing
   /// it, so two people renaming one row in two tabs must not both succeed.
   readonly version: number
-  /// How many articles currently use it. What makes it safe to offer a
-  /// "retire" control at all: a colour in use cannot be deleted, only
-  /// deactivated, because articles already point at it.
+  /// How many articles currently wear it.
   readonly in_use: number
+  /// Whether anything has EVER worn it — not whether anything does now.
+  /// Stamped by the triggers in migration `0167` and never cleared: a colour
+  /// that reached a garment is on a printed label somewhere, so it may only be
+  /// retired. See `TermUsage` in `queries/vocabulary`.
+  readonly ever_used: boolean
 }
 
 export interface ColourVocabulary {
@@ -61,6 +65,7 @@ export interface UpdateColourRequest {
 export const colourKeys = {
   all: ["colours"] as const,
   list: () => ["colours", "list"] as const,
+  usage: (code: string) => ["colours", code, "usage"] as const,
 }
 
 /// The whole master list. Small enough to hold — a company has a hundred
@@ -108,5 +113,30 @@ export function updateColour(
     `/api/v1/colours/${encodeURIComponent(code)}`,
     request,
     { signal, headers: guarded(idempotencyKey, version) }
+  )
+}
+
+/// What speaks for one colour, and whether it may be deleted.
+///
+/// The same shape the three word-lists answer with, because it is the same
+/// question and the sheets that ask it are two spellings of one screen.
+export function colourUsage(code: string, signal?: AbortSignal) {
+  return node.get<TermUsage>(
+    `/api/v1/colours/${encodeURIComponent(code)}/usage`,
+    { signal }
+  )
+}
+
+/// Remove a colour that has never been worn. See `deleteTerm`.
+export function deleteColour(
+  code: string,
+  version: number,
+  signal?: AbortSignal
+) {
+  return node.request<void>(
+    "DELETE",
+    `/api/v1/colours/${encodeURIComponent(code)}`,
+    undefined,
+    { signal, headers: { "If-Match": `"${version}"` } }
   )
 }

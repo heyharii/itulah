@@ -520,3 +520,217 @@ async fn a_new_term_lands_at_the_end_and_can_be_moved(pool: PgPool) {
         "the list is drawn in display order, so order 5 sits above XS at 10: {listed}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// What may be destroyed, and what may only be retired.
+
+/// The typo created a minute ago can be removed. Nothing else can.
+///
+/// Before `0167` there was no delete at all, on the argument that a term with
+/// articles behind it would orphan them. True, and it left a misspelt tag in a
+/// list of thirty forever — a permanent monument to one wrong keystroke, which
+/// is not what "master data is durable" is supposed to mean.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_term_nothing_has_ever_named_can_be_deleted(pool: PgPool) {
+    let created = ok(
+        &pool,
+        "POST",
+        "/api/v1/vocabulary/tags",
+        &[("idempotency-key", "typo-tag")],
+        Some(json!({ "code": "TEST_TYPOO", "label": "Test Typoo" })),
+    )
+    .await;
+
+    let usage = ok(
+        &pool,
+        "GET",
+        "/api/v1/vocabulary/tags/TEST_TYPOO/usage",
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(usage["can_delete"], true, "nothing names it: {usage}");
+    assert_eq!(usage["ever_used"], false, "nothing ever did: {usage}");
+    assert_eq!(usage["total"], 0, "and the total says so: {usage}");
+
+    let (status, body) = call(
+        &pool,
+        "DELETE",
+        "/api/v1/vocabulary/tags/TEST_TYPOO",
+        &[("if-match", &format!("\"{}\"", version_of(&created)))],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "it goes: {body}");
+
+    let listed = ok(&pool, "GET", "/api/v1/vocabulary/tags", &[], None).await;
+    assert!(
+        !listed["terms"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no terms in {listed}"))
+            .iter()
+            .any(|row| row["code"] == "TEST_TYPOO"),
+        "and it is gone from the list: {listed}"
+    );
+}
+
+/// A term that was used and then unpicked is still not deletable.
+///
+/// This is the whole point of `ever_used`, and the case a live reference count
+/// answers wrongly. A tag taken off the last article it was on has `in_use = 0`
+/// and a history that a printed label, a report and an audit line still read;
+/// deleting it would make all three name a word the catalogue no longer has.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_term_that_was_ever_used_may_only_be_retired(pool: PgPool) {
+    let created = ok(
+        &pool,
+        "POST",
+        "/api/v1/vocabulary/tags",
+        &[("idempotency-key", "once-used-tag")],
+        Some(json!({ "code": "TEST_ONCE", "label": "Test Once" })),
+    )
+    .await;
+
+    let article = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO article (id, article_code, name) VALUES ($1, '89000002', 'Test Once Shirt')",
+    )
+    .bind(article)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("plant article: {e}"));
+    sqlx::query("INSERT INTO article_tag (article_id, tag_code) VALUES ($1, 'TEST_ONCE')")
+        .bind(article)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("tag the article: {e}"));
+
+    let used = ok(
+        &pool,
+        "GET",
+        "/api/v1/vocabulary/tags/TEST_ONCE/usage",
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(used["can_delete"], false, "an article names it: {used}");
+
+    // And now nothing does. The live count drops to zero; the mark does not.
+    sqlx::query("DELETE FROM article_tag WHERE tag_code = 'TEST_ONCE'")
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("untag the article: {e}"));
+
+    let unpicked = ok(
+        &pool,
+        "GET",
+        "/api/v1/vocabulary/tags/TEST_ONCE/usage",
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(unpicked["total"], 0, "nothing points at it now: {unpicked}");
+    assert_eq!(
+        unpicked["ever_used"], true,
+        "but something once did, and that is the answer: {unpicked}"
+    );
+    assert_eq!(unpicked["can_delete"], false, "so it stays: {unpicked}");
+
+    let (status, refused) = call(
+        &pool,
+        "DELETE",
+        "/api/v1/vocabulary/tags/TEST_ONCE",
+        &[("if-match", &format!("\"{}\"", version_of(&created)))],
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "and the server refuses it too, not only the screen: {refused}"
+    );
+
+    // Retiring is the way out, and it leaves the term readable.
+    let retired = ok(
+        &pool,
+        "PATCH",
+        "/api/v1/vocabulary/tags/TEST_ONCE",
+        &[
+            ("idempotency-key", "retire-once"),
+            ("if-match", &format!("\"{}\"", version_of(&created))),
+        ],
+        Some(json!({ "active": false })),
+    )
+    .await;
+    assert_eq!(retired["active"], false, "it retires: {retired}");
+}
+
+/// A promotion naming a tag counts, and it is invisible to every foreign key.
+///
+/// `commercial_rule.definition` is the serialised engine rule, and
+/// `Applicability::Tag` holds a set of strings the database has no reference
+/// to. So a tag can be spoken for by a live promotion while every table in the
+/// catalogue says nothing points at it — which is exactly the state in which
+/// somebody would reach for delete.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_promotion_selecting_on_a_tag_is_a_reference(pool: PgPool) {
+    ok(
+        &pool,
+        "POST",
+        "/api/v1/vocabulary/tags",
+        &[("idempotency-key", "promoted-tag")],
+        Some(json!({ "code": "TEST_PROMOTED", "label": "Test Promoted" })),
+    )
+    .await;
+
+    let publication = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO commercial_publication (id, version, name, status, effective_from, created_by)
+         VALUES ($1, 9901, 'usage probe', 'DRAFT', now(), 'test')",
+    )
+    .bind(publication)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("plant publication: {e}"));
+    sqlx::query(
+        "INSERT INTO commercial_rule
+             (id, publication_id, rule_id, name, definition, status, priority)
+         VALUES ($1, $2, 'promoted-20', 'Promoted 20%', $3::jsonb, 'ACTIVE', 0)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(publication)
+    .bind(
+        json!({
+            "rule_id": "promoted-20",
+            "scope": { "applicability": { "on": "TAG", "tags": ["TEST_PROMOTED"] } }
+        })
+        .to_string(),
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("plant rule: {e}"));
+
+    let usage = ok(
+        &pool,
+        "GET",
+        "/api/v1/vocabulary/tags/TEST_PROMOTED/usage",
+        &[],
+        None,
+    )
+    .await;
+    let named = |key: &str| -> i64 {
+        usage["references"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no references in {usage}"))
+            .iter()
+            .find(|one| one["key"] == key)
+            .and_then(|one| one["count"].as_i64())
+            .unwrap_or_else(|| panic!("no {key} reference in {usage}"))
+    };
+    assert_eq!(named("articles"), 0, "no article names it: {usage}");
+    assert_eq!(named("promotions"), 1, "one promotion does: {usage}");
+    assert_eq!(
+        usage["can_delete"], false,
+        "so it may not be deleted, despite Articles reading 0: {usage}"
+    );
+}

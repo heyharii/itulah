@@ -9,17 +9,20 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { SubHead } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
 import {
   createTerm,
+  deleteTerm,
   listTerms,
+  termUsage,
   updateTerm,
   vocabularyKeys,
   type MasterTerm,
@@ -27,6 +30,7 @@ import {
 } from "@/lib/queries/vocabulary"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { MasterLifecycle } from "@/screens/master/lifecycle"
 
 /// Divisions, sizes and tags — the three lists, on one screen written once.
 ///
@@ -54,11 +58,17 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 ///
 /// # Two rules this screen explains rather than merely enforces
 ///
-/// A term articles already point at cannot be deleted, only retired — there is
-/// no delete endpoint, because removing it would leave those rows pointing at
-/// nothing. And a code is not editable: it is what `article.division_code`,
+/// A term that has ever been used cannot be deleted, only retired. Not "a term
+/// with articles behind it" — articles are one of five tables that can name a
+/// tag, a promotion can select on one from inside a jsonb rule with no foreign
+/// key at all, and a term unpicked from everything last month still reads in
+/// last year's report. `MasterLifecycle` draws that answer from the server; see
+/// `lifecycle.tsx`.
+///
+/// And a code is not editable: it is what `article.division_code`,
 /// `sku.size_code` and `article_tag.tag_code` hold, so a code that moved would
-/// be a rename that lost the goods.
+/// be a rename that lost the goods. The term created with the code spelt wrong
+/// is the one case delete exists for.
 
 /// What differs between the three, and nothing else does.
 interface Vocabulary {
@@ -72,24 +82,37 @@ interface Vocabulary {
   readonly labelPlaceholder: string
   /// Said in the empty state: what stops working while the list is empty.
   readonly empty: string
+  /// Whether the list is drawn in an order somebody chose.
+  ///
+  /// Sizes must be: `XS S M L XL XXL` is not alphabetical and not numeric, and
+  /// no sort but a chosen one produces it. Divisions are read in the order the
+  /// business thinks of itself. **Tags are not**, on the owner's instruction of
+  /// 2026-09-12: every tag in the seed sat at 0, which is what a field nobody
+  /// has a use for looks like. They are found by searching and read
+  /// alphabetically, so the column and the field both go.
+  readonly ordered: boolean
 }
 
 const DIVISIONS: Vocabulary = {
   kind: "divisions",
   title: "Divisions",
-  sub: "The top-level split of the catalogue. Every article belongs to exactly one, and every report that groups by department groups by this.",
+  // Plain, and deliberately not a sentence about the data model. The screen is
+  // read by merchandisers, and "the top-level split of the catalogue" is a
+  // description of a table rather than of a job.
+  sub: "Top-level grouping for articles. Every article belongs to one division.",
   one: "division",
   codeHint:
     "What every article row points at. Not editable once saved — the goods are filed under it.",
   codePlaceholder: "OUTERWEAR",
   labelPlaceholder: "Outerwear",
   empty: "No division has been declared, so no article can be filed under one.",
+  ordered: true,
 }
 
 const SIZES: Vocabulary = {
   kind: "sizes",
   title: "Sizes",
-  sub: "Global and two digits: 03 is M on every article in the company. That is what makes a size filter mean the same thing across the catalogue.",
+  sub: "Standard sizes used across articles. Each size has a fixed two-digit code.",
   one: "size",
   // The one place the three genuinely differ in kind, and it is worth saying on
   // the form rather than only in a validation message: the code is not a name
@@ -99,18 +122,22 @@ const SIZES: Vocabulary = {
   codePlaceholder: "03",
   labelPlaceholder: "M",
   empty: "No size has been declared, so no SKU can be minted.",
+  // The one list where the order is not a preference. Alphabetically, L comes
+  // before M comes before S comes before XS.
+  ordered: true,
 }
 
 const TAGS: Vocabulary = {
   kind: "tags",
   title: "Tags",
-  sub: "The words an article is described with beyond its division. An article may carry several, and sourcing filters by them.",
+  sub: "Flexible labels used to describe and filter articles. An article can have multiple tags.",
   one: "tag",
   codeHint:
     "What every article row points at. Not editable once saved — the goods are filed under it.",
   codePlaceholder: "KEMEJA",
   labelPlaceholder: "Kemeja",
   empty: "No tag has been declared, so nothing can be classified yet.",
+  ordered: false,
 }
 
 export function Divisions() {
@@ -139,73 +166,114 @@ function readRow(term: MasterTerm): TermRow {
   return { term, active: term.active, order: term.display_order }
 }
 
-const columns: ColumnDef<TableSetup, TermRow>[] = [
-  {
-    id: "term",
-    accessorFn: (row) => `${row.term.label} ${row.term.code}`,
-    header: "Term",
-    size: 260,
-    cell: ({ row }) => (
-      <span className="text-[0.8125rem] font-medium text-ink">
-        {row.original.term.label}
-      </span>
-    ),
-  },
-  {
-    id: "code",
-    accessorFn: (row) => row.term.code,
-    header: "Code",
-    size: 170,
-    // Beside the label, not instead of it: the code is what an article row
-    // points at and what survives a rename, so somebody reading the database
-    // has to be able to find it here.
-    cell: ({ row }) => <Tag>{row.original.term.code}</Tag>,
-  },
-  {
-    id: "order",
-    accessorFn: (row) => row.order,
-    header: "Order",
-    size: 90,
-    meta: { align: "right" },
-    cell: ({ row }) => (
-      <span className="text-[0.8125rem] text-text tabular-nums">
-        {row.original.order}
-      </span>
-    ),
-  },
-  {
-    id: "articles",
-    accessorFn: (row) => row.term.in_use,
-    header: "Articles",
-    size: 120,
-    meta: { align: "right" },
-    // The number that decides what may be done to a row. Zero is worded rather
-    // than drawn as 0, because "unused" is the state somebody scanning for
-    // something safe to retire is looking for.
-    cell: ({ row }) =>
-      row.original.term.in_use === 0 ? (
-        <span className="text-mute">Unused</span>
-      ) : (
+/// The table, per list.
+///
+/// Not one constant for the three, because the three do not want the same
+/// columns: Order is a chosen sequence for divisions and sizes and was dead
+/// weight on tags. The first column takes the list's own noun — "Tag", not
+/// "Term" — since a screen that says Tag at the top and Term over the column
+/// is asking the reader to hold two words for one thing.
+function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
+  const columns: ColumnDef<TableSetup, TermRow>[] = [
+    {
+      id: "term",
+      accessorFn: (row) => `${row.term.label} ${row.term.code}`,
+      header: capitalise(vocabulary.one),
+      size: 260,
+      cell: ({ row }) => (
+        <span className="text-[0.8125rem] font-medium text-ink">
+          {row.original.term.label}
+        </span>
+      ),
+    },
+    {
+      id: "code",
+      accessorFn: (row) => row.term.code,
+      header: "Code",
+      size: 170,
+      // Beside the label, not instead of it: the code is what an article row
+      // points at and what survives a rename, so somebody reading the database
+      // has to be able to find it here.
+      cell: ({ row }) => <Tag>{row.original.term.code}</Tag>,
+    },
+  ]
+
+  if (vocabulary.ordered) {
+    columns.push({
+      id: "order",
+      accessorFn: (row) => row.order,
+      header: "Order",
+      size: 90,
+      meta: { align: "right" },
+      cell: ({ row }) => (
         <span className="text-[0.8125rem] text-text tabular-nums">
+          {row.original.order}
+        </span>
+      ),
+    })
+  }
+
+  columns.push(
+    {
+      id: "articles",
+      accessorFn: (row) => row.term.in_use,
+      header: "Articles",
+      size: 120,
+      // The one clause these lists want: "is 0" is the set worth looking at
+      // before tidying up, which on forty tags is not something a sort makes
+      // obvious. It is not the set that may be DELETED — see `lifecycle.tsx`;
+      // articles are one of five things that can name a tag.
+      meta: {
+        align: "right",
+        filter: { kind: "number", label: "Articles", unit: "articles" },
+      },
+      // Zero is drawn as 0, not as "Unused". It was worded, on the argument
+      // that "unused" is the state somebody scans for — but it read as a
+      // licence to delete, which it is not, and a column of numbers with one
+      // word in it is a column that stops adding up.
+      cell: ({ row }) => (
+        <span
+          className={
+            row.original.term.in_use === 0
+              ? "text-[0.8125rem] text-mute tabular-nums"
+              : "text-[0.8125rem] text-text tabular-nums"
+          }
+        >
           {count(row.original.term.in_use)}
         </span>
       ),
-  },
-  {
-    id: "offered",
-    accessorFn: (row) => (row.active ? 1 : 0),
-    header: "Offered",
-    size: 110,
-    // Retired is `neutral`, not `bad`: a term taken out of the picker is a
-    // decision somebody made, not a fault in the row.
-    cell: ({ row }) =>
-      row.original.active ? (
-        <Pill tone="ok">Offered</Pill>
-      ) : (
-        <Pill tone="neutral">Retired</Pill>
-      ),
-  },
-]
+    },
+    {
+      id: "status",
+      accessorFn: (row) => (row.active ? 1 : 0),
+      header: "Status",
+      size: 110,
+      // **No filter.** The segment above the table already asks this, and asks
+      // it of the rows before the table sees them; a chip saying the same thing
+      // could stand against the segment's answer and leave two controls both
+      // claiming to be why the list is empty.
+      //
+      // Active and Retired, not Offered and Retired. "Offered" made the reader
+      // guess who it was offered to — sold? in the POS? pickable on an article?
+      // — and the answer is the last of those. Active/Retired says it without
+      // the guess, and pairs with the word on the segment above.
+      // Retired is `neutral`, not `bad`: a term taken out of the picker is a
+      // decision somebody made, not a fault in the row.
+      cell: ({ row }) =>
+        row.original.active ? (
+          <Pill tone="ok">Active</Pill>
+        ) : (
+          <Pill tone="neutral">Retired</Pill>
+        ),
+    }
+  )
+
+  return columns
+}
+
+function capitalise(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1)
+}
 
 type Shown = "ALL" | "ACTIVE" | "RETIRED"
 
@@ -237,18 +305,25 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
     [all, shown]
   )
 
+  const columns = useMemo(() => columnsOf(vocabulary), [vocabulary])
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: TermRow) => row.term.code,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -263,7 +338,6 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
   return (
     <PageContent>
       <PageHeader
-        crumb="Master data"
         title={vocabulary.title}
         sub={vocabulary.sub}
         actions={
@@ -289,13 +363,14 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
       <Toolbar>
         <Segmented
           options={[
-            { value: "ALL", label: "Everything" },
-            { value: "ACTIVE", label: "Offered" },
+            { value: "ALL", label: "All" },
+            { value: "ACTIVE", label: "Active" },
             { value: "RETIRED", label: "Retired" },
           ]}
           value={shown}
           onChange={setShown}
         />
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         <span className="text-[0.75rem] text-mute tabular-nums">
           {count(all.length)} {vocabulary.title.toLowerCase()} ·{" "}
@@ -395,7 +470,9 @@ function TermSheet({
         existing={existing}
         onSaved={onClose}
       />
-      {term !== null && <Retiring vocabulary={vocabulary} term={term} />}
+      {term !== null && (
+        <TermLifecycle vocabulary={vocabulary} term={term} onGone={onClose} />
+      )}
     </Sheet>
   )
 }
@@ -590,22 +667,29 @@ function TermForm({
               )}
             </form.Field>
 
-            <form.Field name="order">
-              {(field) => (
-                <Field
-                  label="Order"
-                  hint="Where it sits in every picker. Ties break by label."
-                  problem={problems.order}
-                >
-                  <Input
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                    inputMode="numeric"
-                  />
-                </Field>
-              )}
-            </form.Field>
+            {/* Only where an order is a decision. A tag's was a number
+                nobody set and every row showed 0 — a field that exists
+                because the table has a column, which is the wrong reason. */}
+            {vocabulary.ordered && (
+              <form.Field name="order">
+                {(field) => (
+                  <Field
+                    label="Order"
+                    hint="Where it sits in every picker. Ties break by label."
+                    problem={problems.order}
+                  >
+                    <Input
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) =>
+                        field.handleChange(event.target.value)
+                      }
+                      inputMode="numeric"
+                    />
+                  </Field>
+                )}
+              </form.Field>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-1">
               <Button
@@ -632,60 +716,60 @@ function TermForm({
   )
 }
 
-/// Retire or restore, and the reason there is no delete beside it.
+/// Retire, restore or delete one term, and the counts behind each.
 ///
-/// A term with articles behind it cannot be removed without leaving those rows
-/// pointing at nothing — the foreign key would refuse it anyway. Retiring stops
-/// it being offered for new work and leaves everything already filed under it
-/// resolving, which is what people mean when they reach for delete.
-function Retiring({
+/// The rule and the buttons are `MasterLifecycle`, shared with the colour
+/// master; this is the part that differs — which endpoints the three verbs go
+/// to, and what has to be re-read afterwards.
+function TermLifecycle({
   vocabulary,
   term,
+  onGone,
 }: {
   vocabulary: Vocabulary
   term: TermRow
+  onGone: () => void
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
 
-  const change = useMutation({
-    mutationFn: (active: boolean) =>
-      updateTerm(
-        vocabulary.kind,
-        term.term.code,
-        { active },
-        term.term.version,
-        idempotency.key
-      ),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
-      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
-      idempotency.rotate()
-    },
+  const usage = useQuery({
+    queryKey: vocabularyKeys.usage(vocabulary.kind, term.term.code),
+    queryFn: ({ signal }) => termUsage(vocabulary.kind, term.term.code, signal),
   })
 
+  const invalidate = () => {
+    // The whole prefix, plus the catalogue vocabulary: divisions and tags are
+    // also read through `/catalogue/vocabulary` by every filter column and the
+    // setup composer, and a term retired here that is still offered there is
+    // the drift these tables exist to end.
+    void client.invalidateQueries({ queryKey: vocabularyKeys.all })
+    void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
+    void client.invalidateQueries({ queryKey: ["articles"] })
+    idempotency.rotate()
+  }
+
   return (
-    <div className="mt-6 border-t border-hairline pt-4">
-      <SubHead>Offering</SubHead>
-      {change.isError && <Banner tone="bad">{said(change.error)}</Banner>}
-      <p className="mb-2.5 text-meta text-body">
-        {term.active
-          ? term.term.in_use === 0
-            ? `Nothing is filed under this ${vocabulary.one}. Retiring it takes it out of every picker.`
-            : `${count(term.term.in_use)} articles are filed under this ${vocabulary.one}. Retiring it takes it out of every picker and leaves those articles exactly as they are.`
-          : `Retired. It is not offered for new work, and the ${count(term.term.in_use)} articles already filed under it still read it.`}
-      </p>
-      <Button
-        variant={term.active ? "soft" : "primary"}
-        disabled={change.isPending}
-        onClick={() => change.mutate(!term.active)}
-      >
-        {change.isPending
-          ? "Saving…"
-          : term.active
-            ? `Retire this ${vocabulary.one}`
-            : "Offer it again"}
-      </Button>
-    </div>
+    <MasterLifecycle
+      subject={vocabulary.one}
+      label={term.term.label}
+      active={term.active}
+      usage={usage}
+      onSetActive={async (active) => {
+        await updateTerm(
+          vocabulary.kind,
+          term.term.code,
+          { active },
+          term.term.version,
+          idempotency.key
+        )
+        invalidate()
+      }}
+      onDelete={async () => {
+        await deleteTerm(vocabulary.kind, term.term.code, term.term.version)
+        invalidate()
+      }}
+      onDeleted={onGone}
+    />
   )
 }
