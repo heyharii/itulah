@@ -152,9 +152,10 @@ pub struct ArticleFacts {
 /// consequence and is never frozen.
 fn covers(applicability: &Applicability, article: &ArticleFacts) -> bool {
     match applicability {
-        Applicability::Sku { sku_codes } => {
-            article.sku_codes.iter().any(|code| sku_codes.contains(code))
-        }
+        Applicability::Sku { sku_codes } => article
+            .sku_codes
+            .iter()
+            .any(|code| sku_codes.contains(code)),
         Applicability::Article { article_codes } => article_codes.contains(&article.article_code),
         Applicability::Division { divisions } => article
             .division_code
@@ -318,7 +319,6 @@ pub struct ProposedArticle {
     pub tags: Vec<String>,
 }
 
-
 /// One promotion an edit would move this article into or out of.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -401,10 +401,7 @@ pub async fn article_change_consequences(
     let before = ArticleFacts {
         article_code: row.try_get("article_code")?,
         division_code: row.try_get("division_code")?,
-        tags: row
-            .try_get::<Vec<String>, _>("tags")?
-            .into_iter()
-            .collect(),
+        tags: row.try_get::<Vec<String>, _>("tags")?.into_iter().collect(),
         sku_codes: row
             .try_get::<Vec<String>, _>("sku_codes")?
             .into_iter()

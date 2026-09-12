@@ -988,7 +988,8 @@ pub async fn delete_term(
     .bind(&code)
     .fetch_optional(&mut *transaction)
     .await?;
-    let (version, ever_used) = found.ok_or_else(|| AppError::NotFound(kind.subject().to_owned()))?;
+    let (version, ever_used) =
+        found.ok_or_else(|| AppError::NotFound(kind.subject().to_owned()))?;
     if version != expected_version {
         return Err(AppError::Conflict(format!(
             "{} version is {version}, not expected version {expected_version}",
