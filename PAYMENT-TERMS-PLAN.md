@@ -83,28 +83,61 @@ adjusting the last row. In minor units we have no tolerance to spend, so the
 writer must balance it; the composer already refuses a schedule that is not
 100%.
 
-Keep `supplier_invoice.due_date` and maintain it as the earliest **unpaid**
-instalment. Not a migration convenience: ERPNext's Purchase Invoice keeps a
-single `due_date` **and** a `payment_schedule` table, permanently. One date
-answers "when is this next due", which is what a list column and an ageing
-bucket want; the table answers "what is owed when". Backfill every existing
-bill with one instalment at 100% carrying its current `due_date`.
+Keep a single date on the header beside the table — ERPNext's Purchase Invoice
+does, permanently — but **name it `next_due_date` and diverge on what it
+means.** ERPNext sets `due_date = max(payment_schedule.due_date)`:
+
+```python
+def set_due_date(self) -> None:
+    due_dates = [d.due_date for d in self.doc.get("payment_schedule") if d.due_date]
+    if due_dates:
+        self.doc.due_date = max(due_dates)
+```
+
+That answers "when is this bill finally settled". The operational question in
+an AP office is the other one — *what must I pay next* — so this system holds
+the **earliest unpaid** instalment instead. On a bill of Rp 100.000.000 with
+40% paid on 15 Sep and 30% each on 15 Oct and 15 Nov, ERPNext says 15 Nov and
+we say 15 Oct.
+
+Do not keep calling it `due_date`. A column whose name matches ERPNext's and
+whose meaning does not is a trap for whoever reads both. `next_due_date`, with
+`outstanding_minor` beside it, both derived. Backfill every existing bill with
+one instalment at 100% carrying its current `due_date`.
 
 **Our status enum has no payment state.** `supplier_invoice.status` is
 `DRAFT | MATCHED | POSTED | REJECTED | VOID` — where the document is in its
-workflow, and nothing about money. ERPNext's carries `Paid`, `Partly Paid`,
-`Unpaid` and `Overdue` beside the workflow states, and `outstanding_amount` is
-a stored read-only figure on the invoice. Instalments make *partly paid* the
-ordinary case, so this piece of work has to answer it — either a second status
-column or a derived outstanding the list can sort on. Do not overload the
-existing enum: `POSTED` means the ledger has it, which is true whether or not a
-rupiah has moved.
+workflow, and nothing about money. `POSTED` means the ledger has it, which is
+true whether or not a rupiah has moved, so it must not be overloaded.
+
+ERPNext puts `Paid`, `Partly Paid`, `Unpaid` and `Overdue` in one Select beside
+the workflow states. **Split what ERPNext merges**: a bill can be partly paid
+*and* overdue at once, and one enum cannot say both.
+
+```
+status        DRAFT | MATCHED | POSTED | REJECTED | VOID   (the document)
+payment_state UNPAID | PARTIALLY_PAID | PAID              (derived)
+overdue       boolean                                      (derived)
+```
 
 ### 3. A payment settles an instalment
 
-`supplier_payment_allocation` gains `term_seq`. Nullable at first — every
-existing row means "the whole bill" — then required once the payment screen
-offers instalments.
+`supplier_payment_allocation` points at the instalment by a **stable id**, not
+by its position:
+
+```
+supplier_invoice_payment_term (invoice_payment_term_id PK, invoice_id, seq, …)
+supplier_payment_allocation   (payment_id, invoice_payment_term_id FK, amount_minor)
+```
+
+`seq` is presentation and ordering only. A payment must not name "the second
+row": correct a two-line schedule into three and every old allocation pointing
+at `2` now settles something else, silently. That is true even if a posted
+bill's schedule is frozen — an amendment or a correction is exactly when the
+audit trail matters most.
+
+Nullable at first — every existing row means "the whole bill" — then required
+once the payment screen offers instalments.
 
 Verified against ERPNext rather than assumed: `Payment Entry Reference` carries
 `payment_term` (Link → Payment Term) beside `payment_term_outstanding`,
@@ -126,12 +159,18 @@ what ERPNext's Payment Schedule child table holds. The date is what was agreed
 and what the buyer may edit; the basis is what the bill recomputes from when it
 arrives. A term with a basis recomputes; a term with only a date carries.
 
-**The method belongs on the instalment, not on the order.** ERPNext puts
-`mode_of_payment` on the Payment Term and on each Payment Schedule row, and has
-no payment-mode field on the Purchase Order at all. It is right: an advance by
-transfer and the balance by giro is one ordinary order that a single header
-field cannot express. The composer currently draws one method for the whole
-order — that control moves into the schedule table.
+**The PLANNED method belongs on the instalment; the ACTUAL one stays on the
+payment.** ERPNext puts `mode_of_payment` on the Payment Term and on each
+Payment Schedule row, and has no payment-mode field on the Purchase Order — but
+it also keeps `mode_of_payment` on the Payment Entry itself, and both layers
+are needed. What was agreed and what happened are different facts, and the
+second is the one an auditor reads.
+
+Our `supplier_payment.method` (`TRANSFER | CASH | CHEQUE | GIRO | OTHER`, 0084)
+already is the actual layer and does not move. What moves off the composer's
+header and into the schedule row is the **plan** — because "advance by
+transfer, the balance by giro" is one ordinary order that a single header field
+cannot express, and because an order may well end up paid by something else.
 
 ### 5. Pay into — on the payment, not on the order
 
@@ -215,12 +254,36 @@ only — exactly `payment_terms_template` + `tc_name`/`terms`.
 them is needed it is a new column, a semantic key and one more line in the
 posting rule, with nothing below undone." Nothing in this plan forecloses it.
 
-**A giro's own date — take it, as one column.** A bilyet giro cannot be cashed
-before its effective date, so the money leaves the bank then and not on the day
-the paper changed hands. Add a nullable `instrument_date` to
-`supplier_payment`, filled only for `GIRO` and `CHEQUE`. This is what lets bank
-reconciliation (0071, 0106) tell an uncleared giro from a discrepancy — the
-thing 0084's own comment says a reconciler needs.
+**A giro's own date — NOT settled by one column. Reopened.** The first answer
+here was "take it, as one column", and that was wrong: it fixes the date and
+leaves the ledger saying something untrue.
+
+Verified in `postgres/payments.rs`. Posting a payment writes `Dr trade_payable`
+or `non_merchandise_payable` per allocation, and one credit line against
+`supplier_payment.account_key` for the total. For a giro that key is
+`bank_giro` — the current account. So **the books show the money leaving the
+bank on the day the paper changed hands**, which is precisely what a bilyet
+giro does not do: it cannot be cashed before its effective date.
+
+An `instrument_date` column records when it clears and changes none of that.
+What is actually needed is a lifecycle and a posting rule:
+
+```
+ISSUED → OUTSTANDING → CLEARED
+
+on issue   Dr trade_payable      Cr giro_outstanding
+on clear   Dr giro_outstanding   Cr bank_giro
+```
+
+`giro_outstanding` would be a new semantic key in `account_map`, and the
+client's chart has to have an account for it — a liability, not a bank
+account. The alternative policy is that a payable is not settled until the
+giro clears, which posts nothing on issue and everything on clearing; that is a
+different answer and the owner has to pick one, because it changes what the AP
+ageing says for every giro in flight.
+
+Until it is decided, `GIRO` is honest only for same-day paper. **Blocked on the
+owner**; see below.
 
 **One bill spanning two orders — refuse it, do not model it.** The owner
 reports it does not happen. But `supplier_invoice_line.po_line_id` permits it
@@ -239,6 +302,15 @@ is: a price agreed up front, unaffected by when the bill is paid.
 If that ever changes it reopens cleanly — it is a property of the term, and a
 term is master data by step 1.
 
-## Nothing is open
+## Open
 
-Every question this plan raised has an answer. What remains is the work.
+**How a giro is posted.** Two candidate policies, above. One puts a
+`giro_outstanding` liability between the payable and the bank; the other treats
+the payable as unsettled until the giro clears. Both need an account in the
+client's chart and a line in the posting rule, and the choice changes every AP
+ageing figure that has a giro in it. Nothing in steps 1 to 5 depends on the
+answer, so this is not a blocker for them — but shipping instalments while
+`GIRO` still credits the bank on issue means the schedule is right and the
+ledger is not.
+
+Everything else this plan raised has an answer. What remains is the work.
