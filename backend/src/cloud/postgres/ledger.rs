@@ -75,12 +75,30 @@ pub struct TrialBalance {
     pub as_of: NaiveDate,
     pub site_id: Option<String>,
     pub rows: Vec<TrialBalanceRow>,
+    /// **Over the whole ledger at `as_of`, never over the page and never
+    /// narrowed by the search.** The thing this screen exists to prove is
+    /// about every account that moved; a total that shrank as somebody typed
+    /// would be a proof that could be talked out of itself.
     pub total_debit_minor: i64,
     pub total_credit_minor: i64,
     /// Sent rather than left for the browser to work out. A trial balance that
     /// does not balance is the single most important thing this screen can
-    /// say, and it should not depend on a client-side subtraction.
+    /// say, and it should not depend on a client-side subtraction — least of
+    /// all over a list the browser holds one page of.
     pub balanced: bool,
+    /// Every account that moved at `as_of`, before the search. `total` is how
+    /// many the search and the filters left; the difference is what is hidden.
+    pub ledger_rows: i64,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    ///
+    /// It bounds the RESPONSE and not the scan — see the section above
+    /// `trial_balance`. Worth having anyway: the client's chart is 7,528
+    /// accounts and a screen draws forty of them.
+    pub next_cursor: Option<String>,
+    /// How many lines the search and the filters leave.
+    pub total: i64,
+    pub facets: TrialBalanceFacets,
 }
 
 /// A meaning, and the client account that carries it here.
@@ -178,7 +196,11 @@ pub async fn finance_attention_counts(
 ) -> Result<serde_json::Value, AppError> {
     let overdue: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM supplier_invoice i
-          WHERE i.status <> 'POSTED' AND i.due_date < CURRENT_DATE",
+          JOIN supplier_invoice_standing st ON st.invoice_id = i.invoice_id
+          -- `st.overdue`, not `i.due_date < CURRENT_DATE`. A bill whose first
+          -- instalment is settled and whose balance falls next month is not
+          -- late, and the single date on the paper cannot say so (0202).
+          WHERE i.status <> 'POSTED' AND st.overdue",
     )
     .fetch_one(pool)
     .await?;
@@ -557,62 +579,432 @@ fn to_account(row: &sqlx::postgres::PgRow) -> Result<LedgerAccount, AppError> {
     })
 }
 
-/// The accounts directly under one heading, or the eight roots when none is
-/// named.
+// ── the chart of accounts ────────────────────────────────────────────────
+//
+// Brought up to the shape `money_overview` set in `postgres::statements`: a
+// scope struct in, an envelope out, a keyset cursor, and facet counts drawn
+// from the same row definition as the page. The convention is copied
+// deliberately rather than reinvented — two list endpoints that page
+// differently are two things to learn and two things to get wrong.
+//
+// This is the list where getting it wrong is immediately visible. The client's
+// chart is 7,528 accounts; the tree was already safe, because no heading here
+// has more than 36 children, but the SEARCH was not — it clamped at 500 and
+// said nothing about the rest, so a needle matching two thousand accounts
+// looked like a needle matching five hundred.
+
+/// How many accounts the chart returns when the caller does not say.
 ///
-/// A level at a time rather than the whole chart: 7,528 accounts is about a
-/// megabyte of JSON, and a person opening the screen wants eight rows.
-pub async fn account_children(
-    pool: &PgPool,
-    parent: Option<&str>,
-    include_inactive: bool,
-) -> Result<Vec<LedgerAccount>, AppError> {
-    let sql = format!(
-        "SELECT {ACCOUNT_COLUMNS} FROM ledger_account a
-          WHERE a.parent_code IS NOT DISTINCT FROM $1
-            AND ($2 OR a.is_active)
-          ORDER BY a.account_code"
-    );
-    let rows = sqlx::query(&sql)
-        .bind(parent)
-        .bind(include_inactive)
-        .fetch_all(pool)
-        .await?;
-    rows.iter().map(to_account).collect()
+/// Here rather than in the handler, beside the only clamp that enforces it.
+/// Absent is a page and deliberately not "everything": the chart is the one
+/// list in this system big enough that answering it whole is the defect.
+const DEFAULT_ACCOUNT_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+///
+/// Five hundred, which is what `search_accounts` already clamped to — kept, so
+/// that nothing about the widening changes how much of the chart one request
+/// can pull. What changes is that a caller can now see it was clamped, from
+/// `total`, and page past it, from `next_cursor`.
+const MAX_ACCOUNT_LIMIT: i64 = 500;
+
+/// What a caller is asking the chart for.
+///
+/// One scope for two questions, as the route has always been: with no search
+/// it is one level of the tree, with a search it is the whole chart. They are
+/// the same question — "which accounts am I looking at" — and a screen that
+/// switched endpoints when somebody typed would have two loading states for
+/// one box.
+#[derive(Clone, Debug, Default)]
+pub struct AccountScope {
+    /// The heading to open. `None` means the eight roots.
+    ///
+    /// Read only when there is no search. A needle is a question about the
+    /// whole chart, and narrowing it to one branch would answer a question
+    /// nobody asked — the tree's position is where somebody was, not what they
+    /// are now looking for.
+    pub parent: Option<String>,
+    /// Free text, tried against the account code by prefix and the name
+    /// anywhere.
+    ///
+    /// Both, because both are how people look: finance quotes a code,
+    /// everybody else quotes a name, and a search that only did one of them
+    /// would send half its users to the tree to hunt.
+    pub needle: Option<String>,
+    /// Root classes to keep — `1` … `8`, the first digit of the client's own
+    /// numbering. Empty means every class — an empty filter and no filter are
+    /// the same request, and treating them differently is how a screen ends up
+    /// showing nothing the moment somebody unticks the last box.
+    pub classes: Vec<String>,
+    /// Locations to keep.
+    ///
+    /// An account with no location is a chart-wide account and is not narrowed
+    /// away by naming one: it simply does not match. It is kept out of the
+    /// facet counts for the reason `EmployeeFacets::places` gives — the filter
+    /// has no spelling for "nowhere", and a count nobody can click is worse
+    /// than no count.
+    pub sites: Vec<String>,
+    /// Include accounts somebody has retired. Off by default, as it has always
+    /// been.
+    pub include_inactive: bool,
+    /// `code`, `name` or `children`. Anything else is the house order — see
+    /// [`account_page`], where the house order is relevance and is the one
+    /// order `dir` is not read for.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent means [`DEFAULT_ACCOUNT_LIMIT`], not "everything".
+    pub limit: Option<i64>,
 }
 
-/// Find an account by code or by name.
+/// One value a filter can take, and how many accounts would still be there.
 ///
-/// Both, because both are how people look: finance quotes a code, everybody
-/// else quotes a name, and a search that only did one of them would send half
-/// its users to the tree to hunt.
-pub async fn search_accounts(
-    pool: &PgPool,
-    query: &str,
-    site_id: Option<&str>,
-    include_inactive: bool,
-    limit: i64,
-) -> Result<Vec<LedgerAccount>, AppError> {
-    let needle = query.trim();
-    if needle.is_empty() {
-        return Ok(Vec::new());
+/// `MoneyFacet`'s shape and `MoneyFacet`'s reasoning: a value that would leave
+/// nothing is a value nobody should have to click to find out about. Counted
+/// over everything the SEARCH leaves, deliberately ignoring which filters are
+/// currently applied — so the number reads as "how many of these there are",
+/// which is the question somebody has while choosing.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AccountFacet {
+    pub value: String,
+    /// What to draw, when it differs from the value.
+    ///
+    /// Always present here, and always the CLIENT'S own words: a root class is
+    /// labelled with the name of the one-digit account it is — `1` is
+    /// "ASSET" because the chart says so, not because this server has a list —
+    /// and a site with the name that site is filed under. A panel that showed
+    /// `1` and `store-01` would be a filter only its author could read.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The two things the chart can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AccountFacets {
+    pub classes: Vec<AccountFacet>,
+    /// Silent about the accounts scoped to no location, which is most of the
+    /// chart — see [`AccountScope::sites`].
+    pub sites: Vec<AccountFacet>,
+}
+
+/// A page of the chart, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AccountPage {
+    /// The heading these rows hang under, echoed back, and `null` in search
+    /// mode — where the answer is about the whole chart rather than about a
+    /// position in it. A screen reads this to know which of its two faces it
+    /// is wearing without having to remember what it asked for.
+    pub parent: Option<String>,
+    /// True when a needle was searched. Distinct from `parent` being absent,
+    /// which is also how the eight roots answer.
+    pub searched: bool,
+    pub rows: Vec<LedgerAccount>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    ///
+    /// Deliberately not an offset. The chart is imported and re-imported, and
+    /// an offset would skip or repeat accounts while somebody scrolled —
+    /// on the one list in this system long enough that nobody would notice.
+    pub next_cursor: Option<String>,
+    /// Every account the search and the filters match, not just this page.
+    /// Without it a screen can only say "500 accounts", which is a statement
+    /// about the clamp rather than about the chart.
+    pub total: i64,
+    pub facets: AccountFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// The account code and nothing else, whatever the list is sorted by, exactly
+/// as `MoneyCursor` carries the account map's natural key. It is the primary
+/// key, so no two rows can compare equal; the seek re-reads that row's own
+/// sort value in SQL, so one cursor shape serves every order and a fourth sort
+/// cannot arrive without its cursor.
+#[derive(Serialize, Deserialize)]
+struct AccountCursor {
+    account_code: String,
+}
+
+impl AccountCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
     }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// One chart row, defined once.
+///
+/// Used by the page query and by the facet counts, and that is the whole
+/// reason it is a constant: the facets are only honest if they count exactly
+/// what the page can show.
+///
+/// Binds: `$1` the parent or NULL, `$2` the search needle or NULL, `$3`
+/// whether to include retired accounts.
+///
+/// It stops at the MODE and the SEARCH. The class and site filters are applied
+/// outside it by each caller, which is what lets one definition answer two
+/// different questions from the same rows: the page wants what the filters
+/// leave, while the filter panel's counts want what the search alone leaves —
+/// because "ASSET 1,204" has to mean "there are 1,204 asset accounts", not
+/// "1,204 among the ones you have already narrowed to assets".
+///
+/// `code_rank` is computed here rather than only in `ORDER BY` because the
+/// keyset has to COMPARE the sort value in a `WHERE`, and a sort expression
+/// that is not also a column is one a `WHERE` cannot see. It is an integer and
+/// not a boolean so that it sorts ASCENDING with the code matches first: a
+/// keyset compares a row against a row, which takes one direction for the
+/// whole tuple, so `code_hit DESC, code ASC` is an order this can order by and
+/// cannot seek into.
+const ACCOUNT_ROWS: &str = "
+    SELECT a.account_code, a.name, a.parent_code, a.root_class::text AS root_class,
+           a.depth::int AS depth, a.is_group, a.is_active, a.site_id,
+           a.counterparty_site_id,
+           COALESCE(kids.n, 0)::bigint AS child_count,
+           CASE WHEN $2::text IS NOT NULL AND a.account_code LIKE $2 || '%'
+                THEN 0 ELSE 1 END AS code_rank
+      FROM ledger_account a
+      -- Counted once for the whole chart and joined, rather than a correlated
+      -- subquery per row. `ACCOUNT_COLUMNS` keeps the subquery because its
+      -- callers fetch one account; here the row set is a search result, and
+      -- running the probe 1,248 times cost 2,615 buffer hits against this
+      -- join's 230 — the same answer for a tenth of the pages.
+      LEFT JOIN (SELECT parent_code, COUNT(*)::bigint AS n
+                   FROM ledger_account WHERE parent_code IS NOT NULL
+                  GROUP BY parent_code) kids ON kids.parent_code = a.account_code
+     WHERE ($3 OR a.is_active)
+       -- Branch mode, when nobody is searching: one level of the tree, and a
+       -- NULL parent is the eight roots rather than 'every account'.
+       AND ($2::text IS NOT NULL OR a.parent_code IS NOT DISTINCT FROM $1)
+       -- Search mode: the whole chart. The code by prefix, because a code is
+       -- read left to right and `101` means the branch; the name anywhere,
+       -- because nobody knows which word of `Piutang Affiliasi Pembiayaan
+       -- CIKUPA` the account is filed under.
+       AND ($2::text IS NULL
+            OR a.account_code LIKE $2 || '%' OR a.name ILIKE '%' || $2 || '%')
+";
+
+/// The chart, one page at a time, beside how big the whole answer is.
+pub async fn account_page(pool: &PgPool, scope: AccountScope) -> Result<AccountPage, AppError> {
+    // A blank search is not a search. `Some("")` would compile to a prefix
+    // match on the empty string, which matches all 7,528 accounts and costs a
+    // scan to say so — and, worse, would silently turn "clear the box" into
+    // "fetch the chart".
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned);
+    let searched = needle.is_some();
+    // The tree position is not read while searching — see `AccountScope`.
+    let parent = if searched { None } else { scope.parent.clone() };
+
+    // Empty means "no filter", never "nothing passes": a screen that showed
+    // nothing the moment somebody unticked the last box reads as broken rather
+    // than as unfiltered.
+    let classes = (!scope.classes.is_empty()).then(|| scope.classes.clone());
+    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // account code, which is the primary key, so no two rows can compare equal
+    // — which is what stops a keyset from repeating or losing the rows that
+    // tie.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not. Writing
+    // `(a ASC, b) > (…)` is a syntax error the compiler cannot catch, because
+    // the whole clause is a string.
+    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
+        // The chart's own order, and the one the tree is read in. Distinct
+        // from the house order only while searching, where the house order
+        // puts the code matches first and this one does not.
+        Some("code") => ("account_code", scope.desc),
+        Some("name") => ("name", scope.desc),
+        // How big a heading is. What somebody sorts by when looking for where
+        // the client actually keeps their detail.
+        Some("children") => ("child_count", scope.desc),
+        // The house order: what you typed the code of, first. Reversing
+        // relevance would mean "the ones that match least", so `dir` is not
+        // read here — as `money_overview` does not read it for the chart order
+        // either.
+        _ => ("code_rank", false),
+    };
+    let cols = format!("{lead}, account_code");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, account_code {dir}");
+    // Which way the seek points follows the direction, or paging a descending
+    // list walks back up it.
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(AccountCursor::decode)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(DEFAULT_ACCOUNT_LIMIT)
+        .clamp(1, MAX_ACCOUNT_LIMIT);
+
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor — see [`AccountCursor`].
+    //
+    // A cursor whose row the filters no longer keep — an account retired, or
+    // re-parented by a re-import, between one page and the next — finds no row
+    // to compare against, so the comparison is NULL and the page comes back
+    // empty. The list ends early rather than starting again, which is the
+    // safer of the two wrong answers: a stale cursor stops, and stopping is
+    // visible.
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
     let sql = format!(
-        "SELECT {ACCOUNT_COLUMNS} FROM ledger_account a
-          WHERE ($3::text IS NULL OR a.site_id = $3)
-            AND ($4 OR a.is_active)
-            AND (a.account_code LIKE $1 || '%' OR a.name ILIKE '%' || $1 || '%')
-          ORDER BY (a.account_code LIKE $1 || '%') DESC, a.account_code
-          LIMIT $2"
+        "WITH searched AS NOT MATERIALIZED ({ACCOUNT_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched
+              WHERE ($4::text[] IS NULL OR root_class = ANY($4))
+                AND ($5::text[] IS NULL OR site_id = ANY($5))
+         )
+         SELECT * FROM kept
+          WHERE $6::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE account_code = $6)
+          ORDER BY {order}
+          LIMIT $7"
     );
     let rows = sqlx::query(&sql)
-        .bind(needle)
-        .bind(limit.clamp(1, 500))
-        .bind(site_id)
-        .bind(include_inactive)
+        .bind(&parent)
+        .bind(&needle)
+        .bind(scope.include_inactive)
+        .bind(&classes)
+        .bind(&sites)
+        .bind(cursor.as_ref().map(|c| c.account_code.clone()))
+        .bind(limit)
         .fetch_all(pool)
         .await?;
-    rows.iter().map(to_account).collect()
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer: knowing whether
+    // more rows exist without asking costs a second run of the same query.
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            AccountCursor {
+                account_code: row.try_get("account_code")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows.iter().map(to_account).collect::<Result<Vec<_>, _>>()?;
+    let (total, facets) = account_facets(pool, &scope, &parent, needle.as_deref()).await?;
+    Ok(AccountPage {
+        parent,
+        searched,
+        rows: out,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many accounts there are, and how they split.
+///
+/// Counted from the SAME [`ACCOUNT_ROWS`] the page is drawn from, so a count
+/// beside a filter is a count of rows that filter could actually produce.
+///
+/// The two scopes here are deliberate:
+///
+///   per-value counts read the SEARCHED set, ignoring what is filtered. The
+///     number beside `ASSET` answers "how many asset accounts are there",
+///     which is the question somebody has while deciding whether to click it.
+///     Counting the already-filtered set instead shows the chosen value its
+///     own row count and every other one a zero.
+///   the total reads the FILTERED set, because it describes the list on
+///     screen.
+///
+/// The class label is the client's own one-digit account — `1` is whatever
+/// `ledger_account` calls `1` — rather than a table of eight names kept here,
+/// which would be a second copy of the chart's top level and would be wrong
+/// the first time the client renamed one.
+async fn account_facets(
+    pool: &PgPool,
+    scope: &AccountScope,
+    parent: &Option<String>,
+    needle: Option<&str>,
+) -> Result<(i64, AccountFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({ACCOUNT_ROWS}), kept AS (
+             SELECT * FROM searched
+              WHERE ($4::text[] IS NULL OR root_class = ANY($4))
+                AND ($5::text[] IS NULL OR site_id = ANY($5))
+         )
+         SELECT 'class' AS kind, s.root_class AS value,
+                (SELECT r.name FROM ledger_account r
+                  WHERE r.account_code = s.root_class) AS label,
+                COUNT(*)::bigint AS n
+           FROM searched s WHERE s.root_class IS NOT NULL GROUP BY s.root_class
+          UNION ALL
+         SELECT 'site', s.site_id,
+                (SELECT p.name FROM site p WHERE p.id = s.site_id),
+                COUNT(*)::bigint
+           FROM searched s WHERE s.site_id IS NOT NULL GROUP BY s.site_id
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
+    );
+    let classes_filter = (!scope.classes.is_empty()).then(|| scope.classes.clone());
+    let sites_filter = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let rows = sqlx::query(&sql)
+        .bind(parent)
+        .bind(needle)
+        .bind(scope.include_inactive)
+        .bind(&classes_filter)
+        .bind(&sites_filter)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut classes = Vec::new();
+    let mut sites = Vec::new();
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let label: Option<String> = row.try_get("label")?;
+        let n: i64 = row.try_get("n")?;
+        match kind.as_str() {
+            "class" => classes.push(AccountFacet {
+                value,
+                label,
+                count: n,
+            }),
+            "site" => sites.push(AccountFacet {
+                value,
+                label,
+                count: n,
+            }),
+            _ => total = n,
+        }
+    }
+    // The classes in the client's own order — `1` ASSET through `8` — because
+    // that ladder is how an accountant reads a chart, and a panel sorted by
+    // size would put BEBAN above ASSET on a busy month. The sites by size, as
+    // every other facet panel here is: a filter list is read top-down and the
+    // value somebody is most likely to want is the one with the most behind
+    // it.
+    classes.sort_by(|a, b| a.value.cmp(&b.value));
+    sites.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    Ok((total, AccountFacets { classes, sites }))
 }
 
 /// One account, with the chain of headings above it.
@@ -682,91 +1074,679 @@ pub async fn account_balance(
     })
 }
 
-/// Every account that has been posted to, and what it holds.
+// ── the trial balance ────────────────────────────────────────────────────
+//
+// The same envelope as the rest, with the general ledger's override: **the
+// totals a trial balance exists to prove are about the WHOLE ledger.** They
+// are what the screen is for — do the two sides agree — and a figure that
+// shrank when somebody typed in a search box would turn that into a question
+// about page one.
+//
+// So `total_debit_minor`, `total_credit_minor` and `balanced` are computed
+// over everything `as_of` and `site_id` leave, in SQL, before any search or
+// filter. Only `rows`, `total` and the facet counts narrow.
+//
+// # What the cursor does and does not buy
+//
+// It bounds the RESPONSE, not the scan. This is an aggregate over every
+// journal line on or before `as_of`, and the aggregate has to finish before
+// any row can be ordered — so paging does not make the database do less work,
+// it makes the browser receive less. That is still worth having: the client's
+// chart is 7,528 accounts, and a month where most of them move is 7,528 rows
+// of JSON into a screen that draws forty of them.
+//
+// The scan itself is the real ceiling, and there is no index that removes it:
+// nothing here is stored, by design — see the module header. What would remove
+// it is a stored balance per account per period, and that is the trade this
+// system has already refused, because a stored total and the lines it
+// summarises drift and nobody can then say which to believe.
+
+/// How many trial-balance rows are returned when the caller does not say.
 ///
-/// Postable accounts only: a heading would double-count, because its balance is
-/// its descendants' and they are already listed.
+/// Deliberately larger than the chart's page: this is a report somebody scrolls
+/// or exports rather than a list they click through, and the smaller the page
+/// the more times the aggregate above is paid for.
+const DEFAULT_TRIAL_LIMIT: i64 = 500;
+/// And the most it will return however loudly a caller asks.
+const MAX_TRIAL_LIMIT: i64 = 2000;
+
+/// What a caller is asking the trial balance for.
+#[derive(Clone, Debug, Default)]
+pub struct TrialBalanceScope {
+    /// The date the books are proved at. **Part of the ledger being proved**,
+    /// not a filter: it decides what the totals are about.
+    pub as_of: Option<NaiveDate>,
+    /// One location, or all of them. Also part of the ledger being proved —
+    /// "the Cikupa books balance" is a different statement from "the company's
+    /// books balance", and both are ones somebody makes.
+    pub site_id: Option<String>,
+    /// Free text over the account code and the client's own name for it.
+    ///
+    /// Narrows the ROWS and nothing else. See the note above.
+    pub needle: Option<String>,
+    /// Root classes to keep. Also rows-only.
+    pub classes: Vec<String>,
+    /// `name`, `debit`, `credit` or `net`. Anything else is the house order,
+    /// by account code — which is the order a trial balance is read in.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent means [`DEFAULT_TRIAL_LIMIT`], not "everything".
+    pub limit: Option<i64>,
+}
+
+/// One value a filter can take, and how many lines would still be there.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TrialBalanceFacet {
+    pub value: String,
+    /// The client's own name for the one-digit root account, never a list kept
+    /// here — see `account_facets`.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The one thing the rows can be narrowed by beside the search.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TrialBalanceFacets {
+    pub classes: Vec<TrialBalanceFacet>,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// The account code and the location, which together are what makes a trial
+/// balance line unique: one account moves at fourteen shops and that is
+/// fourteen lines.
+#[derive(Serialize, Deserialize)]
+struct TrialCursor {
+    account_code: String,
+    site_id: String,
+}
+
+impl TrialCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// The balance of every account that moved, defined once — the LEDGER, before
+/// anybody narrows it.
+///
+/// Binds: `$1` as_of, `$2` the site or NULL.
+///
+/// `net` is materialised because the keyset has to compare the sort value in a
+/// `WHERE`, and a sort expression that is not also a column is one a `WHERE`
+/// cannot see.
+const TRIAL_LEDGER: &str = "
+    SELECT l.account_code, a.name, a.root_class::text AS root_class, l.site_id,
+           SUM(l.debit_minor)::bigint AS debit,
+           SUM(l.credit_minor)::bigint AS credit,
+           (SUM(l.debit_minor) - SUM(l.credit_minor))::bigint AS net
+      FROM journal_line l
+      JOIN journal_entry e USING (entry_id)
+      JOIN ledger_account a ON a.account_code = l.account_code
+     WHERE e.posting_date <= $1
+       AND ($2::text IS NULL OR l.site_id = $2)
+     GROUP BY l.account_code, a.name, a.root_class, l.site_id
+    HAVING SUM(l.debit_minor) <> 0 OR SUM(l.credit_minor) <> 0
+";
+
+/// The search and the class filter, applied to [`TRIAL_LEDGER`]'s output.
+///
+/// Binds from `$3`: the search pattern or NULL, then the classes or NULL.
+const TRIAL_KEPT: &str = "
+    SELECT * FROM ledger
+     WHERE ($3::text IS NULL OR account_code ILIKE $3 OR name ILIKE $3)
+       AND ($4::text[] IS NULL OR root_class = ANY($4))
+";
+
+/// Every account that has been posted to, and the server's own proof that
+/// debits equal credits.
 pub async fn trial_balance(
     pool: &PgPool,
-    as_of: NaiveDate,
-    site_id: Option<&str>,
+    scope: TrialBalanceScope,
 ) -> Result<TrialBalance, AppError> {
-    let rows = sqlx::query(
-        "SELECT l.account_code, a.name, a.root_class::text AS root_class, l.site_id,
-                SUM(l.debit_minor)::bigint AS debit, SUM(l.credit_minor)::bigint AS credit
-           FROM journal_line l
-           JOIN journal_entry e USING (entry_id)
-           JOIN ledger_account a ON a.account_code = l.account_code
-          WHERE e.posting_date <= $1
-            AND ($2::text IS NULL OR l.site_id = $2)
-          GROUP BY l.account_code, a.name, a.root_class, l.site_id
-         HAVING SUM(l.debit_minor) <> 0 OR SUM(l.credit_minor) <> 0
-          ORDER BY l.account_code, l.site_id",
-    )
-    .bind(as_of)
-    .bind(site_id)
-    .fetch_all(pool)
-    .await?;
+    let as_of = scope
+        .as_of
+        .unwrap_or_else(|| chrono::Utc::now().date_naive());
+    // A blank search is not a search.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+    let classes = (!scope.classes.is_empty()).then(|| scope.classes.clone());
 
-    let mut total_debit = 0i64;
-    let mut total_credit = 0i64;
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // account code and the location, which together are unique per line.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
+        Some("name") => ("name", scope.desc),
+        Some("debit") => ("debit", scope.desc),
+        Some("credit") => ("credit", scope.desc),
+        // Debit minus credit, signed and unflipped — a liability is negative,
+        // which is what it is. A report decides how to present a balance; a
+        // balance does not decide how to present itself.
+        Some("net") => ("net", scope.desc),
+        // The house order, and the one a trial balance is read in: the client's
+        // own chart order. Reversible, because reading the bottom of the chart
+        // first is an ordinary thing to want.
+        _ => ("account_code", scope.desc),
+    };
+    let cols = format!("{lead}, account_code, site_id");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, account_code {dir}, site_id {dir}");
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(TrialCursor::decode)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(DEFAULT_TRIAL_LIMIT)
+        .clamp(1, MAX_TRIAL_LIMIT);
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH ledger AS NOT MATERIALIZED ({TRIAL_LEDGER}),
+              kept AS NOT MATERIALIZED ({TRIAL_KEPT})
+         SELECT * FROM kept
+          WHERE $5::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept
+                                  WHERE account_code = $5 AND site_id = $6)
+          ORDER BY {order}
+          LIMIT $7"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(as_of)
+        .bind(scope.site_id.as_deref())
+        .bind(&needle)
+        .bind(&classes)
+        .bind(cursor.as_ref().map(|c| c.account_code.clone()))
+        .bind(cursor.as_ref().map(|c| c.site_id.clone()))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            TrialCursor {
+                account_code: row.try_get("account_code")?,
+                site_id: row.try_get("site_id")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
-        let debit: i64 = row.try_get("debit")?;
-        let credit: i64 = row.try_get("credit")?;
-        total_debit += debit;
-        total_credit += credit;
         out.push(TrialBalanceRow {
             account_code: row.try_get("account_code")?,
             name: row.try_get("name")?,
             root_class: row.try_get("root_class")?,
             site_id: row.try_get("site_id")?,
-            debit_minor: debit,
-            credit_minor: credit,
+            debit_minor: row.try_get("debit")?,
+            credit_minor: row.try_get("credit")?,
         });
     }
+
+    let proof = trial_proof(pool, &scope, as_of, needle.as_deref(), classes.as_deref()).await?;
     Ok(TrialBalance {
         as_of,
-        site_id: site_id.map(str::to_string),
+        site_id: scope.site_id.clone(),
         rows: out,
-        total_debit_minor: total_debit,
-        total_credit_minor: total_credit,
-        balanced: total_debit == total_credit,
+        total_debit_minor: proof.total_debit,
+        total_credit_minor: proof.total_credit,
+        // Sent rather than left for the browser to work out — and now for a
+        // second reason as well as the first. A trial balance that does not
+        // balance is the single most important thing this screen can say, and
+        // it must not depend on a client-side subtraction over a list the
+        // browser holds only one page of.
+        balanced: proof.total_debit == proof.total_credit,
+        ledger_rows: proof.ledger_rows,
+        next_cursor,
+        total: proof.total,
+        facets: proof.facets,
     })
+}
+
+/// Everything about the trial balance that is not a row of it.
+struct TrialProof {
+    ledger_rows: i64,
+    total_debit: i64,
+    total_credit: i64,
+    total: i64,
+    facets: TrialBalanceFacets,
+}
+
+/// The proof, the narrowed count and the facets — one round trip, off the same
+/// ledger definition the page is drawn from.
+///
+/// The three scopes are the whole point of this endpoint:
+///
+///   the totals read the LEDGER, before search and before filters. They are
+///     the thing being proved and they do not move.
+///   per-value counts also read the LEDGER, so "ASSET 41" means "forty-one
+///     asset accounts moved".
+///   `total` reads the FILTERED set, because it describes the list on screen.
+async fn trial_proof(
+    pool: &PgPool,
+    scope: &TrialBalanceScope,
+    as_of: NaiveDate,
+    needle: Option<&str>,
+    classes: Option<&[String]>,
+) -> Result<TrialProof, AppError> {
+    let sql = format!(
+        "WITH ledger AS ({TRIAL_LEDGER}), kept AS ({TRIAL_KEPT})
+         SELECT 'class' AS kind, l.root_class AS value,
+                (SELECT r.name FROM ledger_account r
+                  WHERE r.account_code = l.root_class) AS label,
+                COUNT(*)::bigint AS n, 0::bigint AS debit, 0::bigint AS credit
+           FROM ledger l WHERE l.root_class IS NOT NULL GROUP BY l.root_class
+          UNION ALL
+         SELECT 'ledger', '', NULL::text, COUNT(*)::bigint,
+                COALESCE(SUM(debit), 0)::bigint, COALESCE(SUM(credit), 0)::bigint
+           FROM ledger
+          UNION ALL
+         SELECT 'kept', '', NULL::text, COUNT(*)::bigint, 0::bigint, 0::bigint
+           FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(as_of)
+        .bind(scope.site_id.as_deref())
+        .bind(needle)
+        .bind(classes)
+        .fetch_all(pool)
+        .await?;
+
+    let mut proof = TrialProof {
+        ledger_rows: 0,
+        total_debit: 0,
+        total_credit: 0,
+        total: 0,
+        facets: TrialBalanceFacets {
+            classes: Vec::new(),
+        },
+    };
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let label: Option<String> = row.try_get("label")?;
+        let n: i64 = row.try_get("n")?;
+        match kind.as_str() {
+            "class" => proof.facets.classes.push(TrialBalanceFacet {
+                value,
+                label,
+                count: n,
+            }),
+            "ledger" => {
+                proof.ledger_rows = n;
+                proof.total_debit = row.try_get("debit")?;
+                proof.total_credit = row.try_get("credit")?;
+            }
+            _ => proof.total = n,
+        }
+    }
+    // The client's own ladder, `1` through `8`, because that is how an
+    // accountant reads a chart — see `account_facets` for why this one panel is
+    // not sorted by size.
+    proof.facets.classes.sort_by(|a, b| a.value.cmp(&b.value));
+    Ok(proof)
 }
 
 // ---------------------------------------------------------------------------
 // The account map
 // ---------------------------------------------------------------------------
 
-pub async fn account_mappings(
+// ── the account map ──────────────────────────────────────────────────────
+//
+// The same envelope as every other list here, on a list that is 695 rows at
+// this client and was being sent whole — 165 KB — to a screen showing thirty
+// of them.
+
+/// How many mappings the list returns when the caller does not say.
+const DEFAULT_MAPPING_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+const MAX_MAPPING_LIMIT: i64 = 1000;
+
+/// What a caller is asking the account map for.
+#[derive(Clone, Debug, Default)]
+pub struct AccountMapScope {
+    /// Free text, tried against the meaning, the qualifier, the account code
+    /// and the client's own name for that account.
+    ///
+    /// The account name matters most: somebody looking for where the BCA giro
+    /// is pointed knows the bank's name and not the meaning `bank_giro`.
+    pub needle: Option<String>,
+    /// Locations to keep. Empty means every location — an empty filter and no
+    /// filter are the same request.
+    ///
+    /// Plural where `site` was single; a caller sending exactly one is
+    /// unaffected.
+    pub sites: Vec<String>,
+    /// Meanings to keep, as the posting rules spell them.
+    pub keys: Vec<String>,
+    /// `key`, `account`, `site` or `set`. Anything else is the house order —
+    /// meaning, then location, then qualifier, which is the order somebody
+    /// reads a map in.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent means [`DEFAULT_MAPPING_LIMIT`], not "everything".
+    pub limit: Option<i64>,
+}
+
+/// One value a filter can take, and how many mappings would still be there.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AccountMapFacet {
+    pub value: String,
+    /// The site's own name for a location; absent for a meaning, whose label
+    /// is already in `required_keys` and would be a second copy here.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The two things the map can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AccountMapFacets {
+    pub sites: Vec<AccountMapFacet>,
+    pub keys: Vec<AccountMapFacet>,
+}
+
+/// The account map, a page at a time, with the two lists it cannot be read
+/// without.
+///
+/// `locations` and `required_keys` travel with the page rather than being
+/// fetched separately because the screen's only real question — which pairs
+/// are still unset — cannot be asked without all three parts, and a screen
+/// that asked for them in three requests would draw two of them against a
+/// third that had not arrived.
+///
+/// They are NOT paged. Both are small and closed: fourteen locations and the
+/// meanings the posting rules name, which is a list generated from the Rust.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AccountMapPage {
+    pub rows: Vec<AccountMapping>,
+    pub next_cursor: Option<String>,
+    /// Every mapping the search and the filters match, not just this page.
+    pub total: i64,
+    /// How many (meaning, location) pairs the posting rules need and nobody
+    /// has set — counted over EVERY location and EVERY required meaning, never
+    /// over the page and never narrowed by the search.
+    ///
+    /// A gap is a gap whether or not you are currently looking at it: a
+    /// filtered view that showed "0 unmapped" because the filter hid them
+    /// would be the screen reporting the problem solved. It is the same number
+    /// the sidebar's badge draws, computed the same way — a pair is set when
+    /// the meaning has ANY account at that location, because the qualifier
+    /// splits one meaning across banks and does not make a second pair.
+    pub unmapped_pairs: i64,
+    pub locations: Vec<BookLocation>,
+    pub required_keys: Vec<SemanticKeyDoc>,
+    pub facets: AccountMapFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// The natural key of `account_map`: the meaning, the qualifier and the
+/// location. Not an offset — somebody is editing this map on the same screen
+/// that is paging through it.
+#[derive(Serialize, Deserialize)]
+struct MappingCursor {
+    semantic_key: String,
+    qualifier: String,
+    site_id: String,
+}
+
+impl MappingCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// One mapping row, defined once, so the facets count exactly what the page
+/// can show.
+///
+/// Binds: `$1` the search pattern or NULL.
+const MAPPING_ROWS: &str = "
+    SELECT m.semantic_key, m.site_id, m.qualifier, m.account_code,
+           a.name AS account_name, m.set_by, m.set_at, m.note
+      FROM account_map m JOIN ledger_account a ON a.account_code = m.account_code
+     WHERE $1::text IS NULL
+        OR m.semantic_key ILIKE $1
+        OR m.qualifier ILIKE $1
+        OR m.account_code ILIKE $1
+        OR a.name ILIKE $1
+";
+
+fn to_mapping(row: &sqlx::postgres::PgRow) -> Result<AccountMapping, AppError> {
+    Ok(AccountMapping {
+        semantic_key: row.try_get("semantic_key")?,
+        site_id: row.try_get("site_id")?,
+        qualifier: row.try_get("qualifier")?,
+        account_code: row.try_get("account_code")?,
+        account_name: row.try_get("account_name")?,
+        set_by: row.try_get("set_by")?,
+        set_at: row.try_get("set_at")?,
+        note: row.try_get("note")?,
+    })
+}
+
+/// The map, one page at a time, with the two lists it is read against.
+pub async fn account_map_page(
     pool: &PgPool,
-    site_id: Option<&str>,
-) -> Result<Vec<AccountMapping>, AppError> {
-    let rows = sqlx::query(
-        "SELECT m.semantic_key, m.site_id, m.qualifier, m.account_code,
-                a.name AS account_name, m.set_by, m.set_at, m.note
-           FROM account_map m JOIN ledger_account a ON a.account_code = m.account_code
-          WHERE ($1::text IS NULL OR m.site_id = $1)
-          ORDER BY m.semantic_key, m.site_id, m.qualifier",
-    )
-    .bind(site_id)
-    .fetch_all(pool)
-    .await?;
-    rows.iter()
-        .map(|row| {
-            Ok(AccountMapping {
+    scope: AccountMapScope,
+) -> Result<AccountMapPage, AppError> {
+    // A blank search is not a search.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let keys = (!scope.keys.is_empty()).then(|| scope.keys.clone());
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // natural key of `account_map`, so no two rows can compare equal.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
+        Some("account") => ("account_code", scope.desc),
+        Some("site") => ("site_id", scope.desc),
+        // When somebody last decided it. What you sort by to find the mapping
+        // that changed under a posting rule last week.
+        Some("set") => ("set_at", scope.desc),
+        // The house order, and the one this endpoint has always answered in.
+        // `key` names it explicitly so a screen can ask for it back after
+        // sorting by something else.
+        _ => ("semantic_key", scope.desc),
+    };
+    let cols = format!("{lead}, semantic_key, site_id, qualifier");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, semantic_key {dir}, site_id {dir}, qualifier {dir}");
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(MappingCursor::decode)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(DEFAULT_MAPPING_LIMIT)
+        .clamp(1, MAX_MAPPING_LIMIT);
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({MAPPING_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched
+              WHERE ($2::text[] IS NULL OR site_id = ANY($2))
+                AND ($3::text[] IS NULL OR semantic_key = ANY($3))
+         )
+         SELECT * FROM kept
+          WHERE $4::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept
+                                  WHERE semantic_key = $4 AND site_id = $5
+                                    AND qualifier = $6)
+          ORDER BY {order}
+          LIMIT $7"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&sites)
+        .bind(&keys)
+        .bind(cursor.as_ref().map(|c| c.semantic_key.clone()))
+        .bind(cursor.as_ref().map(|c| c.site_id.clone()))
+        .bind(cursor.as_ref().map(|c| c.qualifier.clone()))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            MappingCursor {
                 semantic_key: row.try_get("semantic_key")?,
-                site_id: row.try_get("site_id")?,
                 qualifier: row.try_get("qualifier")?,
-                account_code: row.try_get("account_code")?,
-                account_name: row.try_get("account_name")?,
-                set_by: row.try_get("set_by")?,
-                set_at: row.try_get("set_at")?,
-                note: row.try_get("note")?,
-            })
-        })
-        .collect()
+                site_id: row.try_get("site_id")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows.iter().map(to_mapping).collect::<Result<Vec<_>, _>>()?;
+    let (total, facets) = mapping_facets(pool, &scope, needle.as_deref()).await?;
+    let required_keys = required_semantic_keys();
+    let locations = book_locations(pool).await?;
+
+    // The gap, over the whole map. Never narrowed — see `unmapped_pairs`.
+    let required: Vec<String> = required_keys.iter().map(|doc| doc.key.clone()).collect();
+    let mapped_pairs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM (
+             SELECT DISTINCT m.semantic_key, m.site_id
+               FROM account_map m
+               JOIN site s ON s.id = m.site_id
+              WHERE m.semantic_key = ANY($1)
+         ) pair",
+    )
+    .bind(&required)
+    .fetch_one(pool)
+    .await?;
+    let unmapped_pairs = (required.len() as i64 * locations.len() as i64 - mapped_pairs).max(0);
+
+    Ok(AccountMapPage {
+        rows: out,
+        next_cursor,
+        total,
+        unmapped_pairs,
+        locations,
+        required_keys,
+        facets,
+    })
+}
+
+/// How many mappings there are, and how they split.
+///
+/// Per-value counts read the SEARCHED set and the total reads the FILTERED
+/// one, for the reason every other facet query here gives.
+async fn mapping_facets(
+    pool: &PgPool,
+    scope: &AccountMapScope,
+    needle: Option<&str>,
+) -> Result<(i64, AccountMapFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({MAPPING_ROWS}), kept AS (
+             SELECT * FROM searched
+              WHERE ($2::text[] IS NULL OR site_id = ANY($2))
+                AND ($3::text[] IS NULL OR semantic_key = ANY($3))
+         )
+         SELECT 'site' AS kind, s.site_id AS value,
+                (SELECT p.name FROM site p WHERE p.id = s.site_id) AS label,
+                COUNT(*)::bigint AS n
+           FROM searched s GROUP BY s.site_id
+          UNION ALL
+         SELECT 'key', s.semantic_key, NULL::text, COUNT(*)::bigint
+           FROM searched s GROUP BY s.semantic_key
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
+    );
+    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let keys = (!scope.keys.is_empty()).then(|| scope.keys.clone());
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(&sites)
+        .bind(&keys)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut sites_out = Vec::new();
+    let mut keys_out = Vec::new();
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let label: Option<String> = row.try_get("label")?;
+        let n: i64 = row.try_get("n")?;
+        let facet = AccountMapFacet {
+            value,
+            label,
+            count: n,
+        };
+        match kind.as_str() {
+            "site" => sites_out.push(facet),
+            "key" => keys_out.push(facet),
+            _ => total = n,
+        }
+    }
+    for list in [&mut sites_out, &mut keys_out] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+    Ok((
+        total,
+        AccountMapFacets {
+            sites: sites_out,
+            keys: keys_out,
+        },
+    ))
 }
 
 /// What somebody is trying to do with the account, so the refusal can say what
@@ -887,11 +1867,24 @@ pub async fn set_account_mapping(
     .execute(pool)
     .await?;
 
-    account_mappings(pool, Some(&request.site_id))
-        .await?
-        .into_iter()
-        .find(|m| m.semantic_key == key && m.qualifier == request.qualifier.trim())
-        .ok_or_else(|| AppError::NotFound("account mapping".into()))
+    // Read the row back rather than assembling one from what was sent: the
+    // account's NAME comes from the chart, and the `set_at` is the database's.
+    // One row by its natural key, not a page of the map filtered in Rust —
+    // which is what this did before `account_map_page` existed and is a
+    // fourteenth of the work.
+    let row = sqlx::query(
+        "SELECT m.semantic_key, m.site_id, m.qualifier, m.account_code,
+                a.name AS account_name, m.set_by, m.set_at, m.note
+           FROM account_map m JOIN ledger_account a ON a.account_code = m.account_code
+          WHERE m.semantic_key = $1 AND m.site_id = $2 AND m.qualifier = $3",
+    )
+    .bind(&key)
+    .bind(&request.site_id)
+    .bind(request.qualifier.trim())
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("account mapping".into()))?;
+    to_mapping(&row)
 }
 
 /// Resolve a meaning to an account, refusing rather than guessing.
@@ -932,28 +1925,308 @@ pub async fn resolve_account(
 // Periods
 // ---------------------------------------------------------------------------
 
-pub async fn fiscal_periods(pool: &PgPool) -> Result<Vec<FiscalPeriod>, AppError> {
-    let rows = sqlx::query(
-        "SELECT p.year::int AS year, p.month::int AS month, p.status, p.closed_by, p.closed_at,
-                (SELECT COUNT(*) FROM journal_entry e
-                  WHERE EXTRACT(YEAR FROM e.posting_date) = p.year
-                    AND EXTRACT(MONTH FROM e.posting_date) = p.month)::bigint AS entry_count
-           FROM fiscal_period p ORDER BY p.year DESC, p.month DESC",
-    )
-    .fetch_all(pool)
-    .await?;
-    rows.iter()
-        .map(|row| {
-            Ok(FiscalPeriod {
+// ── the period list ──────────────────────────────────────────────────────
+//
+// The same envelope as every other list here — rows, a cursor, a total, facet
+// counts — on a list that is four rows long today and gains twelve a year.
+// Not because four rows need paging, but because a screen should not have to
+// know which finance lists answer with an envelope and which answer with an
+// array: one shape means one hook in the browser, and the shape is what makes
+// "how many months are still open" a number the server sends rather than one
+// the browser counts off a list it may have truncated.
+
+/// How many periods the list returns when the caller does not say.
+///
+/// Two hundred is sixteen years of months, which is longer than this company
+/// will keep one system.
+const DEFAULT_PERIOD_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+const MAX_PERIOD_LIMIT: i64 = 1000;
+
+/// What a caller is asking the period list for.
+#[derive(Clone, Debug, Default)]
+pub struct PeriodScope {
+    /// Free text, tried against the period's own name — `2026-09` — and the
+    /// person who closed it.
+    ///
+    /// The month is matched as text rather than parsed, so `2026` finds a year
+    /// and `09` finds every September. Parsing would make `09` either a
+    /// refusal or the ninth of something.
+    pub needle: Option<String>,
+    /// `OPEN` or `CLOSED`. Empty means both.
+    pub statuses: Vec<String>,
+    /// Calendar years to keep.
+    pub years: Vec<String>,
+    /// `entries` or `closed`. Anything else is the house order, newest month
+    /// first — see [`period_page`].
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent means [`DEFAULT_PERIOD_LIMIT`], not "everything".
+    pub limit: Option<i64>,
+}
+
+/// One value a filter can take, and how many months would still be there.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PeriodFacet {
+    pub value: String,
+    /// Absent for both facets here: a year is its own label and `OPEN` is a
+    /// word the screen phrases, not the server.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The two things the period list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PeriodFacets {
+    pub statuses: Vec<PeriodFacet>,
+    pub years: Vec<PeriodFacet>,
+}
+
+/// A page of the period list, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PeriodPage {
+    pub rows: Vec<FiscalPeriod>,
+    pub next_cursor: Option<String>,
+    /// Every month the search and the filters match, not just this page.
+    pub total: i64,
+    pub facets: PeriodFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// The year and the month, which are the natural key of `fiscal_period`.
+#[derive(Serialize, Deserialize)]
+struct PeriodCursor {
+    year: i32,
+    month: i32,
+}
+
+impl PeriodCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// One period row, defined once, so the facets count exactly what the page can
+/// show.
+///
+/// Binds: `$1` the search pattern or NULL.
+///
+/// `period_name` is materialised rather than formatted in the browser because
+/// the search runs on the SERVER now, and `2026-09` is what somebody types.
+const PERIOD_ROWS: &str = "
+    SELECT p.year::int AS year, p.month::int AS month, p.status,
+           p.closed_by, p.closed_at,
+           -- A month nobody has sealed sorts after every month somebody has.
+           -- A sentinel VALUE and deliberately not `NULLS LAST`, which orders
+           -- a result and says nothing a keyset can seek against: a row
+           -- comparison against NULL is NULL rather than true, so paging would
+           -- end at the first open month — which is the point of the list.
+           COALESCE(p.closed_at, TIMESTAMPTZ '9999-12-31') AS closed_key,
+           to_char(make_date(p.year::int, p.month::int, 1), 'YYYY-MM') AS period_name,
+           -- The month as one number, so the house order is one column. Two
+           -- columns would work in an `ORDER BY` and would make the keyset's
+           -- tuple name year and month twice.
+           (p.year::int * 12 + p.month::int) AS ord,
+           -- A half-open DATE RANGE, not `EXTRACT(YEAR …) = p.year`. The
+           -- extract is a function of the column, so no index can answer it
+           -- and every period costs a full pass of the journal; this rides
+           -- `ix_journal_entry_date` and reads only the month it is counting.
+           -- The same count, and the difference only shows up once the journal
+           -- is large — which is to say, once it matters.
+           (SELECT COUNT(*) FROM journal_entry e
+             WHERE e.posting_date >= make_date(p.year::int, p.month::int, 1)
+               AND e.posting_date < (make_date(p.year::int, p.month::int, 1)
+                                     + INTERVAL '1 month'))::bigint AS entry_count
+      FROM fiscal_period p
+     WHERE $1::text IS NULL
+        OR to_char(make_date(p.year::int, p.month::int, 1), 'YYYY-MM') ILIKE $1
+        OR p.closed_by ILIKE $1
+";
+
+fn to_period(row: &sqlx::postgres::PgRow) -> Result<FiscalPeriod, AppError> {
+    Ok(FiscalPeriod {
+        year: row.try_get("year")?,
+        month: row.try_get("month")?,
+        status: row.try_get("status")?,
+        closed_by: row.try_get("closed_by")?,
+        closed_at: row.try_get("closed_at")?,
+        entry_count: row.try_get("entry_count")?,
+    })
+}
+
+/// The months the books are kept in, newest first.
+pub async fn period_page(pool: &PgPool, scope: PeriodScope) -> Result<PeriodPage, AppError> {
+    // A blank search is not a search.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+    let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
+    let years = (!scope.years.is_empty()).then(|| scope.years.clone());
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // year and month, which are the natural key.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
+        Some("entries") => ("entry_count", scope.desc),
+        // When it was sealed. The sentinel is in `PERIOD_ROWS`; see there for
+        // why it is a value and not a `NULLS LAST`.
+        Some("closed") => ("closed_key", scope.desc),
+        // The house order, and the one this endpoint has always answered in:
+        // the newest month first. `dir` is not read — a default order that
+        // reverses is not a default.
+        _ => ("ord", true),
+    };
+    let cols = format!("{lead}, year, month");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, year {dir}, month {dir}");
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(PeriodCursor::decode)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(DEFAULT_PERIOD_LIMIT)
+        .clamp(1, MAX_PERIOD_LIMIT);
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({PERIOD_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched
+              WHERE ($2::text[] IS NULL OR status = ANY($2))
+                AND ($3::text[] IS NULL OR year::text = ANY($3))
+         )
+         SELECT * FROM kept
+          WHERE $4::int IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept
+                                  WHERE year = $4 AND month = $5)
+          ORDER BY {order}
+          LIMIT $6"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&statuses)
+        .bind(&years)
+        .bind(cursor.as_ref().map(|c| c.year))
+        .bind(cursor.as_ref().map(|c| c.month))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            PeriodCursor {
                 year: row.try_get("year")?,
                 month: row.try_get("month")?,
-                status: row.try_get("status")?,
-                closed_by: row.try_get("closed_by")?,
-                closed_at: row.try_get("closed_at")?,
-                entry_count: row.try_get("entry_count")?,
-            })
-        })
-        .collect()
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows.iter().map(to_period).collect::<Result<Vec<_>, _>>()?;
+    let (total, facets) = period_facets(pool, &scope, needle.as_deref()).await?;
+    Ok(PeriodPage {
+        rows: out,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many months there are, and how they split.
+///
+/// Per-value counts read the SEARCHED set and the total reads the FILTERED
+/// one, for the reason every other facet query here gives: "Open 2" has to
+/// mean "two months are open", not "two among the ones you have already
+/// narrowed to open".
+async fn period_facets(
+    pool: &PgPool,
+    scope: &PeriodScope,
+    needle: Option<&str>,
+) -> Result<(i64, PeriodFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({PERIOD_ROWS}), kept AS (
+             SELECT * FROM searched
+              WHERE ($2::text[] IS NULL OR status = ANY($2))
+                AND ($3::text[] IS NULL OR year::text = ANY($3))
+         )
+         SELECT 'status' AS kind, status AS value, COUNT(*)::bigint AS n
+           FROM searched GROUP BY status
+          UNION ALL
+         SELECT 'year', year::text, COUNT(*)::bigint FROM searched GROUP BY year
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint FROM kept"
+    );
+    let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
+    let years = (!scope.years.is_empty()).then(|| scope.years.clone());
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(&statuses)
+        .bind(&years)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut statuses_out = Vec::new();
+    let mut years_out = Vec::new();
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let n: i64 = row.try_get("n")?;
+        match kind.as_str() {
+            "status" => statuses_out.push(PeriodFacet {
+                value,
+                label: None,
+                count: n,
+            }),
+            "year" => years_out.push(PeriodFacet {
+                value,
+                label: None,
+                count: n,
+            }),
+            _ => total = n,
+        }
+    }
+    // Statuses biggest first, as every other panel here. Years newest first,
+    // because a year is a place on a line and not a size — a panel that put
+    // 2024 above 2026 because it had more months in it would be a calendar
+    // sorted by volume.
+    statuses_out.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    years_out.sort_by(|a, b| b.value.cmp(&a.value));
+    Ok((
+        total,
+        PeriodFacets {
+            statuses: statuses_out,
+            years: years_out,
+        },
+    ))
 }
 
 pub async fn open_period(pool: &PgPool, year: i32, month: i32) -> Result<(), AppError> {

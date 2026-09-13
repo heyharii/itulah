@@ -9,8 +9,36 @@ entry_number: string | null, recorded_by: string, recorded_at: string, posted_by
 /**
  * Days past due, negative when it is not due yet. Derived on read: a
  * stored age would be wrong by morning.
+ *
+ * Counted from `next_due_date`, not from `due_date`.
  */
 days_overdue: number, 
+/**
+ * The earliest instalment this bill has not paid for — what must be paid
+ * NEXT, which is a different question from `due_date`.
+ *
+ * `due_date` is the date on the paper and stays what it always was. This
+ * is derived from the schedule and from what has been settled, and it is
+ * `None` once nothing is owed. A bill with no schedule answers with its
+ * own `due_date`, which is every bill raised before 0202.
+ *
+ * Deliberately NOT ERPNext's reading. It sets the header date to
+ * `max(payment_schedule.due_date)` — the day a bill is finally settled.
+ * An AP office asks the other question every morning.
+ */
+next_due_date: string | null, 
+/**
+ * `UNPAID`, `PARTIALLY_PAID` or `PAID`. Separate from `status`, which
+ * says where the DOCUMENT stands: `POSTED` means the ledger has the bill,
+ * which is true whether or not a rupiah has moved.
+ */
+payment_state: string, 
+/**
+ * Late. Its own flag rather than a fourth payment state, because a bill
+ * can be partly paid AND late at once — which ERPNext's single Select
+ * cannot express.
+ */
+overdue: boolean, 
 /**
  * What has actually left the bank against this bill — allocations from
  * POSTED payments only. Summed on read for the same reason every balance
