@@ -13,7 +13,14 @@
 //! once. A route added on one lane is invisible to the others until something
 //! counts them.
 //!
-//! **The role column is the reason this is more than an inventory.** For the
+//! **Two columns make this more than an inventory: the role and the record.**
+//!
+//! The record column names which record a write is filed against in the
+//! activity log. A `-` there is the one worth stopping on: it says the log
+//! will record that somebody did this and never what they did it to, so the
+//! record's own Activity panel will not show it. Five sheets in the hub were
+//! reading a history that could not exist for exactly this reason.
+//! For the
 //! centre, `required_role` decides authorisation from `(method, path)` alone,
 //! and its last rule is a fall-through. So a mutating route whose path matches
 //! none of the earlier arms lands on `SUPERVISOR` silently, and a GET lands on
@@ -32,7 +39,9 @@
 //! To update after adding a route: `BLESS_ROUTES=1 cargo test --test
 //! route_catalog`, then read the diff before committing it.
 
-use inventory_backend::cloud::domain::required_role;
+use inventory_backend::cloud::domain::{
+    declared_subject_of, record_kind_of, required_role, DECLARED_BY_HANDLER,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -230,16 +239,50 @@ fn routes_in(body: &str, constants: &BTreeMap<String, String>) -> Vec<(String, S
     found
 }
 
+/// Whether a request to this route is recorded in the activity log.
+fn is_write(method: &str) -> bool {
+    matches!(method, "POST" | "PATCH" | "PUT" | "DELETE")
+}
+
 /// One line per route, in the committed file's shape.
 fn render(node: &str, routes: &[(String, String)], with_role: bool) -> Vec<String> {
     routes
         .iter()
         .map(|(method, pattern)| {
-            if with_role {
-                let role = required_role(method, pattern);
-                format!("{node}\t{method}\t{pattern}\t{role:?}")
+            // Which record this route's activity is filed under. `-` on a
+            // write is the interesting value: it says the log will record that
+            // somebody did this and not what they did it to, so the record's
+            // own sheet will never show it. That is right for a route that
+            // acts on no record and wrong for one that does, and the only way
+            // to tell them apart is a person reading this column.
+            //
+            // Reads are `-` by definition: nothing is recorded for a GET.
+            let subject = if !is_write(method) {
+                "-"
+            } else if let Some(declared) = declared_subject_of(method, pattern) {
+                // The handler's answer, which overrules the route's: it is the
+                // one that knows the id of a record that has just been made.
+                declared.map_or("handler", |kind| kind.as_str())
             } else {
-                format!("{node}\t{method}\t{pattern}\t-")
+                record_kind_of(pattern).map_or("-", |(kind, _)| kind.as_str())
+            };
+            if with_role {
+                // The one family whose role is not a property of the path.
+                // `required_role` delegates it to the record named in the URL,
+                // so asking about the PATTERN — where `{kind}` is a literal
+                // brace — yields the unreadable-kind answer, ADMIN. Printing
+                // that would be wrong for fifty-six of the fifty-seven kinds
+                // and would read as a decision somebody made.
+                let role = if pattern.starts_with("/api/v1/records/") {
+                    "PerRecord".to_owned()
+                } else {
+                    format!("{:?}", required_role(method, pattern))
+                };
+                format!("{node}\t{method}\t{pattern}\t{role}\t{subject}")
+            } else {
+                // The edges keep no activity log at all, so the column is not
+                // an omission there — there is nothing for it to say.
+                format!("{node}\t{method}\t{pattern}\t-\t-")
             }
         })
         .collect()
@@ -353,10 +396,15 @@ fn the_committed_catalogue_still_matches_the_routers() {
         "the served routes and the committed catalogue disagree.\n\n\
          Serving but not in the file ({}):\n{}\n\n\
          In the file but not served ({}):\n{}\n\n\
-         Columns are node, method, pattern, role. Check the role on anything \
-         new that mutates: `required_role` falls through to SUPERVISOR, so a \
-         route can be reachable by more people than its author intended. Then \
-         update the file with:\n  BLESS_ROUTES=1 cargo test --test route_catalog",
+         Columns are node, method, pattern, role, record. Check the role on \
+         anything new that mutates: `required_role` falls through to \
+         SUPERVISOR, so a route can be reachable by more people than its \
+         author intended. Check the record too: a `-` on a write means the \
+         activity log will record the act and not the thing it was done to, \
+         so the record's own sheet will never show it — add the route to \
+         `ROUTE_SUBJECTS` in `cloud::domain::record`, or have the handler \
+         declare it. Then update the file with:\n  \
+         BLESS_ROUTES=1 cargo test --test route_catalog",
         added.len(),
         added
             .iter()
@@ -369,5 +417,43 @@ fn the_committed_catalogue_still_matches_the_routers() {
             .map(|line| format!("  {line}"))
             .collect::<Vec<_>>()
             .join("\n"),
+    );
+}
+
+/// The handler-declared list is an allowlist, and an allowlist has to be
+/// guarded or it rots into a blindfold — the same reasoning as `RESERVED` in
+/// `migration_hygiene` and the matrix in `write_authority`.
+///
+/// A line naming a route that no longer exists is worse than no line: it makes
+/// the catalogue claim a subject is declared somewhere, on a route nobody
+/// serves, while the route it was renamed to shows `-` and looks deliberate.
+#[test]
+fn every_handler_declared_route_is_one_this_estate_serves() {
+    let scanned = scan();
+    let served: Vec<(String, String)> = scanned
+        .iter()
+        .filter_map(|line| {
+            let mut columns = line.split('\t');
+            let node = columns.next()?;
+            let method = columns.next()?;
+            let pattern = columns.next()?;
+            (node == "cloud").then(|| (method.to_owned(), pattern.to_owned()))
+        })
+        .collect();
+
+    let stale: Vec<String> = DECLARED_BY_HANDLER
+        .iter()
+        .filter(|(method, pattern, _)| !served.iter().any(|(m, p)| m == method && p == pattern))
+        .map(|(method, pattern, _)| format!("  {method} {pattern}"))
+        .collect();
+
+    assert!(
+        stale.is_empty(),
+        "`DECLARED_BY_HANDLER` names {} route(s) the centre does not serve:\n{}\n\n\
+         Either the route was renamed — in which case rename it there too, and \
+         check the handler still declares its subject — or the line is left \
+         over from a route that was removed.",
+        stale.len(),
+        stale.join("\n"),
     );
 }

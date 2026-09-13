@@ -33,6 +33,7 @@ pub mod documents;
 pub mod employment;
 pub mod files;
 pub mod finance;
+pub mod giro_print;
 pub mod holiday;
 pub mod leave;
 pub mod letters;
@@ -45,7 +46,9 @@ pub mod records;
 pub mod reports;
 pub mod roster;
 pub mod statement_intake;
+pub mod supplier_banks;
 pub mod suppliers;
+pub mod sync_health;
 pub mod vocabulary;
 pub mod vouchers;
 
@@ -330,14 +333,31 @@ pub fn router(state: AppState) -> Router {
             get(letters::list_letters).post(letters::draft_letter),
         )
         .route("/api/v1/letters/sources", get(letters::letter_sources))
+        // Patterns. Listed before `/{letter_id}` so the literal segment wins,
+        // and a pattern is retired rather than deleted — the letters written
+        // from it are part of how they came to say what they say.
+        .route(
+            "/api/v1/letters/templates",
+            get(letters::letter_templates).post(letters::save_template),
+        )
+        .route(
+            "/api/v1/letters/templates/{template_id}",
+            axum::routing::delete(letters::retire_template),
+        )
         .route(
             "/api/v1/letters/{letter_id}",
             get(letters::letter_detail)
                 .patch(letters::save_letter)
                 .delete(letters::discard_letter),
         )
-        .route("/api/v1/letters/{letter_id}/issue", post(letters::issue_letter))
-        .route("/api/v1/letters/{letter_id}/void", post(letters::void_letter))
+        .route(
+            "/api/v1/letters/{letter_id}/issue",
+            post(letters::issue_letter),
+        )
+        .route(
+            "/api/v1/letters/{letter_id}/void",
+            post(letters::void_letter),
+        )
         // Coupons. Migration 0170 turned a counter into a set, its codes and a
         // redemption per sale; these are the routes for authoring one and for
         // the hold a till takes while a basket is still being paid for. The
@@ -355,6 +375,12 @@ pub fn router(state: AppState) -> Router {
         // different question: that one is one product's past, this is the
         // estate's present.
         .route("/api/v1/commercial/price-changes", get(price_changes))
+        // The price book's log. Sibling to `price-history`, which traces ONE
+        // product at ONE shop: this is the other axis — everything that has
+        // happened to the books themselves, with publication, delivery,
+        // activation, failure and expiry kept as separate kinds so a
+        // publication is never read as evidence that a till is charging it.
+        .route("/api/v1/commercial/price-events", get(price_events))
         .route("/api/v1/checkout-exceptions", get(list_checkout_exceptions))
         .route(
             "/api/v1/checkout-exceptions/{checkout_id}/resolve",
@@ -416,6 +442,30 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/suppliers/{id}/items",
             get(suppliers::list_supplier_items).post(suppliers::create_supplier_item),
         )
+        // Where a supplier's money is supposed to land. Nested under the
+        // supplier because that is the only place anybody asks the question,
+        // and because it puts the supplier's id in the path — which is what
+        // files these writes against the supplier in the activity log.
+        .route(
+            "/api/v1/suppliers/{id}/bank-accounts",
+            get(supplier_banks::list_supplier_bank_accounts)
+                .post(supplier_banks::create_supplier_bank_account),
+        )
+        // Where the words go on a bank's own giro leaf. Under finance because
+        // that is who calibrates it and who prints from it; the coordinates
+        // themselves are per bank, not per site — HO writes the giro.
+        .route(
+            "/api/v1/finance/giro-print-templates",
+            get(giro_print::list_giro_print_templates).post(giro_print::create_giro_print_template),
+        )
+        .route(
+            "/api/v1/finance/giro-print-templates/{id}",
+            get(giro_print::giro_print_template).patch(giro_print::update_giro_print_template),
+        )
+        .route(
+            "/api/v1/suppliers/{id}/bank-accounts/{account_id}",
+            patch(supplier_banks::update_supplier_bank_account),
+        )
         .route(
             "/api/v1/supplier-items",
             get(suppliers::search_supplier_items),
@@ -427,10 +477,7 @@ pub fn router(state: AppState) -> Router {
         // What the company has agreed it can agree. Read by the order
         // composer, which carried these four arrangements in a `const` until
         // 0201 gave them a table.
-        .route(
-            "/api/v1/payment-terms",
-            get(suppliers::payment_terms_book),
-        )
+        .route("/api/v1/payment-terms", get(suppliers::payment_terms_book))
         // The master product, read whole. Nothing listed `article` before
         // this; every screen that wanted to know what the company sells was
         // reading the supplier catalogue, which is what somebody offers us.
@@ -681,6 +728,7 @@ pub fn router(state: AppState) -> Router {
             post(sync_revoke_command),
         )
         .route("/api/v1/sync/fleet", get(sync_fleet))
+        .route("/api/v1/sync/health", get(sync_health::sync_health))
         .route("/api/v1/sync/reconciliation", get(sync_reconciliation))
         .route(
             "/api/v1/purchase-orders",
@@ -932,6 +980,33 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/finance/bank-lines/{id}/book",
             post(finance::book_bank_line),
         )
+        // Who the other side was. Not the bank's words — those are evidence and
+        // stay read-only; this is our reading of them, in its own columns.
+        .route(
+            "/api/v1/finance/bank-lines/{id}",
+            patch(finance::update_bank_line),
+        )
+        // Cash's answer to reconciliation: no statement arrives, so a person
+        // counts, and the difference is a separate decision to post.
+        // Gathered from the accounts that name them, never maintained.
+        .route("/api/v1/finance/banks", get(finance::bank_institutions))
+        // What our accounts ARE, beside the map that says where they post.
+        .route(
+            "/api/v1/finance/bank-accounts",
+            get(finance::company_bank_accounts).post(finance::describe_bank_account),
+        )
+        .route(
+            "/api/v1/finance/bank-accounts/{id}/retire",
+            post(finance::retire_bank_account),
+        )
+        .route(
+            "/api/v1/finance/cash-counts",
+            get(finance::cash_counts).post(finance::record_cash_count),
+        )
+        .route(
+            "/api/v1/finance/cash-counts/{id}/post",
+            post(finance::post_cash_count),
+        )
         .route(
             "/api/v1/finance/account-map",
             get(finance::account_map).post(finance::set_account_map),
@@ -1161,8 +1236,12 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/attendance-periods/{place}/{period}/reopening",
             post(roster::reopen_period),
         )
-        // Pay and payroll: head office only, all of it. A place manager's
-        // whole contribution is closing their attendance period.
+        // Pay and payroll. Owner's decision of 2026-09-13: the place asks for
+        // its own payroll and sees the figures, and head office decides it. So
+        // the reads here are reach-bounded rather than head office's alone —
+        // a store that submits a batch has to be able to check it — while
+        // agreeing pay, and the payroll identity that goes with it, stay head
+        // office's.
         //
         // `/pay` is the effective-dated *agreement* — what somebody is on —
         // and `/payslips` is what they were actually paid in a month. Two
@@ -1177,21 +1256,44 @@ pub fn router(state: AppState) -> Router {
             get(pay::read_identity).post(pay::amend_identity),
         )
         .route("/api/v1/employees/{id}/payslips", get(pay::payslips))
-        // The run, and the chain of people who sign it. Verify and approve are
-        // separate keys so the domain can compare actors: a control one person
-        // can complete alone is a record of a signature, not a control.
+        // The run, and the two signatures on it. Submit is the place's and
+        // approve is head office's — separate keys at separate rungs, so the
+        // domain can compare actors: a control one person can complete alone
+        // is a record of a signature, not a control.
+        //
+        // There is no `/verify` and no `/seal`. The first act moved to the
+        // place as `/submission`, and approval is final — a state whose only
+        // content is "and we mean it" cannot be told from the one before it.
         .route(
             "/api/v1/payroll/runs",
             get(pay::list_runs).post(pay::open_run),
         )
-        .route("/api/v1/payroll/runs/{id}/verify", post(pay::verify_run))
+        .route(
+            "/api/v1/payroll/runs/{id}/submission",
+            post(pay::submit_run),
+        )
         .route("/api/v1/payroll/runs/{id}/approve", post(pay::approve_run))
-        .route("/api/v1/payroll/runs/{id}/seal", post(pay::seal_run))
         .route("/api/v1/payroll/runs/{id}/reopen", post(pay::reopen_run))
         .route("/api/v1/payroll/runs/{id}/slips", get(pay::run_slips))
         .route(
             "/api/v1/payroll/runs/{id}/reconciliation",
             get(pay::run_reconciliation),
+        )
+        // The crossing to Finance: one gross liability plus its breakdown,
+        // idempotent per (place, period) so sending twice cannot double what
+        // the company owes. GET is the status coming back — received, or paid
+        // — which is why the handoff is a route and not a fire-and-forget.
+        //
+        // Settling it is Finance's own statement under its own key, because a
+        // grant that could hand a liability over and then declare it paid
+        // would be one person closing the loop on their own request.
+        .route(
+            "/api/v1/payroll/runs/{id}/finance-handover",
+            get(pay::read_handover).post(pay::hand_over_run),
+        )
+        .route(
+            "/api/v1/payroll/runs/{id}/finance-handover/settlement",
+            post(pay::settle_handover),
         )
         .route("/api/v1/notifications", get(notifications::list))
         .route(
@@ -2000,6 +2102,30 @@ struct PointsQuery {
     /// account is `points-ledger` with the member named, not a second shape of
     /// this one.
     customer_id: Option<String>,
+    limit: Option<i64>,
+}
+
+/// Everything that has happened to the price books, newest first.
+async fn price_events(
+    State(s): State<AppState>,
+    Query(q): Query<PriceEventsQuery>,
+) -> Result<Json<Value>, AppError> {
+    let events = infrastructure::price_events(
+        &s.db,
+        q.version,
+        q.site_id.as_deref().filter(|id| !id.trim().is_empty()),
+        q.limit.unwrap_or(200),
+    )
+    .await?;
+    Ok(Json(json!({ "rows": events })))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PriceEventsQuery {
+    /// One book's own log. The version rather than the uuid, because that is
+    /// what every other surface in this module names a book by.
+    version: Option<i64>,
+    site_id: Option<String>,
     limit: Option<i64>,
 }
 

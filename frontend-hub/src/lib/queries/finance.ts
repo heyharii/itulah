@@ -1,34 +1,44 @@
 import { node } from "@/lib/api"
 import type {
   AccountDetail,
+  AccountMapPage,
   AccountMapping,
+  AccountPage,
   AcquisitionGap,
   AllocateToBill,
   AssessAssetRequest,
+  AssetPage,
   AssetRow,
   AssetSchedule,
   BalanceMatrix,
   BankStatementLineRow,
-  BankStatementRow,
+  BankStatementPage,
   BookBankLineRequest,
-  BookLocation,
+  BankInstitution,
+  CashCountRow,
+  CompanyBankAccount,
+  DescribeBankAccountRequest,
+  PostCountRequest,
+  RecordCountRequest,
+  UpdateBankLineRequest,
+  UpdateGiroPrintTemplateRequest,
   ConfirmMatchRequest,
   DepreciationRun,
   DisposeAssetRequest,
-  FiscalPeriod,
+  CreateGiroPrintTemplateRequest,
   GeneralLedger,
+  GiroPrintTemplate,
   ImportOutcome,
   ImportStatementRequest,
   JournalEntryDetail,
-  JournalEntryRow,
-  LedgerAccount,
+  JournalPage,
   LineSuggestions,
   MoneyOverview,
   PayablesAging,
+  PeriodPage,
   RecordBillRequest,
   RecordPaymentRequest,
   RegisterAssetRequest,
-  SemanticKeyDoc,
   SetAccountMappingRequest,
   Statement,
   SupplierBill,
@@ -71,6 +81,12 @@ import type {
 /// a search for `1011001` overwrite the children of `1011001`.
 export const financeKeys = {
   all: ["finance"] as const,
+
+  /// Where the words go on each bank's giro leaf. One key for the lot: there
+  /// are five banks and the calibration screen reads them all to draw its
+  /// picker.
+  giroPrintTemplates: (includeRetired: boolean) =>
+    ["finance", "giro-print-templates", includeRetired] as const,
 
   accountChildren: (parent: string | null, inactive: boolean) =>
     ["finance", "accounts", "children", parent, inactive] as const,
@@ -153,8 +169,16 @@ export const financeKeys = {
   bankStatements: () => ["finance", "bank-statements"] as const,
   bankLines: (statementId: string) =>
     ["finance", "bank-statements", statementId, "lines"] as const,
-  bankSuggestions: (statementId: string) =>
-    ["finance", "bank-statements", statementId, "suggestions"] as const,
+  /// Counts of one drawer, or of all of them.
+  /// Institutions gathered from every account that names one.
+  bankInstitutions: () => ["finance", "banks"] as const,
+  /// What our own accounts are, as opposed to where they post.
+  companyBankAccounts: (site: string | null) =>
+    ["finance", "bank-accounts", site] as const,
+  cashCounts: (account: string | null, site: string | null) =>
+    ["finance", "cash-counts", account, site] as const,
+  bankSuggestions: (statementId: string, exact = true) =>
+    ["finance", "bank-statements", statementId, "suggestions", exact] as const,
 }
 
 /// Query string from whatever is actually set. An absent option and an empty
@@ -182,11 +206,15 @@ function search(
 /// A level at a time, deliberately: the client's chart is 7,528 accounts and
 /// about a megabyte of JSON, and somebody opening the screen wants eight rows.
 export function accountChildren(
-  options: { parent?: string; inactive?: boolean } = {},
+  options: { parent?: string; inactive?: boolean; cursor?: string } = {},
   signal?: AbortSignal
-): Promise<LedgerAccount[]> {
-  return node.get<LedgerAccount[]>(
-    `/api/v1/finance/accounts${search({ parent: options.parent, inactive: options.inactive })}`,
+): Promise<AccountPage> {
+  return node.get<AccountPage>(
+    `/api/v1/finance/accounts${search({
+      parent: options.parent,
+      inactive: options.inactive,
+      cursor: options.cursor,
+    })}`,
     { signal }
   )
 }
@@ -197,15 +225,25 @@ export function accountChildren(
 /// endpoints when somebody typed would have two loading states for one field.
 export function searchAccounts(
   needle: string,
-  options: { site?: string; inactive?: boolean; limit?: number } = {},
+  options: {
+    site?: string
+    inactive?: boolean
+    limit?: number
+    sort?: string
+    dir?: string
+    cursor?: string
+  } = {},
   signal?: AbortSignal
-): Promise<LedgerAccount[]> {
-  return node.get<LedgerAccount[]>(
+): Promise<AccountPage> {
+  return node.get<AccountPage>(
     `/api/v1/finance/accounts${search({
       q: needle,
       site: options.site,
       inactive: options.inactive,
       limit: options.limit,
+      sort: options.sort,
+      dir: options.dir,
+      cursor: options.cursor,
     })}`,
     { signal }
   )
@@ -230,7 +268,19 @@ export function accountDetail(
 /// the current month, which is the unit a ledger is read in.
 export function accountLedger(
   code: string,
-  options: { site?: string; from?: string; to?: string } = {},
+  options: {
+    site?: string
+    from?: string
+    to?: string
+    /// Narrows the ROWS only. `opening_minor`, `closing_minor` and the window
+    /// totals stay totals of the whole window — see `GeneralLedger`.
+    q?: string
+    kind?: string
+    sort?: string
+    dir?: string
+    cursor?: string
+    limit?: number
+  } = {},
   signal?: AbortSignal
 ): Promise<GeneralLedger> {
   return node.get<GeneralLedger>(
@@ -244,7 +294,18 @@ export function accountLedger(
 /// purpose: a browser-side check over a list it had not finished loading could
 /// say "balanced" about half the books.
 export function trialBalance(
-  options: { as_of?: string; site?: string } = {},
+  options: {
+    as_of?: string
+    site?: string
+    /// Narrows the ROWS only. `total_debit_minor`, `total_credit_minor` and
+    /// `balanced` stay figures about the whole ledger — see `TrialBalance`.
+    q?: string
+    class?: string
+    sort?: string
+    dir?: string
+    cursor?: string
+    limit?: number
+  } = {},
   signal?: AbortSignal
 ): Promise<TrialBalance> {
   return node.get<TrialBalance>(
@@ -259,26 +320,37 @@ export function trialBalance(
 
 /// What `GET /account-map` answers with.
 ///
-/// Hand-written: the handler builds a `json!({...})` of three separately
-/// generated pieces rather than serialising one struct, so this envelope has
-/// no generated counterpart even though everything inside it does.
-export interface AccountMapView {
-  readonly mappings: readonly AccountMapping[]
-  /// The locations the books are kept for, derived from the chart itself
-  /// rather than from the list of places a delivery can reach.
-  readonly locations: readonly BookLocation[]
-  /// Every meaning the posting rules ask for, generated from the Rust — so a
-  /// key added to a rule appears here without anybody remembering to add it to
-  /// a list in the browser.
-  readonly required_keys: readonly SemanticKeyDoc[]
-}
+/// Generated now — `AccountMapPage` — where it used to be transcribed by hand
+/// because the handler built a `json!` of three separately generated pieces.
+/// It carries the same three parts (`mappings` is `rows`), plus the envelope
+/// every other finance list answers in and `unmapped_pairs`, which the server
+/// counts over the whole map rather than over the page.
+export type AccountMapView = AccountMapPage
 
+/// The whole map by default, and deliberately.
+///
+/// The endpoint pages at 200; this asks for the server's ceiling instead,
+/// because the Account Map screen's only real question — which (meaning,
+/// location) pairs are still unset — is asked by walking every mapping against
+/// every location, and cannot be answered from a page. 695 mappings at this
+/// client against a ceiling of 1,000.
+///
+/// `total` is what makes that safe rather than hopeful: if the map ever
+/// outgrows the ceiling, `rows.length < total` says so, and the server's own
+/// `unmapped_pairs` — counted over everything, never over the page — is still
+/// right either way.
 export function accountMap(
   site?: string,
-  signal?: AbortSignal
-): Promise<AccountMapView> {
-  return node.get<AccountMapView>(
-    `/api/v1/finance/account-map${search({ site })}`,
+  signal?: AbortSignal,
+  options: { q?: string; cursor?: string; limit?: number } = {}
+): Promise<AccountMapPage> {
+  return node.get<AccountMapPage>(
+    `/api/v1/finance/account-map${search({
+      site,
+      q: options.q,
+      cursor: options.cursor,
+      limit: options.limit ?? 1000,
+    })}`,
     { signal }
   )
 }
@@ -327,8 +399,13 @@ export function financeAttention(
   )
 }
 
-export function listPeriods(signal?: AbortSignal): Promise<FiscalPeriod[]> {
-  return node.get<FiscalPeriod[]>("/api/v1/finance/periods", { signal })
+export function listPeriods(
+  signal?: AbortSignal,
+  options: { q?: string; cursor?: string; limit?: number } = {}
+): Promise<PeriodPage> {
+  return node.get<PeriodPage>(`/api/v1/finance/periods${search(options)}`, {
+    signal,
+  })
 }
 
 /// A month must be opened before anything can post into it — otherwise "post
@@ -339,8 +416,8 @@ export function openPeriod(
   year: number,
   month: number,
   signal?: AbortSignal
-): Promise<FiscalPeriod[]> {
-  return node.post<FiscalPeriod[]>(
+): Promise<PeriodPage> {
+  return node.post<PeriodPage>(
     "/api/v1/finance/periods",
     { year, month },
     { signal }
@@ -386,13 +463,19 @@ export function listJournal(
     kind?: string
     site?: string
     limit?: number
+    /// Free text over the entry number, the memo and the source document's
+    /// own id. The SERVER searches; a browser filtering the page it holds can
+    /// only find what it already fetched.
+    q?: string
+    sort?: string
+    dir?: string
+    cursor?: string
   } = {},
   signal?: AbortSignal
-): Promise<JournalEntryRow[]> {
-  return node.get<JournalEntryRow[]>(
-    `/api/v1/finance/journal${search(options)}`,
-    { signal }
-  )
+): Promise<JournalPage> {
+  return node.get<JournalPage>(`/api/v1/finance/journal${search(options)}`, {
+    signal,
+  })
 }
 
 export function journalEntry(
@@ -516,13 +599,41 @@ export function statement(
 // Supplier bills
 // ---------------------------------------------------------------------------
 
+/// The page the bill register now answers with.
+///
+/// Only the field this app reads is declared. The server exports the whole
+/// envelope — `next_cursor`, `total`, `total_minor`, `outstanding_minor` and
+/// the status facet counts — as `BillPage`, and this local shape is here only
+/// because `make contract` has not been run for it yet. Delete it and import
+/// the generated type when it has; a structural subset means the swap cannot
+/// change what compiles.
+type BillPageRows = { rows: SupplierBill[] }
+
+/// The bill register.
+///
+/// `GET /finance/bills` grew a search, a sort, a keyset cursor and facet
+/// counts, and with them an envelope: `{ rows, next_cursor, total, … }` rather
+/// than the bare array it used to answer with. This app reads lists, sums them
+/// and bins them; it does not page. So it unwraps here, in one place, rather
+/// than at the ten call sites — a new screen that wants the page reads it from
+/// the server's own shape instead of through this.
+///
+/// `limit` defaults to 200 and did not used to have to: the server's default
+/// was 200 and is now "everything, unpaged", because a caller that asks for a
+/// whole list and adds it up must not silently be answered with the first
+/// page. Every screen behind this function is such a caller AND draws a table,
+/// so the old ceiling is kept here deliberately — moving it is a decision about
+/// a screen, not about a wrapper.
 export function listBills(
   options: { status?: string; supplier?: string; limit?: number } = {},
   signal?: AbortSignal
 ): Promise<SupplierBill[]> {
-  return node.get<SupplierBill[]>(`/api/v1/finance/bills${search(options)}`, {
-    signal,
-  })
+  return node
+    .get<BillPageRows>(
+      `/api/v1/finance/bills${search({ limit: 200, ...options })}`,
+      { signal }
+    )
+    .then((page) => page.rows)
 }
 
 /// One bill, and what it was for.
@@ -612,6 +723,10 @@ export function payablesAging(
 /// `supplier` narrows on the *allocations* rather than on the payment: one
 /// bank line settling two suppliers is an ordinary Friday, so a payment does
 /// not have a supplier of its own.
+/// The page the register now answers with; see `BillPageRows`, which says why
+/// this is declared here rather than imported.
+type PaymentPageRows = { rows: SupplierPayment[] }
+
 export function listPayments(
   options: {
     status?: string
@@ -621,10 +736,12 @@ export function listPayments(
   } = {},
   signal?: AbortSignal
 ): Promise<SupplierPayment[]> {
-  return node.get<SupplierPayment[]>(
-    `/api/v1/finance/payments${search(options)}`,
-    { signal }
-  )
+  return node
+    .get<PaymentPageRows>(
+      `/api/v1/finance/payments${search({ limit: 200, ...options })}`,
+      { signal }
+    )
+    .then((page) => page.rows)
 }
 
 export function payment(
@@ -691,10 +808,21 @@ export type { AllocateToBill }
 /// The register. `unassessed` asks for the open control gap directly — assets
 /// Operations has registered that Finance has not yet decided a treatment for.
 export function listAssets(
-  options: { site?: string; category?: string; unassessed?: boolean } = {},
+  options: {
+    site?: string
+    category?: string
+    unassessed?: boolean
+    q?: string
+    decision?: string
+    status?: string
+    sort?: string
+    dir?: string
+    cursor?: string
+    limit?: number
+  } = {},
   signal?: AbortSignal
-): Promise<AssetRow[]> {
-  return node.get<AssetRow[]>(`/api/v1/finance/assets${search(options)}`, {
+): Promise<AssetPage> {
+  return node.get<AssetPage>(`/api/v1/finance/assets${search(options)}`, {
     signal,
   })
 }
@@ -837,11 +965,22 @@ export function moneyOverview(
 }
 
 export function listBankStatements(
-  signal?: AbortSignal
-): Promise<BankStatementRow[]> {
-  return node.get<BankStatementRow[]>("/api/v1/finance/bank-statements", {
-    signal,
-  })
+  signal?: AbortSignal,
+  options: {
+    q?: string
+    site?: string
+    account?: string
+    state?: string
+    sort?: string
+    dir?: string
+    cursor?: string
+    limit?: number
+  } = {}
+): Promise<BankStatementPage> {
+  return node.get<BankStatementPage>(
+    `/api/v1/finance/bank-statements${search(options)}`,
+    { signal }
+  )
 }
 
 /// Load what the bank says happened. A re-import reports its duplicates rather
@@ -872,10 +1011,17 @@ export function bankStatementLines(
 /// nothing automatically, which is an ordinary week and not a failure.
 export function bankSuggestions(
   statementId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /// ERPNext's *exact match* switch. Off widens the offer to vouchers that can
+  /// only cover PART of the line — the only way to begin splitting one bank
+  /// line across two bills, since a transfer paying two suppliers equals
+  /// neither of them.
+  exact = true
 ): Promise<LineSuggestions[]> {
   return node.get<LineSuggestions[]>(
-    `/api/v1/finance/bank-statements/${encodeURIComponent(statementId)}/suggestions`,
+    `/api/v1/finance/bank-statements/${encodeURIComponent(statementId)}/suggestions${
+      exact ? "" : "?exact=0"
+    }`,
     { signal }
   )
 }
@@ -931,6 +1077,113 @@ export function bookBankLine(
   )
 }
 
+// ---------------------------------------------------------------------------
+// Our own bank accounts
+// ---------------------------------------------------------------------------
+
+/// Every bank anybody has named — ours and our suppliers' together. Gathered
+/// from the accounts that name them, never maintained as a list.
+export function listBankInstitutions(
+  signal?: AbortSignal
+): Promise<BankInstitution[]> {
+  return node.get<BankInstitution[]>("/api/v1/finance/banks", { signal })
+}
+
+/// What our accounts are — number, holder, branch, which one a place pays out
+/// of. Separate from the account map, which says where their postings land.
+export function listCompanyBankAccounts(
+  signal?: AbortSignal,
+  options: { site?: string } = {}
+): Promise<CompanyBankAccount[]> {
+  return node.get<CompanyBankAccount[]>(
+    `/api/v1/finance/bank-accounts${search(options)}`,
+    { signal }
+  )
+}
+
+/// Describe an account, or correct what we said about it. One row per ledger
+/// binding, so sending it twice is a correction and not a second account.
+export function describeBankAccount(
+  request: DescribeBankAccountRequest,
+  signal?: AbortSignal
+): Promise<CompanyBankAccount> {
+  return node.post<CompanyBankAccount>(
+    "/api/v1/finance/bank-accounts",
+    request,
+    { signal }
+  )
+}
+
+export function retireBankAccount(
+  accountId: string,
+  signal?: AbortSignal
+): Promise<CompanyBankAccount> {
+  return node.post<CompanyBankAccount>(
+    `/api/v1/finance/bank-accounts/${encodeURIComponent(accountId)}/retire`,
+    {},
+    { signal }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Cash counts
+// ---------------------------------------------------------------------------
+
+/// Every physical count, newest first.
+export function listCashCounts(
+  signal?: AbortSignal,
+  options: { account?: string; site?: string } = {}
+): Promise<CashCountRow[]> {
+  return node.get<CashCountRow[]>(
+    `/api/v1/finance/cash-counts${search(options)}`,
+    { signal }
+  )
+}
+
+/// Write down what was in the drawer. Posts nothing: a count is an
+/// observation, and putting its difference in the books is a second act by
+/// somebody who has read the reason.
+export function recordCashCount(
+  request: RecordCountRequest,
+  signal?: AbortSignal
+): Promise<CashCountRow> {
+  return node.post<CashCountRow>("/api/v1/finance/cash-counts", request, {
+    signal,
+  })
+}
+
+/// Put the difference in the books. Refused when the count has no reason, when
+/// the drawer and the books agree, and when it has been posted already.
+export function postCashCount(
+  countId: string,
+  request: PostCountRequest = { reason: "" },
+  signal?: AbortSignal
+): Promise<CashCountRow> {
+  return node.post<CashCountRow>(
+    `/api/v1/finance/cash-counts/${encodeURIComponent(countId)}/post`,
+    request,
+    { signal }
+  )
+}
+
+/// Say who the other side of a bank line was.
+///
+/// ERPNext's *Update Bank Transaction*, narrowed: the bank's own narration,
+/// amount, date and reference are evidence and stay read-only, so this writes
+/// only what a person concluded — the counterparty and a note.
+export function updateBankLine(
+  lineId: string,
+  request: UpdateBankLineRequest,
+  signal?: AbortSignal
+): Promise<BankStatementLineRow> {
+  return node.request<BankStatementLineRow>(
+    "PATCH",
+    `/api/v1/finance/bank-lines/${encodeURIComponent(lineId)}`,
+    request,
+    { signal }
+  )
+}
+
 /// Take an agreement back. Also posts nothing, and it is the evidence the
 /// auto-match threshold is wrong when the line it undoes was `automatic`.
 ///
@@ -939,12 +1192,74 @@ export function bookBankLine(
 /// the CSRF header a write needs.
 export function unmatchBankLine(
   lineId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /// One voucher's claim. Absent releases the line entirely, which is what
+  /// this meant before a line could be settled by more than one.
+  journalLineId?: string
 ): Promise<{ matched: boolean }> {
   return node.request<{ matched: boolean }>(
     "DELETE",
-    `/api/v1/finance/bank-lines/${encodeURIComponent(lineId)}/match`,
+    `/api/v1/finance/bank-lines/${encodeURIComponent(lineId)}/match${
+      journalLineId === undefined
+        ? ""
+        : `?journal_line=${encodeURIComponent(journalLineId)}`
+    }`,
     undefined,
     { signal }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Giro printing
+//
+// Not a document we produce. A bilyet giro is the bank's own leaf, already
+// carrying its number; what a printer adds is nine facts, and the whole problem
+// is landing them on boxes that are already there. So these read and write
+// COORDINATES — see `0222`.
+
+export function giroPrintTemplates(
+  includeRetired = false,
+  signal?: AbortSignal
+): Promise<GiroPrintTemplate[]> {
+  const query = includeRetired ? "?include_retired=true" : ""
+  return node.get<GiroPrintTemplate[]>(
+    `/api/v1/finance/giro-print-templates${query}`,
+    { signal }
+  )
+}
+
+export function createGiroPrintTemplate(
+  request: CreateGiroPrintTemplateRequest,
+  idempotencyKey: string,
+  signal?: AbortSignal
+): Promise<GiroPrintTemplate> {
+  return node.post<GiroPrintTemplate>(
+    "/api/v1/finance/giro-print-templates",
+    request,
+    { signal, headers: { "Idempotency-Key": idempotencyKey } }
+  )
+}
+
+/// Save a calibration. The whole layout goes at once, with the template's own
+/// version as an `If-Match`: two people nudging the same leaf cannot both win,
+/// and a half-saved layout is one that prints.
+export function saveGiroPrintTemplate(
+  templateId: string,
+  request: UpdateGiroPrintTemplateRequest,
+  version: number,
+  idempotencyKey: string,
+  signal?: AbortSignal
+): Promise<GiroPrintTemplate> {
+  return node.request<GiroPrintTemplate>(
+    "PATCH",
+    `/api/v1/finance/giro-print-templates/${encodeURIComponent(templateId)}`,
+    request,
+    {
+      signal,
+      headers: {
+        "Idempotency-Key": idempotencyKey,
+        "If-Match": `"${version}"`,
+      },
+    }
   )
 }

@@ -11,17 +11,22 @@
 //! keep its own copy of a rule the database is already enforcing.
 
 use super::auth::Principal;
+use super::{facet_values, limit_value, refuse_unknown_parameters, single_value};
 use crate::cloud::{
     application::{AppError, AppState},
+    domain::RecordKind,
+    http::audit::DeclaredSubject,
     postgres::{
-        self as infrastructure, AccountBalance, AcquisitionGap, AssessAssetRequest, AssetRow,
-        AssetSchedule, BalanceMatrix, BankStatementLineRow, BankStatementRow, BookBankLineRequest,
-        ConfirmMatchRequest, DepreciationRun, DisposeAssetRequest, FiscalPeriod, GeneralLedger,
-        ImportOutcome, ImportStatementRequest, JournalEntryDetail, JournalEntryRow, LedgerAccount,
-        LineSuggestions, MoneyOverview, PayablesAging, PostingIntent, PostingLine,
-        RecordBillRequest, RecordPaymentRequest, RegisterAssetRequest, SetAccountMappingRequest,
-        Statement, SupplierBill, SupplierPayment, TransferAssetRequest, TrialBalance,
-        UnbilledReceipt,
+        self as infrastructure, AccountBalance, AccountMapPage, AccountPage, AcquisitionGap,
+        AssessAssetRequest, AssetPage, AssetRow, AssetSchedule, BalanceMatrix, BankInstitution,
+        BankStatementLineRow, BankStatementPage, BillPage, BookBankLineRequest, CashCountRow,
+        CompanyBankAccount, ConfirmMatchRequest, DepreciationRun, DescribeBankAccountRequest,
+        DisposeAssetRequest, GeneralLedger, ImportOutcome, ImportStatementRequest,
+        JournalEntryDetail, JournalPage, LedgerAccount, LineSuggestions, MoneyOverview,
+        PayablesAging, PaymentPage, PeriodPage, PostCountRequest, PostingIntent, PostingLine,
+        RecordBillRequest, RecordCountRequest, RecordPaymentRequest, RegisterAssetRequest,
+        SetAccountMappingRequest, Statement, SupplierBill, SupplierPayment, TransferAssetRequest,
+        TrialBalance, UnbilledReceipt, UpdateBankLineRequest,
     },
 };
 use axum::{
@@ -37,45 +42,78 @@ use uuid::Uuid;
 // Chart of accounts
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-pub struct AccountQuery {
-    /// The heading to open. Absent means the eight roots.
-    pub parent: Option<String>,
-    /// Free text, matched against both code and name.
-    pub q: Option<String>,
-    pub site: Option<String>,
-    #[serde(default)]
-    pub inactive: bool,
-    pub limit: Option<i64>,
-}
+/// What every one of these lists takes, beside its own filters.
+///
+/// Declared because these handlers read the query string as PAIRS rather than
+/// into a struct — the filters are multi-select, and `?site=a&site=b` is how a
+/// panel with two boxes ticked spells itself, which a struct's deserializer
+/// silently reduces to the last one. The one thing a struct gives that pairs
+/// do not is `deny_unknown_fields`, and it is worth having: a misspelled
+/// filter narrows nothing and looks like it worked. So each handler declares
+/// the names it takes and `refuse_unknown_parameters` turns anything else into
+/// a 400.
+const PAGING: [&str; 5] = ["q", "sort", "dir", "cursor", "limit"];
 
-/// One level of the tree, or the results of a search.
+/// One level of the tree, or the results of a search: searched, filtered,
+/// sorted and paged.
 ///
 /// One endpoint rather than two because they answer the same question — "which
 /// accounts am I looking at" — and a screen that switched endpoints when
 /// somebody typed would have two loading states for one box.
+///
+/// # Why this answers in an envelope rather than in an array
+///
+/// Because a list of rows cannot say how many rows there are, and this is the
+/// list where that matters most: the client's chart is 7,528 accounts. The
+/// tree was never the problem — no heading here has more than 36 children —
+/// but the search clamped at 500 and said nothing about the rest, so a needle
+/// matching two thousand accounts looked exactly like one matching five
+/// hundred. `total` says which, and `next_cursor` walks past it.
+///
+/// The shape is `GET /finance/money`'s, deliberately and not adapted.
+///
+/// # Query parameters
+///
+/// `parent` opens a heading and is read only when there is no search. `q`
+/// searches the code by prefix and the name anywhere. `class` and `site`
+/// filter, and each of them repeats or takes a comma list. `inactive=true`
+/// includes retired accounts. `sort` is one of `code`, `name`, `children`,
+/// with `dir=desc`; anything else is the house order — what you typed the code
+/// of, first. `cursor` and `limit` page.
 pub async fn accounts(
     State(state): State<AppState>,
-    Query(query): Query<AccountQuery>,
-) -> Result<Json<Vec<LedgerAccount>>, AppError> {
-    let needle = query.q.as_deref().map(str::trim).unwrap_or("");
-    if needle.is_empty() {
-        Ok(Json(
-            infrastructure::account_children(&state.db, query.parent.as_deref(), query.inactive)
-                .await?,
-        ))
-    } else {
-        Ok(Json(
-            infrastructure::search_accounts(
-                &state.db,
-                needle,
-                query.site.as_deref(),
-                query.inactive,
-                query.limit.unwrap_or(100),
-            )
-            .await?,
-        ))
-    }
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<AccountPage>, AppError> {
+    refuse_unknown_parameters(
+        &params,
+        &[&PAGING[..], &["parent", "class", "site", "inactive"]].concat(),
+    )?;
+    Ok(Json(
+        infrastructure::account_page(
+            &state.db,
+            infrastructure::AccountScope {
+                parent: single_value(&params, "parent"),
+                needle: single_value(&params, "q"),
+                classes: facet_values(&params, "class"),
+                // `site` stays the name it has always been, and now takes more
+                // than one. An old caller sending exactly one is unaffected.
+                sites: facet_values(&params, "site"),
+                // `true` and nothing else. A retired account is hidden until
+                // somebody says otherwise, which is what this has always done.
+                include_inactive: single_value(&params, "inactive").as_deref() == Some("true"),
+                sort: single_value(&params, "sort"),
+                // `dir=desc` and nothing else. Absent, empty and anything
+                // unrecognised all mean ascending, which is the direction a
+                // list is in before anybody touches it.
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                // Clamped where it is enforced, not here: one spelling of how
+                // much of the chart one request may see.
+                limit: limit_value(&params)?,
+            },
+        )
+        .await?,
+    ))
 }
 
 #[derive(Debug, Serialize)]
@@ -110,38 +148,134 @@ pub async fn account_detail(
     }))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct LedgerQuery {
-    pub site: Option<String>,
-    pub from: Option<NaiveDate>,
-    pub to: Option<NaiveDate>,
-}
-
+/// One account's movements over a window, with the balance walking down it.
+///
+/// # The totals do not move when somebody types
+///
+/// This is the one list here where the envelope's convention is deliberately
+/// overridden. A general ledger is read to answer "what did this account do,
+/// and does it still add up"; the second half is about the WHOLE window, and a
+/// figure that shrank as somebody narrowed the rows would be a trial balance
+/// that disagreed with itself on demand.
+///
+/// So `opening_minor`, `closing_minor`, `window_debit_minor`,
+/// `window_credit_minor` and `window_rows` are computed before the search, and
+/// `running_minor` on each row is still the balance after that movement in the
+/// window's own order. Only `rows`, `total` and the facet counts narrow.
+///
+/// # Query parameters
+///
+/// `site`, `from` and `to` define the WINDOW — `site` narrows the opening
+/// balance too, because "cash at Cikupa" is a different ledger and not a
+/// filtered view of a wider one. `q` searches the entry number, the memo and
+/// the source document's id; `kind` filters by what caused the entry and
+/// repeats. Both narrow the ROWS alone. `sort` is one of `amount`, `entry`,
+/// `reconciliation`, with `dir=desc`; anything else is the window's own
+/// sequence. `cursor` and `limit` page.
 pub async fn account_ledger(
     State(state): State<AppState>,
     Path(code): Path<String>,
-    Query(query): Query<LedgerQuery>,
+    Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GeneralLedger>, AppError> {
-    let to = query.to.unwrap_or_else(|| Utc::now().date_naive());
+    refuse_unknown_parameters(
+        &params,
+        &[&PAGING[..], &["site", "from", "to", "kind"]].concat(),
+    )?;
+    let to = match single_value(&params, "to") {
+        Some(raw) => raw
+            .parse::<NaiveDate>()
+            .map_err(|_| AppError::Validation(format!("to {raw:?} is not a date")))?,
+        None => Utc::now().date_naive(),
+    };
     // A month, because that is the unit a ledger is read in and a default of
     // "everything" would make the first open of a busy account slow for no
     // reason anybody asked for.
-    let from = query.from.unwrap_or_else(|| to.with_day(1).unwrap_or(to));
+    let from = match single_value(&params, "from") {
+        Some(raw) => raw
+            .parse::<NaiveDate>()
+            .map_err(|_| AppError::Validation(format!("from {raw:?} is not a date")))?,
+        None => to.with_day(1).unwrap_or(to),
+    };
     if from > to {
         return Err(AppError::Validation("from is after to".into()));
     }
     Ok(Json(
-        infrastructure::general_ledger(&state.db, &code, query.site.as_deref(), from, to).await?,
+        infrastructure::general_ledger(
+            &state.db,
+            &code,
+            infrastructure::GeneralLedgerScope {
+                site_id: single_value(&params, "site"),
+                from,
+                to,
+                needle: single_value(&params, "q"),
+                kinds: facet_values(&params, "kind"),
+                sort: single_value(&params, "sort"),
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
+        )
+        .await?,
     ))
 }
 
+/// Every account that has been posted to, and the server's own proof that
+/// debits equal credits.
+///
+/// # The proof does not move when somebody types
+///
+/// `as_of` and `site` define the LEDGER being proved. `q` and `class` narrow
+/// only the rows: `total_debit_minor`, `total_credit_minor`, `balanced` and
+/// `ledger_rows` are computed over everything, in SQL, before either is
+/// applied. A trial balance narrowed to one class still says whether the books
+/// balance, because that is the question it exists to answer.
+///
+/// # Why it pages at all
+///
+/// The cursor bounds the RESPONSE, not the scan: this is an aggregate over
+/// every journal line on or before `as_of`, and the aggregate has to finish
+/// before any row can be ordered. It is worth having anyway — the client's
+/// chart is 7,528 accounts and a month where most of them move is 7,528 rows
+/// of JSON into a screen that draws forty.
+///
+/// # Query parameters
+///
+/// `as_of` and `site` define the ledger. `q` searches the account code and the
+/// client's own name for it; `class` filters and repeats. `sort` is one of
+/// `name`, `debit`, `credit`, `net`, with `dir=desc`; anything else is the
+/// chart's own order. `cursor` and `limit` page — 500 by default, because this
+/// is a report somebody scrolls rather than a list they click through, and a
+/// smaller page pays for the aggregate more times.
 pub async fn trial_balance(
     State(state): State<AppState>,
-    Query(query): Query<BalanceQuery>,
+    Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<TrialBalance>, AppError> {
-    let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
+    refuse_unknown_parameters(
+        &params,
+        &[&PAGING[..], &["as_of", "site", "class"]].concat(),
+    )?;
+    let as_of = match single_value(&params, "as_of") {
+        Some(raw) => Some(
+            raw.parse::<NaiveDate>()
+                .map_err(|_| AppError::Validation(format!("as_of {raw:?} is not a date")))?,
+        ),
+        None => None,
+    };
     Ok(Json(
-        infrastructure::trial_balance(&state.db, as_of, query.site.as_deref()).await?,
+        infrastructure::trial_balance(
+            &state.db,
+            infrastructure::TrialBalanceScope {
+                as_of,
+                site_id: single_value(&params, "site"),
+                needle: single_value(&params, "q"),
+                classes: facet_values(&params, "class"),
+                sort: single_value(&params, "sort"),
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
+        )
+        .await?,
     ))
 }
 
@@ -149,25 +283,46 @@ pub async fn trial_balance(
 // The account map
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-pub struct MapQuery {
-    pub site: Option<String>,
-}
-
+/// The map: searched, filtered, sorted and paged, with the two lists it
+/// cannot be read without.
+///
+/// `locations` and `required_keys` travel with the page rather than being
+/// fetched separately because the screen's only real question — which pairs
+/// are still unset — cannot be asked without all three parts. They are not
+/// paged: both are small and closed.
+///
+/// `unmapped_pairs` is counted over EVERY location and EVERY required
+/// meaning, never over the page and never narrowed by the search. A gap is a
+/// gap whether or not you are currently looking at it, and a filtered view
+/// reporting "0 unmapped" because the filter hid them would be the screen
+/// reporting the problem solved.
+///
+/// # Query parameters
+///
+/// `q` searches the meaning, the qualifier, the account code and the client's
+/// own name for that account. `site` and `key` filter, each repeatable.
+/// `sort` is one of `account`, `site`, `set`, with `dir=desc`; anything else
+/// is the house order, by meaning. `cursor` and `limit` page.
 pub async fn account_map(
     State(state): State<AppState>,
-    Query(query): Query<MapQuery>,
-) -> Result<Json<Value>, AppError> {
-    let mappings = infrastructure::account_mappings(&state.db, query.site.as_deref()).await?;
-    // The locations the books are kept for, and the meanings the posting rules
-    // will ask for. Sent with the map because the screen's only real question —
-    // which of these is still unset — cannot be asked without all three parts.
-    let locations = infrastructure::book_locations(&state.db).await?;
-    Ok(Json(json!({
-        "mappings": mappings,
-        "locations": locations,
-        "required_keys": infrastructure::required_semantic_keys(),
-    })))
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<AccountMapPage>, AppError> {
+    refuse_unknown_parameters(&params, &[&PAGING[..], &["site", "key"]].concat())?;
+    Ok(Json(
+        infrastructure::account_map_page(
+            &state.db,
+            infrastructure::AccountMapScope {
+                needle: single_value(&params, "q"),
+                sites: facet_values(&params, "site"),
+                keys: facet_values(&params, "key"),
+                sort: single_value(&params, "sort"),
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
+        )
+        .await?,
+    ))
 }
 
 pub async fn set_account_map(
@@ -199,7 +354,9 @@ pub async fn attention(
     let year = query.year.unwrap_or_else(|| today.year());
     let month = query.month.unwrap_or_else(|| today.month() as i32);
     if !(1..=12).contains(&month) {
-        return Err(AppError::Validation("month must be between 1 and 12".into()));
+        return Err(AppError::Validation(
+            "month must be between 1 and 12".into(),
+        ));
     }
     Ok(Json(
         infrastructure::finance_attention_counts(&state.db, year, month).await?,
@@ -210,8 +367,46 @@ pub async fn attention(
 // Periods
 // ---------------------------------------------------------------------------
 
-pub async fn periods(State(state): State<AppState>) -> Result<Json<Vec<FiscalPeriod>>, AppError> {
-    Ok(Json(infrastructure::fiscal_periods(&state.db).await?))
+/// The months the books are kept in: searched, filtered, sorted and paged.
+///
+/// Four rows today and twelve more a year, so the envelope is not about
+/// length. It is about one shape: a screen should not have to know which
+/// finance lists answer with an envelope and which answer with an array, and
+/// "how many months are still open" is a number the server sends rather than
+/// one the browser counts off a list it may have truncated.
+///
+/// # Query parameters
+///
+/// `q` searches the month's own name — `2026-09` — and whoever closed it.
+/// `status` and `year` filter, each repeatable. `sort` is `entries` or
+/// `closed`, with `dir=desc`; anything else is the house order, newest month
+/// first. `cursor` and `limit` page.
+pub async fn periods(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<PeriodPage>, AppError> {
+    refuse_unknown_parameters(&params, &[&PAGING[..], &["status", "year"]].concat())?;
+    Ok(Json(
+        infrastructure::period_page(&state.db, period_scope(&params)?).await?,
+    ))
+}
+
+/// The scope both period reads build, spelled once.
+///
+/// `open_period` answers with the whole list so the screen never has to guess
+/// what changed, and it must answer in the same shape the GET does — two
+/// spellings of one envelope is how a screen ends up reading `.rows` from one
+/// and an array from the other.
+fn period_scope(params: &[(String, String)]) -> Result<infrastructure::PeriodScope, AppError> {
+    Ok(infrastructure::PeriodScope {
+        needle: single_value(params, "q"),
+        statuses: facet_values(params, "status"),
+        years: facet_values(params, "year"),
+        sort: single_value(params, "sort"),
+        desc: single_value(params, "dir").as_deref() == Some("desc"),
+        cursor: single_value(params, "cursor"),
+        limit: limit_value(params)?,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -224,12 +419,17 @@ pub struct PeriodRequest {
 pub async fn open_period(
     State(state): State<AppState>,
     Json(request): Json<PeriodRequest>,
-) -> Result<Json<Vec<FiscalPeriod>>, AppError> {
+) -> Result<Json<PeriodPage>, AppError> {
     if !(1..=12).contains(&request.month) {
         return Err(AppError::Validation("month must be 1..12".into()));
     }
     infrastructure::open_period(&state.db, request.year, request.month).await?;
-    Ok(Json(infrastructure::fiscal_periods(&state.db).await?))
+    // The whole list back, in the shape the GET answers in — see
+    // [`period_scope`]. A write that answered differently from the read of the
+    // same thing is a second shape for one list.
+    Ok(Json(
+        infrastructure::period_page(&state.db, Default::default()).await?,
+    ))
 }
 
 pub async fn close_period(
@@ -251,31 +451,56 @@ pub async fn close_period(
 // The journal
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-pub struct JournalQuery {
-    pub from: Option<NaiveDate>,
-    pub to: Option<NaiveDate>,
-    /// A `source_kind`. `MANUAL` is the one worth asking for on its own: it is
-    /// the only kind that means a person typed the entry from nothing.
-    pub kind: Option<String>,
-    /// Entries with any line at this location. An entry has no location of its
-    /// own — its lines do, and a payment can settle two shops' bills at once.
-    pub site: Option<String>,
-    pub limit: Option<i64>,
-}
-
+/// The register: searched, filtered, sorted and paged.
+///
+/// The same envelope `GET /finance/money` established. `q` is the new half:
+/// the search runs on the SERVER, over the entry number, the memo and the
+/// source document's own id — which is what somebody has in their hand when
+/// they come to the register asking "did this post". Before this they had to
+/// know which month it landed in and read down the page.
+///
+/// # Query parameters
+///
+/// `from` and `to` bound the window, both inclusive. `q` searches. `kind` and
+/// `site` filter and each repeats: `kind` is a `source_kind`, and `site` asks
+/// whether ANY line of the entry touched that location — an entry has no
+/// location of its own, and a payment can settle two shops' bills at once.
+/// `sort` is one of `number`, `total`, `lines`, `kind`, with `dir=desc`;
+/// anything else is the house order, newest first. `cursor` and `limit` page.
+///
+/// The four parameters this endpoint has always taken — `from`, `to`, `kind`,
+/// `site` — mean exactly what they meant, and a caller sending one of each is
+/// unaffected by the widening.
 pub async fn journal(
     State(state): State<AppState>,
-    Query(query): Query<JournalQuery>,
-) -> Result<Json<Vec<JournalEntryRow>>, AppError> {
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<JournalPage>, AppError> {
+    refuse_unknown_parameters(
+        &params,
+        &[&PAGING[..], &["from", "to", "kind", "site"]].concat(),
+    )?;
+    let date = |key: &str| -> Result<Option<NaiveDate>, AppError> {
+        match single_value(&params, key) {
+            Some(raw) => Ok(Some(raw.parse::<NaiveDate>().map_err(|_| {
+                AppError::Validation(format!("{key} {raw:?} is not a date"))
+            })?)),
+            None => Ok(None),
+        }
+    };
     Ok(Json(
-        infrastructure::journal_register(
+        infrastructure::journal_page(
             &state.db,
-            query.from,
-            query.to,
-            query.kind.as_deref(),
-            query.site.as_deref(),
-            query.limit.unwrap_or(200),
+            infrastructure::JournalScope {
+                from: date("from")?,
+                to: date("to")?,
+                needle: single_value(&params, "q"),
+                kinds: facet_values(&params, "kind"),
+                sites: facet_values(&params, "site"),
+                sort: single_value(&params, "sort"),
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
         )
         .await?,
     ))
@@ -307,6 +532,7 @@ pub struct ManualEntryRequest {
 pub async fn post_manual_entry(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<ManualEntryRequest>,
 ) -> Result<Json<Value>, AppError> {
     let intent = PostingIntent {
@@ -321,6 +547,7 @@ pub async fn post_manual_entry(
     let mut tx = state.db.begin().await?;
     let posted = infrastructure::post(&mut tx, &intent, &principal.username).await?;
     tx.commit().await?;
+    acted_on.set(RecordKind::Journal, posted.entry_id.to_string());
     Ok(Json(json!({
         "entry_id": posted.entry_id,
         "entry_number": posted.entry_number,
@@ -420,23 +647,55 @@ pub async fn statement(
 // Supplier bills
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-pub struct BillQuery {
-    pub status: Option<String>,
-    pub supplier: Option<String>,
-    pub limit: Option<i64>,
-}
-
+/// The bill register: searched, filtered, sorted and paged.
+///
+/// # Why this answers in an envelope rather than in an array
+///
+/// Because a list of rows cannot say how many rows there are. A screen showing
+/// fifty bills under a heading that says "50" is making a statement about the
+/// page size, and the question somebody has is "50 of how many". The count has
+/// to be the server's: only it has seen the other 1,234.
+///
+/// The shape is `GET /money`'s, deliberately and not adapted — same `rows`,
+/// same `next_cursor`, same `total`, same facet counts — so that one hook in
+/// the browser draws all three lists. A second list with its own spelling of
+/// the same four ideas is how two tables end up disagreeing about what the
+/// number beside the heading means.
+///
+/// # Query parameters
+///
+/// `q` searches the invoice number and the supplier's name. `status`,
+/// `supplier` and `site` filter, and each of them repeats: two `status=`
+/// parameters is how a panel with two boxes ticked spells itself, which is why
+/// this reads the query string as pairs rather than into a struct — a struct's
+/// deserializer keeps the last value and drops the rest, silently, so the
+/// screen shows one filter's worth of rows and blames the server. `sort` is one
+/// of `date`, `due`, `supplier`, `total`, `outstanding`, with `dir=desc`;
+/// anything else is the house order, newest first. `cursor` and `limit` page.
+///
+/// The three parameters this endpoint has always taken — `status`, `supplier`,
+/// `limit` — mean exactly what they meant, and a caller sending one of each is
+/// unaffected by the widening.
 pub async fn bills(
     State(state): State<AppState>,
-    Query(query): Query<BillQuery>,
-) -> Result<Json<Vec<SupplierBill>>, AppError> {
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<BillPage>, AppError> {
     Ok(Json(
-        infrastructure::list_bills(
+        infrastructure::bill_page(
             &state.db,
-            query.status.as_deref(),
-            query.supplier.as_deref(),
-            query.limit.unwrap_or(200),
+            infrastructure::BillScope {
+                needle: single_value(&params, "q"),
+                statuses: facet_values(&params, "status"),
+                suppliers: facet_values(&params, "supplier"),
+                sites: facet_values(&params, "site"),
+                sort: single_value(&params, "sort"),
+                // `dir=desc` and nothing else. Absent, empty and anything
+                // unrecognised all mean ascending, which is the direction a
+                // list is in before anybody touches it.
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
         )
         .await?,
     ))
@@ -447,7 +706,7 @@ pub async fn bills(
 /// The detail read, and the only one that fills `lines`: an EXPENSE bill comes
 /// back with the accounts it named, a MERCHANDISE bill with an empty array —
 /// it genuinely has none, and that is different from the `null` the list
-/// returns, which means "not fetched". `list_bills` leaves it null so drawing a
+/// returns, which means "not fetched". `bill_page` leaves it null so drawing a
 /// hundred rows stays one query.
 ///
 /// Settlement is already on the row as `paid_minor`, `outstanding_minor` and
@@ -464,11 +723,12 @@ pub async fn bill(
 pub async fn record_bill(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<RecordBillRequest>,
 ) -> Result<Json<SupplierBill>, AppError> {
-    Ok(Json(
-        infrastructure::record_bill(&state.db, &request, &principal.username).await?,
-    ))
+    let bill = infrastructure::record_bill(&state.db, &request, &principal.username).await?;
+    acted_on.set(RecordKind::Bill, bill.invoice_id.to_string());
+    Ok(Json(bill))
 }
 
 #[derive(Debug, Deserialize)]
@@ -535,27 +795,39 @@ pub async fn payables_aging(
 // Supplier payments
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-pub struct PaymentQuery {
-    pub status: Option<String>,
-    pub site: Option<String>,
-    /// Who was paid. It lives on the allocations, not on the payment: one bank
-    /// line settling two suppliers is a thing that happens.
-    pub supplier: Option<String>,
-    pub limit: Option<i64>,
-}
-
+/// The payment register: searched, filtered, sorted and paged.
+///
+/// The same envelope `GET /bills` answers in, which is `GET /money`'s — see
+/// the note on `bills` for why all three are one shape.
+///
+/// # Query parameters
+///
+/// `q` searches the payment number and the bank reference. `status`, `site`
+/// and `supplier` filter, each repeatable. `sort` is one of `date`, `total`,
+/// `number`, with `dir=desc`; anything else is the house order, most recent
+/// first. `cursor` and `limit` page.
+///
+/// `supplier` still narrows on the ALLOCATIONS rather than on the payment: one
+/// bank line settling two suppliers is an ordinary Friday, so a payment has no
+/// supplier of its own. It now takes more than one, and a caller sending
+/// exactly one — as every existing caller does — is unaffected.
 pub async fn payments(
     State(state): State<AppState>,
-    Query(query): Query<PaymentQuery>,
-) -> Result<Json<Vec<SupplierPayment>>, AppError> {
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<PaymentPage>, AppError> {
     Ok(Json(
-        infrastructure::list_payments(
+        infrastructure::payment_page(
             &state.db,
-            query.status.as_deref(),
-            query.site.as_deref(),
-            query.supplier.as_deref(),
-            query.limit.unwrap_or(200),
+            infrastructure::PaymentScope {
+                needle: single_value(&params, "q"),
+                statuses: facet_values(&params, "status"),
+                sites: facet_values(&params, "site"),
+                suppliers: facet_values(&params, "supplier"),
+                sort: single_value(&params, "sort"),
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
         )
         .await?,
     ))
@@ -572,11 +844,12 @@ pub async fn payment(
 pub async fn record_payment(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<RecordPaymentRequest>,
 ) -> Result<Json<SupplierPayment>, AppError> {
-    Ok(Json(
-        infrastructure::record_payment(&state.db, &request, &principal.username).await?,
-    ))
+    let payment = infrastructure::record_payment(&state.db, &request, &principal.username).await?;
+    acted_on.set(RecordKind::Payment, payment.payment_id.to_string());
+    Ok(Json(payment))
 }
 
 #[derive(Debug, Deserialize)]
@@ -608,28 +881,53 @@ pub async fn post_payment(
 // Fixed assets
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-pub struct AssetQuery {
-    pub site: Option<String>,
-    pub category: Option<String>,
-    /// Only assets nobody has assessed. The open control gap, asked for
-    /// directly — it is the list Finance works from.
-    #[serde(default)]
-    pub unassessed: bool,
-    pub limit: Option<i64>,
-}
-
+/// The asset register: searched, filtered, sorted and paged.
+///
+/// # Query parameters
+///
+/// `q` searches the asset number, its name and its serial — the last matters,
+/// because somebody standing in front of a machine has the plate in their hand
+/// and nothing else. `site`, `category`, `decision` and `status` filter, each
+/// repeatable. `sort` is one of `name`, `acquired`, `cost`, `book`, with
+/// `dir=desc`; anything else is the house order, by asset number. `cursor` and
+/// `limit` page.
+///
+/// `unassessed=true` is kept because the sidebar sends it, and it is exactly
+/// `decision=UNASSESSED` — "not assessed" is a state an asset is in rather
+/// than a separate flag, and the boolean could only ever ask for it alone.
+/// Sending both is the same request twice and narrows to the same rows.
 pub async fn assets(
     State(state): State<AppState>,
-    Query(query): Query<AssetQuery>,
-) -> Result<Json<Vec<AssetRow>>, AppError> {
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<AssetPage>, AppError> {
+    refuse_unknown_parameters(
+        &params,
+        &[
+            &PAGING[..],
+            &["site", "category", "decision", "status", "unassessed"],
+        ]
+        .concat(),
+    )?;
+    let mut decisions = facet_values(&params, "decision");
+    if single_value(&params, "unassessed").as_deref() == Some("true")
+        && !decisions.iter().any(|value| value == "UNASSESSED")
+    {
+        decisions.push("UNASSESSED".into());
+    }
     Ok(Json(
-        infrastructure::list_assets(
+        infrastructure::asset_page(
             &state.db,
-            query.site.as_deref(),
-            query.category.as_deref(),
-            query.unassessed,
-            query.limit.unwrap_or(500),
+            infrastructure::AssetScope {
+                needle: single_value(&params, "q"),
+                sites: facet_values(&params, "site"),
+                categories: facet_values(&params, "category"),
+                decisions,
+                statuses: facet_values(&params, "status"),
+                sort: single_value(&params, "sort"),
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
         )
         .await?,
     ))
@@ -638,11 +936,12 @@ pub async fn assets(
 pub async fn register_asset(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<RegisterAssetRequest>,
 ) -> Result<Json<AssetRow>, AppError> {
-    Ok(Json(
-        infrastructure::register_asset(&state.db, &request, &principal.username).await?,
-    ))
+    let asset = infrastructure::register_asset(&state.db, &request, &principal.username).await?;
+    acted_on.set(RecordKind::Asset, asset.asset_id.to_string());
+    Ok(Json(asset))
 }
 
 pub async fn assess_asset(
@@ -760,11 +1059,48 @@ pub async fn run_depreciation(
 /// it gets fixed.
 pub async fn money(
     State(state): State<AppState>,
-    Query(query): Query<BalanceQuery>,
+    Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<MoneyOverview>, AppError> {
-    let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
+    // `Query<Vec<(String, String)>>` rather than a struct, for one reason:
+    // `pot` and `site` repeat. `?pot=CASH&pot=BANK` is how a facet filter with
+    // two boxes ticked spells itself, and a struct's deserializer keeps the
+    // last value and drops the rest — silently, so the screen shows one
+    // filter's worth of rows and blames the server.
+    let as_of = match single_value(&params, "as_of") {
+        Some(raw) => Some(
+            raw.parse::<NaiveDate>()
+                .map_err(|_| AppError::Validation(format!("as_of {raw:?} is not a date")))?,
+        ),
+        None => None,
+    };
+    let limit = match single_value(&params, "limit") {
+        Some(raw) => Some(
+            raw.parse::<i64>()
+                .map_err(|_| AppError::Validation(format!("limit {raw:?} is not a number")))?,
+        ),
+        None => None,
+    };
     Ok(Json(
-        infrastructure::money_overview(&state.db, as_of, query.site.as_deref()).await?,
+        infrastructure::money_overview(
+            &state.db,
+            infrastructure::MoneyScope {
+                as_of,
+                needle: single_value(&params, "q"),
+                pots: facet_values(&params, "pot"),
+                // `site` stays the name it has always been, and now takes more
+                // than one. An old caller sending exactly one is unaffected.
+                sites: facet_values(&params, "site"),
+                flags: facet_values(&params, "flag"),
+                sort: single_value(&params, "sort"),
+                // `dir=desc` and nothing else. Absent, empty and anything
+                // unrecognised all mean ascending, which is the direction a
+                // list is in before anybody touches it.
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit,
+            },
+        )
+        .await?,
     ))
 }
 
@@ -772,10 +1108,45 @@ pub async fn money(
 // Bank reconciliation
 // ---------------------------------------------------------------------------
 
+/// What the bank has told us: searched, filtered, sorted and paged.
+///
+/// `total_unmatched` is the one number this screen exists for — how many lines
+/// across the matched statements nobody has agreed yet. Added on the server,
+/// because a browser summing a page would report reconciliation done while a
+/// second page of unmatched lines waited below.
+///
+/// # Query parameters
+///
+/// `q` searches the account code, the client's name for it and whoever
+/// uploaded the file. `site`, `account` and `state` filter, each repeatable;
+/// `state` is `RECONCILED`, `PARTIAL` or `UNTOUCHED`, derived on read from the
+/// lines and their matches rather than stored. `sort` is one of `imported`,
+/// `account`, `unmatched`, with `dir=desc`; anything else is the house order,
+/// most recent period first. `cursor` and `limit` page.
 pub async fn bank_statements(
     State(state): State<AppState>,
-) -> Result<Json<Vec<BankStatementRow>>, AppError> {
-    Ok(Json(infrastructure::list_statements(&state.db).await?))
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<BankStatementPage>, AppError> {
+    refuse_unknown_parameters(
+        &params,
+        &[&PAGING[..], &["site", "account", "state"]].concat(),
+    )?;
+    Ok(Json(
+        infrastructure::bank_statement_page(
+            &state.db,
+            infrastructure::BankStatementScope {
+                needle: single_value(&params, "q"),
+                sites: facet_values(&params, "site"),
+                accounts: facet_values(&params, "account"),
+                states: facet_values(&params, "state"),
+                sort: single_value(&params, "sort"),
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
+        )
+        .await?,
+    ))
 }
 
 pub async fn import_bank_statement(
@@ -797,13 +1168,24 @@ pub async fn bank_statement_lines(
     ))
 }
 
-/// Score every unmatched line against our own ledger.
+/// Score every line with room left against our own ledger.
+///
+/// `?exact=0` widens the offer to everything on the account in the window,
+/// still in score order — the switch ERPNext spells *exact match*, and the only
+/// way to begin splitting one bank line across two vouchers. Absent means on,
+/// which is what every existing caller expects.
 pub async fn bank_suggestions(
     State(state): State<AppState>,
     Path(statement_id): Path<Uuid>,
+    Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<Vec<LineSuggestions>>, AppError> {
+    refuse_unknown_parameters(&params, &["exact"])?;
+    let exact = !matches!(
+        single_value(&params, "exact").as_deref(),
+        Some("0") | Some("false")
+    );
     Ok(Json(
-        infrastructure::suggest_matches(&state.db, statement_id).await?,
+        infrastructure::suggest_matches(&state.db, statement_id, exact).await?,
     ))
 }
 
@@ -818,12 +1200,146 @@ pub async fn confirm_bank_match(
     Ok(Json(json!({ "matched": true })))
 }
 
+/// Take an agreement back.
+///
+/// `?journal_line=<uuid>` removes ONE voucher's claim; without it the line is
+/// released entirely. Absent is what every existing caller sends and what it
+/// has always meant, so a line settled by a single voucher is unaffected.
 pub async fn unmatch_bank_line(
     State(state): State<AppState>,
     Path(line_id): Path<Uuid>,
+    Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<Value>, AppError> {
-    infrastructure::unmatch(&state.db, line_id).await?;
+    refuse_unknown_parameters(&params, &["journal_line"])?;
+    let journal_line = match single_value(&params, "journal_line") {
+        Some(raw) => Some(
+            raw.parse::<Uuid>()
+                .map_err(|_| AppError::Validation(format!("journal_line {raw:?} is not an id")))?,
+        ),
+        None => None,
+    };
+    infrastructure::unmatch(&state.db, line_id, journal_line).await?;
     Ok(Json(json!({ "matched": false })))
+}
+
+/// Say who the other side of a bank line was.
+///
+/// ERPNext's *Update Bank Transaction*, narrowed: the bank's own narration,
+/// amount, date and reference are evidence and stay read-only. What a person
+/// concluded about the line goes in its own columns beside them.
+pub async fn update_bank_line(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(line_id): Path<Uuid>,
+    Json(request): Json<UpdateBankLineRequest>,
+) -> Result<Json<BankStatementLineRow>, AppError> {
+    Ok(Json(
+        infrastructure::update_line(&state.db, line_id, &request, &principal.username).await?,
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Our own bank accounts
+// ---------------------------------------------------------------------------
+
+/// What our accounts are, not where their postings land. `site` narrows it.
+pub async fn company_bank_accounts(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<Vec<CompanyBankAccount>>, AppError> {
+    refuse_unknown_parameters(&params, &["site"])?;
+    Ok(Json(
+        infrastructure::list_accounts(&state.db, single_value(&params, "site").as_deref()).await?,
+    ))
+}
+
+/// Every bank anybody has named. Gathered, not maintained.
+pub async fn bank_institutions(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<BankInstitution>>, AppError> {
+    Ok(Json(infrastructure::bank_institutions(&state.db).await?))
+}
+
+/// Describe an account, or correct what we said about it. One row per ledger
+/// binding, so sending it twice is a correction rather than a second account.
+pub async fn describe_bank_account(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Json(request): Json<DescribeBankAccountRequest>,
+) -> Result<Json<CompanyBankAccount>, AppError> {
+    let account =
+        infrastructure::describe_account(&state.db, &request, &principal.username).await?;
+    // Filed against the ledger account, which is the record a person opens when
+    // they ask what this account is and who last changed its number.
+    acted_on.set(RecordKind::Account, account.ledger_account_code.clone());
+    Ok(Json(account))
+}
+
+/// Stop offering an account without losing what it already paid.
+pub async fn retire_bank_account(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path(account_id): Path<Uuid>,
+) -> Result<Json<CompanyBankAccount>, AppError> {
+    let account =
+        infrastructure::retire_account(&state.db, account_id, &principal.username).await?;
+    acted_on.set(RecordKind::Account, account.ledger_account_code.clone());
+    Ok(Json(account))
+}
+
+// ---------------------------------------------------------------------------
+// Cash counts
+// ---------------------------------------------------------------------------
+
+/// Every count, newest first. `account` and `site` narrow it to one drawer.
+pub async fn cash_counts(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<Vec<CashCountRow>>, AppError> {
+    refuse_unknown_parameters(&params, &["account", "site"])?;
+    Ok(Json(
+        infrastructure::list_counts(
+            &state.db,
+            single_value(&params, "account").as_deref(),
+            single_value(&params, "site").as_deref(),
+        )
+        .await?,
+    ))
+}
+
+/// Write down what was in the drawer. Posts nothing — that is the next handler.
+pub async fn record_cash_count(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Json(request): Json<RecordCountRequest>,
+) -> Result<Json<CashCountRow>, AppError> {
+    let count = infrastructure::record_count(&state.db, &request, &principal.username).await?;
+    // The drawer is the record. "This account was counted on the 13th and was
+    // 25.000 short" belongs on the account's own history, not only in a list
+    // somebody has to know to open.
+    acted_on.set(RecordKind::Account, count.account_code.clone());
+    Ok(Json(count))
+}
+
+/// Put a count's difference in the books.
+///
+/// Separate from recording it, and deliberately: a shortage is worth writing
+/// down the moment it is found, and worth posting only once somebody has said
+/// what caused it. A count with no reason is refused here.
+pub async fn post_cash_count(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path(count_id): Path<Uuid>,
+    Json(request): Json<PostCountRequest>,
+) -> Result<Json<CashCountRow>, AppError> {
+    let count =
+        infrastructure::post_variance(&state.db, count_id, &request, &principal.username).await?;
+    acted_on.set(RecordKind::Account, count.account_code.clone());
+    Ok(Json(count))
 }
 
 /// Book a line nobody booked, and agree it in the same breath.

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { KeyValue, SubHead } from "@/components/ui/rows"
@@ -24,6 +25,7 @@ import {
   Problem,
 } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters, type FilterModel } from "@/lib/filters"
 import { count, day, money, moment } from "@/lib/format"
 import {
   bankStatementLines,
@@ -154,7 +156,10 @@ const columns: ColumnDef<TableSetup, MoneyAccountRow>[] = [
     accessorKey: "per_books_minor",
     header: "Per books",
     size: 150,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     // In the account's own sign and deliberately unflipped: `giro_outstanding`
     // is a liability and comes back negative, which is what it is. A report
     // decides how to present a balance; a balance does not decide for it.
@@ -171,7 +176,15 @@ const columns: ColumnDef<TableSetup, MoneyAccountRow>[] = [
     accessorFn: (row) => row.last_statement?.closing_minor ?? null,
     header: "Last statement",
     size: 175,
-    meta: { align: "right" },
+    // Offered for its empty end above all: `is empty` is "every account the
+    // bank has never been heard from about", which is the list somebody chases
+    // before a month close and which no control on this screen can otherwise
+    // ask. The accessor keeps `null` rather than folding it to zero precisely
+    // so that question has an answer.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     // Absent is a real answer and not a zero: there is no statement for a cash
     // drawer, and there is none for a bank nobody has uploaded one for either.
     cell: ({ row }) => {
@@ -194,7 +207,15 @@ const columns: ColumnDef<TableSetup, MoneyAccountRow>[] = [
     accessorFn: (row) => row.difference_minor ?? 0,
     header: "Difference",
     size: 140,
-    meta: { align: "right" },
+    // "is not 0" is the reconciliation queue. Note what the accessor does to
+    // an account with no statement: it sorts as zero and therefore filters as
+    // agreeing, which it is not — it is unasked. Last statement `is not empty`
+    // is the clause that tells those two apart, which is the other reason that
+    // column is offered.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     // Tinted only when it is non-zero, and drawn as a dash when there is no
     // statement at all: "we agree" and "there is nothing to agree with" are
     // different answers and must not render the same.
@@ -215,7 +236,7 @@ const columns: ColumnDef<TableSetup, MoneyAccountRow>[] = [
     accessorFn: (row) => row.last_statement?.unmatched_count ?? 0,
     header: "Unmatched",
     size: 120,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "number", unit: "lines" } },
     // The number that says whether the difference beside it is explained: a
     // difference with no unmatched lines behind it is a real disagreement, and
     // one with six is simply unfinished work.
@@ -250,13 +271,28 @@ export function BankReconciliation() {
 
   const rows = useMemo(() => money.data?.rows ?? [], [money.data])
 
+  /// One model for four tables.
+  ///
+  /// The panel is a screen-level thing — it stands in the shell's right column
+  /// and its open state is one URL flag — so there can only ever be one of it
+  /// here, and a card that built its own would open all four at once. The
+  /// clauses are read once and handed down; each family applies them to its
+  /// own rows.
+  ///
+  /// No table is passed to it, and none is needed: every question offered on
+  /// this screen is a number, and a number is typed rather than picked off a
+  /// facet list. The alternative — nominating one family's table to count for
+  /// all four — would print counts that are true of Cash and wrong for Banks.
+  const filters = useFilters(columns)
+
   // Every statement, for the one job the list above cannot do: a link carrying
   // only `?statement=` — from a colleague, or from the address bar after a
   // reload — has to find the account it belongs to before the sheet can open on
   // it. Under the key the sheet itself uses, so it is one request either way.
   const statements = useQuery({
     queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) => listBankStatements(signal),
+    queryFn: ({ signal }) =>
+      listBankStatements(signal).then((page) => page.rows),
   })
 
   const openCode =
@@ -306,6 +342,7 @@ export function BankReconciliation() {
           className="h-8 w-44"
           aria-label="Location"
         />
+        <FilterPanel model={filters} />
         <Toolbar.Spacer />
         {/* The effective answer, in words, always. A date box filled with today
             and one left blank look identical to a reader — and here the date
@@ -361,6 +398,7 @@ export function BankReconciliation() {
                   key={family.id}
                   family={family}
                   rows={rows}
+                  filters={filters}
                   query={query}
                   selected={account.value ?? null}
                   onOpen={(row) => account.open(row.account_code)}
@@ -396,12 +434,16 @@ export function BankReconciliation() {
 function MoneyFamily({
   family,
   rows,
+  filters,
   query,
   selected,
   onOpen,
 }: {
   family: (typeof MONEY_FAMILIES)[number]
   rows: readonly MoneyAccountRow[]
+  /// The screen's one filter model, applied here. Built above rather than
+  /// here for the reason given there: one panel per screen.
+  filters: FilterModel<MoneyAccountRow>
   query: string
   selected: string | null
   onOpen: (row: MoneyAccountRow) => void
@@ -449,7 +491,12 @@ function MoneyFamily({
   // A search is its own narrowing, and a stricter one. Hiding a quiet account
   // from somebody who has typed its code would read as a broken search box,
   // which is worse than a long list they asked for.
-  const searching = query.trim() !== ""
+  //
+  // A filter counts for the same reason, and more sharply: "Last statement is
+  // empty" asks for precisely the accounts the fold takes away, so a folded
+  // list would answer that clause with nothing and look like a broken filter
+  // rather than a hidden one.
+  const searching = query.trim() !== "" || filters.filters.length > 0
   const folded = !all && !searching
   const shown = folded ? telling : mine
   const quiet = mine.length - telling.length
@@ -459,12 +506,16 @@ function MoneyFamily({
       () => ({
         features: tableSetup,
         data: shown,
-        columns,
+        columns: filters.columns,
         getRowId: (row: MoneyAccountRow) => row.account_code,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
       }),
-      [shown, query, sorting]
+      [shown, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -584,7 +635,8 @@ function AccountSheet({
 }) {
   const statements = useQuery({
     queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) => listBankStatements(signal),
+    queryFn: ({ signal }) =>
+      listBankStatements(signal).then((page) => page.rows),
     enabled: code !== null,
   })
 
@@ -761,6 +813,9 @@ function Reconcile({ statement }: { statement: BankStatementRow }) {
         // Recorded so that an auto-match somebody later undoes is evidence the
         // threshold is wrong.
         automatic: input.suggestion.auto_match,
+        // This screen settles a line in one go; splitting one across several
+        // vouchers is the lab screen's job (0213). Null is "all that is left".
+        allocated_minor: null,
       }),
     onSuccess: invalidate,
   })

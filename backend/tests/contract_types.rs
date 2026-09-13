@@ -357,6 +357,23 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("CreateSupplierRequest: {e}"));
     inventory_backend::cloud::postgres::UpdateSupplierRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("UpdateSupplierRequest: {e}"));
+    // Where a supplier's money is supposed to land. A bilyet giro names the
+    // payee's account, so the print screen reads these.
+    inventory_backend::cloud::postgres::SupplierBankAccount::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierBankAccount: {e}"));
+    inventory_backend::cloud::postgres::CreateSupplierBankAccountRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreateSupplierBankAccountRequest: {e}"));
+    inventory_backend::cloud::postgres::UpdateSupplierBankAccountRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateSupplierBankAccountRequest: {e}"));
+    // Where the words go on a bank's own giro leaf.
+    inventory_backend::cloud::postgres::GiroPrintTemplate::export_all(&config)
+        .unwrap_or_else(|e| panic!("GiroPrintTemplate: {e}"));
+    inventory_backend::cloud::postgres::GiroPrintPlacement::export_all(&config)
+        .unwrap_or_else(|e| panic!("GiroPrintPlacement: {e}"));
+    inventory_backend::cloud::postgres::CreateGiroPrintTemplateRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreateGiroPrintTemplateRequest: {e}"));
+    inventory_backend::cloud::postgres::UpdateGiroPrintTemplateRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateGiroPrintTemplateRequest: {e}"));
     inventory_backend::cloud::postgres::CreateSupplierItemRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("CreateSupplierItemRequest: {e}"));
     inventory_backend::cloud::postgres::CatalogPurchaseOrderRequest::export_all(&config)
@@ -540,6 +557,33 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("DeadLetterFacets: {e}"));
     inventory_backend::cloud::postgres::DeadLetterFacet::export_all(&config)
         .unwrap_or_else(|e| panic!("DeadLetterFacet: {e}"));
+    // The sync health board: both lanes, every node, the security posture.
+    inventory_backend::cloud::postgres::SyncFleetHealth::export_all(&config)
+        .unwrap_or_else(|e| panic!("SyncFleetHealth: {e}"));
+    inventory_backend::cloud::postgres::SyncOriginHealth::export_all(&config)
+        .unwrap_or_else(|e| panic!("SyncOriginHealth: {e}"));
+    inventory_backend::cloud::postgres::FleetCounts::export_all(&config)
+        .unwrap_or_else(|e| panic!("FleetCounts: {e}"));
+    inventory_backend::cloud::postgres::DownstreamHealth::export_all(&config)
+        .unwrap_or_else(|e| panic!("DownstreamHealth: {e}"));
+    inventory_backend::cloud::postgres::UpstreamHealth::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpstreamHealth: {e}"));
+    inventory_backend::cloud::postgres::HourlyFlow::export_all(&config)
+        .unwrap_or_else(|e| panic!("HourlyFlow: {e}"));
+    inventory_backend::cloud::postgres::SecurityPosture::export_all(&config)
+        .unwrap_or_else(|e| panic!("SecurityPosture: {e}"));
+    inventory_backend::cloud::postgres::SecurityCheck::export_all(&config)
+        .unwrap_or_else(|e| panic!("SecurityCheck: {e}"));
+    inventory_backend::cloud::postgres::LaneBlock::export_all(&config)
+        .unwrap_or_else(|e| panic!("LaneBlock: {e}"));
+    inventory_backend::cloud::postgres::StuckCommand::export_all(&config)
+        .unwrap_or_else(|e| panic!("StuckCommand: {e}"));
+    inventory_backend::cloud::postgres::LaneStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("LaneStatus: {e}"));
+    inventory_backend::cloud::postgres::HealthVerdict::export_all(&config)
+        .unwrap_or_else(|e| panic!("HealthVerdict: {e}"));
+    inventory_backend::cloud::postgres::CheckTone::export_all(&config)
+        .unwrap_or_else(|e| panic!("CheckTone: {e}"));
 
     // Refunds. The storeops list, an envelope rather than `{items, limit}`:
     // echoing the ceiling back told a caller what it had asked for and never
@@ -761,6 +805,20 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("LineSuggestions: {e}"));
     inventory_backend::cloud::postgres::ConfirmMatchRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("ConfirmMatchRequest: {e}"));
+    inventory_backend::cloud::postgres::UpdateBankLineRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateBankLineRequest: {e}"));
+    inventory_backend::cloud::postgres::CashCountRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("CashCountRow: {e}"));
+    inventory_backend::cloud::postgres::RecordCountRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordCountRequest: {e}"));
+    inventory_backend::cloud::postgres::PostCountRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PostCountRequest: {e}"));
+    inventory_backend::cloud::postgres::CompanyBankAccount::export_all(&config)
+        .unwrap_or_else(|e| panic!("CompanyBankAccount: {e}"));
+    inventory_backend::cloud::postgres::DescribeBankAccountRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("DescribeBankAccountRequest: {e}"));
+    inventory_backend::cloud::postgres::BankInstitution::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankInstitution: {e}"));
     inventory_backend::cloud::postgres::BookBankLineRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("BookBankLineRequest: {e}"));
     // The mail gateway. `settings` is deliberately `Record<string, unknown>`
@@ -936,6 +994,31 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::edge::escpos::ReceiptDocument::export_all(&config)
         .unwrap_or_else(|e| panic!("ReceiptDocument: {e}"));
 
+    // The shop's small money. Petty cash and nothing that can reach the
+    // drawer — see `edge/petty.rs` for the three pots.
+    //
+    // Named here and not merely derived, which is the trap this file exists
+    // for: a `#[derive(TS)]` that nothing calls `export_all` on writes no file
+    // at all, and the browser then cannot name a type the server has been
+    // sending. `TaxRule` and `MarkdownPolicy` both went that way.
+    //
+    // `export_all` on the two envelopes pulls `StoreExpenseView`,
+    // `PettyCashTopUpView` and `PettyCashPosition` in behind them; the two
+    // requests and the position are named separately because a screen posts
+    // and reads them directly.
+    inventory_backend::edge::petty::RecordExpenseRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordExpenseRequest: {e}"));
+    inventory_backend::edge::petty::PettyCashTopUpRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PettyCashTopUpRequest: {e}"));
+    inventory_backend::edge::petty::PettyCashPosition::export_all(&config)
+        .unwrap_or_else(|e| panic!("PettyCashPosition: {e}"));
+    inventory_backend::edge::petty::ExpenseRecorded::export_all(&config)
+        .unwrap_or_else(|e| panic!("ExpenseRecorded: {e}"));
+    inventory_backend::edge::petty::PettyCashTopUpRecorded::export_all(&config)
+        .unwrap_or_else(|e| panic!("PettyCashTopUpRecorded: {e}"));
+    inventory_backend::edge::petty::ExpenseWindow::export_all(&config)
+        .unwrap_or_else(|e| panic!("ExpenseWindow: {e}"));
+
     // The finance lists, as envelopes.
     //
     // Eight routes that answered with a bare array — or, for the map and the
@@ -1036,6 +1119,11 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("LetterEdit: {e}"));
     inventory_backend::cloud::postgres::VoidLetter::export_all(&config)
         .unwrap_or_else(|e| panic!("VoidLetter: {e}"));
+    // The patterns a letter can be written from.
+    inventory_backend::cloud::postgres::LetterTemplate::export_all(&config)
+        .unwrap_or_else(|e| panic!("LetterTemplate: {e}"));
+    inventory_backend::cloud::postgres::NewTemplate::export_all(&config)
+        .unwrap_or_else(|e| panic!("NewTemplate: {e}"));
     // Vouchers, and this entry is the point of the comment at the top of this
     // file. `VoucherRow` and `VoucherList` have carried the `ts_rs` derive since
     // they were written and were never named HERE — so the derive was present,
