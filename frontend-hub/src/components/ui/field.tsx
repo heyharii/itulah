@@ -26,8 +26,8 @@ export function Field({
   className?: string
 }) {
   return (
-    <label className={cn("flex flex-col gap-1.5", className)}>
-      <span className="text-[0.78125rem] font-medium text-text">{label}</span>
+    <label className={cn("flex flex-col gap-[0.4375rem]", className)}>
+      <span className="text-[0.75rem] font-medium text-text">{label}</span>
       {children}
       {problem ? (
         <span className="text-[0.71875rem] text-bad">{problem}</span>
@@ -48,8 +48,8 @@ export function Input({
   return (
     <input
       className={cn(
-        "h-9 w-full rounded-full border border-transparent bg-soft-2 px-3.5 text-[0.84375rem] text-ink transition-colors outline-none",
-        "placeholder:text-mute hover:border-hairline-2 hover:bg-soft-3",
+        "h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.875rem] text-ink transition-colors outline-none",
+        "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
         "disabled:opacity-50",
         // No spinner on a number box. The little stepper is the operating
         // system's drawing, in the operating system's grey, and it lands on
@@ -73,8 +73,8 @@ export function Textarea({
   return (
     <textarea
       className={cn(
-        "w-full rounded-inner border border-hairline-2 bg-canvas px-3.5 py-2.5 text-[0.84375rem] text-ink transition-colors outline-none",
-        "placeholder:text-mute hover:border-hairline-strong",
+        "w-full rounded-inner border border-hairline-2 bg-canvas px-3 py-2.5 text-[0.875rem] leading-[1.375rem] text-ink transition-colors outline-none",
+        "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
         className
       )}
       {...props}
@@ -414,8 +414,20 @@ export function Select({
       <BaseSelect.Trigger
         aria-label={label}
         className={cn(
-          "flex h-9 w-full items-center rounded-full border border-transparent bg-soft-2 py-0 pr-3 pl-3.5 text-left text-[0.84375rem] text-ink transition-colors outline-none",
-          "hover:border-hairline-2 hover:bg-soft-3",
+          "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas py-0 pr-3 pl-3 text-left text-[0.875rem] text-ink transition-colors outline-none",
+          // The two states `<Input>` and `<PickOne>` already wear, because a
+          // form row holding a text box, a typeahead and a select was giving
+          // three different answers to "is the pointer on me": a darker
+          // border, a darker border, and a grey fill. The fill also made a
+          // chosen value look switched off on the way to being changed, and
+          // the `hover:border-hairline-2` beside it set the border to what it
+          // already was — a state that had been written down but never drawn.
+          "hover:border-hairline-strong",
+          // And a select that is open or focused says so in the same blue as
+          // every other control. It said nothing at all before: `outline-none`
+          // with no border rule under it, so tabbing through a form left the
+          // one field nobody could see they were on.
+          "focus-visible:border-accent data-[popup-open]:border-accent",
           "data-disabled:opacity-50",
           className
         )}

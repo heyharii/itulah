@@ -31,6 +31,7 @@ export function Day({
   onBlur,
   label,
   disabled,
+  clearable = true,
   className,
 }: {
   /// An ISO day, `yyyy-mm-dd`, in the local calendar. `""` is unanswered —
@@ -58,6 +59,12 @@ export function Day({
   /// A day that cannot be asked for at all — a PKWTT has no end date, and a
   /// dead box says so better than a box that takes an answer nobody wants.
   disabled?: boolean
+  /// Whether emptying it is a legal answer. Most days here are optional — a
+  /// promotion with no end runs forever — so the default is yes. A payment
+  /// term's due date is not one of them: every instalment falls due on a day,
+  /// and an × on every row of a schedule is a control offering to make the
+  /// document invalid.
+  clearable?: boolean
   className?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -92,10 +99,19 @@ export function Day({
           aria-label={label}
           disabled={disabled}
           className={cn(
-            "flex h-9 w-full items-center gap-2 rounded-full border border-transparent bg-soft-2 pl-3.5 text-left text-[0.84375rem] transition-colors outline-none",
-            "hover:border-hairline-2 hover:bg-soft-3",
+            // `<Input>`'s chrome, class for class, because that is where this
+            // control lives: of the forty-odd boxes it draws, nearly all stand
+            // inside a `<Field>` next to a text box, a select or a typeahead.
+            // It was the last control still wearing the pre-2026-09-10
+            // language — a 36px grey pill with no border — so an expected
+            // arrival beside a supplier read as two controls from two
+            // different applications. A toolbar still compacts it with `h-8`,
+            // and twMerge lets that win.
+            "flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas pl-3 text-left text-[0.875rem] transition-colors outline-none",
+            "hover:border-hairline-strong",
+            "focus-visible:border-accent data-[popup-open]:border-accent",
             "disabled:opacity-50",
-            value === "" ? "pr-9" : "pr-14",
+            value === "" || !clearable ? "pr-9" : "pr-14",
             // The caller's classes reach BOTH boxes. A toolbar asks for `h-8`
             // and `w-40`; the height belongs to the control and the width to
             // the space it stands in, and a caller should not have to know
@@ -113,7 +129,7 @@ export function Day({
           </span>
           <ChevronDown className="absolute right-3 size-3.5 shrink-0 text-line-ico" />
         </Popover.Trigger>
-        {value !== "" && (
+        {value !== "" && clearable && (
           <button
             type="button"
             aria-label={`Clear ${label}`}
