@@ -1,10 +1,11 @@
-import { Outlet, useRouterState } from "@tanstack/react-router"
+import { Outlet, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 
 import { AssistantPanel } from "@/components/assistant/panel"
 import { AssistantProvider } from "@/components/assistant/session"
 import { useAssistant } from "@/components/assistant/state"
 import { CommandPalette } from "@/components/shell/command-palette"
+import { Rail } from "@/components/shell/rail"
 import { Sidebar } from "@/components/shell/sidebar"
 import { TopBar } from "@/components/shell/top-bar"
 import { SheetSpace } from "@/components/shell/sheet-space"
@@ -12,18 +13,19 @@ import { atLeast, useLayout } from "@/lib/layout"
 import { useSheetsOpen } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
 
-/// The shell: sidebar · content. No header, and no rail either.
+/// The shell: rail · sidebar · content. No header.
 ///
 /// `inventory-prototype.html` renders `<header class="topbar" hidden>` — the
 /// element is authored and then deliberately switched off, because the left-
 /// hand navigation took over everything it carried. So this app has no
 /// horizontal band of chrome at all, and every screen gets its full height.
 ///
-/// The rail that stood beside the sidebar is gone too: eleven modules did not earn
-/// a switcher of their own, and one column that shows both the module and the
-/// screen is a shorter thing to learn. Collapsing the sidebar (⌘B) narrows it
-/// to the same 58px column of icons the rail used to be, so nothing that was
-/// reachable in one click became reachable in two.
+/// The rail beside the sidebar came back on 2026-09-10 — `rail.tsx` carries
+/// the argument, including the answer to the case that removed it. Here the
+/// consequence is that ⌘B now HIDES the sidebar rather than narrowing it to a
+/// column of icons: the rail is always standing, so nothing reachable in one
+/// click became reachable in two, and two columns of icons side by side would
+/// have been one too many.
 ///
 /// Density is baked into `:root { font-size: 14.4px }` rather than shipped as
 /// `zoom: 0.9`. The prototypes use zoom because they are single files; DESIGN.md
@@ -70,33 +72,60 @@ function Shell() {
   /// is open; this file says what the page does about it.
   const sheets = useSheetsOpen()
   const beside = layout === "monitor" && sheets > 0
-  /// Docked: whether the column shows its labels or narrows to icons.
-  const [labelled, setLabelled] = useState(true)
-  /// Undocked: which screen the drawer was raised over, or `null`.
+  /// Undocked: whether the drawer is over the content.
   ///
   /// Deliberately NOT the same state as `labelled` — a drawer that
   /// "collapses" to a 58px strip floating over the content is neither of the
   /// two things a sidebar can usefully be, and one flag with two meanings is
   /// how that gets shipped.
   ///
-  /// And deliberately a path rather than a boolean-plus-an-effect. **A drawer
-  /// belongs to the screen it was raised on**, so saying that directly leaves
-  /// nothing to keep in step: every way of leaving that screen — a row in the
-  /// drawer, the palette, a link in a sheet, the back button — closes it,
-  /// without any of them having to remember to.
-  const [drawerAt, setDrawerAt] = useState<string | null>(null)
+  /// **A boolean, closed by whatever closes it.** This was a path — the
+  /// screen the drawer was raised on — on the argument that "a drawer belongs
+  /// to the screen it was raised on", so leaving that screen would shut it
+  /// with nothing to keep in step. It did shut it. What the argument missed is
+  /// that `drawerAt === pathname` is a predicate, and a predicate that has
+  /// gone false can go true again:
+  ///
+  ///  - Open it on Purchase orders, walk to Suppliers, walk back — the path
+  ///    matches again and the drawer is standing over the page, opened by
+  ///    nobody. Same for the back button, and for any link that returns.
+  ///  - Widen past 64rem and narrow again — zoom, a rotated iPad, a window
+  ///    dragged wider — and it is there again, because the state outlived the
+  ///    shell that could show it.
+  ///
+  /// Both were reported as the sidebar sticking, and both are the same bug:
+  /// state that says WHERE instead of WHETHER.
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const drawer = drawerAt === pathname
+  const router = useRouter()
 
+  /// A drawer belongs to the undocked shell, so it does not survive docking.
+  /// Adjusted during render rather than in an effect — React's own answer for
+  /// state that has to follow a prop — because an effect would let one frame
+  /// commit with a drawer that should not exist.
+  if (docked && drawerOpen) setDrawerOpen(false)
+
+  // Docked, there is nothing to toggle: the sidebar is 64px of icons that
+  // widens under the pointer and narrows again when it leaves. ⌘B therefore
+  // only has work to do at the widths where navigation is a drawer.
   const toggleSidebar = useCallback(() => {
-    if (docked) setLabelled((on) => !on)
-    else setDrawerAt((at) => (at === pathname ? null : pathname))
-  }, [docked, pathname])
-  const openPalette = useCallback(() => setPaletteOpen(true), [])
+    if (!docked) setDrawerOpen((open) => !open)
+  }, [docked])
 
-  // ⌘K is the always-available way into the palette; the sidebar's own
-  // "Quick actions" row is the discoverable one, and "Ask" beside it is ⌘J.
+  /// Every finished navigation shuts it. One subscription rather than a rule
+  /// each in the drawer, the palette, the domain bar and every link a screen
+  /// happens to render — the drawer is over the content, so arriving anywhere
+  /// is reason enough, and this cannot be forgotten by the next screen added.
+  useEffect(
+    () => router.subscribe("onResolved", () => setDrawerOpen(false)),
+    [router]
+  )
+
+  // ⌘K opens the palette and ⌘J the assistant. These used to have visible rows
+  // in the sidebar as well — the discoverable half of the pair — and those were
+  // removed on the owner's instruction. The shortcuts below are now the ONLY
+  // way in, which is worth knowing before anybody wonders where the palette
+  // went: it did not go anywhere, it just stopped announcing itself.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
@@ -114,31 +143,38 @@ function Shell() {
       // A drawer is over the content, so Escape has to be able to get out of
       // it. Harmless while it is already shut — React drops a set to the
       // value that is already there.
-      if (event.key === "Escape") setDrawerAt(null)
+      if (event.key === "Escape") setDrawerOpen(false)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [toggleSidebar, assistant])
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-canvas">
-      {!docked && (
-        <TopBar
-          onOpenNav={() => setDrawerAt(pathname)}
-          onOpenPalette={openPalette}
-          onOpenAssistant={() => assistant.setOpen(true)}
-        />
-      )}
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-canvas">
-        {docked && (
-          <Sidebar
-            open={labelled}
-            onToggle={toggleSidebar}
-            onOpenPalette={openPalette}
-            onOpenAssistant={() => assistant.setOpen(true)}
-          />
-        )}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="app-shell flex h-full w-full flex-col overflow-hidden bg-soft-3">
+      {/* The bar spans the window at every width now: the domains are the one
+          piece of navigation that never folds away, because they are how
+          somebody gets back out of wherever they are. */}
+      <TopBar onOpenNav={docked ? undefined : () => setDrawerOpen(true)} />
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-soft-3">
+        {/* The rail is docked-only. Under 64rem it folds into the drawer with
+            the rest of the navigation: a 56px strip permanently taking a
+            seventh of a phone's width, to hold something a thumb opens once a
+            session, is the trade the drawer exists to refuse. */}
+        {docked && <Rail />}
+        {/* `isolate` is load-bearing, not tidying. The rail is `z-30` and it
+            WIDENS over the page on hover, so anything a screen stacks at 30 or
+            above would be drawn through the open column — which is what a
+            sticky table header and a frozen first column both do, because a
+            frozen column has to out-stack the rows it slides over. Two screens
+            had already reached z-30 and punched their header row through the
+            rail's labels.
+
+            Fixing the numbers screen by screen fixes it until the next table.
+            Isolating here makes the page its own stacking context, so a
+            screen's z-index is a statement about that screen and can never be
+            read against the shell's. Floating layers are unaffected: base-ui
+            portals its popups and sheets to `body`, outside this element. */}
+        <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
           {/* The scroll container is here, not on `body`: screens below hold a
               table body or a detail rail that scrolls inside itself, and a page
               that grows instead would put a second scrollbar around the lot.
@@ -172,12 +208,7 @@ function Shell() {
       </div>
 
       {!docked && (
-        <NavDrawer
-          open={drawer}
-          onClose={() => setDrawerAt(null)}
-          onOpenPalette={openPalette}
-          onOpenAssistant={() => assistant.setOpen(true)}
-        />
+        <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
       )}
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       {/* Not modal: the panel is meant to be read beside the screen that
@@ -199,17 +230,7 @@ function Shell() {
 ///
 /// Motion is 200ms, `--t-panel`: MOTION.md's band for a panel arriving, and the
 /// duration the docked sidebar already animates its width over.
-function NavDrawer({
-  open,
-  onClose,
-  onOpenPalette,
-  onOpenAssistant,
-}: {
-  open: boolean
-  onClose: () => void
-  onOpenPalette: () => void
-  onOpenAssistant: () => void
-}) {
+function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <>
       {/* The veil is WHITE, like every other overlay in this system: the screen
@@ -232,13 +253,27 @@ function NavDrawer({
           open ? "translate-x-0 shadow-shell" : "-translate-x-full"
         )}
       >
-        <Sidebar
-          variant="drawer"
-          open
-          onToggle={onClose}
-          onOpenPalette={onOpenPalette}
-          onOpenAssistant={onOpenAssistant}
-        />
+        {/* The rail used to come with it, because it was the department
+            switcher and a drawer you cannot change department from is not a
+            navigation drawer. The domains are in the bar now, and the bar is
+            on screen at every width — so the drawer carries what it is for:
+            the screens of the domain you are in, spelled out. Two copies of
+            those, one as icons and one as words, is what it would be now. */}
+        {/* Any link inside shuts it, as well as the path rule the caller
+            holds. Those two are not the same rule, and the difference is the
+            most-tapped row in the drawer: the one for the screen you are
+            already on, drawn highlighted at the top of the list. Following it
+            resolves to the same route, so the navigation subscription above
+            has nothing to announce, and the drawer would sit there over the
+            page with the veil up. */}
+        <div
+          className="contents"
+          onClick={(event) => {
+            if ((event.target as HTMLElement).closest("a") !== null) onClose()
+          }}
+        >
+          <Sidebar variant="drawer" open onToggle={onClose} />
+        </div>
       </div>
     </>
   )
