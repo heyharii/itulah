@@ -1,15 +1,17 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { Check, Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/field"
+import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { Swatches } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { count, money } from "@/lib/format"
 import {
+  catalogueVocabulary,
   procurementKeys,
   searchSupplierItems,
   type SourcingScope,
@@ -32,8 +34,18 @@ import type { SourcedItem } from "@itulah/contract"
 /// it. Sourcing asks "who sells this, and for how much" across every supplier,
 /// with facets, sorting, a basket and a detail sheet behind each card. Here the
 /// supplier is already decided by the order, nothing is being compared, and the
-/// only verb is "put it on". Filters over a single supplier's shelf would be
-/// chrome around a question that has one answer.
+/// only verb is "put it on".
+///
+/// **Three narrowing boxes, not a facet rail.** This file used to argue that
+/// "filters over a single supplier's shelf would be chrome around a question
+/// that has one answer", and that was true of a shelf of twenty. It is not
+/// true of one holding several hundred, where "the kids' socks" is a question
+/// with a real answer and scrolling a grid of photographs to find them is not
+/// one. Three boxes, all of them typed at: what it is called, what part of the
+/// range, what kind of thing. Each reaches the SERVER — `divisionCodes` and
+/// `tagCodes` are scope fields — so a filter narrows the catalogue rather than
+/// the page of it that happens to be loaded, which is the difference between a
+/// filter and a lie about one.
 ///
 /// **Many at once, then one confirm.** Adding a line is not the end of the job
 /// — an order is usually several — so a card toggles a tick and the footer says
@@ -59,6 +71,8 @@ export function CataloguePicker({
   onPick: (rows: readonly SourcedItem[]) => void
 }) {
   const [search, setSearch] = useState("")
+  const [division, setDivision] = useState<string | null>(null)
+  const [tags, setTags] = useState<readonly string[]>([])
   const [held, setHeld] = useState<readonly string[]>([])
   // Delayed rather than a debounced fetch, for the reason `use-debounced`
   // gives: it keeps one query key per search somebody actually made instead of
@@ -78,18 +92,54 @@ export function CataloguePicker({
     setWasOpen(open)
     if (!open) {
       setSearch("")
+      setDivision(null)
+      setTags([])
       setHeld([])
     }
   }
+
+  /// The vocabulary the two narrowing boxes are filled from — the company's
+  /// own words, not this supplier's, because a buyer files goods by the range
+  /// they belong to and the supplier has no opinion about that.
+  const vocabulary = useQuery({
+    queryKey: procurementKeys.vocabulary(),
+    queryFn: ({ signal }) => catalogueVocabulary(signal),
+    staleTime: 5 * 60_000,
+    enabled: open,
+  })
+
+  const divisionChoices = useMemo<Choice[]>(
+    () =>
+      (vocabulary.data?.divisions ?? []).map((term) => ({
+        value: term.code,
+        label: term.label,
+      })),
+    [vocabulary.data]
+  )
+
+  const tagChoices = useMemo<Choice[]>(
+    () =>
+      (vocabulary.data?.tags ?? []).map((term) => ({
+        value: term.code,
+        label: term.label,
+      })),
+    [vocabulary.data]
+  )
+
+  /// Held as a string so the memo below is not rebuilt by a new array of the
+  /// same tags — which would make a fresh query key on every render.
+  const tagKey = [...tags].sort().join(",")
 
   const scope = useMemo<SourcingScope>(
     () => ({
       supplierIds: [supplierId],
       q: typed === "" ? undefined : typed,
+      divisionCodes: division === null ? undefined : [division],
+      tagCodes: tagKey === "" ? undefined : tagKey.split(","),
       status: "ACTIVE",
       limit: 24,
     }),
-    [supplierId, typed]
+    [supplierId, typed, division, tagKey]
   )
 
   const catalogue = useInfiniteQuery({
@@ -141,7 +191,11 @@ export function CataloguePicker({
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button variant="primary" disabled={held.length === 0} onClick={add}>
+            <Button
+              variant="primary"
+              disabled={held.length === 0}
+              onClick={add}
+            >
               {held.length === 0
                 ? "Put on the order"
                 : `Put ${count(held.length)} on the order`}
@@ -151,14 +205,38 @@ export function CataloguePicker({
       }
     >
       <div className="@container flex flex-col gap-4">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-line-ico" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search this supplier's catalogue"
-            className="pl-9"
-            aria-label="Search this supplier's catalogue"
+        {/* Three boxes on one line, each of them typed at. The name box is
+            given half the width because it is the one people reach for first
+            and the one whose content is a sentence; the two vocabularies are
+            single words and need less. Below `@2xl` they stack, because three
+            comboboxes sharing a phone's width are three boxes nobody can
+            read. */}
+        <div className="grid gap-2.5 @2xl:grid-cols-[2fr_1fr_1fr]">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-line-ico" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search this supplier's catalogue"
+              className="pl-9"
+              aria-label="Search this supplier's catalogue"
+            />
+          </div>
+
+          <PickOne
+            label="Division"
+            choices={divisionChoices}
+            value={division}
+            onChange={setDivision}
+            placeholder="Any division"
+          />
+
+          <PickMany
+            label="Tags"
+            choices={tagChoices}
+            values={tags}
+            onChange={setTags}
+            placeholder="Any tag"
           />
         </div>
 
@@ -167,7 +245,7 @@ export function CataloguePicker({
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                {typed === ""
+                {typed === "" && division === null && tags.length === 0
                   ? "This supplier has nothing on offer yet. Add an item instead."
                   : "Nothing in this catalogue matches."}
               </EmptyState>

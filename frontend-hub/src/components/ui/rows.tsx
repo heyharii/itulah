@@ -1,5 +1,44 @@
 import { cn } from "@/lib/utils"
 
+/// One part of a document, under its own heading.
+///
+/// Every block of a record wears the same shape — a rule, a heading, the
+/// content — so that two screens showing the SAME document cannot drift into
+/// looking like two documents. That is not hypothetical here: an order was
+/// being drawn one way on the review before it was created and another way on
+/// its detail sheet afterwards, and the thing somebody approved did not look
+/// like the thing they came back to.
+export function Section({
+  title,
+  actions,
+  rule = true,
+  children,
+}: {
+  title: React.ReactNode
+  /// What can be done to this section, at its own heading — never at the foot.
+  actions?: React.ReactNode
+  /// The hairline above it. A rule separates two sections; the FIRST section
+  /// has nothing above it to be separated from, so a rule there is just a line
+  /// under whatever the sheet opened with. The air stays either way.
+  rule?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <section
+      className={cn(
+        "flex flex-col gap-3",
+        rule ? "border-t border-hairline pt-5" : "pt-7"
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h4 className="text-card-title font-semibold text-ink">{title}</h4>
+        {actions}
+      </div>
+      {children}
+    </section>
+  )
+}
+
 /// A key → value row. The reading unit of a summary panel.
 export function KeyValue({
   term,
@@ -13,7 +52,10 @@ export function KeyValue({
   return (
     <div
       className={cn(
-        "flex justify-between gap-3 border-b border-hairline py-2 text-meta last:border-b-0",
+        // No rule per row: the ladder is four short lines that end in one
+        // bold total, and a rule under each of them made the record read as
+        // five separate statements rather than one sum.
+        "flex justify-between gap-3 py-[0.1875rem] text-meta",
         className
       )}
     >
@@ -29,6 +71,15 @@ export function KeyValue({
 /// hairline, where **only the final row is ink/600** and the rest are `{body}`.
 ///
 /// That one rule is what makes a total read as a total without a box around it.
+///
+/// **14px, not 12.5.** This is the figure somebody checks a quote against and
+/// the last thing read before a document is committed, and it was set two
+/// steps below the table above it — smaller than the cells it is summing.
+/// Raised on the owner's instruction, in the same direction the whole scale
+/// was raised on 2026-09-04: the bottom of this type scale had been reached
+/// by things that are not incidental, and a total is the least incidental
+/// number on a record. Size is now uniform across the ladder and the weight
+/// does the separating, which is what the rule above already said.
 export function TotalsLadder({
   rows,
   total,
@@ -44,7 +95,7 @@ export function TotalsLadder({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1 border-t border-hairline pt-2.5 text-[0.78125rem]",
+        "flex flex-col gap-1 border-t border-hairline pt-2.5 text-[0.875rem]",
         className
       )}
     >
@@ -68,15 +119,20 @@ export function MiniTable({
   head,
   children,
   className,
+  style,
 }: {
   /// `align` defaults to right for everything but the first column, which is
   /// what every mini-table in the reference does.
   head: readonly (string | { label: string; align?: "left" | "right" })[]
   children: React.ReactNode
   className?: string
+  /// For a caller that computes a minimum width from its own column count and
+  /// lets an `overflow-x-auto` parent scroll. A class cannot carry a value the
+  /// caller derives at render time.
+  style?: React.CSSProperties
 }) {
   return (
-    <table className={cn("w-full border-collapse", className)}>
+    <table className={cn("w-full border-collapse", className)} style={style}>
       <thead>
         <tr>
           {head.map((column, index) => {
@@ -92,7 +148,9 @@ export function MiniTable({
                 key={label}
                 className={cn(
                   "pb-1.5 font-mono text-eyebrow tracking-[0.04em] text-body uppercase",
-                  align === "right" ? "pl-3 text-right" : "text-left"
+                  align === "right"
+                    ? "pl-3 text-right"
+                    : "pr-2 text-left [&:not(:first-child)]:pl-3"
                 )}
               >
                 {label}
@@ -122,20 +180,28 @@ export function MiniCell({
   children,
   align = "left",
   className,
+  colSpan,
 }: {
   children: React.ReactNode
   align?: "left" | "right"
   className?: string
+  /// A summary cell that stands under several columns — a totals row's label,
+  /// usually. It has to reach the `<td>`: on anything else the browser ignores
+  /// it and every figure after it in the row shifts a column to the left.
+  colSpan?: number
 }) {
   return (
     <td
+      colSpan={colSpan}
       className={cn(
         "py-2 text-[0.78125rem] text-text",
         // The gap belongs on the left of a right-aligned cell: padding on the
         // right would move the edge every figure in the column lines up on,
         // and two right-aligned cells with no gap at all run their contents
         // together as soon as the column is full.
-        align === "right" ? "pl-3 text-right tabular-nums" : "pr-2",
+        align === "right"
+          ? "pl-3 text-right tabular-nums"
+          : "pr-2 [&:not(:first-child)]:pl-3",
         className
       )}
     >

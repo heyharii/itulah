@@ -6,6 +6,24 @@ import type { VocabularyTerm } from "@itulah/contract"
 /// Helpers the procurement screens share. Non-components only, so the screens
 /// beside it stay fast-refreshable.
 
+/// The chrome of a ruled item grid, shared so the two places that draw one
+/// cannot drift.
+///
+/// An order is read twice — on the review before it is created, and on its
+/// detail sheet afterwards — and those are the same document. They were drawn
+/// by two tables with different headers, different rules and different ways of
+/// saying what a line is filed under, so the thing somebody approved did not
+/// look like the thing they came back to. One pair of classes, imported by
+/// both.
+export const GRID_HEAD =
+  "border-b border-l border-hairline bg-soft-2 px-3 py-2 text-left font-mono text-eyebrow tracking-[0.04em] text-body uppercase first:border-l-0"
+
+/// A read-only cell in one of those grids. Padded, unlike the composer's own
+/// editable `CELL`, which is `p-0` because the control inside it owns the
+/// padding.
+export const GRID_CELL =
+  "border-t border-l border-hairline px-3 py-2 align-middle first:border-l-0"
+
 /// Who is doing this.
 ///
 /// Four purchasing writes name their actor in the body rather than taking it

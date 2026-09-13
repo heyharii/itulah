@@ -1,14 +1,15 @@
 import { Dialog } from "@base-ui/react/dialog"
 import { X } from "lucide-react"
+import { useEffect, useState } from "react"
 
-import { Activity } from "@/components/ui/activity"
+import { RecordPanel } from "@/components/ui/record-panel"
 import { useLayout } from "@/lib/layout"
 import { useSheetSpace } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
 
 /// The detail rail — a floating panel, never a flush column.
 ///
-/// It sits inset 16px from the top, right and bottom of the shell with
+/// It sits inset 20px from the top, right and bottom of the shell with
 /// `{r.shell}` corners and the float shadow, so it reads as a sheet lifted
 /// above the list, the way cards float on the well. A `border-left` on a
 /// square-cornered full-height column is the deprecated shape.
@@ -47,26 +48,63 @@ export function Sheet({
   onOpenChange,
   title,
   id,
+  caption,
   actions,
+  badge,
   subject,
   footer,
+  tabs,
   width = "rail",
   children,
   className,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /// The record's sections, when it has more than one thing to say.
+  ///
+  /// A record long enough to scroll past its own summary is a record nobody
+  /// reads to the end — and the six columns of an order's lines are not what
+  /// somebody opened it to check when they came to see whether it is late. The
+  /// strip sits between the head and the body, outside the scroll, so the
+  /// sections do not scroll away from each other.
+  ///
+  /// A record with a `subject` gets its activity appended as the last tab: the
+  /// panel was already being drawn under everything else, where it was the one
+  /// thing guaranteed to be below the fold.
+  tabs?: readonly {
+    readonly value: string
+    readonly label: React.ReactNode
+    readonly content: React.ReactNode
+  }[]
+  /// What the record IS, beside its name — a status pill, the words it is
+  /// filed under. In the head rather than the body because it is read before
+  /// anything else and does not belong to any one section.
+  badge?: React.ReactNode
   title: React.ReactNode
   /// The record's own identifier, set in mono above the title.
   id?: React.ReactNode
+  /// One quiet line UNDER the title: where this record came from, and when.
+  ///
+  /// Its own slot rather than another `badge`, because a badge sits on the
+  /// title's line and competes with it for the width a long name needs. This
+  /// is the provenance somebody reads once — who raised it, on what day — to
+  /// confirm they opened the right document, and then never again.
+  caption?: React.ReactNode
   /// At most two, plus an overflow — pinned in the header, not at the foot.
   actions?: React.ReactNode
-  /// The record this sheet is showing, so its history can be read here.
+  /// The record this sheet is showing, so its surroundings can be read here:
+  /// what it is filed under, what people said about it, what was done to it.
   ///
   /// Declared on the shell rather than pasted into thirty sheets: every record
   /// has a history and every sheet should be able to show it, and the version
   /// where each screen remembers to add it is the version where a third of
-  /// them do not.
+  /// them do not. That is also what made comments and tags cost one change
+  /// rather than twenty-four — the sheets were already saying which record
+  /// they had open.
+  ///
+  /// `kind` is a word from the server's own vocabulary (`record_kind`), not a
+  /// name this screen invents. A kind nothing recognises answers 404 rather
+  /// than an empty panel that looks like a record with no history.
   subject?: { kind: string; id: string }
   /// The composer, when the record takes one.
   footer?: React.ReactNode
@@ -98,6 +136,33 @@ export function Sheet({
   children: React.ReactNode
   className?: string
 }) {
+  // Which section is showing. Kept here rather than by the caller because the
+  // caller would have to reset it every time a different record opens in the
+  // same sheet — the tab you left on the last order is not a question you are
+  // still asking about this one.
+  const [tab, setTab] = useState<string | null>(null)
+  // A different record opens on its first section. The identifier is what says
+  // "different" — the sheet stays mounted while the list swaps records under
+  // it, so nothing else would fire.
+  useEffect(() => setTab(null), [id, open])
+  const sections = tabs
+    ? [
+        ...tabs,
+        ...(subject
+          ? [
+              {
+                value: "__activity",
+                // "Comments", not "Activity": the panel also carries the tags
+                // and the trail, but commenting is what somebody comes here to
+                // DO, and a tab named for the doing is the one people find.
+                label: "Comments",
+                content: <RecordPanel subject={subject} />,
+              },
+            ]
+          : []),
+      ]
+    : null
+  const here = sections?.find((s) => s.value === tab) ?? sections?.[0]
   const beside = useLayout() === "monitor" && width === "rail"
   // Claimed by a rail for as long as it is on screen, at every window width:
   // the shell is the one that decides what to do about it, and only the
@@ -131,35 +196,82 @@ export function Sheet({
             // still reaches the bottom of the glass.
             "inset-x-0 bottom-0 max-h-[90dvh] rounded-t-sheet pb-[env(safe-area-inset-bottom)]",
             // The desk and the tablet: the floating rail, inset on three sides.
-            "md:inset-x-auto md:top-4 md:right-4 md:bottom-4 md:max-h-none md:max-w-[calc(100vw-2rem)] md:rounded-shell md:pb-0",
+            "md:inset-x-auto md:top-5 md:right-5 md:bottom-5 md:max-h-none md:max-w-[calc(100vw-2.5rem)] md:rounded-shell md:pb-0",
             width === "table"
               ? "md:w-[clamp(27.5rem,92vw,64rem)]"
               : width === "wide"
-                ? "md:w-[clamp(27.5rem,66vw,46rem)]"
-                : "md:w-[27.5rem]",
+                ? "md:w-[clamp(27.5rem,72vw,56rem)]"
+                : "md:w-[clamp(27.5rem,62vw,47.5rem)]",
             className
           )}
         >
-          <div className="flex shrink-0 items-start gap-2.5 border-b border-hairline px-5 py-[0.875rem]">
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-4 px-7 py-3.5",
+              !sections && "border-b border-hairline"
+            )}
+          >
             <div className="min-w-0 flex-1">
               {id && (
                 <div className="mb-0.5 font-mono text-id text-body">{id}</div>
               )}
-              <Dialog.Title className="truncate text-card-title font-semibold text-ink">
-                {title}
-              </Dialog.Title>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Dialog.Title className="truncate text-[1.125rem] leading-[1.5625rem] font-semibold tracking-[-0.02em] text-ink">
+                  {title}
+                </Dialog.Title>
+                {badge}
+              </div>
+              {caption && (
+                <div className="mt-0.5 truncate text-meta text-mute">
+                  {caption}
+                </div>
+              )}
             </div>
-            {actions}
-            <Dialog.Close className="grid size-7 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink">
+            {actions && (
+              <div className="flex shrink-0 items-center gap-1.5">
+                {actions}
+                <span aria-hidden className="mx-0.5 h-5 w-px bg-hairline" />
+              </div>
+            )}
+            <Dialog.Close className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink">
               <X className="size-4" />
             </Dialog.Close>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-[1.125rem]">
-            {children}
-            {subject && <Activity subject={subject} />}
+          {sections && (
+            <nav
+              role="tablist"
+              aria-label="Record sections"
+              className="flex shrink-0 [scrollbar-width:none] items-stretch gap-0.5 overflow-x-auto border-b border-hairline px-7 [&::-webkit-scrollbar]:hidden"
+            >
+              {sections.map((section) => {
+                const current = section.value === here.value
+                return (
+                  <button
+                    key={section.value}
+                    role="tab"
+                    type="button"
+                    aria-selected={current}
+                    onClick={() => setTab(section.value)}
+                    className={cn(
+                      "-mb-px inline-flex h-[2.625rem] shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-[0.8125rem] font-medium whitespace-nowrap transition-colors",
+                      current
+                        ? "border-accent font-semibold text-accent"
+                        : "border-transparent text-body hover:text-ink",
+                      "pointer-coarse:h-tap"
+                    )}
+                  >
+                    {section.label}
+                  </button>
+                )
+              })}
+            </nav>
+          )}
+          <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
+            {sections ? here.content : children}
+            {!sections && subject && <RecordPanel subject={subject} />}
           </div>
           {footer && (
-            <div className="shrink-0 border-t border-hairline px-5 py-3">
+            <div className="shrink-0 border-t border-hairline px-7 py-3.5">
               {footer}
             </div>
           )}
@@ -177,7 +289,7 @@ export function Facts({
 }: React.HTMLAttributes<HTMLDListElement>) {
   return (
     <dl
-      className={cn("grid grid-cols-2 gap-x-4 gap-y-3", className)}
+      className={cn("grid grid-cols-2 gap-x-4 gap-y-3.5", className)}
       {...props}
     />
   )
@@ -196,10 +308,12 @@ export function Fact({
           disabled glyph, and a label printed in it reads as switched off —
           the term of a fact is the half that says what the number means, and
           it cannot be the half that disappears. */}
-      <dt className="font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-        {term}
-      </dt>
-      <dd className="mt-1 truncate text-[0.8125rem] text-ink tabular-nums">
+      {/* The text face, not the mono one, and no capitals. Measured against
+          the prototype: a fact's label there is Inter 12/18 in sentence case,
+          and the mono micro-caps this used to wear made four ordinary words
+          read as a machine's field names. */}
+      <dt className="text-[0.75rem] leading-[1.125rem] text-body">{term}</dt>
+      <dd className="mt-[0.3125rem] truncate text-[0.875rem] leading-[1.375rem] text-ink tabular-nums">
         {children}
       </dd>
     </div>

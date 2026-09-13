@@ -448,11 +448,7 @@ export function ItemFormSheet({
             item is created: changing either afterwards does not correct this
             item, it describes a different one. */}
         <div className="grid gap-4 md:grid-cols-[13rem_1fr]">
-          <Field
-            label="Photograph"
-            hint="It rides onto every order line raised from this item."
-            problem={photoRefused ?? undefined}
-          >
+          <Field label="Photograph" problem={photoRefused ?? undefined}>
             <div className="flex flex-col gap-2">
               <button
                 type="button"
@@ -534,10 +530,7 @@ export function ItemFormSheet({
                 )}
               >
                 {supplierId === undefined && (
-                  <Field
-                    label="Supplier"
-                    hint="Whose catalogue this belongs to. It cannot be moved afterwards."
-                  >
+                  <Field label="Supplier">
                     <PickOne
                       label="Supplier"
                       choices={supplierChoices}
@@ -547,10 +540,7 @@ export function ItemFormSheet({
                     />
                   </Field>
                 )}
-                <Field
-                  label="Supplier's item code"
-                  hint="Their numbering, not ours — what appears on their quote and on the carton."
-                >
+                <Field label="Supplier's item code">
                   <Input
                     value={draft.code}
                     onChange={(event) => set({ code: event.target.value })}
@@ -572,7 +562,7 @@ export function ItemFormSheet({
                 figure somebody has to count the zeros of; `Rp 200.000.000` is
                 one they can read — and the money field hands back the digits
                 either way, so nothing downstream learns about separators. */}
-            <Field label="Unit price" hint="As the supplier quotes it.">
+            <Field label="Unit price">
               <Money
                 label="Unit price"
                 prefix="Rp"
@@ -600,10 +590,7 @@ export function ItemFormSheet({
             comparing them is the whole point of sourcing. Both are required:
             see the note on `ready`. */}
         <div className="grid gap-4 md:grid-cols-2">
-          <Field
-            label="Division"
-            hint="Which part of the range it belongs to. Required — it travels onto the order and becomes the article's own."
-          >
+          <Field label="Division">
             <PickOne
               label="Division"
               choices={divisionChoices}
@@ -612,7 +599,7 @@ export function ItemFormSheet({
               placeholder="Choose a division"
             />
           </Field>
-          <Field label="Tags" hint="What kind of thing it is. At least one.">
+          <Field label="Tags">
             <PickMany
               label="Tags"
               choices={tagChoices}
@@ -626,10 +613,7 @@ export function ItemFormSheet({
             nobody has broken down into variants is most of a scraped feed, and
             it is better shown as nothing than guessed at. */}
         <div className="grid gap-4 md:grid-cols-2">
-          <Field
-            label="Colours"
-            hint="Optional. From the colour master, so a supplier's Navy and our Navy are one row."
-          >
+          <Field label="Colours">
             <PickMany
               label="Colours"
               choices={colourChoices}
@@ -638,7 +622,7 @@ export function ItemFormSheet({
               leading={(code) => <ColourSwatch hex={hexOf(code)} />}
             />
           </Field>
-          <Field label="Sizes" hint="Optional. The company's own size table.">
+          <Field label="Sizes">
             <PickMany
               label="Sizes"
               choices={sizeChoices}

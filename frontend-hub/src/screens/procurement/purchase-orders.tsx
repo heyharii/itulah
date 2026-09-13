@@ -2,20 +2,25 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { ListChecks } from "lucide-react"
+import { ListChecks, Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { FilterOmnibox } from "@/components/ui/filter-omnibox"
+import {
+  ColumnsMenu,
+  DockedFilters,
+  QuickFilters,
+  SortMenu,
+  ViewPicker,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { TotalsLadder } from "@/components/ui/rows"
+import { Section, TotalsLadder } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
@@ -25,12 +30,16 @@ import {
   procurementKeys,
   purchaseOrderDetail,
   purchaseOrderPage,
+  // Both hand-written beside their fetchers rather than generated, and
+  // `PurchaseOrderPage` deliberately the local one: `@itulah/contract` exports
+  // a type of the same name that this endpoint does not answer with.
+  type PurchaseOrderDetail,
+  type PurchaseOrderPage,
   type PurchaseOrderRow,
   type PurchaseOrderScope,
 } from "@/lib/queries/procurement"
 import { OrderComposer } from "@/screens/procurement/composer"
-import { useAwaitingIdentity } from "@/screens/procurement/queue"
-import { SetupSheets } from "@/screens/procurement/setups"
+import { GRID_CELL, GRID_HEAD } from "@/screens/procurement/shared"
 import { LinkButton } from "@/screens/procurement/controls"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -50,9 +59,8 @@ import { useDebounced } from "@/lib/use-debounced"
 ///  5. Selection opens the floating `<Sheet>`; the list keeps its scroll.
 ///  6. `queryState` renders pending / error / data, so no screen invents its
 ///     own spinner or its own error sentence.
-///  7. `useFilterState(fields)` reads the bar out of the URL, and
-///     `<FilterOmnibox>` draws one box above the table that both searches and
-///     filters. The clauses are turned into REQUEST PARAMETERS — see
+///  7. `useFilterState(fields)` reads the clauses out of the URL. The panel at
+///     the right sets them and a plain box searches; The clauses are turned into REQUEST PARAMETERS — see
 ///     `orderScopeFromFilters` — and the endpoint answers a narrowed list;
 ///     nothing is filtered in the browser. That is why the fields are declared
 ///     here rather than as `meta.filter` on the columns: what may be asked is
@@ -81,12 +89,35 @@ import { useDebounced } from "@/lib/use-debounced"
 /// are. Once its counts arrive they decide the list — counted over the whole
 /// book, not over the page, so a status is offered when the company has ever
 /// used it and not merely when it survived the current filters.
-const STATUSES = ["DRAFT", "ISSUED", "CLOSED", "CANCELLED"] as const
+/// Where an order STANDS, which is what the server now counts the status facet
+/// by. Not the stored `order_status`: that column only ever reads ISSUED or
+/// CLOSED, so an order that had arrived in full still showed as issued, and it
+/// offered DRAFT and CANCELLED — two states nothing in the system can produce.
+const STATUSES = [
+  "ACTIVE",
+  "PARTIALLY_RECEIVED",
+  "FULLY_RECEIVED",
+  "CLOSED",
+] as const
 
 const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
   {
+    id: "supplier",
+    accessorFn: (row) => row.supplier_name ?? row.supplier_id,
+    header: "Supplier",
+    size: 240,
+    // Who the order is with names the row: the PO number identifies it, the
+    // supplier is what somebody is looking for.
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="font-medium text-ink">
+        {row.original.supplier_name ?? row.original.supplier_id}
+      </span>
+    ),
+  },
+  {
     accessorKey: "po_number",
-    header: "PO",
+    header: "Order",
     size: 150,
     meta: { card: "id" },
     cell: ({ row }) => (
@@ -96,29 +127,8 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     ),
   },
   {
-    id: "supplier",
-    accessorFn: (row) => row.supplier_name ?? row.supplier_id,
-    header: "Supplier",
-    size: 240,
-    // Who the order is with is what names the row on a phone: the PO number
-    // identifies it, the supplier is what somebody is looking for.
-    meta: { card: "title" },
-    cell: ({ row }) => (
-      <span className="font-medium text-ink">
-        {row.original.supplier_name ?? row.original.supplier_id}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "issued_at",
-    header: "Issued",
-    size: 120,
-    meta: { card: "meta", priority: 2 },
-    cell: ({ row }) => day(row.original.issued_at),
-  },
-  {
     accessorKey: "expected_arrival",
-    header: "Expected arrival",
+    header: "Expected delivery",
     size: 150,
     // The date the whole of Outstanding is measured against, and until now the
     // only screen that showed it was the one you had to open an order to
@@ -129,17 +139,37 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     ),
   },
   {
-    accessorKey: "line_count",
-    header: "Items",
-    size: 90,
-    // How many different things, not how many pieces. Pieces are the Received
-    // column's business; this is the size of the document.
-    meta: { align: "right", card: "metric", priority: 3 },
-    cell: ({ row }) => count(row.original.line_count),
+    accessorKey: "expected_stock_units",
+    header: "Ordered",
+    size: 108,
+    // Pieces, which is what the receiving bar beside it is a share OF. The
+    // line count moved to the record, where the document's own size belongs.
+    // Priority 1: it is the denominator of the bar beside it, and a share with
+    // no total under it is a percentage of nothing anybody can check. It was
+    // the line count that used to sit here at priority 3, and that one could
+    // go — how many lines a document has is a fact for the document.
+    meta: { align: "right", card: "metric" },
+    // Pieces over lines: the bar beside it is a share of the pieces, and how
+    // many DIFFERENT things were ordered is the other half of what "how big is
+    // this order" means. Two facts, one column, because they are never read
+    // apart — 240 pcs on one line is a very different order from 240 across
+    // forty.
+    cell: ({ row }) => (
+      <span
+        className="flex flex-col items-end leading-tight"
+        title={`${count(row.original.expected_stock_units)} pieces across ${count(row.original.line_count)} lines`}
+      >
+        {count(row.original.expected_stock_units)}
+        <span className="text-[0.6875rem] text-mute">
+          {count(row.original.line_count)}
+          {row.original.line_count === 1 ? " item" : " items"}
+        </span>
+      </span>
+    ),
   },
   {
     accessorKey: "net_minor",
-    header: "Value",
+    header: "Net value",
     size: 140,
     // What the supplier will invoice — the lines less the order's discount,
     // subtracted on the server so this figure and the order's own agree.
@@ -156,33 +186,52 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     // column means "who is behind", and ranking by received units puts the
     // biggest order on top whether or not anybody is waiting for it.
     accessorFn: (row) => row.outstanding_stock_units,
-    header: "Received",
-    size: 120,
-    // Three columns became one. Expected, Received and Outstanding were the
-    // same fact stated three times — and the form a warehouse actually says it
-    // in is "20/20". The colour carries what Outstanding used to: quiet when
-    // the order is complete, warn while anything is owed.
-    meta: { align: "right", card: "metric", priority: 1 },
+    header: "Receiving",
+    size: 128,
+    // Three columns became one, and then the one became a bar. Expected,
+    // Received and Outstanding were the same fact stated three times; "20/20"
+    // said it once; a bar says it in a shape the eye reads down forty rows
+    // without doing arithmetic on any of them. The exact pair is still there,
+    // on the title, for the reader who wants the numbers.
+    meta: { card: "metric", priority: 1 },
     cell: ({ row }) => {
       const got = row.original.received_stock_units
       const due = row.original.expected_stock_units
+      const pct = due > 0 ? Math.min(100, (got / due) * 100) : 0
       return (
-        <span className={got >= due ? "text-mute" : "font-medium text-warn-fg"}>
-          {count(got)}/{count(due)}
+        <span
+          className="flex items-center gap-2"
+          title={`${count(got)} of ${count(due)} received`}
+        >
+          {/* `min-w-14` so the bar survives the card layout, where the cell
+              is laid out by its own content rather than by a column width. */}
+          <span className="h-2 min-w-14 flex-1 overflow-hidden rounded-full bg-soft-2">
+            <span
+              className="block h-full rounded-full bg-[color-mix(in_srgb,var(--accent)_62%,white)]"
+              style={{ width: `${pct}%` }}
+            />
+          </span>
+          <span className="w-8 shrink-0 text-right text-[0.6875rem] text-mute tabular-nums">
+            {Math.round(pct)}%
+          </span>
         </span>
       )
     },
   },
   {
-    accessorKey: "order_status",
+    accessorKey: "lifecycle",
     header: "Status",
     size: 130,
     // Last, at the trailing edge: it is what an order IS, read after what it
     // holds and what it cost, and a row is scanned left to right.
-    meta: { card: "status" },
+    //
+    // `swap`: and what it is waiting for, which is the same question answered
+    // forward. The pill stands while the list is read; the row under the
+    // pointer offers the verb in its place. See `DataTable.rowAction`.
+    meta: { card: "status", swap: true },
     cell: ({ row }) => (
-      <Pill tone={toneFor(row.original.order_status)}>
-        {label(row.original.order_status)}
+      <Pill tone={toneFor(row.original.lifecycle)}>
+        {label(row.original.lifecycle)}
       </Pill>
     ),
   },
@@ -252,7 +301,7 @@ export function PurchaseOrders() {
         },
       },
       {
-        column: "order_status",
+        column: "lifecycle",
         label: "Status",
         spec: {
           kind: "option",
@@ -310,7 +359,7 @@ export function PurchaseOrders() {
     placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => orders.data?.items ?? [], [orders.data])
+  const rows = useMemo(() => orders.data?.rows ?? [], [orders.data])
 
   /// The same fields, carrying the server's tally.
   ///
@@ -328,7 +377,7 @@ export function PurchaseOrders() {
     const facets = orders.data?.facets
     if (facets === undefined) return fields
     return fields.map((field) =>
-      field.column === "order_status"
+      field.column === "lifecycle"
         ? { ...field, spec: { ...field.spec, counted: facets.order_status } }
         : field.column === "supplier"
           ? { ...field, spec: { ...field.spec, counted: facets.supplier } }
@@ -353,43 +402,8 @@ export function PurchaseOrders() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Procurement"
         title="Purchase orders"
         sub="What has been ordered, what has arrived, and what is still owed."
-        actions={
-          <div className="flex items-center gap-2">
-            {/* Sourcing, reached from here rather than from the sidebar.
-
-                It is not a place a buyer sets out for; it is the answer to
-                "who sells this, and for how much", asked in the middle of
-                deciding what to order. A row of its own in the module made it
-                look like a second job — this says what it is: a detour from
-                the order book. */}
-            {/* The deliveries that arrived under no article, and the way
-                into declaring one.
-
-                It stood in the Articles header until 2026-09-12, where it was
-                the one operational act on a screen of master data — and the
-                owner's objection was that setting a delivery up is not
-                curating the catalogue, it is finishing a purchase. It is the
-                same three sheets; only the header they hang from changed. */}
-            <SetupTrigger />
-            <LinkButton to="/procurement/sourcing">Sourcing</LinkButton>
-            {/* A blank order, raised here.
-
-                This used to send people to Sourcing, on the reasoning that an
-                order starts by choosing goods. That is true of a buyer who
-                does not know what they want and false of everyone else: a
-                repeat order, or a supplier on the phone, is a list somebody
-                already has in their head, and making them walk a catalogue to
-                type it is the long way round. The composer is the same one the
-                basket opens — same document, same editable lines — it just
-                starts empty and has a box to add to it. */}
-            <Button variant="primary" onClick={() => composer.open(true)}>
-              New order
-            </Button>
-          </div>
-        }
       />
 
       <OrderComposer
@@ -431,34 +445,99 @@ export function PurchaseOrders() {
 
           Both go to the SERVER. The book is the whole company's purchasing;
           narrowing it after it arrives has already paid for all of it. */}
-      <FilterOmnibox
-        model={{ ...filters, fields: counted }}
-        text={typed === "" ? undefined : typed}
-        onText={(next) => (next ? search.open(next) : search.close())}
-        placeholder="Search a PO number or supplier — or filter by status, supplier or date"
-        className="mb-4"
-      />
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="flex min-w-0 flex-col">
+          {/* The count, and which columns the table is carrying. The prototype puts
+          both on the line above the rows, where what they act on is visible. */}
 
-      <Card className="overflow-hidden">
-        {queryState(orders, {
-          loading: "Loading the orders…",
-          render: (page) =>
-            page.items.length === 0 ? (
-              narrowed ? (
-                <EmptyState>No order matches these filters.</EmptyState>
-              ) : (
-                <EmptyState>No purchase order has been raised yet.</EmptyState>
-              )
-            ) : (
-              <DataTable<PurchaseOrderRow>
-                table={table}
-                onRowClick={(row) => order.open(row.purchase_order_id)}
-                isSelected={(row) => row.purchase_order_id === order.value}
-                className="max-h-[calc(100vh-14rem)]"
+          {/* One line, the width of the table, carrying everything that acts on
+          it: what narrows it at the left, what orders and shapes it in the
+          middle, and what creates a new one at the right. The page header
+          above keeps the title and nothing else — its actions used to stand
+          over the filter panel, which is not what they act on. */}
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <span className="relative mr-auto">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+              <input
+                value={search.value ?? ""}
+                onChange={(event) =>
+                  event.target.value
+                    ? search.open(event.target.value)
+                    : search.close()
+                }
+                placeholder="Search orders"
+                aria-label="Search orders"
+                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
-            ),
-        })}
-      </Card>
+            </span>
+            <SortMenu
+              table={table}
+              sorting={sorting}
+              onSort={(id, desc) => setSorting([{ id, desc }])}
+            />
+            <ColumnsMenu table={table} />
+            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
+            <ViewPicker model={filters} />
+            <Button variant="primary" onClick={() => composer.open(true)}>
+              New order
+            </Button>
+          </div>
+
+          {/* The panel docks where there is room for it — the table measures
+          1034px with its eight columns, the panel 256, and 1440 is the width
+          that holds both without the list giving up a column. Narrower than
+          that it is the Filter button in the omnibox above, which is the same
+          model drawn as a sheet. */}
+          <Card className="overflow-hidden">
+            {queryState(orders, {
+              loading: "Loading the orders…",
+              render: (page) =>
+                page.rows.length === 0 ? (
+                  narrowed ? (
+                    <EmptyState>No order matches these filters.</EmptyState>
+                  ) : (
+                    <EmptyState>
+                      No purchase order has been raised yet.
+                    </EmptyState>
+                  )
+                ) : (
+                  <DataTable<PurchaseOrderRow>
+                    table={table}
+                    onRowClick={(row) => order.open(row.purchase_order_id)}
+                    isSelected={(row) => row.purchase_order_id === order.value}
+                    // The verb an open order is waiting for. It opens the record
+                    // rather than receiving in place: receiving is counting goods
+                    // against lines, which is a screen, not a button. What this
+                    // saves is the guess about WHICH order is waiting — the row
+                    // says so itself.
+                    rowAction={(row) =>
+                      row.lifecycle === "ACTIVE" ||
+                      row.lifecycle === "PARTIALLY_RECEIVED" ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            order.open(row.purchase_order_id)
+                          }}
+                          className="inline-flex h-7 items-center rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.75rem] font-medium text-ink shadow-soft transition-colors hover:bg-soft-2"
+                        >
+                          Receive
+                        </button>
+                      ) : null
+                    }
+                    className="max-h-[calc(100vh-14rem)]"
+                  />
+                ),
+            })}
+          </Card>
+        </div>
+
+        <DockedFilters
+          model={{ ...filters, fields: counted }}
+          kpis={bookKpis(orders.data)}
+          className="hidden min-[1440px]:flex"
+        />
+      </div>
 
       <OrderSheet id={order.value ?? null} onClose={order.close} />
       {/* Mounted here rather than behind the trigger, because two of its three
@@ -466,36 +545,79 @@ export function PurchaseOrders() {
           article's detail follows back to the delivery that minted it. A sheet
           that only exists while its button has been pressed is a link that
           works for the person who clicked it and nobody else. */}
-      <SetupSheets />
     </PageContent>
   )
 }
-
-/// The way into a setup, and the count that makes it worth pressing.
+/// Four figures about the book as it currently stands.
 ///
-/// A trigger and not a menu row: a setup is done to one delivery, so what this
-/// opens is a queue to pick from. The number is the whole argument for the
-/// button — "Set up deliveries" alone says a thing exists, while "3" says
-/// three deliveries are sitting in the warehouse under a code nobody can sell
-/// against. Nothing is drawn while the count is unknown, and the button goes
-/// quiet rather than away at zero: it is still how you reach the sessions
-/// already open.
-function SetupTrigger() {
-  const queue = useSheet("setups")
-  const waiting = useAwaitingIdentity()
-  const pending = waiting.data?.length ?? 0
+/// `total` is the server's own count over everything the search and the chips
+/// match, so it is true whatever the page holds. The three sums are not: they
+/// are added up over the rows in hand, and a book that runs past one page has
+/// more of them. Rather than print a confident wrong total, a partial page
+/// says `of {n} shown` under the figure — the number is still useful, and the
+/// reader is told what it covers.
+/// `49.923.900.000` → `Rp 49,9 M`. Indonesian scale: ribu, juta, miliar.
+function brief(minor: number): string {
+  const abs = Math.abs(minor)
+  const [scale, suffix] =
+    abs >= 1_000_000_000
+      ? [1_000_000_000, " M"]
+      : abs >= 1_000_000
+        ? [1_000_000, " jt"]
+        : abs >= 1_000
+          ? [1_000, " rb"]
+          : [1, ""]
+  const scaled = minor / scale
+  const shown =
+    scale === 1 ? String(minor) : scaled.toFixed(scaled < 10 ? 1 : 0)
+  return `Rp ${shown.replace(".", ",")}${suffix}`
+}
 
-  return (
-    <Button variant="soft" onClick={() => queue.open(true)}>
-      <ListChecks className="size-4 stroke-[1.7]" />
-      Set up deliveries
-      {pending > 0 && (
-        <span className="ml-0.5 rounded-full bg-warn-bg px-[0.375rem] py-px text-[0.65625rem] font-semibold text-warn-fg tabular-nums">
-          {count(pending)}
-        </span>
-      )}
-    </Button>
+function bookKpis(page: PurchaseOrderPage | undefined) {
+  if (page === undefined) return undefined
+  const rows = page.rows
+  const whole = page.next_cursor === null
+  const note = whole
+    ? undefined
+    : `Over the ${count(rows.length)} orders loaded, of ${count(page.total)}`
+  const open = rows.filter(
+    (row) =>
+      row.lifecycle === "ACTIVE" || row.lifecycle === "PARTIALLY_RECEIVED"
   )
+  const value = open.reduce((sum, row) => sum + row.net_minor, 0)
+  const today = new Date().toISOString().slice(0, 10)
+  const late = rows.filter(
+    (row) =>
+      row.expected_arrival !== null &&
+      row.expected_arrival < today &&
+      row.outstanding_stock_units > 0
+  ).length
+  // An order with no promised date cannot be late, and saying "0 overdue"
+  // while twenty-one of twenty-three carry no date at all is a true number
+  // that reads as an all-clear. The tile says how many it could not judge.
+  const undated = rows.filter(
+    (row) => row.expected_arrival === null && row.outstanding_stock_units > 0
+  ).length
+  return [
+    { label: "Orders", value: count(page.total) },
+    { label: "Still open", value: count(open.length), note },
+    {
+      label: "Overdue",
+      value: count(late),
+      note:
+        undated === 0
+          ? note
+          : `${count(undated)} open orders carry no promised date, so they cannot be judged late${note === undefined ? "" : ` · ${note}`}`,
+    },
+    // Short, because a tile two columns wide cannot hold "Rp 49.923.900.000"
+    // and a truncated figure is worse than a rounded one. The exact number is
+    // on the title, where a hover finds it.
+    {
+      label: "On order",
+      value: brief(value),
+      note: `${money(value)}${note === undefined ? "" : ` · ${note}`}`,
+    },
+  ]
 }
 
 /// The record detail. It fetches its own read rather than being handed the row:
@@ -519,8 +641,23 @@ function OrderSheet({
       open={id !== null}
       subject={id === null ? undefined : { kind: "purchase_order", id }}
       onOpenChange={(open) => !open && onClose()}
-      id={detail.data?.po_number}
-      title={detail.data?.supplier_name ?? detail.data?.supplier_id ?? "Order"}
+      // The PO number IS the title. The supplier was, and it is already the
+      // first fact in the body — so the head named the order after something
+      // the document repeats two lines later, and the one string that
+      // identifies it to everybody (the warehouse, the supplier, Finance) was
+      // set in 12px mono above it.
+      title={detail.data?.po_number ?? "Order"}
+      caption={
+        detail.data &&
+        `Raised by ${detail.data.created_by} \u00b7 ${day(detail.data.issued_at)}`
+      }
+      badge={
+        detail.data && (
+          <Pill tone={toneFor(detail.data.lifecycle)}>
+            {label(detail.data.lifecycle)}
+          </Pill>
+        )
+      }
       // Wider than a rail, because an order is a DOCUMENT rather than a
       // record: six columns of lines — what, when it is due, at what price,
       // how many ordered, how many arrived, what that came to — do not fit in
@@ -534,156 +671,179 @@ function OrderSheet({
     >
       {queryState(detail, {
         loading: "Loading the order…",
-        render: (order) => (
-          <div className="flex flex-col gap-5">
-            <div>
-              <Pill tone={toneFor(order.order_status)}>
-                {label(order.order_status)}
-              </Pill>
-            </div>
-
-            {/* Payable is not here any more. It is what the DELIVERIES have
-                earned — received times price — so an order that has not been
-                received yet reads "Rp 0" beside lines that plainly come to
-                millions, and every reader takes it for a broken figure rather
-                than an answer to a question they did not ask. What the order
-                is worth is stated once, at the bottom, where an invoice states
-                it. */}
-            <Facts>
-              <Fact term="Destination">{order.destination_site_id}</Fact>
-              <Fact term="Issued">{day(order.issued_at)}</Fact>
-              <Fact term="Expected arrival">{day(order.expected_arrival)}</Fact>
-              <Fact term="Raised by">{order.created_by}</Fact>
-            </Facts>
-
-            <div>
-              <h4 className="mb-2 text-card-title font-semibold text-ink">
-                Lines
-              </h4>
-              {/* The in-card mini-table: mono UPPERCASE micro-headers, which
-                  is the one place that grammar belongs.
-
-                  A line shows what the composer showed when it was written:
-                  the photograph, the name, what it is filed under and what it
-                  is tagged with. Those four are how anybody recognises a
-                  garment, and the sheet was showing a name and an eleven-digit
-                  article code — a number that identifies the row to the
-                  database and to nobody else.
-
-                  No Expected column either. The promise is one date for the
-                  order, stated above with the other facts; a column repeating
-                  it on every line was the same day written down four times. */}
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr>
-                    {[
-                      "Item",
-                      "Unit price",
-                      "Qty",
-                      "Received",
-                      "Line total",
-                    ].map((head, index) => (
-                      <th
-                        key={head}
-                        className={`pb-1.5 font-mono text-[0.625rem] tracking-[0.04em] whitespace-nowrap text-faint uppercase ${index === 0 ? "text-left" : "pl-2.5 text-right"}`}
-                      >
-                        {head}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.lines.map((line) => (
-                    <tr
-                      key={line.po_line_id}
-                      className="border-t border-hairline"
-                    >
-                      <td className="py-2 pr-2">
-                        <div className="flex items-start gap-2.5">
-                          <Thumbnail
-                            url={line.image_url}
-                            fallback="—"
-                            className="mt-0.5 size-9 shrink-0 rounded-inner"
-                          />
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <span className="text-[0.8125rem] text-ink">
-                              {line.article_name}
-                            </span>
-                            {(line.division_code !== null ||
-                              line.tags.length > 0) && (
-                              <span className="flex flex-wrap items-center gap-1">
-                                {line.division_code !== null && (
-                                  <Tag>{label(line.division_code)}</Tag>
-                                )}
-                                {line.tags.map((tag) => (
-                                  <Tag key={tag}>{label(tag)}</Tag>
-                                ))}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-2 pl-2.5 text-right whitespace-nowrap tabular-nums">
-                        {money(line.unit_price_minor)}
-                      </td>
-                      <td className="py-2 pl-2.5 text-right whitespace-nowrap tabular-nums">
-                        {count(line.ordered_quantity)}
-                      </td>
-                      <td className="py-2 pl-2.5 text-right whitespace-nowrap tabular-nums">
-                        {count(line.received_quantity)}
-                      </td>
-                      <td className="py-2 pl-2.5 text-right whitespace-nowrap tabular-nums">
-                        {money(line.ordered_value_minor)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {/* The totals ladder: only the final row is `{ink}`/600, and it
-                  says the same three things the composer's ladder said when
-                  the order was raised — the lines, what was knocked off, and
-                  what the supplier will invoice. Pinned to a column at the
-                  right rather than spread across the sheet. */}
-              <TotalsLadder
-                className="mt-3 ml-auto w-full max-w-[24rem]"
-                rows={[
-                  {
-                    label: "Expected units",
-                    value: count(
-                      order.lines.reduce(
-                        (sum, line) => sum + line.expected_stock_units,
-                        0
-                      )
-                    ),
-                  },
-                  {
-                    label: "Outstanding units",
-                    value: count(
-                      order.lines.reduce(
-                        (sum, line) => sum + line.outstanding_stock_units,
-                        0
-                      )
-                    ),
-                  },
-                  { label: "Lines", value: money(order.gross_minor) },
-                  {
-                    label: "Discount",
-                    value:
-                      order.discount_minor === 0
-                        ? "—"
-                        : `− ${money(order.discount_minor)}`,
-                  },
-                ]}
-                total={{
-                  label: "The supplier will invoice",
-                  value: money(order.net_minor),
-                }}
-              />
-            </div>
-          </div>
-        ),
+        render: (order) => <OrderDocument order={order} />,
       })}
     </Sheet>
+  )
+}
+
+/// The order as the review draws it, because it is the same document.
+///
+/// The composer shows this shape before the order exists; this shows it
+/// afterwards. They were two different screens about one piece of paper —
+/// different tables, different facts, a status chip floating in the body of
+/// one and not the other — so what somebody approved did not look like what
+/// they came back to. This one now follows the review: the same two facts, the
+/// same ruled grid, the same three-row ladder.
+///
+/// What the review has and this cannot: payment terms. `purchase_order` does
+/// not store them, so there is no section to draw — an empty "Not agreed / no
+/// schedule" block would be this screen inventing a fact.
+function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Payable is not here. It is what the DELIVERIES have earned —
+          received times price — so an order that has not been received yet
+          reads "Rp 0" beside lines that plainly come to millions, and every
+          reader takes it for a broken figure rather than an answer to a
+          question they did not ask. What the order is worth is stated once,
+          at the bottom, where an invoice states it. */}
+      <Facts>
+        <Fact term="Supplier">{order.supplier_name ?? order.supplier_id}</Fact>
+        <Fact term="Expected arrival">
+          {order.expected_arrival === null
+            ? "Not promised"
+            : day(order.expected_arrival)}
+        </Fact>
+      </Facts>
+
+      <Section title={`Lines (${order.lines.length})`} rule={false}>
+        {/* The review's grid, from the review's two classes — see
+            `shared.ts`. A line shows what the composer showed when it was
+            written: the photograph, the name, and what it is filed under.
+            Those are how anybody recognises a garment, and this sheet used to
+            show a name and an eleven-digit article code — a number that
+            identifies the row to the database and to nobody else.
+
+            No Received column yet, on the owner's instruction: what has
+            arrived is its own question and gets its own answer later. */}
+        <div className="overflow-hidden rounded-inner border border-hairline">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[34rem] table-fixed border-collapse text-[0.875rem]">
+              <colgroup>
+                <col />
+                <col className="w-[5.5rem]" />
+                <col className="w-[9rem]" />
+                <col className="w-[9.5rem]" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th className={GRID_HEAD}>Item</th>
+                  <th className={`${GRID_HEAD} text-right`}>Qty</th>
+                  <th className={`${GRID_HEAD} text-right`}>Price</th>
+                  <th className={`${GRID_HEAD} text-right`}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {order.lines.map((line) => (
+                  <tr key={line.po_line_id}>
+                    <td className={GRID_CELL}>
+                      <div className="flex items-center gap-2.5">
+                        <Thumbnail
+                          url={line.image_url}
+                          fallback="—"
+                          className="size-9 shrink-0 rounded-inner"
+                        />
+                        <div className="min-w-0">
+                          <div className="truncate text-ink">
+                            {line.article_name}
+                          </div>
+                          <div className="truncate text-[0.75rem] text-body">
+                            {[
+                              line.division_code === null
+                                ? "Unclassified"
+                                : label(line.division_code),
+                              ...line.tags.map((tag) => label(tag)),
+                            ].join(" \u00b7 ")}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td
+                      className={`${GRID_CELL} text-right whitespace-nowrap tabular-nums`}
+                    >
+                      {count(line.ordered_quantity)}
+                    </td>
+                    <td
+                      className={`${GRID_CELL} text-right whitespace-nowrap tabular-nums`}
+                    >
+                      {money(line.unit_price_minor)}
+                    </td>
+                    <td
+                      className={`${GRID_CELL} text-right font-medium whitespace-nowrap text-ink tabular-nums`}
+                    >
+                      {money(line.ordered_value_minor)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* The review's three rows and no more. The piece counts that used to
+            open this ladder — ordered, still owed — are a different question
+            from what the supplier will invoice, and stacking five rows under
+            a four-column table made the one figure that closes the document
+            the fifth thing read. What is still owed has a column on the list
+            and a screen of its own. */}
+        <TotalsLadder
+          className="ml-auto w-full max-w-[26rem]"
+          rows={[
+            { label: "Lines", value: money(order.gross_minor) },
+            {
+              label: "Discount",
+              value:
+                order.discount_minor === 0
+                  ? "—"
+                  : `\u2212 ${money(order.discount_minor)}`,
+            },
+          ]}
+          total={{
+            label: "The supplier will invoice",
+            value: money(order.net_minor),
+          }}
+        />
+      </Section>
+
+      {/* `?.` rather than a null check: the detail's `notes` is absent, not
+          null, when there are none — and a screen that assumed the shape it
+          wished for took the whole sheet down with it. */}
+      {/* Payment terms, in the review's place and the review's shape, with
+          nothing in it.
+
+          `purchase_order` has fourteen columns and not one of them is a
+          payment term — no migration in the repo mentions one — so what the
+          composer collects is read on the review and then dropped by Create.
+          The section is drawn now, ahead of the storage, on the owner's
+          instruction: the layout is agreed here and the backend is planned
+          next, and a slot that already exists is a smaller change to fill
+          than one that has to be designed twice.
+
+          What it does NOT say is "Not agreed". That is a claim about what the
+          buyer and the supplier settled, and this screen has no standing to
+          make it — the terms may well have been agreed on the phone and
+          thrown away by us. It says the order does not carry them, which is
+          the only thing known here. */}
+      <Section title="Payment terms">
+        {/* No Method or Pay-into facts. A method belongs to an instalment, not
+            to the order — the composer's schedule table carries one per row —
+            and the account paid into is a fact of the payment. Two facts
+            reading "—" on every order would be stating the absence of things
+            that were never the order's to hold. */}
+        <p className="text-meta text-mute">
+          This order does not carry payment terms: they are agreed when it is
+          raised but not yet stored against it.
+        </p>
+      </Section>
+
+      {/* No Notes section. `purchase_order.notes` is a real column and Create
+          writes it, but `purchase_order_detail` answers `Json<Value>` built by
+          `purchase_order_status`, and that shape has no `notes` in it — which
+          is why the guard here was reading `undefined` rather than a string.
+          Drawing an empty section for a field the read never returns would be
+          this screen pretending the order has nothing written on it. Restore
+          it the day the endpoint carries the field. */}
+    </div>
   )
 }
