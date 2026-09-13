@@ -15,7 +15,7 @@ once.** Today it falls due once, and three places depend on that:
 | --- | --- |
 | `postgres/payables.rs:347` | `CURRENT_DATE - i.due_date` — the whole ageing column |
 | `postgres/ledger.rs:199` | `WHERE i.status <> 'POSTED' AND i.due_date < CURRENT_DATE` — what is overdue |
-| `postgres/payments.rs:287` | orders the bills a payment may settle, `due_date NULLS LAST` |
+| ~~`postgres/payments.rs:287`~~ | **Not a third reading** — found when moving it. It orders the allocations a payment already made, not the bills one may settle; ordering those by what falls due next would reshuffle a payment's own history whenever somebody else paid something. Left alone. |
 
 A bill 40% paid whose second instalment falls next month reads, in all three,
 as wholly overdue. Put a schedule on the order and nothing about that changes.
@@ -225,18 +225,33 @@ And two things ERPNext has that this plan deliberately does not take yet:
 
 ## Traps, all verified in this repo
 
-1. **Next free migration is 0193.** Do not renumber; renumbering has killed dev
-   databases here before.
-2. **`contract_types.rs` must NAME the type.** A `ts-rs` derive alone is not
-   enough — an unnamed type is silently not emitted, and the frontend compiles
-   against a stale contract.
-3. **`postgres::*` is one namespace.** Generic function names collide across
+1. **Migration numbers are contended.** This said "next free is 0193" and it
+   was wrong: the repo was at 0192 with an *uncommitted* 0200 from another
+   session. Steps one and two took 0201 and 0202. Read the directory, not the
+   last commit — and never renumber, which has killed dev databases here.
+2. **`backend/tests/contract_types.rs` must NAME the type** — a test, not
+   anything under `src/bin/`, where an earlier draft of this document sent the
+   reader. A `ts-rs` derive alone is not enough: an unnamed type is silently
+   not emitted and the frontend compiles against a stale contract.
+3. **`make contract` is two steps and the second fails quietly.** `ts-rs`
+   writes one file per type; the barrel every app imports from is written by
+   `generate-index.mjs`. Skip it and the file exists, `contract-check` sees no
+   drift, and `import type { X }` still fails. `MasterTerm` is in the tree
+   today with a derive and no file at all.
+4. **`postgres::*` is one namespace.** Generic function names collide across
    modules and the error misleads. Name it `supplier_invoice_terms`, never
    `terms`.
-4. **Push to `main` is live on Render.**
-5. **`feat/finance-control` is unmerged and collides with 0106.** Resolve that
-   before adding 0193 and up.
-6. **There is no GRNI in this ledger.** The bill posts straight through, so
+5. **The dev database is not this branch's.** `inventory_tanstack` is migrated
+   to 157 by `feat/finance-control`, whose 0155-0158 do not exist here, and it
+   has no `bank_giro` in `account_map` at all. Verify against a database
+   migrated from nothing; do not hand-apply a migration to it.
+6. **A posted payment is sealed.** Its allocations cannot be inserted or
+   changed once `status = 'POSTED'`, and it needs a journal entry, a
+   `posted_by` and an `account_map` row for its pot. A fixture goes DRAFT →
+   allocate → post, in that order. Four attempts found that out.
+7. **Push to `main` is live on Render.**
+8. **`feat/finance-control` is unmerged and collides with 0106.**
+9. **There is no GRNI in this ledger.** The bill posts straight through, so
    payment terms change *timing* only and never a posting rule. Do not invent a
    GRNI account to hold instalments.
 
