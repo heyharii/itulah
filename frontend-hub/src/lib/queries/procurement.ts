@@ -6,10 +6,12 @@ import type {
   CatalogueVocabulary,
   CreateSupplierItemRequest,
   CreateSupplierRequest,
+  PaymentTermsBook,
   PurchaseDestination,
   SourcingPage,
   Supplier,
   SupplierItem,
+  SupplierList,
   SupplierStatus,
   UpdateSupplierRequest,
 } from "@itulah/contract"
@@ -39,6 +41,13 @@ export interface PurchaseOrderRow {
   readonly supplier_id: string
   readonly supplier_name: string | null
   readonly destination_site_id: string
+  /// Where the order STANDS, derived by the server from its receipts every
+  /// time it is asked for: `ACTIVE`, `PARTIALLY_RECEIVED`, `FULLY_RECEIVED`,
+  /// `CLOSED`. This is what the screen draws and what the status facet counts.
+  readonly lifecycle: string
+  /// The stored column, which only ever reads `ISSUED` or `CLOSED` and cannot
+  /// tell an order that has arrived in full from one nobody has delivered
+  /// against. Kept because the server still sends it; nothing should draw it.
   readonly order_status: string
   readonly currency: string
   readonly issued_at: string | null
@@ -81,7 +90,11 @@ export interface PurchaseOrderLine {
   readonly unit_price_minor: number
   readonly ordered_value_minor: number
   /// What is owed, derived from receipts. A line that arrived short shows both.
-  readonly payable_minor: number
+  /// What the acceptances are EXPECTED to be worth, at the prices that applied
+  /// when each was accepted and net of the discount allocated to them. An
+  /// operational estimate, never a payable: nothing has validated it, and
+  /// nothing reaches the ledger until Finance matches a supplier bill.
+  readonly expected_value_minor: number
   readonly article_code: string
   readonly article_name: string
   /// The picture chosen when the order was raised, carried on the line since
@@ -111,15 +124,19 @@ export interface PurchaseOrderDetail {
   readonly supplier_name: string | null
   readonly destination_site_id: string
   readonly origin_kind: string
+  /// Where the order stands — see `PurchaseOrderRow`.
+  readonly lifecycle: string
   readonly order_status: string
   readonly currency: string
   readonly created_by: string
   readonly issued_at: string | null
   readonly activation_command_id: string | null
   readonly fully_received: boolean
-  /// What the DELIVERIES have earned — received times price. Not what the
-  /// order is worth: an order with nothing received is payable zero.
-  readonly payable_minor: number
+  /// What the acceptances are EXPECTED to be worth, at the prices that applied
+  /// when each was accepted and net of the discount allocated to them. An
+  /// operational estimate, never a payable: nothing has validated it, and
+  /// nothing reaches the ledger until Finance matches a supplier bill.
+  readonly expected_value_minor: number
   /// What the order is worth: the lines, the discount agreed on the whole
   /// order, and what the supplier will invoice.
   readonly gross_minor: number
@@ -417,7 +434,16 @@ export const procurementKeys = {
       : (["procurement", "purchase-orders", "scoped", scope] as const),
   order: (id: string) => ["procurement", "purchase-orders", id] as const,
   destinations: () => ["procurement", "purchase-destinations"] as const,
-  suppliers: () => ["procurement", "suppliers"] as const,
+  /// The supplier book. Scoped exactly as `orders` above is, and for the same
+  /// reason: a narrowed book is a different answer, and the unscoped read the
+  /// pickers and the command palette make stays its own entry.
+  ///
+  /// Both spellings sit under the same prefix, so one `invalidateQueries` on
+  /// `suppliers()` still drops every narrowed list a screen is holding.
+  suppliers: (scope?: SupplierScope) =>
+    scope === undefined
+      ? (["procurement", "suppliers"] as const)
+      : (["procurement", "suppliers", "scoped", scope] as const),
   supplier: (id: string) => ["procurement", "suppliers", id] as const,
   /// A supplier's own catalogue, under the supplier it belongs to.
   supplierCatalogue: (id: string) =>
@@ -430,6 +456,7 @@ export const procurementKeys = {
     ["procurement", "supplier-items", "sourcing", scope] as const,
   amendments: () => ["procurement", "price-amendments"] as const,
   vocabulary: () => ["procurement", "catalogue", "vocabulary"] as const,
+  paymentTerms: () => ["procurement", "payment-terms"] as const,
   basket: () => ["procurement", "sourcing-basket"] as const,
   setups: () => ["procurement", "article-setups"] as const,
   unidentified: () =>
@@ -470,11 +497,24 @@ function guarded(
 /// would print a zero beside every option nobody has ticked.
 export interface PurchaseOrderFacets {
   readonly order_status: readonly { value: string; count: number }[]
-  readonly supplier: readonly { value: string; count: number }[]
+  /// The supplier's name rides along as `label`, because `SUP-0004` is what
+  /// the order is filed under and the picker beside it shows a company.
+  readonly supplier: readonly {
+    value: string
+    label?: string | null
+    count: number
+  }[]
 }
 
 export interface PurchaseOrderPage {
-  readonly items: readonly PurchaseOrderRow[]
+  readonly rows: readonly PurchaseOrderRow[]
+  /// Opaque. Pass it back as `cursor` for the next page; null was the last one.
+  readonly next_cursor: string | null
+  /// Every order the scope matches, not just this page. The order book grows
+  /// forever, so "23 orders" under a list of 23 and "23 orders" under a list
+  /// of 200 out of 4.000 are different sentences, and only `total` can tell
+  /// them apart.
+  readonly total: number
   readonly facets: PurchaseOrderFacets
 }
 
@@ -504,7 +544,7 @@ export function listPurchaseOrders(
 ) {
   return node
     .get<PurchaseOrderPage>(orderBookUrl(scope), { signal })
-    .then((body) => body.items)
+    .then((body) => body.rows)
 }
 
 /// The same read, keeping the facet counts the filter picker prints.
@@ -532,7 +572,7 @@ export function orderScopeFromFilters(
   } = {}
   for (const { column, operator, values } of filters) {
     if (values.length === 0) continue
-    if (column === "order_status" && operator === "isAnyOf")
+    if (column === "lifecycle" && operator === "isAnyOf")
       scope.statuses = values
     else if (column === "supplier" && operator === "isAnyOf")
       scope.suppliers = values
@@ -555,7 +595,11 @@ export function purchaseOrderDetail(id: string, signal?: AbortSignal) {
 /// Deliberately not `/api/v1/sync/origins`, which is Admin-only: knowing which
 /// nodes exist is administration, and a Supervisor raising an order was
 /// getting a 403 on a list of site names. This route answers the purchasing
-/// question directly and carries a bare array, not an envelope.
+/// question directly and carries a bare array, not an envelope — deliberately,
+/// and it is the one list in this module that stays one. A row here is a
+/// building: one warehouse and thirteen shops, and a fourteenth arrives when
+/// the company signs a lease. There is nothing for a cursor to carry, and a
+/// picker served half its options is a picker that quietly hides a warehouse.
 export function purchaseDestinations(signal?: AbortSignal) {
   return node.get<PurchaseDestination[]>("/api/v1/purchase-destinations", {
     signal,
@@ -615,13 +659,29 @@ export function closeLineShort(
 // ---------------------------------------------------------------------------
 // Price amendments
 
+export interface PriceAmendmentPage {
+  readonly rows: readonly PriceAmendment[]
+  readonly next_cursor: string | null
+  /// Every question still waiting, not just this page — the number a badge
+  /// wants. Counting the array instead makes a pile deeper than a page
+  /// advertise itself as exactly one page deep.
+  readonly total: number
+  readonly facets: {
+    readonly origins: readonly { value: string; count: number }[]
+  }
+}
+
 export function pendingPriceAmendments(signal?: AbortSignal) {
   return node
-    .get<{ pending: number; items: PriceAmendment[] }>(
-      "/api/v1/purchase-price-amendments",
-      { signal }
-    )
-    .then((body) => body.items)
+    .get<PriceAmendmentPage>("/api/v1/purchase-price-amendments", { signal })
+    .then((body) => body.rows)
+}
+
+/// The same read, keeping the count the badge prints.
+export function priceAmendmentPage(signal?: AbortSignal) {
+  return node.get<PriceAmendmentPage>("/api/v1/purchase-price-amendments", {
+    signal,
+  })
 }
 
 /// Answer one. Approving changes the order's price to the invoice and tells
@@ -645,9 +705,98 @@ export function decidePriceAmendment(
 // ---------------------------------------------------------------------------
 // Suppliers
 
+/// A page of the supplier book, and the shape of everything it was drawn from.
+///
+/// It was a bare array. It is an envelope now for the reason every other list
+/// here grew one: a supplier is deactivated rather than deleted, so the book
+/// only ever gets longer, and an array has nowhere to put a cursor.
+///
+/// The type is `SupplierList` from the contract — generated from the struct the
+/// server serialises — rather than an interface transcribed here. There was one
+/// of those, and it was already half a field behind: a facet carries a `label`
+/// it did not mention.
+export type SupplierPage = SupplierList
+
+/// How the supplier book is ordered. The three the server names, and no more:
+/// a fourth would be a menu item that silently falls back to the house order.
+///
+/// There is deliberately no sort by status or by what a supplier offers. The
+/// server refuses the first (alphabetising two state names groups nothing
+/// anybody asked for — the house order already floats the active ones), and
+/// the second is not its column to sort: the count comes from the catalogue
+/// search, so ordering a page of suppliers by it would rank the page rather
+/// than the book.
+export type SupplierSort = "code" | "name" | "created"
+
+/// What a screen is asking the supplier book for.
+///
+/// Every field is a parameter `/api/v1/suppliers` answers. That is the whole
+/// contract of this type: a scope the request cannot carry is a control that
+/// claims to narrow a list and does not.
+export interface SupplierScope {
+  /// Free text, tried by the server against the code, the name and the contact
+  /// — not the phone or the email, which are a named individual's.
+  readonly q?: string
+  /// One status, which is all the endpoint takes.
+  readonly status?: SupplierStatus
+  /// Omitted is the house order: still buying from first, then by name.
+  readonly sort?: SupplierSort
+  readonly desc?: boolean
+  readonly limit?: number
+  /// From a previous page's `next_cursor`.
+  readonly cursor?: string
+}
+
+/// The scope as the route it addresses.
+function supplierBookUrl(scope: SupplierScope): string {
+  const params = new URLSearchParams()
+  if (scope.q !== undefined && scope.q.trim() !== "")
+    params.set("q", scope.q.trim())
+  if (scope.status !== undefined) params.set("status", scope.status)
+  if (scope.sort !== undefined) params.set("sort", scope.sort)
+  // Only the word the server looks for. Anything else — including `asc` — is
+  // ascending, so sending it would be a parameter that means nothing.
+  if (scope.desc === true) params.set("dir", "desc")
+  if (scope.limit !== undefined) params.set("limit", String(scope.limit))
+  if (scope.cursor !== undefined) params.set("cursor", scope.cursor)
+  const query = params.toString()
+  return query === "" ? "/api/v1/suppliers" : `/api/v1/suppliers?${query}`
+}
+
+/// Every supplier the scope matches, as the rows alone.
+///
+/// The pickers that call this want a list of names and nothing else, so the
+/// envelope is unwrapped here rather than in nine screens. `supplierPage`
+/// below is the same read for anybody who needs the count, the facets or the
+/// cursor.
 export function listSuppliers(status?: SupplierStatus, signal?: AbortSignal) {
-  const query = status === undefined ? "" : `?status=${status}`
-  return node.get<Supplier[]>(`/api/v1/suppliers${query}`, { signal })
+  return node
+    .get<SupplierPage>(supplierBookUrl({ status }), { signal })
+    .then((body) => body.rows)
+}
+
+/// The same read, keeping the count and the facet the filter panel prints.
+export function supplierPage(scope: SupplierScope = {}, signal?: AbortSignal) {
+  return node.get<SupplierPage>(supplierBookUrl(scope), { signal })
+}
+
+/// The filter panel's clauses as the request they mean.
+///
+/// Beside the fetcher rather than in the screen, like `orderScopeFromFilters`
+/// above and for the same reason: this function is the statement of what the
+/// endpoint can be asked, and every operator the fields offer has a case here.
+export function supplierScopeFromFilters(
+  filters: readonly Filter[]
+): SupplierScope {
+  const scope: { -readonly [K in keyof SupplierScope]: SupplierScope[K] } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0) continue
+    // One status, because the endpoint compares one column to one value. The
+    // field is declared `single`, so the chip cannot offer a second.
+    if (column === "status" && operator === "isAnyOf")
+      scope.status = values[0] as SupplierStatus
+  }
+  return scope
 }
 
 export function supplierDetail(id: string, signal?: AbortSignal) {
@@ -919,6 +1068,17 @@ export function catalogueVocabulary(signal?: AbortSignal) {
   return node.get<CatalogueVocabulary>("/api/v1/catalogue/vocabulary", {
     signal,
   })
+}
+
+/// The arrangements a buyer may agree, and what each instalment counts from.
+///
+/// The composer carried four of these in a `const` until migration 0201 gave
+/// them a table — which meant a fifth arrangement cost a release. Terms and
+/// templates arrive together because a template is unreadable without its
+/// terms: "40% advance, 60% before dispatch" is four words until you know that
+/// *before dispatch* means thirty days after the bill.
+export function paymentTermsBook(signal?: AbortSignal) {
+  return node.get<PaymentTermsBook>("/api/v1/payment-terms", { signal })
 }
 
 // ---------------------------------------------------------------------------

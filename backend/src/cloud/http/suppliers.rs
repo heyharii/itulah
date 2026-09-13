@@ -1,7 +1,8 @@
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
-    domain::SupplierStatus,
+    domain::{RecordKind, SupplierStatus},
+    http::audit::DeclaredSubject,
     postgres::{
         self as infrastructure, CatalogPurchaseOrderRequest, CreateSupplierItemRequest,
         CreateSupplierRequest, UpdateSupplierItemRequest, UpdateSupplierRequest,
@@ -134,6 +135,16 @@ pub async fn catalogue_vocabulary(
     Ok(Json(infrastructure::catalogue_vocabulary(&state.db).await?))
 }
 
+/// The arrangements a buyer can agree, and what each instalment counts from.
+///
+/// Terms and templates together, because a template is unreadable without its
+/// terms — see `postgres::payment_terms`.
+pub async fn payment_terms_book(
+    State(state): State<AppState>,
+) -> Result<Json<infrastructure::PaymentTermsBook>, AppError> {
+    Ok(Json(infrastructure::payment_terms_book(&state.db).await?))
+}
+
 /// Everything on offer, across every supplier — one page, plus what the rest
 /// of the catalogue contains.
 pub async fn search_supplier_items(
@@ -244,12 +255,59 @@ fn versioned_response<T: Serialize>(
     Ok(response)
 }
 
+/// How the supplier book is narrowed, ordered and paged.
+///
+/// `deny_unknown_fields`, so a misspelled filter is refused rather than quietly
+/// ignored: `?statuss=ACTIVE` narrows nothing, the caller believes a filter is
+/// applied, and the screen shows a book it thinks is a shortlist.
+///
+/// Separate from `CatalogListQuery` rather than grown out of it. That one is
+/// the supplier ITEM list's — a different route with a different cursor — and
+/// two lists sharing one query struct is how a parameter that means one thing
+/// in one place comes to mean something else in the other.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SupplierListQuery {
+    /// Supplier code, supplier name, or the name of the person there.
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    status: Option<SupplierStatus>,
+    /// `code`, `name` or `created`. Anything else is the house order rather
+    /// than a 400 — see `SupplierScope::sort`.
+    #[serde(default)]
+    sort: Option<String>,
+    /// `desc` and nothing else.
+    #[serde(default)]
+    dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    cursor: Option<String>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
 pub async fn list_suppliers(
     State(state): State<AppState>,
-    Query(query): Query<CatalogListQuery>,
-) -> Result<Json<Vec<crate::cloud::domain::Supplier>>, AppError> {
+    Query(query): Query<SupplierListQuery>,
+) -> Result<Json<infrastructure::SupplierList>, AppError> {
     Ok(Json(
-        infrastructure::list_suppliers(&state.db, query.status).await?,
+        infrastructure::list_suppliers(
+            &state.db,
+            infrastructure::SupplierScope {
+                q: query.q.clone().filter(|value| !value.trim().is_empty()),
+                status: query.status.map(|value| value.as_str().to_owned()),
+                sort: query.sort.clone(),
+                // `dir=desc` and nothing else. Absent, empty and anything
+                // unrecognised all mean ascending, which is the direction a
+                // list is in before anybody touches it.
+                desc: query.dir.as_deref() == Some("desc"),
+                cursor: query.cursor.clone(),
+                // Clamped where it is enforced, not here.
+                limit: query.limit,
+            },
+        )
+        .await?,
     ))
 }
 
@@ -264,6 +322,7 @@ pub async fn supplier_detail(
 pub async fn create_supplier(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     headers: HeaderMap,
     Json(request): Json<CreateSupplierRequest>,
 ) -> Result<Response, AppError> {
@@ -280,6 +339,7 @@ pub async fn create_supplier(
         &request_digest,
     )
     .await?;
+    acted_on.set(RecordKind::Supplier, supplier.supplier_id.to_string());
     versioned_response(StatusCode::CREATED, supplier.clone(), supplier.version)
 }
 
@@ -385,6 +445,7 @@ pub async fn supplier_item_detail(
 pub async fn create_supplier_item(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Path(supplier_id): Path<Uuid>,
     headers: HeaderMap,
     Json(request): Json<CreateSupplierItemRequest>,
@@ -404,6 +465,7 @@ pub async fn create_supplier_item(
         &request_digest,
     )
     .await?;
+    acted_on.set(RecordKind::SupplierItem, item.supplier_item_id.to_string());
     versioned_response(StatusCode::CREATED, item.clone(), item.version)
 }
 

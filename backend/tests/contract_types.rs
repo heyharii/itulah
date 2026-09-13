@@ -80,6 +80,24 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SaleRequest: {e}"));
     inventory_backend::edge::SaleResult::export_all(&config)
         .unwrap_or_else(|e| panic!("SaleResult: {e}"));
+
+    // The checkout a till declares before it asks a terminal for money. Named
+    // here rather than left to the derive, for the reason `TaxRule` had to be:
+    // `export_all` writes the type it is CALLED on and everything that type
+    // reaches, and nothing reachable from `SaleRequest` mentions a checkout. A
+    // derive with no caller writes nothing at all, silently.
+    inventory_backend::edge::BeginCheckoutRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("BeginCheckoutRequest: {e}"));
+    inventory_backend::edge::TenderOutcomeRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderOutcomeRequest: {e}"));
+    inventory_backend::edge::ResolveCheckoutRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ResolveCheckoutRequest: {e}"));
+    inventory_backend::edge::CheckoutResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("CheckoutResult: {e}"));
+    // The recovery list a till reads when it starts. Reached from nothing else,
+    // because nothing else asks the question.
+    inventory_backend::edge::UnresolvedCheckout::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnresolvedCheckout: {e}"));
     inventory_backend::edge::ReceiveRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("ReceiveRequest: {e}"));
     inventory_backend::edge::MoveRequest::export_all(&config)
@@ -103,6 +121,81 @@ fn the_wire_types_are_written_for_the_browser() {
     // validator, every promotion a merchandiser wrote came back as a serde
     // error naming a Rust type. Generated from the struct, that cannot recur.
     pricing_engine::Rule::export_all(&config).unwrap_or_else(|e| panic!("Rule: {e}"));
+
+    // The tax rates a book publishes. Named here rather than left to the derive
+    // because `export_all` writes the type it is CALLED on and everything that
+    // type reaches — and nothing reachable from `Rule` mentions tax. A derive
+    // with no caller writes nothing at all, silently, which is how a field
+    // arrives in Rust and never in the browser.
+    pricing_engine::TaxRule::export_all(&config).unwrap_or_else(|e| panic!("TaxRule: {e}"));
+
+    // The three Commercial lists — Pricelist, Promotions, Campaign — each as an
+    // envelope rather than a bare array: rows, a keyset cursor, the count of
+    // everything that matched, and facet counts. The same shape `MoneyOverview`
+    // set and `BillPage`, `PaymentPage` and `EmployeeList` followed, so one hook
+    // in the browser draws every list in this estate.
+    //
+    // `export_all` brings the nested types in with each root — the rows, the
+    // facets, `BookActivation`, `PriceRung` and the engine's own `PriceLevel` —
+    // so this list is the set of things a screen actually fetches rather than
+    // every struct in the module. A type NOT named here is never written, which
+    // is a mistake that has already been made once.
+    inventory_backend::cloud::postgres::PromotionPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("PromotionPage: {e}"));
+    inventory_backend::cloud::postgres::CampaignPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("CampaignPage: {e}"));
+
+    // What one shop has charged for one product over time. Named here rather
+    // than left to the derive, for the reason `TaxRule` had to be: nothing
+    // already exported reaches it, and a derive with no caller writes nothing
+    // at all — silently. `PricePeriod` comes in with it.
+    inventory_backend::cloud::postgres::PriceHistory::export_all(&config)
+        .unwrap_or_else(|e| panic!("PriceHistory: {e}"));
+
+    // Pricing changes still scheduled or running — UI-001 §6. Named for the
+    // same reason as `PriceHistory`: nothing already exported reaches it, and a
+    // derive with no caller writes nothing at all, silently. `ChangeKind`,
+    // `ChangeStatus` and `RolloutProgress` come in with it.
+    inventory_backend::cloud::postgres::PriceChange::export_all(&config)
+        .unwrap_or_else(|e| panic!("PriceChange: {e}"));
+    // How far one price book has reached each shop — told, in service, or
+    // failed with the shop's own account of why (migration 0179). Named here
+    // for the reason the two above are: nothing already exported reaches it, and
+    // a derive with no caller writes nothing at all, silently — the trap this
+    // file exists to close, and which has caught this repository four times.
+    // `ShopRollout` and `RolloutState` come in with it.
+    inventory_backend::cloud::postgres::PublicationRollout::export_all(&config)
+        .unwrap_or_else(|e| panic!("PublicationRollout: {e}"));
+
+    // The pricelist carries the cascade itself: every rung a shop could have
+    // charged, with the losers as well as the winner. `applies_to` is the
+    // engine's `PriceLevel`, so the browser reads a cascade in the vocabulary
+    // that decides it rather than in a hand-written echo of it.
+    inventory_backend::cloud::postgres::ArticlePricePage::export_all(&config)
+        .unwrap_or_else(|e| panic!("ArticlePricePage: {e}"));
+
+    // The half of a campaign that is not in any price book: what it runs, where
+    // it was declared to run, the lines it must not cross, and the score against
+    // the campaign it was meant to beat (migrations 0173 and 0174).
+    //
+    // Four roots rather than one, because they are four different requests and
+    // `export_all` only writes what the type it is called on can reach. The
+    // inputs are named separately from the views for the same reason: a struct
+    // that is only ever DESERIALISED is reachable from nothing the server sends,
+    // so leaving it out would export a screen that can read a campaign's plan
+    // and cannot write one.
+    inventory_backend::cloud::postgres::CampaignPlanView::export_all(&config)
+        .unwrap_or_else(|e| panic!("CampaignPlanView: {e}"));
+    inventory_backend::cloud::postgres::CampaignPlanInput::export_all(&config)
+        .unwrap_or_else(|e| panic!("CampaignPlanInput: {e}"));
+    inventory_backend::cloud::postgres::CampaignActivityInput::export_all(&config)
+        .unwrap_or_else(|e| panic!("CampaignActivityInput: {e}"));
+    inventory_backend::cloud::postgres::CampaignOutcomeView::export_all(&config)
+        .unwrap_or_else(|e| panic!("CampaignOutcomeView: {e}"));
+    inventory_backend::cloud::postgres::CampaignTargetInput::export_all(&config)
+        .unwrap_or_else(|e| panic!("CampaignTargetInput: {e}"));
+    inventory_backend::cloud::postgres::GuardrailCheckReport::export_all(&config)
+        .unwrap_or_else(|e| panic!("GuardrailCheckReport: {e}"));
 
     // What a warehouse screen is handed.
     inventory_backend::edge::PurchaseWorkLine::export_all(&config)
@@ -305,6 +398,17 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("CustomerTransactionPage: {e}"));
     inventory_backend::cloud::postgres::MemberIdentity::export_all(&config)
         .unwrap_or_else(|e| panic!("MemberIdentity: {e}"));
+    // The directory itself, which the hub had been transcribing by hand since
+    // it was written — the derive was on the struct and the type was never
+    // named here, so nothing was ever generated and nothing said so.
+    inventory_backend::cloud::postgres::MemberRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("MemberRow: {e}"));
+    inventory_backend::cloud::postgres::MemberDirectory::export_all(&config)
+        .unwrap_or_else(|e| panic!("MemberDirectory: {e}"));
+    inventory_backend::cloud::postgres::MemberFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("MemberFacets: {e}"));
+    inventory_backend::cloud::postgres::MemberFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("MemberFacet: {e}"));
     inventory_backend::cloud::postgres::IssuedPairingCode::export_all(&config)
         .unwrap_or_else(|e| panic!("IssuedPairingCode: {e}"));
     inventory_backend::cloud::http::member::MemberSessionResponse::export_all(&config)
@@ -363,6 +467,102 @@ fn the_wire_types_are_written_for_the_browser() {
     // must not be transcribing its shape.
     inventory_backend::cloud::postgres::AuditEntry::export_all(&config)
         .unwrap_or_else(|e| panic!("AuditEntry: {e}"));
+    // The envelope the feed and the sheets both read: a page, an exact total
+    // and exact facet counts. Exact because this is an audit surface — an
+    // approximate count of who did what reads as a fact and is not one.
+    inventory_backend::cloud::postgres::AuditFeed::export_all(&config)
+        .unwrap_or_else(|e| panic!("AuditFeed: {e}"));
+    inventory_backend::cloud::postgres::AuditFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("AuditFacets: {e}"));
+    inventory_backend::cloud::postgres::AuditFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("AuditFacet: {e}"));
+
+    // The vocabulary itself, as a union the browser can be held to.
+    //
+    // Worth exporting for one reason: the hub keeps a map from sheet key to
+    // record kind, and it was a `Record<SheetKey, string>`. Two of its
+    // twenty-five entries were words this server has never had — `user` for
+    // what is `app_user`, and a promotion spelled with no kind behind it at
+    // all — and nothing could say so, because `string` accepts anything.
+    // Typed against this, `tsc` says so.
+    inventory_backend::cloud::domain::RecordKind::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordKind: {e}"));
+
+    // One record's surroundings, in one answer: comments, tags, history, the
+    // documents filed against it and the threads arguing about it. This is the
+    // shape a generic `<Sheet>` reads, so twenty-four screens depend on it and
+    // not one of them may keep its own copy of it.
+    inventory_backend::cloud::postgres::RecordInfo::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordInfo: {e}"));
+    inventory_backend::cloud::postgres::RecordComment::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordComment: {e}"));
+    inventory_backend::cloud::postgres::RecordTag::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordTag: {e}"));
+    inventory_backend::cloud::postgres::NewComment::export_all(&config)
+        .unwrap_or_else(|e| panic!("NewComment: {e}"));
+    inventory_backend::cloud::postgres::NotificationFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("NotificationFacets: {e}"));
+    inventory_backend::cloud::postgres::NotificationFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("NotificationFacet: {e}"));
+
+    // The System module's own three lists, each an envelope with EXACT counts.
+    // They answer "who can sign in, where, and with what reader", and a rough
+    // count of that reads as a fact without being one — so `total` and every
+    // facet is a `COUNT(*)`, never an estimate.
+    inventory_backend::cloud::postgres::UserList::export_all(&config)
+        .unwrap_or_else(|e| panic!("UserList: {e}"));
+    inventory_backend::cloud::postgres::UserRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("UserRow: {e}"));
+    inventory_backend::cloud::postgres::UserFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("UserFacets: {e}"));
+    inventory_backend::cloud::postgres::UserFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("UserFacet: {e}"));
+    inventory_backend::cloud::postgres::EdgeAssignmentList::export_all(&config)
+        .unwrap_or_else(|e| panic!("EdgeAssignmentList: {e}"));
+    inventory_backend::cloud::postgres::EdgeAssignmentRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("EdgeAssignmentRow: {e}"));
+    inventory_backend::cloud::postgres::EdgeAssignmentFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("EdgeAssignmentFacets: {e}"));
+    inventory_backend::cloud::postgres::RfidDeviceList::export_all(&config)
+        .unwrap_or_else(|e| panic!("RfidDeviceList: {e}"));
+    inventory_backend::cloud::postgres::RfidDeviceRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("RfidDeviceRow: {e}"));
+    inventory_backend::cloud::postgres::RfidDeviceFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("RfidDeviceFacets: {e}"));
+    inventory_backend::cloud::postgres::AccessFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccessFacet: {e}"));
+    // What the fleet sent that this server would not take.
+    inventory_backend::cloud::postgres::DeadLetterList::export_all(&config)
+        .unwrap_or_else(|e| panic!("DeadLetterList: {e}"));
+    inventory_backend::cloud::postgres::DeadLetterRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("DeadLetterRow: {e}"));
+    inventory_backend::cloud::postgres::DeadLetterFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("DeadLetterFacets: {e}"));
+    inventory_backend::cloud::postgres::DeadLetterFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("DeadLetterFacet: {e}"));
+
+    // Refunds. The storeops list, an envelope rather than `{items, limit}`:
+    // echoing the ceiling back told a caller what it had asked for and never
+    // whether the answer was all of them.
+    inventory_backend::cloud::postgres::SaleReturnList::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaleReturnList: {e}"));
+    inventory_backend::cloud::postgres::SaleReturnRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaleReturnRow: {e}"));
+    inventory_backend::cloud::postgres::SaleReturnFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaleReturnFacets: {e}"));
+    inventory_backend::cloud::postgres::SaleReturnFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaleReturnFacet: {e}"));
+
+    // The two master-data vocabularies. Their row types were already written;
+    // the facets and the envelope fields beside them were not.
+    inventory_backend::cloud::postgres::ColourFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("ColourFacets: {e}"));
+    inventory_backend::cloud::postgres::ColourFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("ColourFacet: {e}"));
+    inventory_backend::cloud::postgres::MasterFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("MasterFacets: {e}"));
+    inventory_backend::cloud::postgres::MasterFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("MasterFacet: {e}"));
     // What speaks for one master value, and whether it may therefore be
     // deleted. The browser must not be deciding this for itself: the screen
     // that draws a Delete button and the handler that honours one have to be
@@ -469,6 +669,13 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SupplierBillLine: {e}"));
     inventory_backend::cloud::postgres::UnbilledReceipt::export_all(&config)
         .unwrap_or_else(|e| panic!("UnbilledReceipt: {e}"));
+    // What `GET /finance/bills` actually answers: a page of bills in an
+    // envelope, not a bare array. The envelope is `MoneyOverview`'s — rows, a
+    // cursor, the count of everything that matched, and the facet counts — so
+    // that one hook in the browser draws all three lists. `export_all` pulls
+    // `BillFacets` and `PayableFacet` in with it.
+    inventory_backend::cloud::postgres::BillPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("BillPage: {e}"));
 
     // Supplier payments: the other half of a bill. `SupplierPayment` carries
     // its allocations inline because a payment without them is meaningless —
@@ -477,6 +684,11 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SupplierPayment: {e}"));
     inventory_backend::cloud::postgres::PaymentAllocation::export_all(&config)
         .unwrap_or_else(|e| panic!("PaymentAllocation: {e}"));
+    // The register's envelope, the same shape as `BillPage`. Its facets count
+    // the method as well as the status: "what still has to be booked" and
+    // "what left by giro this month" are both asked of this list.
+    inventory_backend::cloud::postgres::PaymentPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentPage: {e}"));
     inventory_backend::cloud::postgres::RecordPaymentRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("RecordPaymentRequest: {e}"));
     inventory_backend::cloud::postgres::AllocateToBill::export_all(&config)
@@ -584,6 +796,12 @@ fn the_wire_types_are_written_for_the_browser() {
     // Both profiles are here on purpose: they are different shapes, at
     // different routes, behind different grants. A generated pair is what stops
     // the browser confusing them the way the hand-written proposal did.
+    // The workforce list's envelope — the cursor, the total and the facets —
+    // the same shape `BillPage` and `PaymentPage` have. `export_all` brings
+    // `EmployeeSummary` and the facet types with it; the summary is named
+    // separately below because single-employee reads return it on its own.
+    inventory_backend::cloud::postgres::EmployeeList::export_all(&config)
+        .unwrap_or_else(|e| panic!("EmployeeList: {e}"));
     inventory_backend::cloud::postgres::EmployeeSummary::export_all(&config)
         .unwrap_or_else(|e| panic!("EmployeeSummary: {e}"));
     inventory_backend::cloud::postgres::ExpiringContract::export_all(&config)
@@ -717,4 +935,162 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PrintReceiptRequest: {e}"));
     inventory_backend::edge::escpos::ReceiptDocument::export_all(&config)
         .unwrap_or_else(|e| panic!("ReceiptDocument: {e}"));
+
+    // The finance lists, as envelopes.
+    //
+    // Eight routes that answered with a bare array — or, for the map and the
+    // saved reports, with a hand-built `json!` the browser mirrored by hand —
+    // brought to the shape `MoneyOverview` set and `BillPage`, `PaymentPage`
+    // and `EmployeeList` followed: rows, a keyset `next_cursor`, a `total` over
+    // everything that matched, and facet counts. One root each; `export_all`
+    // pulls the facet types and the row types in behind it.
+    //
+    // `GeneralLedger` is already named above and does not need a second line —
+    // but it now carries `GeneralLedgerFacets` and a `line_id` per row, and it
+    // is the one envelope here whose totals deliberately do NOT move under the
+    // search: a trial balance that shrank when somebody typed would be a proof
+    // that could be talked out of itself.
+    inventory_backend::cloud::postgres::AccountPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountPage: {e}"));
+    inventory_backend::cloud::postgres::JournalPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("JournalPage: {e}"));
+    inventory_backend::cloud::postgres::AssetPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetPage: {e}"));
+    inventory_backend::cloud::postgres::PeriodPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("PeriodPage: {e}"));
+    inventory_backend::cloud::postgres::BankStatementPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankStatementPage: {e}"));
+    inventory_backend::cloud::postgres::AccountMapPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountMapPage: {e}"));
+    inventory_backend::cloud::postgres::SavedReportPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("SavedReportPage: {e}"));
+
+    // The inventory lists, as envelopes.
+    //
+    // Eight routes that answered with a hand-built `json!` the browser
+    // mirrored by hand in `frontend-hub/src/lib/queries/inventory.ts` —
+    // every interface in that file was transcribed rather than generated,
+    // because there was no struct to generate from. There is now, and these
+    // are the roots; `export_all` pulls the row and facet types in behind
+    // them, `InventoryFacet` included.
+    inventory_backend::cloud::postgres::PoolPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("PoolPage: {e}"));
+    inventory_backend::cloud::postgres::MovementPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("MovementPage: {e}"));
+    inventory_backend::cloud::postgres::SightingPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("SightingPage: {e}"));
+    inventory_backend::cloud::postgres::CountPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("CountPage: {e}"));
+    inventory_backend::cloud::postgres::MissingPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("MissingPage: {e}"));
+    inventory_backend::cloud::postgres::ReconciliationPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReconciliationPage: {e}"));
+    inventory_backend::cloud::postgres::ControlStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("ControlStatus: {e}"));
+    // And the trial balance, which is the same override written larger: its
+    // `total_debit_minor` and `total_credit_minor` are the whole ledger's, and
+    // its cursor bounds the response rather than the scan.
+    inventory_backend::cloud::postgres::TrialBalance::export_all(&config)
+        .unwrap_or_else(|e| panic!("TrialBalance: {e}"));
+
+    // Procurement and commercial, brought to the same envelope everything above
+    // already speaks: rows, a keyset `next_cursor`, a `total` over the whole
+    // matched set, and facets counted over what the search leaves.
+    //
+    // `PurchaseOrderPage` and `PriceAmendmentPage` are the two that were
+    // hand-built JSON on the way out AND hand-written TypeScript on the way in
+    // — twice each, once in the hub and once in the cloud console, which is the
+    // disease this file exists to cure. Both roots; `export_all` pulls the row
+    // and facet types in behind them.
+    // Payment terms. Named here and not merely derived: `#[ts(export)]` alone
+    // writes nothing, which is how `MasterTerm` has a derive and no file.
+    inventory_backend::cloud::postgres::PaymentTermsBook::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentTermsBook: {e}"));
+
+    inventory_backend::cloud::postgres::PurchaseOrderPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseOrderPage: {e}"));
+    inventory_backend::cloud::postgres::PurchaseOrderRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseOrderRow: {e}"));
+    inventory_backend::cloud::postgres::PriceAmendmentPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("PriceAmendmentPage: {e}"));
+    inventory_backend::cloud::postgres::PriceAmendmentRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PriceAmendmentRow: {e}"));
+    // The supplier book. `Supplier` itself was already named above; this is the
+    // envelope it now arrives in, because a bare array has nowhere to put a
+    // cursor on the day thirty suppliers are three hundred.
+    inventory_backend::cloud::postgres::SupplierList::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierList: {e}"));
+    // Letters — the register, one letter, and the three requests that change
+    // one. `export_all` pulls `LetterRow` and `LetterLine` in behind the two
+    // envelopes, so the browser's table of goods is the struct the server
+    // serialises rather than a shape somebody read off a screenshot.
+    inventory_backend::cloud::postgres::LetterList::export_all(&config)
+        .unwrap_or_else(|e| panic!("LetterList: {e}"));
+    inventory_backend::cloud::postgres::LetterDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("LetterDetail: {e}"));
+    inventory_backend::cloud::postgres::LetterSource::export_all(&config)
+        .unwrap_or_else(|e| panic!("LetterSource: {e}"));
+    inventory_backend::cloud::postgres::NewLetter::export_all(&config)
+        .unwrap_or_else(|e| panic!("NewLetter: {e}"));
+    inventory_backend::cloud::postgres::LetterEdit::export_all(&config)
+        .unwrap_or_else(|e| panic!("LetterEdit: {e}"));
+    inventory_backend::cloud::postgres::VoidLetter::export_all(&config)
+        .unwrap_or_else(|e| panic!("VoidLetter: {e}"));
+    // Vouchers, and this entry is the point of the comment at the top of this
+    // file. `VoucherRow` and `VoucherList` have carried the `ts_rs` derive since
+    // they were written and were never named HERE — so the derive was present,
+    // inert, and generated nothing, while the browser's copies were typed by
+    // hand beside them. The test passed the whole time: a type this file does
+    // not name is simply never written, and nothing fails to say so.
+    inventory_backend::cloud::postgres::VoucherList::export_all(&config)
+        .unwrap_or_else(|e| panic!("VoucherList: {e}"));
+    inventory_backend::cloud::postgres::VoucherRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("VoucherRow: {e}"));
+    // The detail route behind it, which is the same shape one card at a time —
+    // `export_all` pulls `VoucherMovementRow` in behind it.
+    inventory_backend::cloud::postgres::VoucherDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("VoucherDetail: {e}"));
+    inventory_backend::cloud::postgres::VoucherLedger::export_all(&config)
+        .unwrap_or_else(|e| panic!("VoucherLedger: {e}"));
+    inventory_backend::cloud::postgres::IssueVoucherRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("IssueVoucherRequest: {e}"));
+    inventory_backend::cloud::postgres::RedeemVoucherRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RedeemVoucherRequest: {e}"));
+    inventory_backend::cloud::postgres::VoidVoucherRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("VoidVoucherRequest: {e}"));
+
+    // Coupons (migration 0170). Named here for the reason the paragraph above
+    // gives, which has now cost this repository twice: a derive nobody names is
+    // a derive that writes nothing, and the failure is a browser import that
+    // does not resolve for a type the server has been sending all week.
+    //
+    // `export_all` pulls the enums in behind the structs that hold them —
+    // `CouponSetKind` behind `CouponSetRow`, `CouponState` behind
+    // `CouponCodeRow` — and `CouponCodeDetail` pulls `CouponRedemptionRow`.
+    inventory_backend::cloud::postgres::CouponSetRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("CouponSetRow: {e}"));
+    inventory_backend::cloud::postgres::CouponCodeRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("CouponCodeRow: {e}"));
+    inventory_backend::cloud::postgres::CouponCodeDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("CouponCodeDetail: {e}"));
+    inventory_backend::cloud::postgres::CouponRedemptionRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("CouponRedemptionRow: {e}"));
+    inventory_backend::cloud::postgres::CouponSetKind::export_all(&config)
+        .unwrap_or_else(|e| panic!("CouponSetKind: {e}"));
+    inventory_backend::cloud::postgres::CouponState::export_all(&config)
+        .unwrap_or_else(|e| panic!("CouponState: {e}"));
+    inventory_backend::cloud::postgres::CreateCouponSetRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreateCouponSetRequest: {e}"));
+    inventory_backend::cloud::postgres::MintCouponsRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("MintCouponsRequest: {e}"));
+    inventory_backend::cloud::postgres::MintedCoupons::export_all(&config)
+        .unwrap_or_else(|e| panic!("MintedCoupons: {e}"));
+    inventory_backend::cloud::postgres::AuthorizeCouponRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("AuthorizeCouponRequest: {e}"));
+    inventory_backend::cloud::postgres::CommitCouponRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CommitCouponRequest: {e}"));
+    inventory_backend::cloud::postgres::ReleaseCouponRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReleaseCouponRequest: {e}"));
+    inventory_backend::cloud::postgres::CancelCouponRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CancelCouponRequest: {e}"));
 }

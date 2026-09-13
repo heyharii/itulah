@@ -1,10 +1,15 @@
-use crate::cloud::{application::*, domain::IngestBatch, postgres as infrastructure};
+use crate::cloud::{
+    application::*,
+    domain::{IngestBatch, RecordKind},
+    http::audit::{id_in, DeclaredSubject},
+    postgres as infrastructure,
+};
 use crate::security;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     routing::{get, patch, post, put},
-    Json, Router,
+    Extension, Json, Router,
 };
 use chrono::{Duration, Utc};
 use serde_json::{json, Value};
@@ -17,9 +22,11 @@ pub mod attendance;
 pub mod audit;
 pub mod auth;
 pub mod basket;
+pub mod campaigns;
 pub mod catalogue;
 pub mod chat;
 pub mod colours;
+pub mod coupons;
 pub mod customer;
 pub mod discussion;
 pub mod documents;
@@ -28,11 +35,13 @@ pub mod files;
 pub mod finance;
 pub mod holiday;
 pub mod leave;
+pub mod letters;
 pub mod member;
 pub mod notifications;
 pub mod overtime;
 pub mod pay;
 pub mod performance;
+pub mod records;
 pub mod reports;
 pub mod roster;
 pub mod statement_intake;
@@ -190,6 +199,15 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/commercial/performance/pricelist",
             get(performance::pricelist_performance),
         )
+        // The one campaign metric that is not in the sale facts alone. Its own
+        // route rather than a field on the aggregate above: it needs the
+        // projection as well as the tills, it is asked for ONE campaign, and it
+        // would make the fleet-wide read carry an inventory join every screen
+        // that does not want it would still pay for.
+        .route(
+            "/api/v1/commercial/campaigns/{campaign_id}/sell-through",
+            get(performance::campaign_sell_through),
+        )
         // What every published book declares, deduplicated the way a shop
         // resolves it: newest book wins. Promotions and Campaign used to build
         // this in the browser by opening each published book in turn, which was
@@ -210,6 +228,45 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/commercial/campaigns/{campaign_id}",
             axum::routing::patch(switch_campaign),
         )
+        // Why the campaign exists, which is the half a price book does not
+        // carry. Its own route under the campaign rather than a field on the
+        // publication: changing a target must never reprice a shop. See
+        // migration 0161.
+        .route("/api/v1/commercial/campaign-intents", get(campaign_intents))
+        .route(
+            "/api/v1/commercial/campaigns/{campaign_id}/intent",
+            get(campaign_intent)
+                .put(save_campaign_intent)
+                .delete(delete_campaign_intent),
+        )
+        // The rest of what a campaign is, and none of it pricing: what it runs,
+        // where it was DECLARED to run, the lines it must not cross, and the
+        // score against the campaign it was meant to beat. Migrations 0173 and
+        // 0174. Nothing under here reaches a till.
+        .route(
+            "/api/v1/commercial/campaigns/{campaign_id}/plan",
+            get(campaigns::campaign_plan).put(campaigns::save_campaign_plan),
+        )
+        .route(
+            "/api/v1/commercial/campaigns/{campaign_id}/activities/{activity_id}",
+            put(campaigns::save_campaign_activity).delete(campaigns::delete_campaign_activity),
+        )
+        .route(
+            "/api/v1/commercial/campaigns/{campaign_id}/outcome",
+            get(campaigns::campaign_outcome),
+        )
+        .route(
+            "/api/v1/commercial/campaigns/{campaign_id}/target",
+            put(campaigns::save_campaign_target),
+        )
+        .route(
+            "/api/v1/commercial/campaigns/{campaign_id}/guardrail-check",
+            post(campaigns::check_campaign_guardrails),
+        )
+        .route(
+            "/api/v1/commercial/campaigns/{campaign_id}/breaches/{breach_id}",
+            post(campaigns::acknowledge_campaign_breach),
+        )
         // Vouchers. Under `/commercial` because that is the module a
         // merchandiser reaches them from, and NOT because a voucher is
         // pricing — it is tender, and the screen above them says so. The
@@ -223,6 +280,34 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/commercial/vouchers/{code}",
             get(vouchers::voucher_detail),
         )
+        // Hold, then commit — the pair a till uses, because a redemption is
+        // final and a checkout is not. `redeem` below stays: it is the direct
+        // path for a back-office correction, where there is no basket to hold
+        // against. See migration 0162.
+        // Loyalty. Under `/customers` and not `/commercial`, because a balance
+        // belongs to the shopper rather than to the price book — the locked
+        // domain split. The one place points leave an account is the
+        // redemption, which issues a voucher and debits in one transaction.
+        .route(
+            "/api/v1/customers/{customer_id}/points",
+            get(points_account),
+        )
+        .route(
+            "/api/v1/customers/{customer_id}/points/redeem",
+            post(redeem_points_to_voucher),
+        )
+        .route(
+            "/api/v1/commercial/vouchers/{code}/authorize",
+            post(vouchers::authorize_voucher),
+        )
+        .route(
+            "/api/v1/commercial/vouchers/{code}/commit",
+            post(vouchers::commit_voucher_hold),
+        )
+        .route(
+            "/api/v1/commercial/vouchers/{code}/release",
+            post(vouchers::release_voucher_hold),
+        )
         .route(
             "/api/v1/commercial/vouchers/{code}/redeem",
             post(vouchers::redeem_voucher),
@@ -230,6 +315,86 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/commercial/vouchers/{code}/void",
             post(vouchers::void_voucher),
+        )
+        // Letters — the paperwork somebody signs. A goods receipt note for a
+        // supplier's delivery and a delivery note for goods going to a shop,
+        // both drawn from records this database already holds and then frozen
+        // into a numbered document. See `postgres::letters`.
+        //
+        // Reading is a CASHIER read because a letter carries quantities and
+        // names and never a price — the reason `letters.rs` gives, and the
+        // reason it may not grow a money column without this rung being
+        // reconsidered.
+        .route(
+            "/api/v1/letters",
+            get(letters::list_letters).post(letters::draft_letter),
+        )
+        .route("/api/v1/letters/sources", get(letters::letter_sources))
+        .route(
+            "/api/v1/letters/{letter_id}",
+            get(letters::letter_detail)
+                .patch(letters::save_letter)
+                .delete(letters::discard_letter),
+        )
+        .route("/api/v1/letters/{letter_id}/issue", post(letters::issue_letter))
+        .route("/api/v1/letters/{letter_id}/void", post(letters::void_letter))
+        // Coupons. Migration 0170 turned a counter into a set, its codes and a
+        // redemption per sale; these are the routes for authoring one and for
+        // the hold a till takes while a basket is still being paid for. The
+        // hold/commit/release trio is the voucher trio's shape on purpose —
+        // see `postgres/coupons.rs`.
+        // Money a shop took where no sale was written — the queue head office
+        // works. Not under `commercial/`: this is not pricing, it is a branch
+        // holding somebody's money, and the only node that can see it is this
+        // one (the shop's own day report balances).
+        // What one shop has charged for one product, and what changed it. The
+        // Pricelist answers "why this price"; this answers "why did it move".
+        .route("/api/v1/commercial/price-history", get(price_history))
+        // What the business is doing to prices now or next — one row per
+        // change, as wide as it reaches. The sibling of price-history and a
+        // different question: that one is one product's past, this is the
+        // estate's present.
+        .route("/api/v1/commercial/price-changes", get(price_changes))
+        .route("/api/v1/checkout-exceptions", get(list_checkout_exceptions))
+        .route(
+            "/api/v1/checkout-exceptions/{checkout_id}/resolve",
+            post(resolve_checkout_exception),
+        )
+        .route(
+            "/api/v1/commercial/coupon-sets",
+            get(coupons::list_coupon_sets).post(coupons::create_coupon_set),
+        )
+        .route(
+            "/api/v1/commercial/coupon-sets/{set_code}",
+            get(coupons::coupon_set_detail),
+        )
+        .route(
+            "/api/v1/commercial/coupon-sets/{set_code}/mint",
+            post(coupons::mint_coupon_codes),
+        )
+        .route(
+            "/api/v1/commercial/coupons/expire-lapsed",
+            post(coupons::expire_lapsed_coupons),
+        )
+        .route(
+            "/api/v1/commercial/coupons/{code}",
+            get(coupons::coupon_code_detail),
+        )
+        .route(
+            "/api/v1/commercial/coupons/{code}/authorize",
+            post(coupons::authorize_coupon),
+        )
+        .route(
+            "/api/v1/commercial/coupons/{code}/commit",
+            post(coupons::commit_coupon_hold),
+        )
+        .route(
+            "/api/v1/commercial/coupons/{code}/release",
+            post(coupons::release_coupon_hold),
+        )
+        .route(
+            "/api/v1/commercial/coupons/{code}/cancel",
+            post(coupons::cancel_coupon_code),
         )
         .route(
             "/api/v1/suppliers",
@@ -258,6 +423,13 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/catalogue/vocabulary",
             get(suppliers::catalogue_vocabulary),
+        )
+        // What the company has agreed it can agree. Read by the order
+        // composer, which carried these four arrangements in a `const` until
+        // 0201 gave them a table.
+        .route(
+            "/api/v1/payment-terms",
+            get(suppliers::payment_terms_book),
         )
         // The master product, read whole. Nothing listed `article` before
         // this; every screen that wanted to know what the company sells was
@@ -404,6 +576,19 @@ pub fn router(state: AppState) -> Router {
         // `/members` and not a segment — they hold no card — but this is where
         // somebody goes looking for them.
         .route("/api/v1/members/unenrolled", get(member::unenrolled))
+        // Loyalty, filed under the members it belongs to rather than under
+        // Commercial. A point is a LIABILITY the business owes a shopper;
+        // everything in Commercial is what something costs. Putting the two
+        // together is how an obligation comes to be read as a discount — the
+        // same mistake the system this replaces made with gift cards.
+        //
+        // Two routes and not one, because a balance and the entries behind it
+        // are two questions: `points` is what the estate owes, `points-ledger`
+        // is what moved. A single endpoint would have to choose which of them
+        // it is authoritative for, and the answer — the ledger, always — is
+        // exactly what a balance-shaped answer hides.
+        .route("/api/v1/members/points", get(points_accounts))
+        .route("/api/v1/members/points-ledger", get(points_ledger))
         // The other species of segment: written down rather than worked out.
         // Under `saved` so the URL says which is which — the six above cannot
         // be written, and these cannot be exhaustive.
@@ -1060,6 +1245,27 @@ pub fn router(state: AppState) -> Router {
                 )),
         )
         .route("/api/v1/audit", get(audit::list))
+        // The generic record surface. One shape for every kind, which is what
+        // lets a sheet offer comments, tags and a true history without each
+        // screen wiring its own. `required_role` answers for these by
+        // delegating to the read that already serves the record named in the
+        // path — see `cloud::http::records`.
+        .route("/api/v1/records/{kind}/{id}/info", get(records::info))
+        .route(
+            "/api/v1/records/{kind}/{id}/comments",
+            post(records::comment),
+        )
+        .route(
+            "/api/v1/records/{kind}/{id}/tags/{code}",
+            put(records::tag).delete(records::untag),
+        )
+        // Not under `/records/…`: a comment is edited by its own id, and the
+        // person editing it has the id and not the record's. Author-only, in
+        // the statement rather than in a check beside it.
+        .route(
+            "/api/v1/comments/{id}",
+            patch(records::edit).delete(records::remove),
+        )
         .route("/metrics", get(metrics))
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->
@@ -1128,14 +1334,33 @@ async fn health(State(state): State<AppState>) -> Result<Json<Value>, AppError> 
         }
     })))
 }
+/// The operational pools: searched, filtered, sorted and paged by the server.
+///
+/// It answers with an envelope — `rows`, a `next_cursor`, a `total` and facet
+/// counts — in the shape `GET /finance/money` established and `GET /employees`
+/// follows, so one hook in the browser draws all of them.
 async fn pools(
     State(s): State<AppState>,
     Query(q): Query<PoolQuery>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<infrastructure::PoolPage>, AppError> {
     Ok(Json(
-        infrastructure::list_pools(
+        infrastructure::pools_page(
             &s.db,
-            q.as_of,
+            infrastructure::PoolScope {
+                at: q.as_of,
+                needle: q.q,
+                site_id: q.site_id,
+                group: q.group,
+                pool_id: q.pool_id,
+                counted: q.counted,
+                sort: q.sort,
+                desc: q.dir.as_deref() == Some("desc"),
+                cursor: q.cursor,
+                // Clamped where it is enforced, not here: one spelling of how
+                // much of the fleet one request may see.
+                limit: q.limit,
+                count: audit::wants_counting(q.count.as_deref()),
+            },
             s.config.observed_window_hours,
             s.config.lost_risk_window_days,
         )
@@ -1153,9 +1378,25 @@ async fn fleet_pools(State(s): State<AppState>) -> Result<Json<Value>, AppError>
         .await?,
     ))
 }
-async fn transfer_reconciliations(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
+async fn transfer_reconciliations(
+    State(s): State<AppState>,
+    Query(q): Query<ReconciliationQuery>,
+) -> Result<Json<infrastructure::ReconciliationPage>, AppError> {
     Ok(Json(
-        infrastructure::list_transfer_reconciliations(&s.db).await?,
+        infrastructure::reconciliations_page(
+            &s.db,
+            infrastructure::ReconciliationScope {
+                needle: q.q,
+                status: q.status,
+                destination_store_id: q.destination_store_id,
+                source_dc_id: q.source_dc_id,
+                sort: q.sort,
+                desc: q.dir.as_deref() == Some("desc"),
+                cursor: q.cursor,
+                limit: q.limit,
+            },
+        )
+        .await?,
     ))
 }
 async fn pool_detail(
@@ -1180,12 +1421,14 @@ async fn allotments(
 }
 async fn create_allotment(
     State(s): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(r): Json<CreateAllotmentRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    Ok((
-        StatusCode::CREATED,
-        Json(infrastructure::create_allotment(&s.db, r).await?),
-    ))
+    let body = infrastructure::create_allotment(&s.db, r).await?;
+    if let Some(allotment_id) = id_in(&body, "id") {
+        acted_on.set(RecordKind::Allotment, allotment_id);
+    }
+    Ok((StatusCode::CREATED, Json(body)))
 }
 async fn allotments_by_store(
     State(s): State<AppState>,
@@ -1238,8 +1481,25 @@ async fn availability(
 async fn movements(
     State(s): State<AppState>,
     Query(q): Query<MovementQuery>,
-) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::list_movements(&s.db, q).await?))
+) -> Result<Json<infrastructure::MovementPage>, AppError> {
+    Ok(Json(
+        infrastructure::movements_page(
+            &s.db,
+            infrastructure::MovementScope {
+                subject_id: q.subject_id,
+                pool_id: q.pool_id,
+                needle: q.q,
+                cause: q.cause,
+                actor_id: q.actor_id,
+                sort: q.sort,
+                desc: q.dir.as_deref() == Some("desc"),
+                cursor: q.cursor,
+                limit: q.limit,
+                count: audit::wants_counting(q.count.as_deref()),
+            },
+        )
+        .await?,
+    ))
 }
 async fn move_stock(
     State(s): State<AppState>,
@@ -1274,12 +1534,16 @@ async fn move_stock(
 }
 async fn correct(
     State(s): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(r): Json<CorrectPlacementRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    Ok((
-        StatusCode::CREATED,
-        Json(infrastructure::correct_placement(&s.db, r).await?),
-    ))
+    // A correction touches two pools and the log holds one. It is filed under
+    // the pool the stock LEFT, because that is the pool whose figure was
+    // wrong, and the sheet somebody was standing on when they corrected it.
+    let corrected = r.line.from.clone();
+    let body = infrastructure::correct_placement(&s.db, r).await?;
+    acted_on.set(RecordKind::Pool, corrected);
+    Ok((StatusCode::CREATED, Json(body)))
 }
 async fn observe(
     State(s): State<AppState>,
@@ -1308,13 +1572,22 @@ async fn observe(
 async fn observations(
     State(s): State<AppState>,
     Query(q): Query<ObservationQuery>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<infrastructure::SightingPage>, AppError> {
     Ok(Json(
-        infrastructure::list_observations(
+        infrastructure::sightings_page(
             &s.db,
-            q.pool_id.as_deref(),
-            q.epc.as_deref(),
-            q.limit.unwrap_or(100),
+            infrastructure::SightingScope {
+                pool_id: q.pool_id,
+                epc: q.epc,
+                needle: q.q,
+                device_id: q.device_id,
+                method: q.method,
+                site_id: q.site_id,
+                sort: q.sort,
+                desc: q.dir.as_deref() == Some("desc"),
+                cursor: q.cursor,
+                limit: q.limit,
+            },
         )
         .await?,
     ))
@@ -1322,8 +1595,27 @@ async fn observations(
 async fn anomalies(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
     Ok(Json(infrastructure::observation_anomalies(&s.db).await?))
 }
-async fn counts(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::list_counts(&s.db).await?))
+async fn counts(
+    State(s): State<AppState>,
+    Query(q): Query<CountListQuery>,
+) -> Result<Json<infrastructure::CountPage>, AppError> {
+    Ok(Json(
+        infrastructure::counts_page(
+            &s.db,
+            infrastructure::CountScope {
+                needle: q.q,
+                status: q.status,
+                site_id: q.site_id,
+                pool_id: q.pool_id,
+                kind: q.kind,
+                sort: q.sort,
+                desc: q.dir.as_deref() == Some("desc"),
+                cursor: q.cursor,
+                limit: q.limit,
+            },
+        )
+        .await?,
+    ))
 }
 async fn count_detail(
     State(s): State<AppState>,
@@ -1333,12 +1625,14 @@ async fn count_detail(
 }
 async fn create_count(
     State(s): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(r): Json<CreateCountRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    Ok((
-        StatusCode::CREATED,
-        Json(infrastructure::create_count(&s.db, r).await?),
-    ))
+    let body = infrastructure::create_count(&s.db, r).await?;
+    if let Some(count_id) = id_in(&body, "id") {
+        acted_on.set(RecordKind::Count, count_id);
+    }
+    Ok((StatusCode::CREATED, Json(body)))
 }
 async fn activate_count(
     State(s): State<AppState>,
@@ -1368,8 +1662,26 @@ async fn approve_count(
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(infrastructure::approve_count(&s.db, id, r).await?))
 }
-async fn missing(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::list_missing(&s.db).await?))
+async fn missing(
+    State(s): State<AppState>,
+    Query(q): Query<MissingQuery>,
+) -> Result<Json<infrastructure::MissingPage>, AppError> {
+    Ok(Json(
+        infrastructure::missing_page(
+            &s.db,
+            infrastructure::MissingScope {
+                needle: q.q,
+                pool_id: q.pool_id,
+                site_id: q.site_id,
+                counted: q.counted,
+                sort: q.sort,
+                desc: q.dir.as_deref() == Some("desc"),
+                cursor: q.cursor,
+                limit: q.limit,
+            },
+        )
+        .await?,
+    ))
 }
 async fn found(
     State(s): State<AppState>,
@@ -1401,7 +1713,7 @@ async fn dispose(
 async fn as_of(
     State(s): State<AppState>,
     Query(q): Query<AsOfQuery>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<infrastructure::PoolPage>, AppError> {
     Ok(Json(
         infrastructure::inventory_as_of(
             &s.db,
@@ -1424,8 +1736,27 @@ async fn repost(
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(infrastructure::run_repost(&s.db, r).await?))
 }
-async fn control(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::control_status(&s.db).await?))
+async fn control(
+    State(s): State<AppState>,
+    Query(q): Query<ControlQuery>,
+) -> Result<Json<infrastructure::ControlStatus>, AppError> {
+    Ok(Json(
+        infrastructure::control_status(
+            &s.db,
+            infrastructure::ControlScope {
+                site_id: q.site_id,
+                pool_id: q.pool_id,
+                subject_id: q.subject_id,
+                needle: q.q,
+                sort: q.sort,
+                desc: q.dir.as_deref() == Some("desc"),
+                cursor: q.cursor,
+                limit: q.limit,
+                count: audit::wants_counting(q.count.as_deref()),
+            },
+        )
+        .await?,
+    ))
 }
 async fn corrupt_projection(
     State(s): State<AppState>,
@@ -1445,12 +1776,14 @@ async fn commercial_publications(State(s): State<AppState>) -> Result<Json<Value
 
 async fn create_commercial_publication(
     State(s): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(r): Json<CreateCommercialPublicationRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    Ok((
-        StatusCode::CREATED,
-        Json(infrastructure::create_commercial_publication(&s.db, r).await?),
-    ))
+    let body = infrastructure::create_commercial_publication(&s.db, r).await?;
+    if let Some(publication_id) = id_in(&body, "id") {
+        acted_on.set(RecordKind::Publication, publication_id);
+    }
+    Ok((StatusCode::CREATED, Json(body)))
 }
 
 async fn publish_commercial_publication(
@@ -1463,22 +1796,41 @@ async fn publish_commercial_publication(
     ))
 }
 
+/// The pricelist: searched, filtered, sorted and paged.
+///
+/// It answers with an envelope — `rows`, a `next_cursor`, a `total` and facet
+/// counts — in the shape `GET /finance/money` established and
+/// `GET /commercial/rules` follows, so one hook in the browser draws all three
+/// Commercial lists.
+///
+/// A typed query struct rather than `Query<Vec<(String, String)>>`, unlike the
+/// two beside it: nothing this route takes repeats — `divisions` and `tags`
+/// have always arrived as comma lists — so a struct loses nothing and gains
+/// `deny_unknown_fields`, which refuses `?divisionss=KIDS` instead of quietly
+/// pricing the whole catalogue under a filter the caller believes is applied.
 async fn article_prices(
     State(s): State<AppState>,
     Query(q): Query<ArticlePriceQuery>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<infrastructure::ArticlePricePage>, AppError> {
     Ok(Json(
         infrastructure::article_prices(
             &s.db,
             q.channel,
             q.at.unwrap_or_else(chrono::Utc::now),
-            q.limit.unwrap_or(200),
-            infrastructure::ArticlePriceFilter {
+            infrastructure::ArticlePriceScope {
                 q: q.q.clone().filter(|value| !value.trim().is_empty()),
                 divisions: ArticlePriceQuery::list(&q.divisions),
                 tags: ArticlePriceQuery::list(&q.tags),
                 min_price: q.min_price,
                 max_price: q.max_price,
+                sort: q.sort.clone(),
+                // `dir=desc` and nothing else. Absent, empty and anything
+                // unrecognised all mean ascending, which is the direction a
+                // list is in before anybody touches it.
+                desc: q.dir.as_deref() == Some("desc"),
+                cursor: q.cursor.clone(),
+                // Clamped where it is enforced, not here.
+                limit: q.limit,
             },
         )
         .await?,
@@ -1536,6 +1888,193 @@ async fn switch_campaign(
     ))
 }
 
+async fn points_account(
+    State(s): State<AppState>,
+    Path(customer_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::points_account(&s.db, &customer_id).await?,
+    ))
+}
+
+/// Spend points on a voucher.
+///
+/// No `Idempotency-Key` header: the key is in the body and is stored on the
+/// redemption itself, because it has to survive longer than a request. A retry
+/// hours later — after a till was restarted — must still return the voucher
+/// that was issued rather than issue a second one.
+async fn redeem_points_to_voucher(
+    State(s): State<AppState>,
+    Path(customer_id): Path<String>,
+    Json(mut r): Json<infrastructure::RedeemPointsRequest>,
+) -> Result<Json<Value>, AppError> {
+    // The member in the path wins over the one in the body. A body that could
+    // name a different member than the URL is a way to spend somebody else's
+    // points through an endpoint that looks addressed to your own.
+    r.customer_id = customer_id;
+    Ok(Json(
+        infrastructure::redeem_points_to_voucher(&s.db, r).await?,
+    ))
+}
+
+async fn campaign_intents(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::campaign_intents(&s.db).await?))
+}
+
+/// `null` where nobody has stated one — a 200 rather than a 404.
+///
+/// "This campaign has no objective" is the finding, not an error: it is exactly
+/// the campaign somebody should be asked to justify or delete, and a 404 would
+/// have the screen draw an error state over a perfectly readable answer.
+async fn campaign_intent(
+    State(s): State<AppState>,
+    Path(campaign_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::campaign_intent(&s.db, &campaign_id)
+            .await?
+            .unwrap_or(Value::Null),
+    ))
+}
+
+async fn save_campaign_intent(
+    State(s): State<AppState>,
+    Path(campaign_id): Path<String>,
+    Json(r): Json<infrastructure::CampaignIntentInput>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::save_campaign_intent(&s.db, &campaign_id, r).await?,
+    ))
+}
+
+async fn delete_campaign_intent(
+    State(s): State<AppState>,
+    Path(campaign_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::delete_campaign_intent(&s.db, &campaign_id).await?,
+    ))
+}
+
+/// Pricing changes that are scheduled or running, newest first.
+///
+/// Finished changes are off by default: this is a working list, and an archive
+/// of every book ever cut is a different screen with a different reader.
+async fn price_changes(
+    State(s): State<AppState>,
+    Query(q): Query<PriceChangesQuery>,
+) -> Result<Json<Value>, AppError> {
+    let changes = infrastructure::price_changes(&s.db, q.include_settled).await?;
+    Ok(Json(json!({ "rows": changes })))
+}
+
+/// What the estate owes its members in points.
+async fn points_accounts(
+    State(s): State<AppState>,
+    Query(q): Query<PointsQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::points_accounts(&s.db, q.limit.unwrap_or(200)).await?,
+    ))
+}
+
+/// Every points movement, or one member's.
+async fn points_ledger(
+    State(s): State<AppState>,
+    Query(q): Query<PointsQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::points_ledger(
+            &s.db,
+            q.customer_id.as_deref().filter(|id| !id.trim().is_empty()),
+            q.limit.unwrap_or(200),
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PointsQuery {
+    /// One member, or the whole estate when absent. Shared by both routes: the
+    /// ledger narrows by it, and the account list ignores it — a list of one
+    /// account is `points-ledger` with the member named, not a second shape of
+    /// this one.
+    customer_id: Option<String>,
+    limit: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PriceChangesQuery {
+    #[serde(default)]
+    include_settled: bool,
+}
+
+/// Every price one shop has charged for one product, oldest first.
+///
+/// Three narrowing parameters and all three required, deliberately: a history
+/// is a question about ONE product at ONE shop on ONE channel, and a call that
+/// left any of them open would replay the cascade across the estate to answer a
+/// question nobody asked.
+async fn price_history(
+    State(s): State<AppState>,
+    Query(q): Query<PriceHistoryQuery>,
+) -> Result<Json<Value>, AppError> {
+    let history = infrastructure::price_history(&s.db, &q.sku_code, &q.site_id, &q.channel).await?;
+    Ok(Json(serde_json::to_value(history)?))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PriceHistoryQuery {
+    sku_code: String,
+    site_id: String,
+    /// `STORE` unless asked otherwise — the channel almost every question is
+    /// about, and the one a shelf edge belongs to.
+    #[serde(default = "store_channel")]
+    channel: String,
+}
+
+fn store_channel() -> String {
+    "STORE".to_string()
+}
+
+/// Charges a branch took that never became a sale.
+///
+/// `open_only` defaults to true — the work, not the archive. A list that opens
+/// on every case ever reported is a list nobody scrolls, and the ones that
+/// matter are the ones nobody has answered.
+async fn list_checkout_exceptions(
+    State(s): State<AppState>,
+    Query(q): Query<CheckoutExceptionQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::list_exceptions(&s.db, q.site_id.as_deref(), q.open_only).await?,
+    ))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CheckoutExceptionQuery {
+    #[serde(default)]
+    site_id: Option<String>,
+    #[serde(default = "yes")]
+    open_only: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// Answer for one case. Refuses to reopen a closed one — see the module note:
+/// a fact redelivered by a sync retry must not undo a refund somebody made.
+async fn resolve_checkout_exception(
+    State(s): State<AppState>,
+    Path(checkout_id): Path<Uuid>,
+    Json(r): Json<infrastructure::ResolveExceptionRequest>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::resolve_exception(&s.db, checkout_id, r).await?,
+    ))
+}
+
 async fn commercial_simulate(
     State(s): State<AppState>,
     Json(r): Json<SimulateRequest>,
@@ -1581,12 +2120,14 @@ async fn sales(
 
 async fn create_sale(
     State(s): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(r): Json<CreateSaleRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    Ok((
-        StatusCode::CREATED,
-        Json(infrastructure::create_sale(&s.db, r).await?),
-    ))
+    let body = infrastructure::create_sale(&s.db, r).await?;
+    if let Some(sale_id) = id_in(&body, "id") {
+        acted_on.set(RecordKind::Sale, sale_id);
+    }
+    Ok((StatusCode::CREATED, Json(body)))
 }
 
 async fn sale_detail(
@@ -1644,18 +2185,29 @@ async fn sale_receipt(
 async fn create_sale_return(
     State(s): State<AppState>,
     Path(id): Path<Uuid>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(r): Json<CreateReturnRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    Ok((
-        StatusCode::CREATED,
-        Json(infrastructure::create_sale_return(&s.db, id, r).await?),
-    ))
+    let body = infrastructure::create_sale_return(&s.db, id, r).await?;
+    // The route says `sale`, and the route is not wrong — but the record a
+    // person opens afterwards is the refund, and its own sheet is where they
+    // will look for who made it.
+    if let Some(return_id) = id_in(&body, "id") {
+        acted_on.set(RecordKind::Return, return_id);
+    }
+    Ok((StatusCode::CREATED, Json(body)))
 }
 
+/// Refunds, as an envelope rather than a bare `{items, limit}`.
+///
+/// `limit` is gone from the answer and `total`, `refund_total_minor`,
+/// `next_cursor` and `facets` are in its place: echoing back the ceiling told a
+/// caller what it had asked for, which it already knew, and never whether the
+/// answer was all of them.
 async fn sale_returns(
     State(s): State<AppState>,
     Query(q): Query<ReturnQuery>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<infrastructure::SaleReturnList>, AppError> {
     Ok(Json(infrastructure::list_sale_returns(&s.db, q).await?))
 }
 
@@ -1783,13 +2335,17 @@ async fn sync_ingest(
     Ok(Json(serde_json::to_value(&response)?))
 }
 
+/// What the fleet sent that this server would not take — an envelope rather
+/// than a bare `{items}`.
+///
+/// The limit is no longer read here and handed on: it is clamped where it is
+/// enforced, which is one spelling of how much of a backlog one request may
+/// see, and `total` is what turns a silent truncation into a visible one.
 async fn sync_dead_letters(
     State(s): State<AppState>,
     Query(q): Query<DeadLetterQuery>,
-) -> Result<Json<Value>, AppError> {
-    Ok(Json(
-        infrastructure::list_dead_letters(&s.db, q.limit.unwrap_or(100)).await?,
-    ))
+) -> Result<Json<infrastructure::DeadLetterList>, AppError> {
+    Ok(Json(infrastructure::list_dead_letters(&s.db, q).await?))
 }
 
 /// Wake the sender now instead of waiting out its interval.
@@ -2112,10 +2668,14 @@ async fn sync_reconciliation(State(s): State<AppState>) -> Result<Json<Value>, A
 /// each incoherent on their own.
 async fn raise_purchase_order(
     State(s): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<infrastructure::NewPurchaseOrder>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let (purchase_order_id, command_id, target) =
         infrastructure::create_purchase_order(&s.db, &request).await?;
+    // The order's first line of history. The path cannot say this — there was
+    // no order to name when the request was written — so the handler does.
+    acted_on.set(RecordKind::PurchaseOrder, purchase_order_id.to_string());
     Ok((
         StatusCode::CREATED,
         Json(json!({
@@ -2142,7 +2702,7 @@ async fn purchase_order_detail(
 async fn list_purchase_orders(
     State(s): State<AppState>,
     Query(q): Query<PurchaseOrderQuery>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<infrastructure::PurchaseOrderPage>, AppError> {
     Ok(Json(
         infrastructure::list_purchase_orders(
             &s.db,
@@ -2152,7 +2712,12 @@ async fn list_purchase_orders(
                 suppliers: comma_list(&q.supplier),
                 issued_from: q.issued_from,
                 issued_to: q.issued_to,
-                limit: q.limit.unwrap_or(500),
+                sort: q.sort.clone(),
+                dir: q.dir.clone(),
+                cursor: q.cursor.clone(),
+                // Defaulted and clamped where it is enforced, not here. It was
+                // spelled in both places and the two disagreed.
+                limit: q.limit,
             },
         )
         .await?,
@@ -2181,9 +2746,11 @@ async fn list_setup_sessions(State(s): State<AppState>) -> Result<Json<Value>, A
 /// price each one. Nothing is minted until it is issued.
 async fn open_setup_session(
     State(s): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<infrastructure::NewSetupSession>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let session_id = infrastructure::create_setup_session(&s.db, &request).await?;
+    acted_on.set(RecordKind::ArticleSetup, session_id.to_string());
     Ok((
         StatusCode::CREATED,
         Json(infrastructure::setup_session_status(&s.db, session_id).await?),
@@ -2232,8 +2799,24 @@ async fn mint_article_code(
 }
 
 /// Price queries waiting for whoever raised the order.
-async fn pending_price_amendments(State(s): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::pending_price_amendments(&s.db).await?))
+async fn pending_price_amendments(
+    State(s): State<AppState>,
+    Query(q): Query<PriceAmendmentQuery>,
+) -> Result<Json<infrastructure::PriceAmendmentPage>, AppError> {
+    Ok(Json(
+        infrastructure::pending_price_amendments(
+            &s.db,
+            &infrastructure::PriceAmendmentScope {
+                q: q.q.clone().filter(|value| !value.trim().is_empty()),
+                origins: comma_list(&q.origin),
+                sort: q.sort.clone(),
+                dir: q.dir.clone(),
+                cursor: q.cursor.clone(),
+                limit: q.limit,
+            },
+        )
+        .await?,
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -2242,6 +2825,12 @@ struct PriceDecisionRequest {
     decided_by: String,
     #[serde(default)]
     note: Option<String>,
+    /// How far an approval reaches: `DELIVERY` (the default) settles the
+    /// acceptance that raised the query; `REMAINING` also reprices the
+    /// quantity not yet received. Two different commercial acts, so the
+    /// narrow one is what happens when nobody says.
+    #[serde(default)]
+    reach: Option<infrastructure::AmendmentReach>,
 }
 
 /// Answer one. Approving changes the order and tells the DC in one step; both
@@ -2251,10 +2840,17 @@ async fn decide_price_amendment(
     Path(id): Path<Uuid>,
     Json(request): Json<PriceDecisionRequest>,
 ) -> Result<Json<Value>, AppError> {
+    // Absent means the narrow answer. A buyer who means to reprice the rest of
+    // the order says so; defaulting the other way would let an invoice change
+    // what an order costs because nobody ticked a box.
+    let reach = request
+        .reach
+        .unwrap_or(infrastructure::AmendmentReach::Delivery);
     let (request_id, command_id) = infrastructure::decide_price_amendment(
         &s.db,
         id,
         request.outcome,
+        reach,
         &request.decided_by,
         request.note.as_deref(),
     )
@@ -2262,6 +2858,7 @@ async fn decide_price_amendment(
     Ok(Json(json!({
         "request_id": request_id,
         "outcome": request.outcome,
+        "reach": reach,
         "decision_command_id": command_id,
     })))
 }
@@ -2287,4 +2884,86 @@ async fn close_purchase_line_short(
         infrastructure::close_purchase_line_short(&s.db, id, &request.closed_by, &request.reason)
             .await?,
     ))
+}
+
+/// Query-string helpers, shared.
+///
+/// They started in `articles.rs` and moved here the moment a second module
+/// needed them: a filter that accepts repeated keys in one module and drops
+/// all but the last in another is the kind of difference nobody discovers
+/// until a screen quietly shows one filter's worth of rows.
+/// Every value given for one query key.
+///
+/// Repeated keys AND comma-separated values, both, because the two halves of
+/// this repository already disagree: `supplier-items` reads
+/// `division=KIDS,DIVIDED` while the shared spec for this module says to
+/// repeat the key. Accepting one and rejecting the other would work perfectly
+/// in a browser and fail for whoever wrote the other form by hand, with an
+/// empty list rather than an error — a filter that silently matches everything
+/// is worse than one that refuses.
+pub(super) fn facet_values(params: &[(String, String)], key: &str) -> Vec<String> {
+    params
+        .iter()
+        .filter(|(name, _)| name == key)
+        .flat_map(|(_, value)| value.split(','))
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+pub(super) fn single_value(params: &[(String, String)], key: &str) -> Option<String> {
+    params
+        .iter()
+        .rev()
+        .find(|(name, _)| name == key)
+        .map(|(_, value)| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+/// `limit`, parsed rather than defaulted.
+///
+/// `None` is a real answer: some of these lists read it as "everything,
+/// unpaged" and others as "the default page", and which one is a property of
+/// the list rather than of the parsing. A number that is not a number is
+/// refused here rather than silently ignored — a caller that sent
+/// `limit=fifty` believes it asked for fifty rows, and answering with a
+/// different number looks like the server working until the day the list is
+/// long.
+pub(super) fn limit_value(params: &[(String, String)]) -> Result<Option<i64>, AppError> {
+    match single_value(params, "limit") {
+        Some(raw) => Ok(Some(raw.parse::<i64>().map_err(|_| {
+            AppError::Validation(format!("limit {raw:?} is not a number"))
+        })?)),
+        None => Ok(None),
+    }
+}
+
+/// What `deny_unknown_fields` does for a struct, for a route that cannot use
+/// one.
+///
+/// A list whose facets are multi-select has to read the query string as pairs —
+/// `?status=ACTIVE&status=PAUSED` is how a panel with two boxes ticked spells
+/// itself, and a struct's deserializer keeps the last value and drops the rest
+/// in silence. The cost of reading pairs is that a misspelling becomes a
+/// parameter nobody claims: `?statuss=ACTIVE` narrows nothing, the caller
+/// believes a filter is applied, and the screen shows the whole list under it.
+///
+/// So the known names are declared and anything else is refused. The same
+/// bargain a typed query struct strikes, made explicitly because the typed
+/// struct is not available here.
+pub(super) fn refuse_unknown_parameters(
+    params: &[(String, String)],
+    known: &[&str],
+) -> Result<(), AppError> {
+    match params
+        .iter()
+        .find(|(name, _)| !known.contains(&name.as_str()))
+    {
+        Some((name, _)) => Err(AppError::Validation(format!(
+            "{name:?} is not a parameter this list takes; it accepts {}",
+            known.join(", ")
+        ))),
+        None => Ok(()),
+    }
 }

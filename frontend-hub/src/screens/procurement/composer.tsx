@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils"
 import {
   catalogueVocabulary,
   createCatalogPurchaseOrder,
+  paymentTermsBook,
   listPurchaseOrders,
   listSuppliers,
   procurementKeys,
@@ -29,7 +30,13 @@ import {
   GRID_HEAD,
   useIdempotencyKey,
 } from "@/screens/procurement/shared"
-import type { BasketLine, SourcedItem, SupplierItem } from "@itulah/contract"
+import type {
+  BasketLine,
+  PaymentTermBasis,
+  PaymentTermsBook,
+  SourcedItem,
+  SupplierItem,
+} from "@itulah/contract"
 
 /// Raising a purchase order, from a basket or from nothing.
 ///
@@ -241,18 +248,13 @@ interface PaymentTerm {
   method: string
 }
 
-/// A template's idea of a term, which IS an interval: "net 30" is thirty days
-/// after the order, whenever the order happens to be raised.
-interface TemplateTerm {
-  label: string
-  days: number
-  bps: number
-}
-
-/// The usual arrangements. A template fills the schedule; the schedule is what
-/// the order actually promises, and it is editable because the usual
-/// arrangement is not always what was agreed on the phone.
 /// How the money moves. Indonesian practice, in the order a buyer meets them.
+///
+/// Still a `const` after 0201 put the TERMS in a table, and deliberately: a
+/// method is not master data here. `supplier_payment.method` (0084) pins the
+/// same five in a CHECK because the posting rule branches on them — a giro is
+/// a dated piece of paper and a transfer clears the same day — so the list is
+/// the server's to widen, not a vocabulary somebody can add a row to.
 const PAYMENT_METHODS = [
   "Transfer",
   "Giro",
@@ -261,29 +263,12 @@ const PAYMENT_METHODS = [
   "Card",
 ] as const
 
-const PAYMENT_TEMPLATES: Record<string, readonly TemplateTerm[]> = {
-  "": [],
-  "40% advance, 60% before dispatch": [
-    { label: "Advance", days: 0, bps: 4000 },
-    { label: "Before dispatch", days: 30, bps: 6000 },
-  ],
-  "50% advance, 50% on delivery": [
-    { label: "Advance", days: 0, bps: 5000 },
-    { label: "On delivery", days: 45, bps: 5000 },
-  ],
-  "Net 30": [{ label: "Net 30", days: 30, bps: 10000 }],
-  "Cash on delivery": [{ label: "On delivery", days: 0, bps: 10000 }],
-}
-
-/// A day this many days from today, as `yyyy-mm-dd`.
+/// A `Date` as `yyyy-mm-dd`, read off the LOCAL calendar.
 ///
-/// Read off the local calendar rather than `toISOString()` on a shifted
-/// `Date`: this runs at UTC+7, where an instant early in the morning is still
-/// yesterday in UTC, and a schedule seeded before 07:00 dated every instalment
-/// a day early.
-function dayAfter(days: number): string {
-  const at = new Date()
-  at.setDate(at.getDate() + Number(days || 0))
+/// Not `toISOString()`: this runs at UTC+7, where an instant early in the
+/// morning is still yesterday in UTC, and a schedule seeded before 07:00 dated
+/// every instalment a day early.
+function isoDay(at: Date): string {
   return [
     at.getFullYear(),
     String(at.getMonth() + 1).padStart(2, "0"),
@@ -291,14 +276,52 @@ function dayAfter(days: number): string {
   ].join("-")
 }
 
+/// When a term falls due, counted from a given day.
+///
+/// The three bases are the server's (`PaymentTermBasis`, migration 0201) and
+/// ERPNext's before that. There are three because "net 30 from the end of the
+/// month" is ordinary in Indonesian trade and is not a number of days from
+/// anything else.
+///
+/// Counted from TODAY here, because the order is being raised and no bill
+/// exists. The dates it produces are the agreement; the bill recomputes them
+/// against its own date when it arrives, which is the whole reason the basis
+/// travels beside the date rather than being thrown away once a day is
+/// picked.
+function dueOn(basis: PaymentTermBasis, offset: number, from: Date): string {
+  const at = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+  const n = Number(offset) || 0
+  switch (basis) {
+    case "DAYS_AFTER_BILL":
+      at.setDate(at.getDate() + n)
+      return isoDay(at)
+    case "DAYS_AFTER_BILL_MONTH_END":
+      // Day 0 of the NEXT month is the last day of this one — the idiom that
+      // avoids a table of month lengths and gets February right in a leap
+      // year for free.
+      at.setMonth(at.getMonth() + 1, 0)
+      at.setDate(at.getDate() + n)
+      return isoDay(at)
+    case "MONTHS_AFTER_BILL_MONTH_END":
+      at.setMonth(at.getMonth() + 1 + n, 0)
+      return isoDay(at)
+  }
+}
+
 /// A template's terms, dated against today.
-function scheduleOf(name: string): PaymentTerm[] {
-  return (PAYMENT_TEMPLATES[name] ?? []).map((one) => ({
-    label: one.label,
-    due: dayAfter(one.days),
-    bps: one.bps,
-    method: "",
-  }))
+function scheduleOf(
+  book: PaymentTermsBook | undefined,
+  code: string
+): PaymentTerm[] {
+  const today = new Date()
+  return (book?.templates.find((one) => one.code === code)?.lines ?? []).map(
+    (line) => ({
+      label: line.term_label,
+      due: dueOn(line.basis, line.offset_value, today),
+      bps: line.portion_bps,
+      method: "",
+    })
+  )
 }
 
 function sameTags(a: readonly string[], b: readonly string[]): boolean {
@@ -757,6 +780,17 @@ export function OrderComposer({
     staleTime: 30 * 60 * 1000,
     enabled: open,
   })
+  /// What the company has agreed it can agree. Held for five minutes: these
+  /// are a few dozen rows that change about once a quarter, and refetching
+  /// them every time this sheet opens would be a request to answer a question
+  /// nobody asked again.
+  const terms = useQuery({
+    queryKey: procurementKeys.paymentTerms(),
+    queryFn: ({ signal }) => paymentTermsBook(signal),
+    staleTime: 5 * 60_000,
+    enabled: open,
+  })
+
   const divisionChoices = useMemo<Choice[]>(
     () =>
       (vocabulary.data?.divisions ?? []).map((term) => ({
@@ -1373,17 +1407,22 @@ export function OrderComposer({
                     <Select
                       aria-label="Payment terms template"
                       value={termsTemplate}
-                      onChange={(name) => {
-                        setTermsTemplate(name)
-                        setSchedule(scheduleOf(name))
+                      onChange={(code) => {
+                        setTermsTemplate(code)
+                        setSchedule(scheduleOf(terms.data, code))
                       }}
                     >
                       <option value="">No template — schedule it here</option>
-                      {Object.keys(PAYMENT_TEMPLATES)
-                        .filter((name) => name !== "")
-                        .map((name) => (
-                          <option key={name} value={name}>
-                            {name}
+                      {/* Retired templates are not offered. The master screen
+                          can see them — a retirement nobody can find is a
+                          retirement nobody can undo — but an order being
+                          raised today should not be able to agree an
+                          arrangement the company has withdrawn. */}
+                      {(terms.data?.templates ?? [])
+                        .filter((one) => one.active)
+                        .map((one) => (
+                          <option key={one.code} value={one.code}>
+                            {one.label}
                           </option>
                         ))}
                     </Select>
@@ -1581,7 +1620,7 @@ export function OrderComposer({
                         ...was,
                         {
                           label: "On delivery",
-                          due: dayAfter(30),
+                          due: dueOn("DAYS_AFTER_BILL", 30, new Date()),
                           method: "",
                           bps: Math.max(
                             0,
