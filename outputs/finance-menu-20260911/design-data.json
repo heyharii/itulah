@@ -1,0 +1,1879 @@
+[
+  {
+    "name": "Ringkasan",
+    "sheet": "01 Ringkasan",
+    "purpose": "Menentukan pekerjaan finance yang perlu didahulukan hari ini.",
+    "owner": "Finance lead dan petugas sesuai akses",
+    "boundary": "Menampilkan antrean dari menu sumber. Persetujuan membuka dokumen sumber yang sama.",
+    "kpi": "Saldo tersedia; pembayaran jatuh tempo; settlement tertunda; selisih rekonsiliasi",
+    "gap": "Angka gabungan harus mencakup unit yang dipilih; laporan saat ini belum mencakup semua unit.",
+    "tabs": [
+      {
+        "name": "Hari ini",
+        "goal": "Daftar prioritas dan ringkasan posisi kas.",
+        "cols": [
+          "Prioritas",
+          "Pekerjaan",
+          "Unit",
+          "Referensi",
+          "Nilai Rp",
+          "Batas waktu",
+          "Penanggung jawab",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "Tinggi",
+            "Tagihan jatuh tempo",
+            "HO",
+            "BILL-003",
+            5000000,
+            "2026-09-11T00:00:00.000Z",
+            "AP",
+            "Buka tagihan"
+          ],
+          [
+            "Tinggi",
+            "Settlement belum cocok",
+            "C006",
+            "SET-002",
+            970000,
+            "2026-09-11T00:00:00.000Z",
+            "Treasury",
+            "Buka settlement"
+          ]
+        ],
+        "filter": "Tanggal kerja; unit; penanggung jawab; jenis pekerjaan",
+        "actions": "Buka dokumen; ambil pekerjaan",
+        "status": "Perlu tindakan; sedang ditangani; selesai",
+        "detail": "Ringkasan penyebab, dokumen sumber, tenggat dan riwayat. Tidak ada form posting baru.",
+        "flow": "Antrean → menu pemilik → penyelesaian → ringkasan diperbarui"
+      },
+      {
+        "name": "Persetujuan saya",
+        "goal": "Persetujuan lintas pekerjaan sesuai kewenangan.",
+        "cols": [
+          "Dokumen",
+          "Jenis",
+          "Unit",
+          "Pengaju",
+          "Nilai Rp",
+          "Diajukan",
+          "Tahap",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "BILL-002",
+            "Tagihan vendor",
+            "C006",
+            "Petugas AP",
+            2500000,
+            "2026-09-10T00:00:00.000Z",
+            "Menunggu reviewer",
+            "Buka review"
+          ]
+        ],
+        "filter": "Jenis dokumen; pengaju; umur antrean",
+        "actions": "Buka review; setujui; kembalikan dengan alasan",
+        "status": "Menunggu; disetujui; dikembalikan",
+        "detail": "Lampiran, rincian biaya, perubahan sejak pengajuan, dampak jurnal dan otorisasi. Aksi sesuai jenis dokumen.",
+        "flow": "Dokumen sumber → review di konteks sumber → kembali ke antrean"
+      },
+      {
+        "name": "Pengecualian",
+        "goal": "Masalah yang menghambat transaksi atau penutupan.",
+        "cols": [
+          "Kasus",
+          "Jenis masalah",
+          "Unit",
+          "Referensi",
+          "Ditemukan",
+          "Penanggung jawab",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "EX-001",
+            "Pemetaan bank belum ada",
+            "HO",
+            "GIRO-001",
+            "2026-09-11T00:00:00.000Z",
+            "Admin finance",
+            "Terbuka",
+            "Periksa pemetaan"
+          ]
+        ],
+        "filter": "Kategori; unit; status; tanggal ditemukan",
+        "actions": "Buka sumber; tugaskan; tandai selesai setelah bukti",
+        "status": "Terbuka; ditangani; teratasi",
+        "detail": "Penyebab, dampak, bukti perbaikan, sumber transaksi. Status teratasi harus mengikuti hasil perbaikan.",
+        "flow": "Deteksi masalah → owner terkait → verifikasi → tutup kasus"
+      }
+    ]
+  },
+  {
+    "name": "Kas & Bank",
+    "sheet": "02 Kas dan Bank",
+    "purpose": "Mengelola posisi kas, eksekusi uang masuk/keluar dan pencocokan bank.",
+    "owner": "Treasury dan kasir",
+    "boundary": "Tagihan dan kewajiban dibuat di menu sumber. Kas & Bank memiliki pembayaran dan instrumen, memakai referensi kewajiban tersebut.",
+    "kpi": "Saldo buku; saldo bank; pembayaran tertunda; giro belum cair",
+    "gap": "Satukan register pembayaran; pilih akun outstanding giro sesuai bank; lengkapi pemetaan rekening yang diaktifkan.",
+    "tabs": [
+      {
+        "name": "Rekening & kas",
+        "goal": "Posisi tiap rekening dan kas kecil.",
+        "cols": [
+          "Rekening",
+          "Unit",
+          "Jenis",
+          "Mata uang",
+          "Saldo buku Rp",
+          "Saldo bank Rp",
+          "Tanggal bank",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "Mandiri HO",
+            "HO",
+            "Bank",
+            "IDR",
+            25000000,
+            25000000,
+            "2026-09-11T00:00:00.000Z",
+            "Lihat mutasi"
+          ],
+          [
+            "Kas kecil C006",
+            "C006",
+            "Kas",
+            "IDR",
+            1500000,
+            null,
+            null,
+            "Lihat mutasi"
+          ]
+        ],
+        "filter": "Unit; bank; jenis; aktif/nonaktif",
+        "actions": "Lihat mutasi; transfer; isi kas kecil",
+        "status": "Aktif; dibatasi; nonaktif",
+        "detail": "Identitas rekening, saldo, mutasi, rekonsiliasi dan akses. Perubahan master membuka Pengaturan Finance.",
+        "flow": "Rekening → mutasi → dokumen asal"
+      },
+      {
+        "name": "Pembayaran & penerimaan",
+        "goal": "Satu register pergerakan uang lintas sumber.",
+        "cols": [
+          "ID pembayaran",
+          "Tanggal",
+          "Unit",
+          "Arah",
+          "Pihak",
+          "Nilai Rp",
+          "Status",
+          "Dokumen sumber"
+        ],
+        "rows": [
+          [
+            "PAY-001",
+            "2026-09-11T00:00:00.000Z",
+            "HO",
+            "Keluar",
+            "Vendor A",
+            5000000,
+            "Tereksekusi",
+            "BILL-001"
+          ],
+          [
+            "RCPT-001",
+            "2026-09-11T00:00:00.000Z",
+            "C006",
+            "Masuk",
+            "Acquirer A",
+            970000,
+            "Tereksekusi",
+            "SET-001"
+          ]
+        ],
+        "filter": "Arah; rekening; unit; tanggal; sumber; status",
+        "actions": "Siapkan pembayaran; eksekusi; alokasikan penerimaan; buka bukti",
+        "status": "Draf; disetujui; diproses; tereksekusi; gagal; dibalik",
+        "detail": "Rekening, metode, nominal, alokasi dokumen, referensi bank, bukti, jurnal. Beberapa tagihan boleh satu pembayaran dengan rincian alokasi.",
+        "flow": "Kewajiban/settlement → pembayaran/penerimaan → jurnal → rekonsiliasi"
+      },
+      {
+        "name": "Transfer & kas kecil",
+        "goal": "Pemindahan uang dan pengisian kas kecil.",
+        "cols": [
+          "Transfer",
+          "Tanggal",
+          "Dari",
+          "Ke",
+          "Nilai Rp",
+          "Biaya Rp",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "TRF-001",
+            "2026-09-11T00:00:00.000Z",
+            "Mandiri HO",
+            "Kas kecil HO",
+            1000000,
+            0,
+            "Tereksekusi",
+            "Buka transfer"
+          ]
+        ],
+        "filter": "Unit; rekening asal/tujuan; status",
+        "actions": "Buat transfer; konfirmasi; buka bukti",
+        "status": "Draf; disetujui; dikirim; diterima; dibalik",
+        "detail": "Kedua rekening, bukti penyerahan, biaya dan pasangan mutasi. Transfer beda unit diarahkan ke Antarunit.",
+        "flow": "Transfer satu unit → dua sisi kas/bank → cocokkan"
+      },
+      {
+        "name": "Giro",
+        "goal": "Siklus instrumen giro hingga selesai.",
+        "cols": [
+          "Giro",
+          "Bank",
+          "Unit",
+          "Penerima",
+          "Nilai Rp",
+          "Jatuh tempo",
+          "Status",
+          "Sumber"
+        ],
+        "rows": [
+          [
+            "GIRO-001",
+            "Mandiri",
+            "HO",
+            "Vendor C",
+            5000000,
+            "2026-09-20T00:00:00.000Z",
+            "Diterbitkan",
+            "BILL-GIRO-001"
+          ]
+        ],
+        "filter": "Bank; unit; jatuh tempo; status",
+        "actions": "Terbitkan dari pembayaran; cairkan; batalkan; catat ditolak",
+        "status": "Draf; diterbitkan; cair; ditolak; dibatalkan",
+        "detail": "Nomor instrumen, bank, penerima, alokasi tagihan, outstanding giro, jurnal penerbitan/pencairan/pembalikan.",
+        "flow": "Tagihan → instrumen giro → pencairan → rekonsiliasi"
+      },
+      {
+        "name": "Rekonsiliasi",
+        "goal": "Mencocokkan mutasi bank dengan transaksi buku.",
+        "cols": [
+          "Baris bank",
+          "Tanggal",
+          "Rekening",
+          "Uraian",
+          "Nilai Rp",
+          "Pasangan buku",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "BNK-001",
+            "2026-09-11T00:00:00.000Z",
+            "Mandiri HO",
+            "Transfer Vendor A",
+            -5000000,
+            "PAY-001",
+            "Cocok",
+            "Lihat pasangan"
+          ],
+          [
+            "BNK-002",
+            "2026-09-11T00:00:00.000Z",
+            "Mandiri HO",
+            "Administrasi bank",
+            -15000,
+            null,
+            "Belum cocok",
+            "Tinjau"
+          ]
+        ],
+        "filter": "Rekening; periode; cocok/belum cocok; arah",
+        "actions": "Impor mutasi; cocokkan; lepas pasangan; buat biaya dari mutasi",
+        "status": "Belum cocok; cocok sebagian; cocok; perlu tinjau",
+        "detail": "Baris bank, kandidat buku, jumlah alokasi, alasan selisih. Biaya dari mutasi memakai sumber bank unik agar tidak terduplikasi.",
+        "flow": "Mutasi bank → pasangan pembayaran/jurnal → selisih ditangani"
+      }
+    ]
+  },
+  {
+    "name": "Tagihan & Pengeluaran",
+    "sheet": "03 Tagihan dan Pengeluaran",
+    "purpose": "Mengelola kewajiban vendor dan pengeluaran sebelum eksekusi pembayaran.",
+    "owner": "Accounts payable dan pemilik biaya",
+    "boundary": "Mengakui dan memverifikasi tagihan/biaya. Tombol bayar memakai pembayaran yang dimiliki Kas & Bank.",
+    "kpi": "Tagihan belum lunas; jatuh tempo; uang muka terbuka; biaya dibayar di muka",
+    "gap": "Jenis biaya tidak boleh selalu listrik; likuidasi uang muka tidak boleh selalu housekeeping.",
+    "tabs": [
+      {
+        "name": "Tagihan",
+        "goal": "Daftar tagihan vendor termasuk jatuh tempo dan sisa kewajiban.",
+        "cols": [
+          "Tagihan",
+          "Vendor",
+          "Unit",
+          "Tanggal",
+          "Jatuh tempo",
+          "Total Rp",
+          "Sisa Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "BILL-001",
+            "Vendor A",
+            "HO",
+            "2026-09-05T00:00:00.000Z",
+            "2026-09-11T00:00:00.000Z",
+            5000000,
+            0,
+            "Lunas"
+          ],
+          [
+            "BILL-002",
+            "Vendor B",
+            "C006",
+            "2026-09-10T00:00:00.000Z",
+            "2026-09-20T00:00:00.000Z",
+            2500000,
+            2500000,
+            "Menunggu review"
+          ]
+        ],
+        "filter": "Vendor; unit; jatuh tempo; jenis biaya; status",
+        "actions": "Buat tagihan; ajukan; review; bayar; koreksi",
+        "status": "Draf; menunggu review; disetujui; sebagian dibayar; lunas; dibatalkan",
+        "detail": "Header vendor, baris barang/jasa/biaya, pajak, PO/penerimaan jika ada, lampiran, pembayaran, jurnal, riwayat.",
+        "flow": "PO/penerimaan atau jasa → tagihan → review → Kas & Bank"
+      },
+      {
+        "name": "Klaim & pengeluaran",
+        "goal": "Pengeluaran langsung dan reimbursement yang belum dibayar.",
+        "cols": [
+          "Klaim",
+          "Pengaju",
+          "Unit",
+          "Keperluan",
+          "Nilai Rp",
+          "Tanggal",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "CLM-001",
+            "Pegawai A",
+            "C006",
+            "Transport operasional",
+            150000,
+            "2026-09-10T00:00:00.000Z",
+            "Disetujui",
+            "Siapkan pembayaran"
+          ]
+        ],
+        "filter": "Pengaju; kategori; unit; status",
+        "actions": "Buat klaim; unggah bukti; review; bayar",
+        "status": "Draf; diajukan; dikembalikan; disetujui; dibayar",
+        "detail": "Rincian per bukti, kategori, pusat biaya, pajak bila relevan, pembayaran dan jurnal.",
+        "flow": "Bukti pengeluaran → klaim → approval → pembayaran"
+      },
+      {
+        "name": "Uang muka",
+        "goal": "Uang muka operasional dan pertanggungjawabannya.",
+        "cols": [
+          "Uang muka",
+          "Pemegang",
+          "Unit",
+          "Tujuan",
+          "Diberikan Rp",
+          "Dipertanggungjawabkan Rp",
+          "Sisa Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "ADV-001",
+            "Pegawai B",
+            "HO",
+            "Kebutuhan acara",
+            2000000,
+            1500000,
+            500000,
+            "Terbuka"
+          ]
+        ],
+        "filter": "Pemegang; unit; umur; status",
+        "actions": "Ajukan uang muka; bayar; pertanggungjawabkan; kembalikan sisa",
+        "status": "Diajukan; disetujui; dibayar; sebagian dipertanggungjawabkan; selesai",
+        "detail": "Rincian biaya aktual, pengembalian, tambahan penggantian, bukti dan tautan pembayaran. Piutang pinjaman pegawai ada di Payroll.",
+        "flow": "Uang muka → pembayaran → biaya aktual/pengembalian → selesai"
+      },
+      {
+        "name": "Biaya dibayar di muka",
+        "goal": "Jadwal pengakuan biaya yang manfaatnya lintas periode.",
+        "cols": [
+          "Jadwal",
+          "Jenis",
+          "Unit",
+          "Mulai",
+          "Akhir",
+          "Nilai awal Rp",
+          "Saldo Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "PRE-001",
+            "Sewa",
+            "C006",
+            "2026-09-01T00:00:00.000Z",
+            "2027-08-31T00:00:00.000Z",
+            12000000,
+            12000000,
+            "Aktif"
+          ]
+        ],
+        "filter": "Jenis; unit; periode; status",
+        "actions": "Buat dari tagihan; tinjau jadwal; buka pengakuan bulanan",
+        "status": "Draf; aktif; selesai; dihentikan",
+        "detail": "Dokumen asal, masa manfaat, jadwal per periode, jurnal pengakuan, perubahan dan alasan. Posting bulanan dikendalikan Akuntansi.",
+        "flow": "Tagihan → jadwal → pengakuan periode → laporan"
+      }
+    ]
+  },
+  {
+    "name": "Penjualan & Piutang",
+    "sheet": "04 Penjualan dan Piutang",
+    "purpose": "Mengontrol pendapatan, tagihan pelanggan dan penerimaan dari kanal penjualan.",
+    "owner": "Accounts receivable dan finance toko",
+    "boundary": "Mengambil transaksi penjualan dari sumber bisnis. Penerimaan uang memakai register Kas & Bank yang sama.",
+    "kpi": "Penjualan tercatat; piutang pelanggan; settlement tertunda; uang muka pelanggan",
+    "gap": "Settlement kartu perlu alur lengkap; biaya kartu melekat pada settlement; pendapatan lain butuh sumber yang jelas.",
+    "tabs": [
+      {
+        "name": "Penjualan",
+        "goal": "Ringkasan penjualan yang diterima dari sumber operasional.",
+        "cols": [
+          "Sumber penjualan",
+          "Tanggal",
+          "Unit",
+          "Kanal",
+          "Bruto Rp",
+          "Potongan Rp",
+          "Neto Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "SALE-001",
+            "2026-09-10T00:00:00.000Z",
+            "C006",
+            "Kartu",
+            1000000,
+            0,
+            1000000,
+            "Tercatat"
+          ]
+        ],
+        "filter": "Unit; tanggal; kanal; status impor",
+        "actions": "Lihat sumber; validasi; tangani selisih",
+        "status": "Diterima; perlu tinjau; tercatat; dikoreksi",
+        "detail": "Transaksi sumber, rincian penjualan, pajak bila relevan, tender pembayaran, retur dan jurnal.",
+        "flow": "Sumber penjualan → validasi → piutang kanal/kas → settlement"
+      },
+      {
+        "name": "Tagihan & piutang",
+        "goal": "Tagihan kepada pelanggan dan saldo yang harus ditagih.",
+        "cols": [
+          "Invoice",
+          "Pelanggan",
+          "Unit",
+          "Jenis",
+          "Jatuh tempo",
+          "Total Rp",
+          "Sisa Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "INV-001",
+            "Pelanggan A",
+            "HO",
+            "Jasa",
+            "2026-09-25T00:00:00.000Z",
+            3000000,
+            3000000,
+            "Terbit"
+          ]
+        ],
+        "filter": "Pelanggan; umur piutang; unit; jenis pendapatan",
+        "actions": "Buat tagihan jasa; terbitkan; catat kredit; alokasikan penerimaan",
+        "status": "Draf; terbit; sebagian lunas; lunas; dibatalkan",
+        "detail": "Rincian jasa, dasar pendapatan, pajak, nota kredit, alokasi penerimaan dan jurnal. Management fee hanya bila dasar bisnis dikonfirmasi.",
+        "flow": "Jasa/penjualan kredit → invoice → penerimaan Kas & Bank → alokasi"
+      },
+      {
+        "name": "Settlement kanal",
+        "goal": "Pencocokan tagihan kanal dengan dana bersih yang diterima.",
+        "cols": [
+          "Settlement",
+          "Kanal",
+          "Unit",
+          "Bruto Rp",
+          "Biaya Rp",
+          "Neto Rp",
+          "Diterima Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "SET-001",
+            "Acquirer A",
+            "C006",
+            1000000,
+            30000,
+            970000,
+            970000,
+            "Selesai"
+          ]
+        ],
+        "filter": "Kanal; batch; unit; tanggal; status",
+        "actions": "Impor settlement; cocokkan transaksi; tautkan penerimaan; tinjau selisih",
+        "status": "Menunggu; sebagian; selisih; selesai",
+        "detail": "Transaksi penjualan, potongan, biaya kanal, penerimaan RCPT-001, rekonsiliasi dan jurnal. Biaya tidak dibuat ulang sebagai tagihan.",
+        "flow": "Penjualan kanal → statement settlement → penerimaan → rekonsiliasi"
+      },
+      {
+        "name": "Uang muka & pengembalian",
+        "goal": "Kewajiban pelanggan dan penyelesaian retur/refund.",
+        "cols": [
+          "Dokumen",
+          "Pelanggan",
+          "Unit",
+          "Jenis",
+          "Nilai Rp",
+          "Dialokasikan Rp",
+          "Status",
+          "Sumber"
+        ],
+        "rows": [
+          [
+            "DEP-001",
+            "Pelanggan B",
+            "C006",
+            "Uang muka",
+            500000,
+            0,
+            "Belum dialokasikan",
+            "Pesanan B"
+          ]
+        ],
+        "filter": "Jenis; pelanggan; unit; status",
+        "actions": "Alokasikan uang muka; ajukan refund; buka pembayaran",
+        "status": "Belum dialokasikan; sebagian; dialokasikan; refund diproses; selesai",
+        "detail": "Pesanan/penjualan asli, uang diterima, alokasi invoice, persetujuan refund dan pembayaran terkait.",
+        "flow": "Uang muka/retur → alokasi atau persetujuan refund → Kas & Bank"
+      }
+    ]
+  },
+  {
+    "name": "Persediaan",
+    "sheet": "05 Persediaan",
+    "purpose": "Mengontrol nilai persediaan, selisih fisik dan dampak keuangan pergerakan barang.",
+    "owner": "Finance persediaan bersama gudang/toko",
+    "boundary": "Operasi mencatat barang fisik. Finance mengontrol nilai dan jurnal. Saldo pihak lawan antarunit ditangani Antarunit.",
+    "kpi": "Nilai stok; barang dalam perjalanan; selisih opname; penyesuaian tertunda",
+    "gap": "Dispatch belum tersedia untuk semua unit; penerimaan antarunit sengaja nonaktif dan perlu bukti sebelum diaktifkan.",
+    "tabs": [
+      {
+        "name": "Saldo & mutasi",
+        "goal": "Saldo kuantitas dan nilai menurut unit serta kelompok barang.",
+        "cols": [
+          "Barang/kelompok",
+          "Unit",
+          "Satuan",
+          "Kuantitas",
+          "Nilai Rp",
+          "Tanggal posisi",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "Bahan baku A",
+            "C006",
+            "kg",
+            100,
+            5000000,
+            "2026-09-11T00:00:00.000Z",
+            "Tercatat",
+            "Lihat kartu stok"
+          ]
+        ],
+        "filter": "Unit; barang/kelompok; lokasi; tanggal",
+        "actions": "Lihat kartu stok; buka dokumen sumber",
+        "status": "Tercatat; perlu rekonsiliasi",
+        "detail": "Mutasi kuantitas, nilai, penerimaan, pemakaian, metode penilaian yang disahkan dan jurnal terkait.",
+        "flow": "Dokumen barang → pergerakan bernilai → saldo persediaan"
+      },
+      {
+        "name": "Penerimaan & pemakaian",
+        "goal": "Dampak keuangan dari transaksi barang operasional.",
+        "cols": [
+          "Dokumen",
+          "Tanggal",
+          "Unit",
+          "Jenis",
+          "Barang",
+          "Kuantitas",
+          "Nilai Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "GR-001",
+            "2026-09-10T00:00:00.000Z",
+            "C006",
+            "Penerimaan vendor",
+            "Bahan baku A",
+            100,
+            5000000,
+            "Tercatat"
+          ]
+        ],
+        "filter": "Jenis; unit; vendor; status",
+        "actions": "Buka penerimaan; cocokkan tagihan; tinjau pemakaian",
+        "status": "Diterima dari operasi; perlu validasi; tercatat; dikoreksi",
+        "detail": "Baris barang, sumber operasional, penerimaan fisik, harga/nilai dan tautan tagihan.",
+        "flow": "Penerimaan fisik → penilaian → tagihan vendor/GL"
+      },
+      {
+        "name": "Dalam perjalanan",
+        "goal": "Barang dikirim tetapi belum selesai diterima.",
+        "cols": [
+          "Pengiriman",
+          "Dari",
+          "Ke",
+          "Tanggal kirim",
+          "Nilai Rp",
+          "Diterima Rp",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "SHP-001",
+            "HO",
+            "C006",
+            "2026-09-10T00:00:00.000Z",
+            2000000,
+            0,
+            "Dalam perjalanan",
+            "Buka pengiriman"
+          ]
+        ],
+        "filter": "Asal; tujuan; umur; status",
+        "actions": "Lihat kirim; konfirmasi penerimaan dari sumber; tinjau selisih",
+        "status": "Dikirim; sebagian diterima; diterima; selisih",
+        "detail": "Barang kirim/terima, bukti fisik, nilai transit dan referensi pasangan Antarunit.",
+        "flow": "Kirim → transit → terima → saldo hubungan di Antarunit"
+      },
+      {
+        "name": "Opname & penyesuaian",
+        "goal": "Selisih fisik dan koreksi nilai yang disetujui.",
+        "cols": [
+          "Opname",
+          "Unit",
+          "Barang",
+          "Buku qty",
+          "Fisik qty",
+          "Selisih qty",
+          "Dampak Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "STK-001",
+            "C006",
+            "Bahan baku A",
+            100,
+            98,
+            -2,
+            -100000,
+            "Menunggu review"
+          ]
+        ],
+        "filter": "Unit; tanggal; alasan; status",
+        "actions": "Impor hasil fisik; review selisih; setujui penyesuaian",
+        "status": "Draf; dihitung; direview; disetujui; tercatat",
+        "detail": "Hasil hitung, bukti, sebab selisih, penanggung jawab, nilai dampak dan jurnal.",
+        "flow": "Opname operasi → review finance → penyesuaian → saldo baru"
+      }
+    ]
+  },
+  {
+    "name": "Antarunit",
+    "sheet": "06 Antarunit",
+    "purpose": "Mencocokkan dan menyelesaikan saldo antarunit atau afiliasi menurut jenis hubungan.",
+    "owner": "Finance HO dan finance unit",
+    "boundary": "Pengiriman fisik tetap di Persediaan. Pinjaman eksternal dan transaksi pemilik di Pendanaan & Modal.",
+    "kpi": "Saldo belum cocok; transaksi sepihak; penyelesaian tertunda; selisih pasangan",
+    "gap": "Penyelesaian pendanaan saat ini memilih keluarga utang barang; setiap jenis hubungan harus memilih akun yang benar.",
+    "tabs": [
+      {
+        "name": "Saldo & pasangan",
+        "goal": "Posisi kedua pihak dengan pemisahan hubungan barang dan pembiayaan.",
+        "cols": [
+          "Pasangan",
+          "Unit",
+          "Lawan",
+          "Jenis hubungan",
+          "Saldo unit Rp",
+          "Saldo lawan Rp",
+          "Selisih Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "IC-001",
+            "C006",
+            "HO",
+            "Barang",
+            2000000,
+            -2000000,
+            0,
+            "Cocok"
+          ]
+        ],
+        "filter": "Unit; lawan; jenis; periode; status pasangan",
+        "actions": "Buka pasangan; telusuri dokumen",
+        "status": "Cocok; sepihak; selisih",
+        "detail": "Rincian masing-masing pihak, jenis akun, sumber, mata uang, periode dan dasar eliminasi.",
+        "flow": "Dokumen sumber kedua pihak → pasangan → rekonsiliasi"
+      },
+      {
+        "name": "Transaksi",
+        "goal": "Daftar kejadian yang membentuk saldo antarunit.",
+        "cols": [
+          "Transaksi",
+          "Tanggal",
+          "Dari",
+          "Ke",
+          "Jenis",
+          "Nilai Rp",
+          "Sumber",
+          "Status"
+        ],
+        "rows": [
+          [
+            "IC-001",
+            "2026-09-10T00:00:00.000Z",
+            "HO",
+            "C006",
+            "Barang",
+            2000000,
+            "SHP-001",
+            "Berpasangan"
+          ]
+        ],
+        "filter": "Jenis; unit/lawan; tanggal; sumber",
+        "actions": "Buka sumber; buat pendanaan antarunit; catat alokasi bersama",
+        "status": "Draf; menunggu pasangan; berpasangan; dikoreksi",
+        "detail": "Dokumen sumber, dasar pembebanan, jenis hubungan dan jurnal dua pihak. Barang tidak dibuat ulang di sini.",
+        "flow": "Barang/pendanaan/alokasi → posting sesuai jenis → saldo pasangan"
+      },
+      {
+        "name": "Penyelesaian",
+        "goal": "Pelunasan yang dialokasikan pada saldo hubungan tertentu.",
+        "cols": [
+          "Penyelesaian",
+          "Pembayar",
+          "Penerima",
+          "Jenis saldo",
+          "Nilai Rp",
+          "Pembayaran",
+          "Tanggal",
+          "Status"
+        ],
+        "rows": [
+          [
+            "ICS-001",
+            "C006",
+            "HO",
+            "Pendanaan",
+            1000000,
+            "PAY-IC-001",
+            "2026-09-11T00:00:00.000Z",
+            "Disiapkan"
+          ]
+        ],
+        "filter": "Jenis saldo; unit; lawan; status",
+        "actions": "Pilih saldo; siapkan pembayaran; alokasikan; buka bukti",
+        "status": "Disiapkan; disetujui; dibayar; teralokasi; dibalik",
+        "detail": "Saldo tujuan, jenis hubungan, pembayaran, alokasi nominal dan jurnal dua pihak.",
+        "flow": "Saldo hubungan → Kas & Bank → alokasi keluarga yang sama"
+      },
+      {
+        "name": "Rekonsiliasi",
+        "goal": "Penyelesaian perbedaan antarunit sebelum tutup buku.",
+        "cols": [
+          "Kasus",
+          "Unit",
+          "Lawan",
+          "Periode",
+          "Dokumen",
+          "Selisih Rp",
+          "Penyebab",
+          "Status"
+        ],
+        "rows": [
+          [
+            "ICR-001",
+            "C004",
+            "HO",
+            "2026-09",
+            "SHP-002",
+            500000,
+            "Belum diterima",
+            "Terbuka"
+          ]
+        ],
+        "filter": "Periode; unit; lawan; penyebab",
+        "actions": "Bandingkan; minta koreksi sumber; tandai selesai",
+        "status": "Terbuka; dikonfirmasi; dikoreksi; selesai",
+        "detail": "Bukti dua pihak, perbedaan waktu/nilai, tindakan pada sumber. Tidak membuat jurnal selisih otomatis tanpa dasar.",
+        "flow": "Bandingkan → koreksi sumber → cocok → tutup buku"
+      }
+    ]
+  },
+  {
+    "name": "Aset & Proyek",
+    "sheet": "07 Aset dan Proyek",
+    "purpose": "Mengelola biaya pembangunan, kapitalisasi, umur manfaat dan pelepasan aset.",
+    "owner": "Akuntan aset dan pemilik proyek",
+    "boundary": "Tagihan vendor tetap di Tagihan. Proyek/aset menyimpan alokasi dan keputusan kapitalisasi, memakai sumber tagihan yang sama.",
+    "kpi": "Nilai buku aset; proyek berjalan; kapitalisasi tertunda; penyusutan periode",
+    "gap": "Cakupan kelas aset perlu dilengkapi; biaya terkait akuisisi harus mengikuti dokumen sumber, bukan otomatis dibuat ganda.",
+    "tabs": [
+      {
+        "name": "Daftar aset",
+        "goal": "Register aset per unit dan kelas.",
+        "cols": [
+          "Aset",
+          "Nama",
+          "Unit",
+          "Kelas",
+          "Perolehan Rp",
+          "Akumulasi Rp",
+          "Nilai buku Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "AST-001",
+            "Peralatan toko",
+            "C006",
+            "Peralatan",
+            24000000,
+            0,
+            24000000,
+            "Aktif"
+          ]
+        ],
+        "filter": "Unit; kelas; lokasi; status",
+        "actions": "Lihat aset; kapitalisasi dari sumber; ajukan transfer/pelepasan",
+        "status": "Dalam persiapan; aktif; dihentikan; dilepas",
+        "detail": "Sumber biaya, tanggal siap pakai, umur manfaat, penanggung jawab, jadwal, perpindahan dan jurnal.",
+        "flow": "Biaya/proyek → siap pakai → aset → penyusutan → pelepasan"
+      },
+      {
+        "name": "Proyek berjalan",
+        "goal": "Biaya yang dikumpulkan sebelum menjadi aset atau beban.",
+        "cols": [
+          "Proyek",
+          "Unit",
+          "Penanggung jawab",
+          "Mulai",
+          "Biaya Rp",
+          "Dikapitalisasi Rp",
+          "Sisa Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "PRJ-001",
+            "C006",
+            "Pemilik proyek",
+            "2026-09-01T00:00:00.000Z",
+            30000000,
+            0,
+            30000000,
+            "Berjalan"
+          ]
+        ],
+        "filter": "Unit; proyek; status; periode",
+        "actions": "Buat proyek; tautkan tagihan; review biaya; kapitalisasi",
+        "status": "Draf; berjalan; siap kapitalisasi; selesai",
+        "detail": "Baris biaya sumber, komponen aset, bukti siap pakai dan biaya yang dibebankan.",
+        "flow": "Tagihan proyek → review klasifikasi → kapitalisasi/beban"
+      },
+      {
+        "name": "Penyusutan & amortisasi",
+        "goal": "Jadwal periodik yang akan diperiksa saat tutup buku.",
+        "cols": [
+          "Aset/jadwal",
+          "Unit",
+          "Periode",
+          "Dasar Rp",
+          "Beban periode Rp",
+          "Sisa Rp",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "AST-001",
+            "C006",
+            "2026-09",
+            24000000,
+            500000,
+            23500000,
+            "Usulan",
+            "Tinjau jadwal"
+          ]
+        ],
+        "filter": "Periode; unit; kelas; status posting",
+        "actions": "Tinjau; perbaiki sumber; buka jurnal periode",
+        "status": "Usulan; direview; diposting; dibalik",
+        "detail": "Dasar hitung, masa manfaat dan kebijakan, perubahan, jurnal. Angka contoh bukan kebijakan umur manfaat perusahaan.",
+        "flow": "Jadwal → review Akuntansi → posting periode"
+      },
+      {
+        "name": "Transfer & pelepasan",
+        "goal": "Perubahan penguasaan atau penghentian aset.",
+        "cols": [
+          "Dokumen",
+          "Aset",
+          "Jenis",
+          "Dari",
+          "Ke/pihak",
+          "Nilai buku Rp",
+          "Tanggal",
+          "Status"
+        ],
+        "rows": [
+          [
+            "AMV-001",
+            "AST-001",
+            "Transfer",
+            "C006",
+            "C004",
+            24000000,
+            "2026-09-15T00:00:00.000Z",
+            "Diajukan"
+          ]
+        ],
+        "filter": "Jenis; unit; aset; status",
+        "actions": "Ajukan; setujui; konfirmasi serah terima; buka penerimaan penjualan",
+        "status": "Diajukan; disetujui; selesai; dibatalkan",
+        "detail": "Persetujuan, nilai buku, penerimaan jika dijual, laba/rugi dan pasangan Antarunit jika relevan.",
+        "flow": "Permintaan → persetujuan → serah terima/penjualan → jurnal"
+      }
+    ]
+  },
+  {
+    "name": "Payroll",
+    "sheet": "08 Payroll",
+    "purpose": "Menyelesaikan kewajiban pegawai berdasarkan payroll yang disetujui HR.",
+    "owner": "Finance payroll dengan akses terbatas",
+    "boundary": "HR memiliki data pegawai, kehadiran dan perhitungan dasar. Finance memvalidasi kewajiban dan pembayaran; pajak diselesaikan di Pajak.",
+    "kpi": "Batch siap bayar; gaji belum dibayar; potongan; piutang pegawai",
+    "gap": "Potongan pinjaman wajib terhubung ke payroll/jurnal; tidak cukup mengubah saldo pelunasan register.",
+    "tabs": [
+      {
+        "name": "Batch payroll",
+        "goal": "Batch payroll untuk review dan pembayaran.",
+        "cols": [
+          "Batch",
+          "Periode",
+          "Unit",
+          "Pegawai",
+          "Bruto Rp",
+          "Potongan Rp",
+          "Neto Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "PR-001",
+            "2026-09",
+            "C006",
+            1,
+            5000000,
+            500000,
+            4500000,
+            "Disetujui"
+          ]
+        ],
+        "filter": "Periode; unit; status",
+        "actions": "Ambil batch HR; review; setujui; siapkan pembayaran",
+        "status": "Diterima; direview; disetujui; sebagian dibayar; selesai",
+        "detail": "Rincian pegawai sesuai hak akses, komponen, potongan, pajak, jurnal kewajiban dan pembayaran.",
+        "flow": "HR disetujui → review finance → kewajiban → Kas & Bank"
+      },
+      {
+        "name": "Kewajiban & pembayaran",
+        "goal": "Saldo gaji dan komponen yang belum selesai dibayar.",
+        "cols": [
+          "Kewajiban",
+          "Batch",
+          "Unit",
+          "Penerima",
+          "Nilai Rp",
+          "Dibayar Rp",
+          "Sisa Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "PRP-001",
+            "PR-001",
+            "C006",
+            "Pegawai A",
+            4500000,
+            0,
+            4500000,
+            "Belum dibayar"
+          ]
+        ],
+        "filter": "Batch; unit; penerima; status",
+        "actions": "Bayar batch; buka pembayaran; tinjau gagal transfer",
+        "status": "Belum dibayar; diproses; sebagian; lunas; gagal transfer",
+        "detail": "Rincian komponen, alokasi pembayaran, bukti bank. Kewajiban pajak tertaut ke Pajak tanpa pembayaran duplikat.",
+        "flow": "Kewajiban payroll → pembayaran → alokasi per penerima"
+      },
+      {
+        "name": "Pinjaman pegawai",
+        "goal": "Piutang pinjaman dan pemulihan melalui potongan/penerimaan.",
+        "cols": [
+          "Pinjaman",
+          "Pegawai",
+          "Unit",
+          "Pokok Rp",
+          "Dilunasi Rp",
+          "Sisa Rp",
+          "Cara pelunasan",
+          "Status"
+        ],
+        "rows": [
+          [
+            "EMP-001",
+            "Pegawai A",
+            "C006",
+            2000000,
+            500000,
+            1500000,
+            "Potongan payroll",
+            "Berjalan"
+          ]
+        ],
+        "filter": "Pegawai; unit; status; umur",
+        "actions": "Ajukan pencairan; jadwalkan potongan; buka alokasi pelunasan",
+        "status": "Diajukan; dicairkan; berjalan; lunas",
+        "detail": "Persetujuan, pembayaran awal, jadwal, potongan batch PR-001 atau penerimaan kas, dan jurnal piutang.",
+        "flow": "Pencairan → piutang pegawai → potongan/penerimaan → saldo"
+      },
+      {
+        "name": "Rekonsiliasi payroll",
+        "goal": "Bandingkan batch, jurnal dan pembayaran.",
+        "cols": [
+          "Batch",
+          "Unit",
+          "Neto Rp",
+          "Kewajiban tercatat Rp",
+          "Dibayar Rp",
+          "Belum dibayar Rp",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "PR-001",
+            "C006",
+            4500000,
+            4500000,
+            0,
+            4500000,
+            "Pembayaran tertunda",
+            "Buka rincian"
+          ]
+        ],
+        "filter": "Periode; unit; batch; status",
+        "actions": "Bandingkan; periksa selisih; buka sumber",
+        "status": "Cocok; pembayaran tertunda; selisih",
+        "detail": "Jumlah batch, kewajiban, transfer gagal, potongan pinjaman dan pajak terkait.",
+        "flow": "Payroll ↔ jurnal ↔ pembayaran → penutupan periode"
+      }
+    ]
+  },
+  {
+    "name": "Pajak",
+    "sheet": "09 Pajak",
+    "purpose": "Mengontrol dokumen, kewajiban, pembayaran dan pelaporan pajak.",
+    "owner": "Tim pajak",
+    "boundary": "Dokumen asal dari penjualan, tagihan dan payroll. Pembayaran memakai Kas & Bank; status lapor terpisah dari status bayar.",
+    "kpi": "Kewajiban belum dibayar; tenggat pembayaran; tenggat pelaporan; dokumen belum cocok",
+    "gap": "Pisahkan tanggal/status lapor dan bayar; klasifikasi PBB dan kode khusus harus dikonfirmasi.",
+    "tabs": [
+      {
+        "name": "Kewajiban",
+        "goal": "Saldo kewajiban per jenis dan masa pajak.",
+        "cols": [
+          "Kewajiban",
+          "Jenis",
+          "Masa",
+          "Unit",
+          "Terutang Rp",
+          "Dibayar Rp",
+          "Sisa Rp",
+          "Status bayar"
+        ],
+        "rows": [
+          [
+            "TAX-001",
+            "Pajak potongan",
+            "2026-09",
+            "HO",
+            500000,
+            0,
+            500000,
+            "Belum dibayar"
+          ]
+        ],
+        "filter": "Jenis; masa; unit; tenggat; status bayar",
+        "actions": "Tinjau sumber; siapkan pembayaran; buka bukti",
+        "status": "Belum dibayar; sebagian; dibayar",
+        "detail": "Dokumen dasar, penyesuaian, pembayaran, referensi pelaporan. Tenggat mengikuti master kebijakan yang divalidasi tim pajak.",
+        "flow": "Sumber bisnis → kewajiban pajak → pembayaran → laporan"
+      },
+      {
+        "name": "Dokumen pajak",
+        "goal": "Dokumen pajak masukan/keluaran/potongan dan sumbernya.",
+        "cols": [
+          "Dokumen",
+          "Jenis",
+          "Nomor referensi",
+          "Tanggal",
+          "Pihak",
+          "Nilai pajak Rp",
+          "Sumber",
+          "Status"
+        ],
+        "rows": [
+          [
+            "TD-001",
+            "Potongan",
+            "ILUSTRASI-001",
+            "2026-09-10T00:00:00.000Z",
+            "Vendor B",
+            500000,
+            "BILL-002",
+            "Perlu cocokkan"
+          ]
+        ],
+        "filter": "Jenis; masa; pihak; unit; status validasi",
+        "actions": "Tautkan dokumen; cocokkan; koreksi sumber",
+        "status": "Diterima; perlu cocokkan; cocok; dikoreksi",
+        "detail": "Identitas dokumen, dasar nilai, sumber asli, lampiran, validasi dan riwayat. Nilai hanya ilustrasi, tidak menghitung tarif legal.",
+        "flow": "Tagihan/penjualan/payroll → dokumen pajak → kewajiban"
+      },
+      {
+        "name": "Pembayaran",
+        "goal": "Alokasi pembayaran untuk kewajiban pajak.",
+        "cols": [
+          "Pembayaran",
+          "Kewajiban",
+          "Jenis",
+          "Masa",
+          "Nilai Rp",
+          "Tanggal bayar",
+          "Bukti bayar",
+          "Status"
+        ],
+        "rows": [
+          [
+            "PAY-TAX-001",
+            "TAX-001",
+            "Pajak potongan",
+            "2026-09",
+            500000,
+            null,
+            null,
+            "Disiapkan"
+          ]
+        ],
+        "filter": "Jenis; masa; rekening; status",
+        "actions": "Bayar kewajiban; tautkan bukti; buka Kas & Bank",
+        "status": "Disiapkan; diproses; dibayar; gagal; dibalik",
+        "detail": "Payment yang sama di Kas & Bank, kode billing/referensi bila relevan, bukti dan alokasi.",
+        "flow": "Kewajiban → pembayaran bersama → bukti bayar"
+      },
+      {
+        "name": "Pelaporan",
+        "goal": "Penyampaian laporan pajak terpisah dari pelunasan.",
+        "cols": [
+          "Pelaporan",
+          "Jenis",
+          "Masa",
+          "Unit",
+          "Tanggal lapor",
+          "Referensi tanda terima",
+          "Status lapor",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "TF-001",
+            "Pajak potongan",
+            "2026-09",
+            "HO",
+            null,
+            null,
+            "Disiapkan",
+            "Buka pelaporan"
+          ]
+        ],
+        "filter": "Jenis; masa; unit; status lapor",
+        "actions": "Siapkan; review; catat pelaporan; tautkan tanda terima",
+        "status": "Disiapkan; direview; dilaporkan; pembetulan",
+        "detail": "Dokumen pendukung, pembayaran terkait, tanda terima, versi pembetulan. Dilaporkan tidak berarti sudah dibayar.",
+        "flow": "Dokumen/kewajiban → review laporan → penyampaian → tanda terima"
+      }
+    ]
+  },
+  {
+    "name": "Pendanaan & Modal",
+    "sheet": "10 Pendanaan dan Modal",
+    "purpose": "Mengelola pinjaman eksternal dan transaksi pemilik, dengan register yang terpisah.",
+    "owner": "Treasury untuk pinjaman; akuntan untuk modal",
+    "boundary": "Kelompok sumber pendanaan, bukan seluruh kewajiban. Utang vendor, payroll, pajak dan antarunit tetap di menu pemilik.",
+    "kpi": "Pokok pinjaman; angsuran jatuh tempo; setoran modal; distribusi disetujui",
+    "gap": "Pembayaran pinjaman jangan terbatas pada satu bank; laba periode harus dapat ditelusuri ke laporan dan penutupan.",
+    "tabs": [
+      {
+        "name": "Pinjaman",
+        "goal": "Kontrak pendanaan eksternal beserta saldo pokok.",
+        "cols": [
+          "Pinjaman",
+          "Pemberi dana",
+          "Unit",
+          "Jenis",
+          "Pokok awal Rp",
+          "Pokok tersisa Rp",
+          "Jatuh tempo",
+          "Status"
+        ],
+        "rows": [
+          [
+            "LOAN-001",
+            "Bank A",
+            "HO",
+            "Pinjaman bank",
+            100000000,
+            100000000,
+            "2027-09-10T00:00:00.000Z",
+            "Aktif"
+          ]
+        ],
+        "filter": "Pemberi dana; unit; jenis; status",
+        "actions": "Buat kontrak; tautkan pencairan; lihat jadwal",
+        "status": "Draf; aktif; selesai; direstrukturisasi",
+        "detail": "Kontrak, rekening, jaminan bila ada, pencairan, pokok, bunga/biaya dan riwayat perubahan.",
+        "flow": "Kontrak → pencairan Kas & Bank → jadwal → pelunasan"
+      },
+      {
+        "name": "Angsuran & biaya",
+        "goal": "Pokok, bunga dan biaya per jatuh tempo.",
+        "cols": [
+          "Angsuran",
+          "Pinjaman",
+          "Jatuh tempo",
+          "Pokok Rp",
+          "Bunga Rp",
+          "Biaya Rp",
+          "Total Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "INST-001",
+            "LOAN-001",
+            "2026-09-25T00:00:00.000Z",
+            10000000,
+            500000,
+            0,
+            10500000,
+            "Belum dibayar"
+          ]
+        ],
+        "filter": "Pinjaman; pemberi dana; periode; status",
+        "actions": "Tinjau jadwal; siapkan pembayaran; alokasikan",
+        "status": "Belum dibayar; sebagian; lunas; ditunda",
+        "detail": "Rincian pokok/bunga/biaya, dasar kontrak, pembayaran, akrual terkait dan jurnal. Angka contoh bukan rekomendasi syarat pinjaman.",
+        "flow": "Jadwal → pembayaran → alokasi pokok/bunga/biaya"
+      },
+      {
+        "name": "Modal & distribusi",
+        "goal": "Transaksi pemilik yang memengaruhi modal.",
+        "cols": [
+          "Transaksi",
+          "Pemilik",
+          "Unit",
+          "Jenis",
+          "Tanggal",
+          "Nilai Rp",
+          "Referensi kas",
+          "Status"
+        ],
+        "rows": [
+          [
+            "EQ-001",
+            "Pemilik A",
+            "HO",
+            "Setoran modal",
+            "2026-09-05T00:00:00.000Z",
+            50000000,
+            "RCPT-EQ-001",
+            "Tercatat"
+          ]
+        ],
+        "filter": "Pemilik; jenis; unit; periode",
+        "actions": "Catat keputusan; tautkan penerimaan/pembayaran; lihat jurnal",
+        "status": "Draf; disetujui; menunggu kas; tercatat; dibalik",
+        "detail": "Dasar keputusan, pemilik, jenis perubahan modal, kas terkait dan jurnal. Distribusi harus punya dasar keputusan.",
+        "flow": "Keputusan pemilik → kas jika ada → perubahan modal"
+      },
+      {
+        "name": "Perubahan ekuitas",
+        "goal": "Jembatan saldo awal, transaksi pemilik dan hasil periode.",
+        "cols": [
+          "Unit",
+          "Periode",
+          "Saldo awal Rp",
+          "Setoran Rp",
+          "Distribusi Rp",
+          "Hasil periode Rp",
+          "Saldo akhir Rp",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "HO",
+            "2026-09",
+            100000000,
+            50000000,
+            0,
+            20000000,
+            170000000,
+            "Telusuri sumber"
+          ]
+        ],
+        "filter": "Unit; periode; komponen ekuitas",
+        "actions": "Buka sumber; buka hasil periode",
+        "status": "Periode terbuka; direview; ditutup",
+        "detail": "Setoran/distribusi berasal dari register modal, hasil periode berasal dari buku besar dan kebijakan penutupan. Tampilan baca, bukan input laba manual.",
+        "flow": "Modal + hasil laporan → perubahan ekuitas → rekonsiliasi"
+      }
+    ]
+  },
+  {
+    "name": "Akuntansi & Tutup Buku",
+    "sheet": "11 Akuntansi dan Tutup Buku",
+    "purpose": "Mengontrol jurnal, pengakuan periodik, rekonsiliasi dan penutupan periode.",
+    "owner": "Akuntan dan controller",
+    "boundary": "Jurnal otomatis ditelusuri/koreksi melalui dokumen sumber. Jurnal manual untuk kejadian yang memang memerlukan akuntansi langsung.",
+    "kpi": "Jurnal perlu review; jadwal belum diposting; rekonsiliasi terbuka; kesiapan tutup",
+    "gap": "Validasi akun aktif/detail/unit harus seragam; penutupan perlu bukti hasil periode dan kontrol transaksi tertunda.",
+    "tabs": [
+      {
+        "name": "Jurnal",
+        "goal": "Jurnal otomatis dan manual dengan identitas sumber.",
+        "cols": [
+          "Jurnal",
+          "Tanggal",
+          "Unit",
+          "Sumber",
+          "Debit Rp",
+          "Kredit Rp",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "JRN-001",
+            "2026-09-11T00:00:00.000Z",
+            "HO",
+            "PAY-001",
+            5000000,
+            5000000,
+            "Diposting",
+            "Buka sumber"
+          ]
+        ],
+        "filter": "Periode; unit; sumber; otomatis/manual; status",
+        "actions": "Buat jurnal manual; review; posting; balik sesuai otorisasi",
+        "status": "Draf; direview; diposting; dibalik",
+        "detail": "Baris akun/unit/debit/kredit, alasan, lampiran, sumber, pembalikan dan riwayat. Akun nonaktif/induk/unit tidak sah ditolak.",
+        "flow": "Dokumen atau jurnal manual → validasi → posting → GL"
+      },
+      {
+        "name": "Pengakuan periodik",
+        "goal": "Kontrol akrual, amortisasi, penyusutan dan pembalikan terjadwal.",
+        "cols": [
+          "Jadwal",
+          "Jenis",
+          "Unit",
+          "Periode",
+          "Nilai Rp",
+          "Sumber",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "PER-001",
+            "Amortisasi sewa",
+            "C006",
+            "2026-09",
+            1000000,
+            "PRE-001",
+            "Siap review",
+            "Tinjau"
+          ]
+        ],
+        "filter": "Jenis; unit; periode; status",
+        "actions": "Tinjau usulan; posting; buka jadwal sumber; balik",
+        "status": "Belum siap; siap review; disetujui; diposting; dibalik",
+        "detail": "Dasar perhitungan, sumber, periode, akun, jurnal sebelumnya dan pencegahan posting ganda.",
+        "flow": "Jadwal domain/akrual → review akuntansi → jurnal periode"
+      },
+      {
+        "name": "Rekonsiliasi akun",
+        "goal": "Bukti saldo buku besar sama dengan rincian pendukung.",
+        "cols": [
+          "Rekonsiliasi",
+          "Kelompok",
+          "Unit",
+          "Periode",
+          "GL Rp",
+          "Rincian Rp",
+          "Selisih Rp",
+          "Status"
+        ],
+        "rows": [
+          [
+            "REC-001",
+            "Piutang pegawai",
+            "C006",
+            "2026-09",
+            1500000,
+            1500000,
+            0,
+            "Cocok"
+          ]
+        ],
+        "filter": "Periode; unit; kelompok; status; reviewer",
+        "actions": "Bandingkan; lampirkan bukti; tugaskan; tandai selesai",
+        "status": "Belum disiapkan; disiapkan; selisih; cocok; direview",
+        "detail": "Rincian register, GL, selisih, bukti dan reviewer. Koreksi dibuat pada sumber yang salah.",
+        "flow": "Register ↔ GL → koreksi sumber → review"
+      },
+      {
+        "name": "Tutup periode",
+        "goal": "Checklist dan keputusan penutupan yang dapat ditelusuri.",
+        "cols": [
+          "Periode",
+          "Unit",
+          "Langkah",
+          "Pemilik",
+          "Tenggat",
+          "Status",
+          "Bukti",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "2026-09",
+            "HO",
+            "Rekonsiliasi bank",
+            "Treasury",
+            "2026-09-30T00:00:00.000Z",
+            "Belum selesai",
+            "REC-BANK-001",
+            "Buka bukti"
+          ]
+        ],
+        "filter": "Periode; unit; langkah; status",
+        "actions": "Buka checklist; review; tutup periode; buka kembali dengan alasan",
+        "status": "Terbuka; dalam review; ditutup; dibuka kembali",
+        "detail": "Checklist, transaksi tertunda, rekonsiliasi, laba/rugi, perubahan ekuitas, siapa menutup/membuka dan alasan.",
+        "flow": "Selesaikan domain → rekonsiliasi → review hasil → kunci periode"
+      }
+    ]
+  },
+  {
+    "name": "Laporan",
+    "sheet": "12 Laporan",
+    "purpose": "Menyajikan hasil dari buku besar dan register yang dapat ditelusuri ke sumber.",
+    "owner": "Manajemen dan finance sesuai akses",
+    "boundary": "Baca, filter, telusuri dan ekspor. Koreksi diarahkan ke menu sumber; laporan tidak membuat transaksi.",
+    "kpi": "Pendapatan; hasil periode; posisi keuangan; arus kas sesuai definisi laporan",
+    "gap": "Konsolidasi harus mencakup unit terpilih dan eliminasi yang sah; klasifikasi kode khusus tidak boleh hanya dari digit pertama.",
+    "tabs": [
+      {
+        "name": "Laporan keuangan",
+        "goal": "Pilihan laporan utama dan hasil sesuai periode/unit.",
+        "cols": [
+          "Laporan",
+          "Periode",
+          "Lingkup",
+          "Versi",
+          "Status periode",
+          "Penanggung jawab",
+          "Diperbarui",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "Neraca",
+            "2026-09",
+            "HO dan unit terpilih",
+            "Berjalan",
+            "Terbuka",
+            "Akuntansi",
+            "2026-09-11T00:00:00.000Z",
+            "Buka laporan"
+          ],
+          [
+            "Laba rugi",
+            "2026-09",
+            "C006",
+            "Berjalan",
+            "Terbuka",
+            "Akuntansi",
+            "2026-09-11T00:00:00.000Z",
+            "Buka laporan"
+          ]
+        ],
+        "filter": "Neraca/laba rugi/arus kas/perubahan ekuitas; periode; unit; komparatif",
+        "actions": "Buka; telusuri; ekspor",
+        "status": "Berjalan; periode ditutup",
+        "detail": "Laporan berbentuk hierarki pos dengan kolom periode ini, pembanding dan selisih. Pos → akun → jurnal → sumber. Arus kas memerlukan pemetaan tersendiri.",
+        "flow": "GL dan pemetaan laporan → hasil → telusuri sumber"
+      },
+      {
+        "name": "Buku besar & neraca saldo",
+        "goal": "Detail akun dan keseimbangan buku.",
+        "cols": [
+          "Kode akun",
+          "Nama akun",
+          "Unit",
+          "Awal Rp",
+          "Debit Rp",
+          "Kredit Rp",
+          "Akhir Rp",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "AKUN-CONTOH",
+            "Kas dan bank",
+            "HO",
+            20000000,
+            10000000,
+            5000000,
+            25000000,
+            "Buka mutasi"
+          ]
+        ],
+        "filter": "Akun; unit; periode; sumber",
+        "actions": "Lihat mutasi; buka jurnal; ekspor",
+        "status": "Periode terbuka; periode ditutup",
+        "detail": "Buku besar: tanggal, jurnal, sumber, uraian, debit, kredit, saldo berjalan. Neraca saldo: saldo awal, mutasi dan saldo akhir sesuai sifat akun.",
+        "flow": "GL → akun → jurnal → dokumen"
+      },
+      {
+        "name": "Operasional finance",
+        "goal": "Laporan umur piutang/utang, kas dan register pendukung.",
+        "cols": [
+          "Laporan",
+          "Periode posisi",
+          "Unit",
+          "Dimensi utama",
+          "Sumber register",
+          "Pemilik",
+          "Status data",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "Umur utang",
+            "2026-09-11T00:00:00.000Z",
+            "Semua yang diizinkan",
+            "Vendor dan jatuh tempo",
+            "Tagihan",
+            "AP",
+            "Berjalan",
+            "Buka laporan"
+          ]
+        ],
+        "filter": "Jenis laporan; unit; tanggal posisi; pihak; umur",
+        "actions": "Buka; telusuri; ekspor",
+        "status": "Berjalan; snapshot ditutup",
+        "detail": "Umur utang/piutang: pihak, dokumen, jatuh tempo, belum jatuh tempo dan bucket umur. Aset/payroll/pajak memakai register sumber masing-masing.",
+        "flow": "Register domain → laporan → dokumen sumber"
+      },
+      {
+        "name": "Konsolidasi",
+        "goal": "Laporan gabungan dengan cakupan dan eliminasi eksplisit.",
+        "cols": [
+          "Paket",
+          "Periode",
+          "Cakupan unit",
+          "Unit siap",
+          "Unit belum siap",
+          "Eliminasi",
+          "Status",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "CONS-001",
+            "2026-09",
+            "HO dan C001–C013",
+            0,
+            14,
+            "Belum direview",
+            "Disiapkan",
+            "Buka cakupan"
+          ]
+        ],
+        "filter": "Periode; daftar unit; status penutupan",
+        "actions": "Pilih unit; periksa kelengkapan; tinjau eliminasi; ekspor",
+        "status": "Disiapkan; ada selisih; direview; final",
+        "detail": "Daftar semua unit terpilih, status data, rincian eliminasi dan laporan sebelum/sesudah eliminasi. Jumlah unit bukan hardcode tiga.",
+        "flow": "Buku tiap unit → rekonsiliasi Antarunit → eliminasi sah → laporan gabungan"
+      }
+    ]
+  },
+  {
+    "name": "Pengaturan Finance",
+    "sheet": "13 Pengaturan Finance",
+    "purpose": "Memelihara master, aturan dan akses yang digunakan seluruh menu.",
+    "owner": "Admin finance dengan reviewer berwenang",
+    "boundary": "Mengatur kebijakan dan master. Tidak menjadi tempat mencatat transaksi harian atau menampung akun yang belum jelas owner-nya.",
+    "kpi": "Master belum lengkap; pemetaan belum tersedia; perubahan menunggu review",
+    "gap": "Pisahkan akun aktif dan izin posting; jangan batasi pencarian COA pada 300 akun atau unit pada tiga pilihan.",
+    "tabs": [
+      {
+        "name": "COA",
+        "goal": "Master seluruh akun dan klasifikasi pelaporannya.",
+        "cols": [
+          "Kode akun",
+          "Nama akun",
+          "Level",
+          "Unit",
+          "Aktif",
+          "Izin posting",
+          "Kelompok laporan",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "201200200200",
+            "Outstanding Giro Bank Mandiri HO",
+            12,
+            "HO",
+            "Ya",
+            "Perlu validasi kebijakan",
+            "Kewajiban",
+            "Lihat akun"
+          ]
+        ],
+        "filter": "Cari seluruh kode/nama; level; aktif; unit; izin posting",
+        "actions": "Cari; lihat penggunaan; ajukan perubahan master",
+        "status": "Aktif; nonaktif; izin posting terpisah",
+        "detail": "Hierarki, status, unit, pemetaan laporan, penggunaan rule dan riwayat perubahan. Tidak mengubah kode sumber tanpa keputusan.",
+        "flow": "Master akun → validasi → pemetaan transaksi/laporan"
+      },
+      {
+        "name": "Pemetaan transaksi",
+        "goal": "Pemilihan akun berdasarkan kejadian dan dimensi bisnis.",
+        "cols": [
+          "Kejadian",
+          "Peran akun",
+          "Unit",
+          "Bank/jenis",
+          "Akun tujuan",
+          "Aktivasi",
+          "Bukti uji",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "Penerbitan giro",
+            "Outstanding giro",
+            "HO",
+            "Mandiri",
+            "201200200200",
+            "Usulan perbaikan",
+            "Perlu uji ulang",
+            "Review pemetaan"
+          ]
+        ],
+        "filter": "Kejadian; unit; bank; jenis; aktif/nonaktif",
+        "actions": "Tinjau; simulasikan; ajukan; aktifkan setelah review",
+        "status": "Draf; direview; aktif; nonaktif",
+        "detail": "Prioritas resolusi, dimensi wajib, alasan nonaktif, contoh jurnal dan hasil uji. Rule nonaktif tidak diaktifkan hanya karena akun tersedia.",
+        "flow": "Kejadian + unit + dimensi → akun yang tepat → uji → aktivasi"
+      },
+      {
+        "name": "Rekening & pihak",
+        "goal": "Master rekening, kas, vendor, pelanggan dan pihak lain.",
+        "cols": [
+          "Master",
+          "Kode",
+          "Nama",
+          "Unit",
+          "Jenis",
+          "Aktif",
+          "Kelengkapan",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "Rekening",
+            "BANK-HO-MDR",
+            "Mandiri HO",
+            "HO",
+            "Bank",
+            "Ya",
+            "Pemetaan perlu review",
+            "Buka master"
+          ]
+        ],
+        "filter": "Jenis master; unit; aktif; kelengkapan",
+        "actions": "Tambah; review; nonaktifkan; lihat penggunaan",
+        "status": "Draf; aktif; nonaktif",
+        "detail": "Identitas dan data pembayaran sesuai akses; pihak dipakai lintas menu dengan satu ID. Tidak menampilkan nomor sensitif penuh di daftar.",
+        "flow": "Master tunggal → transaksi domain terkait"
+      },
+      {
+        "name": "Kebijakan & jadwal",
+        "goal": "Konfigurasi periode, jadwal dan kebijakan yang telah disetujui.",
+        "cols": [
+          "Kebijakan",
+          "Lingkup",
+          "Berlaku mulai",
+          "Pemilik",
+          "Versi",
+          "Status",
+          "Referensi",
+          "Aksi"
+        ],
+        "rows": [
+          [
+            "Penyusutan aset",
+            "Kelas peralatan",
+            "2026-09-01T00:00:00.000Z",
+            "Akuntansi",
+            "Draf 1",
+            "Perlu keputusan",
+            "Keputusan internal",
+            "Review"
+          ]
+        ],
+        "filter": "Kategori; lingkup; masa berlaku; status",
+        "actions": "Ajukan perubahan; bandingkan versi; setujui",
+        "status": "Draf; direview; berlaku; digantikan",
+        "detail": "Nilai/parameter, dasar keputusan, masa berlaku, dampak ke jadwal aktif dan riwayat. Kalender pajak divalidasi pemilik kebijakan.",
+        "flow": "Keputusan → versi kebijakan → jadwal dan kontrol"
+      },
+      {
+        "name": "Akses & persetujuan",
+        "goal": "Hak menu, data unit dan otorisasi tindakan.",
+        "cols": [
+          "Peran",
+          "Menu",
+          "Cakupan unit",
+          "Lihat",
+          "Buat",
+          "Review",
+          "Eksekusi",
+          "Status"
+        ],
+        "rows": [
+          [
+            "AP",
+            "Tagihan & Pengeluaran",
+            "Unit ditugaskan",
+            "Ya",
+            "Ya",
+            "Sesuai mandat",
+            "Tidak",
+            "Usulan"
+          ]
+        ],
+        "filter": "Peran; menu; unit; status",
+        "actions": "Tinjau akses; ajukan perubahan; tetapkan reviewer",
+        "status": "Usulan; disetujui; aktif; dicabut",
+        "detail": "Hak melihat nominal/pegawai, tindakan, batas mandat dan pemisahan pengaju/reviewer sesuai kebijakan perusahaan.",
+        "flow": "Peran + unit + mandat → tindakan yang tersedia"
+      },
+      {
+        "name": "Riwayat perubahan",
+        "goal": "Audit perubahan master dan aturan lintas finance.",
+        "cols": [
+          "Perubahan",
+          "Waktu",
+          "Pelaku",
+          "Objek",
+          "Sebelum",
+          "Sesudah",
+          "Alasan",
+          "Referensi"
+        ],
+        "rows": [
+          [
+            "AUD-001",
+            "2026-09-11T00:00:00.000Z",
+            "Admin finance",
+            "Pemetaan giro Mandiri",
+            "Akun BCA",
+            "Akun Mandiri",
+            "Koreksi bank",
+            "REQ-001"
+          ]
+        ],
+        "filter": "Tanggal; pelaku; objek; menu",
+        "actions": "Buka perbandingan; lihat persetujuan",
+        "status": "Dicatat; tidak dapat diedit dari daftar",
+        "detail": "Versi sebelum/sesudah, pemohon, reviewer, waktu, alasan dan transaksi terdampak. Contoh perubahan ini belum diterapkan.",
+        "flow": "Perubahan disetujui → riwayat → telusuri dampak"
+      }
+    ]
+  }
+]

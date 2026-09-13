@@ -1,0 +1,2325 @@
+{
+  "menus": [
+    {
+      "name": "Ringkasan",
+      "philosophy": "Memilih pekerjaan berikutnya berdasarkan tenggat dan kewenangan.",
+      "tabs": [
+        {
+          "name": "Hari ini",
+          "purpose": "Antrean pekerjaan HR unit atau pengawasan pusat.",
+          "columns": [
+            "Pekerjaan",
+            "Unit",
+            "Referensi",
+            "Pemilik",
+            "Tenggat",
+            "Status",
+            "Tujuan",
+            "Aksi"
+          ],
+          "example": [
+            "Review usulan masuk",
+            "Toko 01",
+            "HIR-001",
+            "HR pusat",
+            "2026-09-11T00:00:00.000Z",
+            "Menunggu keputusan",
+            "Penerimaan",
+            "Buka dokumen"
+          ],
+          "local": "Melihat pekerjaan unit sendiri dan pengajuan yang dikembalikan.",
+          "central": "Melihat pekerjaan keputusan pusat dan pengecualian seluruh unit yang diizinkan.",
+          "detail": "Ringkasan alasan, sumber, pihak yang menunggu dan tenggat. Membuka dokumen sumber.",
+          "form": "Tidak ada form transaksi baru"
+        },
+        {
+          "name": "Persetujuan saya",
+          "purpose": "Satu antrean keputusan, memakai dokumen asli.",
+          "columns": [
+            "Pengajuan",
+            "Jenis",
+            "Unit",
+            "Pengaju",
+            "Dampak",
+            "Versi",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "HIR-001",
+            "Penerimaan",
+            "Toko 01",
+            "HR unit",
+            "Tambah pegawai",
+            "v1",
+            "Menunggu HO",
+            "Review"
+          ],
+          "local": "Persetujuan rutin yang didelegasikan; pengajuan sendiri tidak diputuskan sendiri.",
+          "central": "Penerimaan, akses, beban gaji dan perubahan penting sesuai mandat.",
+          "detail": "Rincian pengajuan, perubahan antarversi, kelengkapan, keputusan sebelumnya dan tombol yang sah.",
+          "form": "F01 Keputusan"
+        },
+        {
+          "name": "Pengecualian",
+          "purpose": "Kasus yang memerlukan tindak lanjut lintas unit.",
+          "columns": [
+            "Kasus",
+            "Unit",
+            "Jenis",
+            "Sumber",
+            "Dampak",
+            "Penanggung jawab",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "EX-001",
+            "Toko 02",
+            "Data payroll belum lengkap",
+            "PAY-002",
+            "Belum boleh final",
+            "HR Toko 02",
+            "Terbuka",
+            "Buka payroll"
+          ],
+          "local": "Menangani sumber yang bermasalah pada unitnya.",
+          "central": "Memantau dan mengeskalasi masalah yang belum selesai.",
+          "detail": "Penyebab, dokumen, pemilik tindakan dan bukti penyelesaian. Penyelesaian mengikuti sumber.",
+          "form": "F01 bila kasus memerlukan keputusan"
+        }
+      ],
+      "sheet": "02 Ringkasan",
+      "sections": [
+        {
+          "name": "Hari ini",
+          "start": 5,
+          "end": 14
+        },
+        {
+          "name": "Persetujuan saya",
+          "start": 17,
+          "end": 26
+        },
+        {
+          "name": "Pengecualian",
+          "start": 29,
+          "end": 38
+        }
+      ]
+    },
+    {
+      "name": "Karyawan",
+      "philosophy": "Satu identitas karyawan dengan riwayat kontrak, penempatan dan status yang bertanggal berlaku.",
+      "tabs": [
+        {
+          "name": "Daftar karyawan",
+          "purpose": "Register karyawan setelah penerimaan disetujui.",
+          "columns": [
+            "Nomor",
+            "Nama",
+            "Unit",
+            "Jabatan",
+            "Status kerja",
+            "Kontrak",
+            "Akun",
+            "Aksi"
+          ],
+          "example": [
+            "EMP-001",
+            "Karyawan A",
+            "Toko 01",
+            "Kasir",
+            "Aktif",
+            "Kontrak disetujui",
+            "Aktif",
+            "Buka profil"
+          ],
+          "local": "Membaca karyawan unit, memverifikasi perubahan data sesuai izin.",
+          "central": "Melihat lintas unit sesuai akses dan memutuskan perubahan penting.",
+          "detail": "Ringkasan; Data pribadi terbatas; Kontrak & penempatan; Dokumen; Riwayat. Gaji dan akses membuka sumber terkait.",
+          "form": "F02 Perubahan data pribadi"
+        },
+        {
+          "name": "Kontrak & penempatan",
+          "purpose": "Riwayat dan pengajuan perubahan hubungan kerja.",
+          "columns": [
+            "Referensi",
+            "Karyawan",
+            "Unit asal",
+            "Unit tujuan",
+            "Jenis",
+            "Mulai berlaku",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "CHG-001",
+            "EMP-001",
+            "Toko 01",
+            "Toko 02",
+            "Mutasi",
+            "2026-09-11T00:00:00.000Z",
+            "Menunggu HO",
+            "Review"
+          ],
+          "local": "Mengajukan perpanjangan, penempatan atau mutasi; unit tujuan memberikan konfirmasi kebutuhan.",
+          "central": "Memutuskan perubahan kontrak, jabatan dan mutasi antarunit sesuai mandat.",
+          "detail": "Nilai sebelum/sesudah, periode berlaku, kesediaan pihak terkait, dokumen keputusan dan dampak payroll/akses.",
+          "form": "F03 Kontrak, jabatan dan penempatan"
+        },
+        {
+          "name": "Perubahan status",
+          "purpose": "Keputusan yang mengubah status kerja.",
+          "columns": [
+            "Pengajuan",
+            "Karyawan",
+            "Unit",
+            "Perubahan",
+            "Tanggal efektif",
+            "Pengaju",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "STS-001",
+            "EMP-002",
+            "HO",
+            "Perubahan status kerja",
+            "2026-09-11T00:00:00.000Z",
+            "HR unit HO",
+            "Draf",
+            "Buka pengajuan"
+          ],
+          "local": "Mengajukan dengan dasar dan dokumen; tidak langsung mengganti status.",
+          "central": "Menetapkan keputusan penting sesuai mandat dan kebijakan.",
+          "detail": "Status lama/baru, dasar, tanggal berlaku, reviewer dan dampak lanjutan. Perubahan kompensasi memakai sumber gaji tersendiri.",
+          "form": "F04 Perubahan status / akhir hubungan kerja"
+        },
+        {
+          "name": "Offboarding",
+          "purpose": "Penyelesaian tugas setelah keputusan akhir hubungan kerja.",
+          "columns": [
+            "Kasus",
+            "Karyawan",
+            "Unit",
+            "Hari terakhir",
+            "Serah terima",
+            "Akses",
+            "Finance",
+            "Status"
+          ],
+          "example": [
+            "OFF-001",
+            "EMP-003",
+            "Toko 03",
+            "2026-09-11T00:00:00.000Z",
+            "Belum selesai",
+            "Terjadwal",
+            "Perlu review",
+            "Berjalan"
+          ],
+          "local": "Mengurus serah terima dan kelengkapan unit.",
+          "central": "Mengawasi kasus penting dan keputusan akhir, bukan menyalin checklist unit.",
+          "detail": "Checklist barang/tugas, jadwal pencabutan akses, payroll akhir dan status setiap owner. Keputusan dan eksekusi terpisah.",
+          "form": "F05 Checklist onboarding/offboarding"
+        }
+      ],
+      "sheet": "03 Karyawan",
+      "sections": [
+        {
+          "name": "Daftar karyawan",
+          "start": 5,
+          "end": 14
+        },
+        {
+          "name": "Kontrak & penempatan",
+          "start": 17,
+          "end": 26
+        },
+        {
+          "name": "Perubahan status",
+          "start": 29,
+          "end": 38
+        },
+        {
+          "name": "Offboarding",
+          "start": 41,
+          "end": 50
+        }
+      ]
+    },
+    {
+      "name": "Penerimaan & Onboarding",
+      "philosophy": "Menerima usulan pegawai dari unit, memutuskan di pusat, lalu menuntaskan kesiapan bekerja.",
+      "tabs": [
+        {
+          "name": "Usulan penerimaan",
+          "purpose": "Penerimaan calon yang diajukan unit; bukan sistem rekrutmen penuh.",
+          "columns": [
+            "Usulan",
+            "Calon",
+            "Unit",
+            "Jabatan",
+            "Jenis kebutuhan",
+            "Usulan gaji Rp",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "HIR-001",
+            "Calon A",
+            "Toko 01",
+            "Kasir",
+            "Pengganti",
+            4000000,
+            "Menunggu HO",
+            "Review"
+          ],
+          "local": "Membuat usulan, memeriksa bukti dan mengirim ke HO.",
+          "central": "Menerima, menolak atau mengembalikan berdasarkan versi pengajuan.",
+          "detail": "Kebutuhan tenaga, calon, jabatan, mulai kerja, usulan kompensasi, dokumen dan keputusan. Gaji contoh bukan kebijakan perusahaan.",
+          "form": "F06 Usulan penerimaan; F01 Keputusan"
+        },
+        {
+          "name": "Onboarding",
+          "purpose": "Kesiapan pegawai yang telah disetujui untuk mulai bekerja.",
+          "columns": [
+            "Onboarding",
+            "Karyawan",
+            "Unit",
+            "Mulai kerja",
+            "Kontrak",
+            "Akun",
+            "Orientasi",
+            "Status"
+          ],
+          "example": [
+            "ONB-001",
+            "EMP-004",
+            "Toko 04",
+            "2026-09-11T00:00:00.000Z",
+            "Lengkap",
+            "Menunggu aktivasi",
+            "Terjadwal",
+            "Berjalan"
+          ],
+          "local": "Melengkapi dokumen dan orientasi serta mengonfirmasi kehadiran awal.",
+          "central": "Mengontrol kelengkapan penting, keputusan akun dan pengecualian.",
+          "detail": "Checklist dengan pemilik dan tenggat, referensi hire, kontrak, gaji dan permintaan akun. Akun tidak otomatis aktif karena hire disetujui.",
+          "form": "F05 Checklist onboarding/offboarding"
+        }
+      ],
+      "sheet": "04 Penerimaan",
+      "sections": [
+        {
+          "name": "Usulan penerimaan",
+          "start": 5,
+          "end": 14
+        },
+        {
+          "name": "Onboarding",
+          "start": 17,
+          "end": 26
+        }
+      ]
+    },
+    {
+      "name": "Jadwal & Kehadiran",
+      "philosophy": "Pisahkan rencana kerja, bukti kerja aktual, koreksi dan penutupan fakta periode.",
+      "tabs": [
+        {
+          "name": "Roster",
+          "purpose": "Kalender rencana kerja per unit dan pegawai.",
+          "columns": [
+            "Karyawan",
+            "Unit",
+            "Tanggal",
+            "Shift",
+            "Mulai",
+            "Selesai",
+            "Versi",
+            "Status"
+          ],
+          "example": [
+            "EMP-001",
+            "Toko 01",
+            "2026-09-11T00:00:00.000Z",
+            "Pagi",
+            "09:00",
+            "17:00",
+            "v1",
+            "Draf"
+          ],
+          "local": "Menyusun dan menerbitkan roster sesuai kebutuhan dan kebijakan.",
+          "central": "Memantau pengecualian; tidak menyetujui setiap shift rutin.",
+          "detail": "Kalender mingguan pegawai × hari, kapasitas, bentrok, cuti disetujui dan versi publikasi. Tabel ini contoh rincian satu sel kalender.",
+          "form": "F07 Roster"
+        },
+        {
+          "name": "Kehadiran",
+          "purpose": "Catatan kerja aktual dengan asal data yang terlihat.",
+          "columns": [
+            "Karyawan",
+            "Unit",
+            "Tanggal",
+            "Masuk",
+            "Keluar",
+            "Sumber",
+            "Kelengkapan",
+            "Aksi"
+          ],
+          "example": [
+            "EMP-001",
+            "Toko 01",
+            "2026-09-11T00:00:00.000Z",
+            null,
+            null,
+            "Belum tersambung",
+            "Belum ada bukti",
+            "Lihat sumber"
+          ],
+          "local": "Memantau data aktual dan meminta koreksi yang diperlukan.",
+          "central": "Memantau kualitas data seluruh unit dan kasus yang dieskalasi.",
+          "detail": "Pasangan masuk/keluar, sumber perangkat/data, jadwal, koreksi dan ketidakhadiran terkait. Data belum ada tidak berarti hadir.",
+          "form": "Tidak ada input presensi palsu; koreksi melalui F08"
+        },
+        {
+          "name": "Koreksi kehadiran",
+          "purpose": "Permintaan koreksi data aktual dengan bukti dan persetujuan.",
+          "columns": [
+            "Permintaan",
+            "Karyawan",
+            "Unit",
+            "Tanggal kerja",
+            "Jenis",
+            "Pengaju",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "COR-001",
+            "EMP-001",
+            "Toko 01",
+            "2026-09-11T00:00:00.000Z",
+            "Lupa keluar",
+            "Karyawan",
+            "Menunggu verifikasi",
+            "Review"
+          ],
+          "local": "Memverifikasi bukti dan memutuskan koreksi rutin sesuai mandat.",
+          "central": "Memutuskan pengecualian kebijakan atau perubahan periode terkunci.",
+          "detail": "Data asli tetap tersimpan; nilai usulan, bukti, konfirmasi atasan dan keputusan.",
+          "form": "F08 Koreksi kehadiran; F01 Keputusan"
+        },
+        {
+          "name": "Tutup periode",
+          "purpose": "Mengunci fakta waktu sebelum payroll dihitung.",
+          "columns": [
+            "Unit",
+            "Periode",
+            "Roster",
+            "Presensi",
+            "Cuti/lembur",
+            "Koreksi terbuka",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "Toko 01",
+            "2026-09",
+            "Lengkap",
+            "Belum lengkap",
+            "Perlu review",
+            1,
+            "Belum siap",
+            "Buka checklist"
+          ],
+          "local": "Menyelesaikan data dan menutup periode yang lengkap sesuai mandat.",
+          "central": "Memantau kesiapan 14 unit; menyetujui pembukaan kembali yang berdampak payroll final.",
+          "detail": "Checklist kelengkapan, pengecualian, koreksi, pihak penutup dan versi data yang diteruskan.",
+          "form": "F09 Tutup / buka kembali periode"
+        }
+      ],
+      "sheet": "05 Jadwal dan Kehadiran",
+      "sections": [
+        {
+          "name": "Roster",
+          "start": 5,
+          "end": 14
+        },
+        {
+          "name": "Kehadiran",
+          "start": 17,
+          "end": 26
+        },
+        {
+          "name": "Koreksi kehadiran",
+          "start": 29,
+          "end": 38
+        },
+        {
+          "name": "Tutup periode",
+          "start": 41,
+          "end": 50
+        }
+      ]
+    },
+    {
+      "name": "Cuti & Lembur",
+      "philosophy": "Mengelola pengecualian waktu kerja dengan pemohon, verifikasi unit dan keputusan yang sesuai mandat.",
+      "tabs": [
+        {
+          "name": "Cuti & izin",
+          "purpose": "Permintaan ketidakhadiran pegawai.",
+          "columns": [
+            "Permintaan",
+            "Karyawan",
+            "Unit",
+            "Jenis",
+            "Mulai",
+            "Selesai",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "LEV-001",
+            "EMP-001",
+            "Toko 01",
+            "Cuti",
+            "2026-09-11T00:00:00.000Z",
+            "2026-09-11T00:00:00.000Z",
+            "Menunggu verifikasi",
+            "Review"
+          ],
+          "local": "Mengurus permintaan rutin bersama atasan operasional dan memeriksa hak.",
+          "central": "Menangani pengecualian; tidak menjadi antrean wajib semua cuti.",
+          "detail": "Jenis, tanggal, hak terkait, bukti terbatas bila perlu, ketersediaan tim, persetujuan dan perubahan roster.",
+          "form": "F10 Cuti / izin; F01 Keputusan"
+        },
+        {
+          "name": "Lembur",
+          "purpose": "Rencana, kesediaan pegawai dan realisasi lembur.",
+          "columns": [
+            "Lembur",
+            "Karyawan",
+            "Unit",
+            "Tanggal",
+            "Rencana menit",
+            "Aktual menit",
+            "Persetujuan",
+            "Status"
+          ],
+          "example": [
+            "OT-001",
+            "EMP-001",
+            "Toko 01",
+            "2026-09-11T00:00:00.000Z",
+            120,
+            null,
+            "Menunggu pegawai",
+            "Direncanakan"
+          ],
+          "local": "Mengajukan/menyetujui kebutuhan dalam mandat; memverifikasi realisasi.",
+          "central": "Memutuskan di luar mandat atau pengecualian biaya.",
+          "detail": "Rencana, kesediaan pegawai, bukti aktual, reviewer dan komponen payroll terkait. Rencana bukan otomatis jam dibayar.",
+          "form": "F11 Rencana dan realisasi lembur"
+        },
+        {
+          "name": "Hak & saldo cuti",
+          "purpose": "Hak dan pemakaian yang dapat dijelaskan.",
+          "columns": [
+            "Karyawan",
+            "Unit",
+            "Jenis",
+            "Hak hari",
+            "Terpakai hari",
+            "Sisa hari",
+            "Versi kebijakan",
+            "Aksi"
+          ],
+          "example": [
+            "EMP-001",
+            "Toko 01",
+            "Cuti tahunan",
+            null,
+            null,
+            null,
+            "Belum ditetapkan",
+            "Lihat dasar"
+          ],
+          "local": "Membaca hak dan mengajukan koreksi berbukti.",
+          "central": "Menetapkan kebijakan dan memutuskan koreksi pengecualian sesuai mandat.",
+          "detail": "Dasar hak, tanggal berlaku, mutasi pemakaian dan penyesuaian. Tanpa kebijakan bukan saldo nol.",
+          "form": "F17 Penyesuaian hak cuti; F16 untuk kebijakan"
+        }
+      ],
+      "sheet": "06 Cuti dan Lembur",
+      "sections": [
+        {
+          "name": "Cuti & izin",
+          "start": 5,
+          "end": 14
+        },
+        {
+          "name": "Lembur",
+          "start": 17,
+          "end": 26
+        },
+        {
+          "name": "Hak & saldo cuti",
+          "start": 29,
+          "end": 38
+        }
+      ]
+    },
+    {
+      "name": "Kompensasi & Payroll",
+      "philosophy": "Satu sumber kesepakatan gaji, satu batch versi final per unit/periode, lalu diteruskan ke Finance.",
+      "tabs": [
+        {
+          "name": "Kesepakatan gaji",
+          "purpose": "Riwayat kompensasi bertanggal berlaku.",
+          "columns": [
+            "Pengajuan",
+            "Karyawan",
+            "Unit",
+            "Mulai berlaku",
+            "Gaji pokok Rp",
+            "Tunjangan tetap Rp",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "SAL-001",
+            "EMP-001",
+            "Toko 01",
+            "2026-09-11T00:00:00.000Z",
+            4000000,
+            300000,
+            "Menunggu HO",
+            "Review"
+          ],
+          "local": "Mengajukan perubahan dan dasar; tidak mengubah angka final secara langsung.",
+          "central": "Memutuskan kompensasi sesuai mandat dan versi usulan.",
+          "detail": "Perubahan sebelum/sesudah, tanggal berlaku, dasar, komponen dan keputusan. Periode lampau tidak ditimpa diam-diam.",
+          "form": "F12 Kesepakatan gaji"
+        },
+        {
+          "name": "Payroll per unit",
+          "purpose": "Beban gaji unit untuk verifikasi dan keputusan pusat.",
+          "columns": [
+            "Batch",
+            "Unit",
+            "Periode",
+            "Pegawai",
+            "Beban perusahaan Rp",
+            "Neto pegawai Rp",
+            "Versi",
+            "Status"
+          ],
+          "example": [
+            "PAY-001",
+            "Toko 01",
+            "2026-09",
+            20,
+            null,
+            null,
+            "v1",
+            "Data belum lengkap"
+          ],
+          "local": "Menyusun, memeriksa kelengkapan dan mengajukan beban gaji unit.",
+          "central": "Review perbedaan vs periode lalu, pegawai baru/keluar, komponen dan keputusan final.",
+          "detail": "Ringkasan; Pegawai & komponen; Perubahan; Bukti waktu; Persetujuan; Serah terima. Bedakan beban perusahaan, potongan dan neto.",
+          "form": "F13 Susun / revisi payroll; F01 Keputusan"
+        },
+        {
+          "name": "Serah terima Finance",
+          "purpose": "Pelacakan batch HR yang disetujui sampai pembayaran.",
+          "columns": [
+            "Batch",
+            "Unit",
+            "Versi HR",
+            "Keputusan HR",
+            "Status Finance",
+            "Status bayar",
+            "Referensi",
+            "Aksi"
+          ],
+          "example": [
+            "PAY-003",
+            "Toko 03",
+            "v2",
+            "Disetujui HO",
+            "Diterima",
+            "Belum dibayar",
+            "FIN-PR-003",
+            "Buka serah terima"
+          ],
+          "local": "Melihat penerimaan Finance dan masalah data unitnya.",
+          "central": "Melepas versi yang disetujui; mengontrol revisi setelah serah terima.",
+          "detail": "Nominal per komponen, versi, hasil penerimaan, kewajiban, pembayaran/alokasi, transfer gagal dan slip terbit.",
+          "form": "F14 Serah terima / revisi payroll"
+        }
+      ],
+      "sheet": "07 Kompensasi dan Payroll",
+      "sections": [
+        {
+          "name": "Kesepakatan gaji",
+          "start": 5,
+          "end": 14
+        },
+        {
+          "name": "Payroll per unit",
+          "start": 17,
+          "end": 26
+        },
+        {
+          "name": "Serah terima Finance",
+          "start": 29,
+          "end": 38
+        }
+      ]
+    },
+    {
+      "name": "Akun & Akses",
+      "philosophy": "HR memutuskan hak bisnis; administrator yang berwenang mengeksekusi akses dengan jejak yang sama.",
+      "tabs": [
+        {
+          "name": "Permintaan akses",
+          "purpose": "Pemberian, perubahan atau pencabutan akses pegawai.",
+          "columns": [
+            "Permintaan",
+            "Karyawan",
+            "Unit",
+            "Jenis",
+            "Peran diminta",
+            "Berlaku mulai",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "ACC-001",
+            "EMP-004",
+            "Toko 04",
+            "Akun baru",
+            "Karyawan",
+            "2026-09-11T00:00:00.000Z",
+            "Menunggu HO",
+            "Review"
+          ],
+          "local": "Mengajukan kebutuhan peran dan unit yang benar.",
+          "central": "Memutuskan pemberian akun serta perubahan peran/cakupan penting.",
+          "detail": "Karyawan sumber, akses saat ini/usulan, unit, masa berlaku, alasan, keputusan dan pelaksanaan. Menyetujui bukan berarti akun sudah aktif.",
+          "form": "F15 Permintaan akun / akses; F01 Keputusan"
+        },
+        {
+          "name": "Daftar akun",
+          "purpose": "Status akun dan cakupan akses yang diberikan.",
+          "columns": [
+            "Karyawan",
+            "Unit kerja",
+            "Akun",
+            "Peran",
+            "Cakupan akses",
+            "Status akses",
+            "Tinjau berikutnya",
+            "Aksi"
+          ],
+          "example": [
+            "EMP-001",
+            "Toko 01",
+            "akun-karyawan-a",
+            "Karyawan",
+            "Diri sendiri",
+            "Aktif",
+            null,
+            "Lihat akses"
+          ],
+          "local": "Melihat status kebutuhan pegawai unit; tidak menerima password pegawai.",
+          "central": "Memantau akun lintas unit, perubahan peran dan pencabutan.",
+          "detail": "Penetapan akses, masa berlaku, dasar keputusan, aktivitas provisioning dan keterkaitan status kerja.",
+          "form": "F15 untuk perubahan; aktivasi oleh administrator berwenang"
+        },
+        {
+          "name": "Riwayat akses",
+          "purpose": "Jejak keputusan dan eksekusi akses.",
+          "columns": [
+            "Kejadian",
+            "Karyawan",
+            "Waktu",
+            "Jenis",
+            "Pemutus",
+            "Pelaksana",
+            "Hasil",
+            "Referensi"
+          ],
+          "example": [
+            "ACL-001",
+            "EMP-001",
+            "2026-09-11T00:00:00.000Z",
+            "Aktivasi",
+            "HR pusat A",
+            "Admin akun",
+            "Selesai",
+            "ACC-000"
+          ],
+          "local": "Melihat riwayat yang diizinkan untuk unitnya.",
+          "central": "Menelusuri siapa memutuskan dan siapa mengeksekusi.",
+          "detail": "Sebelum/sesudah, permintaan, keputusan, hasil atau kegagalan dan tindakan koreksi.",
+          "form": "Baca saja"
+        }
+      ],
+      "sheet": "08 Akun dan Akses",
+      "sections": [
+        {
+          "name": "Permintaan akses",
+          "start": 5,
+          "end": 14
+        },
+        {
+          "name": "Daftar akun",
+          "start": 17,
+          "end": 26
+        },
+        {
+          "name": "Riwayat akses",
+          "start": 29,
+          "end": 38
+        }
+      ]
+    },
+    {
+      "name": "Laporan & Pengawasan",
+      "philosophy": "Membandingkan kondisi dan kepatuhan proses tanpa membuat sumber data kedua.",
+      "tabs": [
+        {
+          "name": "Tenaga kerja",
+          "purpose": "Posisi pegawai dan perubahan antarperiode.",
+          "columns": [
+            "Unit",
+            "Tanggal posisi",
+            "Aktif",
+            "Masuk periode",
+            "Keluar periode",
+            "Kontrak perlu review",
+            "Sumber",
+            "Aksi"
+          ],
+          "example": [
+            "Toko 01",
+            "2026-09-11T00:00:00.000Z",
+            20,
+            1,
+            0,
+            2,
+            "Register karyawan",
+            "Telusuri"
+          ],
+          "local": "Melihat laporan unit sendiri.",
+          "central": "Membandingkan HO dan 13 toko secara eksplisit.",
+          "detail": "Rincian pegawai, definisi status, tanggal efektif dan sumber perubahan. DC yang ada pada sampel tidak otomatis masuk cakupan.",
+          "form": "Baca, filter dan ekspor"
+        },
+        {
+          "name": "Waktu & ketidakhadiran",
+          "purpose": "Kelengkapan fakta waktu dan pengecualian.",
+          "columns": [
+            "Unit",
+            "Periode",
+            "Presensi lengkap",
+            "Koreksi terbuka",
+            "Cuti disetujui",
+            "Lembur terverifikasi",
+            "Status periode",
+            "Aksi"
+          ],
+          "example": [
+            "Toko 01",
+            "2026-09",
+            "Belum lengkap",
+            1,
+            2,
+            0,
+            "Terbuka",
+            "Telusuri"
+          ],
+          "local": "Melihat unit dan menangani sumber yang bermasalah.",
+          "central": "Membandingkan kualitas data dan keterlambatan proses.",
+          "detail": "Rincian tanggal/pegawai dan sumber bukti. Jam rencana tidak dicampur dengan jam aktual.",
+          "form": "Baca, filter dan ekspor"
+        },
+        {
+          "name": "Beban gaji",
+          "purpose": "Beban perusahaan, neto dan perubahan per unit.",
+          "columns": [
+            "Unit",
+            "Periode",
+            "Versi",
+            "Beban perusahaan Rp",
+            "Neto pegawai Rp",
+            "Status HR",
+            "Status bayar",
+            "Aksi"
+          ],
+          "example": [
+            "Toko 01",
+            "2026-09",
+            "v1",
+            null,
+            null,
+            "Belum lengkap",
+            "Belum dikirim",
+            "Buka batch"
+          ],
+          "local": "Melihat beban unit sesuai hak nominal.",
+          "central": "Membandingkan antarunit dan perubahan sebelum memutuskan batch sumber.",
+          "detail": "Pisahkan angka usulan, disetujui dan terbayar; telusuri komponen dan payroll sumber. Tidak ada angka final jika komponen belum lengkap.",
+          "form": "Baca; keputusan membuka PAY sumber"
+        }
+      ],
+      "sheet": "09 Laporan dan Pengawasan",
+      "sections": [
+        {
+          "name": "Tenaga kerja",
+          "start": 5,
+          "end": 14
+        },
+        {
+          "name": "Waktu & ketidakhadiran",
+          "start": 17,
+          "end": 26
+        },
+        {
+          "name": "Beban gaji",
+          "start": 29,
+          "end": 38
+        }
+      ]
+    },
+    {
+      "name": "Pengaturan HR",
+      "philosophy": "Menetapkan struktur, kebijakan dan mandat yang dipakai bersama, dengan masa berlaku dan jejak perubahan.",
+      "tabs": [
+        {
+          "name": "Unit & penanggung jawab",
+          "purpose": "Struktur 13 toko dan HO beserta penanggung jawab.",
+          "columns": [
+            "Unit",
+            "Jenis",
+            "HR unit",
+            "Atasan operasional",
+            "Reviewer pusat",
+            "Cakupan",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "Toko 01",
+            "Toko",
+            "HR Toko 01",
+            "Manajer Toko 01",
+            "HR pusat",
+            "Unit sendiri",
+            "Aktif",
+            "Lihat konfigurasi"
+          ],
+          "local": "Membaca penanggung jawab dan meminta perubahan.",
+          "central": "Mengatur struktur dan delegasi sesuai mandat.",
+          "detail": "HO adalah satu unit kerja; kewenangan pusat merupakan penugasan terpisah. Tidak ditentukan hanya dari lokasi pegawai.",
+          "form": "F16 Kebijakan / konfigurasi"
+        },
+        {
+          "name": "Kebijakan waktu",
+          "purpose": "Shift, jenis cuti, kalender dan aturan kehadiran.",
+          "columns": [
+            "Kebijakan",
+            "Jenis",
+            "Lingkup",
+            "Berlaku mulai",
+            "Berlaku sampai",
+            "Versi",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "POL-001",
+            "Kehadiran",
+            "Unit terpilih",
+            "2026-09-11T00:00:00.000Z",
+            null,
+            "v1",
+            "Draf",
+            "Review"
+          ],
+          "local": "Membaca versi berlaku dan mengajukan pengecualian.",
+          "central": "Mengesahkan kebijakan, tanggal berlaku dan pengecualian.",
+          "detail": "Subbagian: shift; cuti; kalender; presensi. Jenis kebijakan menjadi filter atau subtab, bukan menu utama terpisah.",
+          "form": "F16 Kebijakan / konfigurasi"
+        },
+        {
+          "name": "Komponen payroll",
+          "purpose": "Definisi komponen dan hubungan ke Finance.",
+          "columns": [
+            "Komponen",
+            "Jenis",
+            "Pemilik aturan",
+            "Lingkup",
+            "Mulai berlaku",
+            "Kesiapan",
+            "Versi",
+            "Aksi"
+          ],
+          "example": [
+            "Gaji pokok",
+            "Penghasilan pegawai",
+            "HR pusat",
+            "Unit terpilih",
+            "2026-09-11T00:00:00.000Z",
+            "Perlu review",
+            "v1",
+            "Lihat definisi"
+          ],
+          "local": "Membaca komponen berlaku; memasukkan fakta variabel yang diizinkan.",
+          "central": "Mengatur definisi bersama Finance; tarif/statutori mengikuti keputusan ahli yang berlaku.",
+          "detail": "Pisahkan penghasilan, potongan, kontribusi pemberi kerja dan penggantian. HR memiliki hak/upah; Finance memiliki pemetaan akun dan pembayaran.",
+          "form": "F16 Kebijakan / konfigurasi"
+        },
+        {
+          "name": "Kewenangan & persetujuan",
+          "purpose": "Mandat per tindakan, unit, data dan kondisi eskalasi.",
+          "columns": [
+            "Peran",
+            "Tindakan",
+            "Cakupan",
+            "Jenis keputusan",
+            "Kondisi",
+            "Pemisahan orang",
+            "Status",
+            "Aksi"
+          ],
+          "example": [
+            "HR pusat",
+            "Putuskan penerimaan",
+            "14 unit",
+            "Penting",
+            "Usulan lengkap",
+            "Bukan pengaju",
+            "Usulan",
+            "Review mandat"
+          ],
+          "local": "Melihat batas mandatnya.",
+          "central": "Menetapkan reviewer/delegasi sesuai kewenangan organisasi.",
+          "detail": "Hak lihat berbeda dari hak putuskan; data pribadi/gaji dibatasi; pengaju tidak menyetujui pengajuannya sendiri, termasuk HR HO.",
+          "form": "F16 Kebijakan / konfigurasi"
+        }
+      ],
+      "sheet": "10 Pengaturan HR",
+      "sections": [
+        {
+          "name": "Unit & penanggung jawab",
+          "start": 5,
+          "end": 14
+        },
+        {
+          "name": "Kebijakan waktu",
+          "start": 17,
+          "end": 26
+        },
+        {
+          "name": "Komponen payroll",
+          "start": 29,
+          "end": 38
+        },
+        {
+          "name": "Kewenangan & persetujuan",
+          "start": 41,
+          "end": 50
+        }
+      ]
+    }
+  ],
+  "principles": [
+    [
+      "Pekerjaan menjadi menu",
+      "Menu mengikuti objek dan siklus pekerjaan: karyawan, waktu, kompensasi, akses.",
+      "Status menunggu/disetujui menjadi filter; tidak membuat menu duplikat untuk setiap jabatan."
+    ],
+    [
+      "HO punya dua konteks",
+      "HR Unit HO mengurus pegawai HO. Pengawasan Pusat mengontrol keputusan dan pengecualian seluruh unit.",
+      "Pemilihan unit HO tidak otomatis memberikan kewenangan pusat."
+    ],
+    [
+      "Rutin selesai di unit",
+      "Roster, kelengkapan data dan pengajuan rutin ditangani HR unit sesuai mandat.",
+      "Rincian delegasi cuti, lembur dan koreksi adalah usulan yang perlu keputusan kebijakan."
+    ],
+    [
+      "Penting diputuskan pusat",
+      "Penerimaan, pemberian akun dan persetujuan beban gaji toko wajib HO sesuai permintaan pengguna.",
+      "Perubahan gaji, mutasi antarunit dan akhir hubungan kerja diusulkan ikut jalur penting; bukan klaim kebijakan sudah disahkan."
+    ],
+    [
+      "Satu dokumen, satu sumber",
+      "Antrean HO, layar unit dan aplikasi karyawan menampilkan pengajuan dengan ID yang sama.",
+      "Komentar, pengembalian dan revisi melekat pada dokumen asli."
+    ],
+    [
+      "Keputusan berbeda dari pelaksanaan",
+      "Hire disetujui belum berarti akun aktif; payroll disetujui belum berarti dibayar.",
+      "Pisahkan status persetujuan, kesiapan dan hasil eksekusi."
+    ],
+    [
+      "Perubahan punya tanggal dan versi",
+      "Kontrak, penempatan, kompensasi dan kebijakan memiliki tanggal berlaku dan riwayat.",
+      "Revisi setelah approval material membatalkan persetujuan versi lama dan memerlukan review ulang."
+    ],
+    [
+      "Rencana berbeda dari aktual",
+      "Roster adalah rencana, presensi adalah bukti, cuti/lembur adalah keputusan dan realisasi terkait.",
+      "Data kosong tidak dianggap hadir; simulasi tidak boleh ditampilkan sebagai riwayat nyata."
+    ],
+    [
+      "HR dan Finance saling menyambung",
+      "HR menetapkan komponen/hak dan versi payroll final; Finance memeriksa pencatatan dan menjalankan pembayaran.",
+      "Tidak menghitung ulang gaji secara terpisah atau mengubah versi HR yang disetujui."
+    ],
+    [
+      "Akses mengikuti mandat",
+      "Hak lihat, buat, verifikasi, putuskan, eksekusi dan ekspor dibedakan.",
+      "Pembatasan unit/diri sendiri wajib di server, bukan hanya filter layar."
+    ],
+    [
+      "HR HO juga perlu reviewer",
+      "Pengajuan pegawai HO mengikuti kontrol yang sama dengan toko.",
+      "Jika orang yang sama mengusulkan, keputusan dialihkan ke reviewer pusat lain yang berwenang."
+    ],
+    [
+      "Cakupan desain",
+      "13 toko + HO = 14 unit pemberi kerja.",
+      "Sampel juga menampilkan DC. DC tidak dimasukkan otomatis ke rancangan operasional ini."
+    ]
+  ],
+  "authority": [
+    [
+      "Penerimaan pegawai",
+      "HR unit",
+      "HR unit + atasan kebutuhan",
+      "HR pusat",
+      "HR unit onboarding",
+      "Wajib HO: instruksi pengguna",
+      "Hire disetujui → register; akun proses terpisah"
+    ],
+    [
+      "Pemberian akun / perubahan akses",
+      "HR unit",
+      "HR unit cek identitas/peran",
+      "HR pusat",
+      "Administrator akun",
+      "Wajib HO: instruksi pengguna",
+      "Approved ≠ provisioned; akses dibatasi ke kebutuhan"
+    ],
+    [
+      "Beban gaji unit toko",
+      "HR unit",
+      "Verifier unit yang berwenang",
+      "HR pusat",
+      "Finance untuk pembayaran",
+      "Wajib HO: instruksi pengguna",
+      "Batch versi final, komponen lengkap, tidak approve sendiri"
+    ],
+    [
+      "Beban gaji pegawai HO",
+      "HR unit HO",
+      "Verifier HO",
+      "Reviewer pusat berbeda dari pengaju",
+      "Finance",
+      "Usulan simetri kontrol",
+      "HO fisik bukan pengecualian pemisahan pengaju/reviewer"
+    ],
+    [
+      "Perubahan kompensasi",
+      "HR unit",
+      "HR unit + pihak anggaran sesuai mandat",
+      "HR pusat",
+      "Sistem terapkan tanggal berlaku",
+      "Usulan keputusan penting",
+      "Revisi bertanggal; tidak menimpa periode lama"
+    ],
+    [
+      "Mutasi antarunit / kontrak penting",
+      "HR unit asal",
+      "Unit asal dan tujuan",
+      "HR pusat",
+      "HR unit + administrator akses",
+      "Usulan keputusan penting",
+      "Tanggal berlaku memperbarui penempatan dan akses secara tertelusur"
+    ],
+    [
+      "Akhir hubungan kerja",
+      "HR unit / karyawan mengajukan",
+      "HR unit dan pihak terkait",
+      "HR pusat sesuai mandat",
+      "Owner checklist; Finance; admin akun",
+      "Usulan keputusan penting",
+      "Keputusan terpisah dari penyelesaian hak dan pencabutan akses"
+    ],
+    [
+      "Roster rutin",
+      "HR unit / atasan",
+      "Atasan operasional unit",
+      "Pejabat unit sesuai delegasi",
+      "HR unit terbitkan",
+      "Usulan delegasi rutin",
+      "Eskalasi hanya pengecualian kebijakan"
+    ],
+    [
+      "Cuti / izin rutin",
+      "Karyawan",
+      "HR unit cek hak; atasan cek kebutuhan",
+      "Pejabat unit sesuai delegasi",
+      "Sistem perbarui data waktu",
+      "Usulan delegasi rutin",
+      "Pengecualian hak/kebijakan naik ke pusat"
+    ],
+    [
+      "Lembur rutin",
+      "Atasan / HR unit",
+      "Pegawai menyatakan kesediaan; unit verifikasi",
+      "Pejabat unit dalam mandat",
+      "HR unit validasi realisasi",
+      "Usulan delegasi rutin",
+      "Di luar mandat naik HO; jam rencana tidak dianggap aktual"
+    ],
+    [
+      "Koreksi presensi periode terbuka",
+      "Karyawan / HR unit",
+      "Atasan dan HR unit",
+      "Reviewer unit yang berwenang",
+      "Sistem tambah koreksi dengan jejak",
+      "Usulan delegasi rutin",
+      "Data asli dipertahankan"
+    ],
+    [
+      "Perubahan data pribadi",
+      "Karyawan",
+      "HR unit cek bukti",
+      "Pejabat sesuai sensitivitas",
+      "Sistem tambah riwayat",
+      "Usulan delegasi berbasis field",
+      "Rekening payroll memerlukan kontrol tambahan yang disepakati"
+    ],
+    [
+      "Tutup fakta kehadiran",
+      "HR unit",
+      "HR unit sesuai checklist",
+      "Pejabat unit sesuai mandat",
+      "Sistem kunci versi fakta",
+      "Usulan delegasi rutin",
+      "Tidak siap jika sumber aktual belum lengkap"
+    ],
+    [
+      "Buka ulang periode berdampak payroll final",
+      "HR unit",
+      "Pemilik HR dan Finance cek dampak",
+      "HR pusat sesuai mandat",
+      "Sistem revisi; Finance tangani dampak",
+      "Usulan pengecualian penting",
+      "Tidak menimpa batch yang sudah dibayar"
+    ],
+    [
+      "Kebijakan / delegasi / komponen",
+      "Pemilik kebijakan",
+      "HR pusat + Finance bila berdampak biaya",
+      "Pejabat pusat berwenang",
+      "Admin konfigurasi",
+      "Usulan tata kelola",
+      "Tanggal berlaku, versi, alasan dan dampak"
+    ],
+    [
+      "Review/pembayaran oleh Finance",
+      "Batch HR approved",
+      "Finance cek pemetaan dan rekonsiliasi",
+      "Sesuai mandat Finance",
+      "Treasury",
+      "Batas HR–Finance",
+      "Penolakan dikembalikan ke versi sumber HR"
+    ]
+  ],
+  "forms": [
+    {
+      "id": "F01",
+      "name": "Keputusan",
+      "menu": "Semua dokumen berpersetujuan",
+      "actor": "Reviewer sesuai kewenangan",
+      "effect": "Keputusan terikat ke ID dan versi dokumen; perubahan material meminta review ulang.",
+      "fields": [
+        [
+          "Dokumen dan versi",
+          "Baca saja",
+          "Otomatis",
+          "Sumber dokumen",
+          "Tidak dapat diganti",
+          "Semua status"
+        ],
+        [
+          "Keputusan",
+          "Pilihan",
+          "Ya",
+          "Setujui; kembalikan; tolak",
+          "Pilihan sesuai mandat dan status",
+          "Menunggu reviewer"
+        ],
+        [
+          "Alasan",
+          "Teks",
+          "Wajib saat kembali/tolak",
+          "Reviewer",
+          "Jelas bagian yang harus diubah",
+          "Menunggu reviewer"
+        ],
+        [
+          "Lampiran keputusan",
+          "Dokumen",
+          "Jika kebijakan mewajibkan",
+          "Reviewer",
+          "Akses terbatas sesuai isi",
+          "Menunggu reviewer"
+        ],
+        [
+          "Pemutus dan waktu",
+          "Baca saja",
+          "Otomatis",
+          "Akun aktif dan waktu sistem",
+          "Pemutus bukan pengaju; unit/tindakan sah",
+          "Sesudah keputusan"
+        ]
+      ]
+    },
+    {
+      "id": "F02",
+      "name": "Perubahan data pribadi",
+      "menu": "Karyawan / Profil karyawan",
+      "actor": "Karyawan sendiri atau HR unit sesuai mandat",
+      "effect": "Pengajuan diverifikasi; data lama tetap dalam riwayat. Data sensitif tidak ditampilkan di tabel umum.",
+      "fields": [
+        [
+          "Karyawan",
+          "Referensi",
+          "Ya",
+          "Diri sendiri / pegawai unit berizin",
+          "Dilarang memilih pegawai di luar cakupan",
+          "Draf"
+        ],
+        [
+          "Field yang diubah",
+          "Pilihan",
+          "Ya",
+          "Field profil yang diizinkan",
+          "NIK/rekening/dokumen sensitif punya hak khusus",
+          "Draf"
+        ],
+        [
+          "Nilai lama",
+          "Baca saja",
+          "Otomatis",
+          "Versi profil kini",
+          "Ditampilkan sesuai hak field",
+          "Draf dan review"
+        ],
+        [
+          "Nilai usulan",
+          "Sesuai tipe field",
+          "Ya",
+          "Pemohon",
+          "Validasi format per field, bukan teks bebas semua",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Bukti dan alasan",
+          "Dokumen + teks",
+          "Sesuai field",
+          "Pemohon",
+          "Bukti terbatas untuk reviewer yang memerlukan",
+          "Draf / dikembalikan"
+        ]
+      ]
+    },
+    {
+      "id": "F03",
+      "name": "Kontrak, jabatan dan penempatan",
+      "menu": "Karyawan",
+      "actor": "HR unit mengajukan; pusat memutuskan",
+      "effect": "Keputusan membentuk riwayat bertanggal dan memicu tinjauan akses/payroll. Bukan edit langsung register.",
+      "fields": [
+        [
+          "Karyawan dan kondisi kini",
+          "Referensi + baca saja",
+          "Ya",
+          "Register karyawan",
+          "Unit sesuai cakupan",
+          "Draf"
+        ],
+        [
+          "Jenis perubahan",
+          "Pilihan",
+          "Ya",
+          "Kontrak; jabatan; penempatan; mutasi",
+          "Form mengikuti jenis, bukan semua field sekaligus",
+          "Draf"
+        ],
+        [
+          "Unit/jabatan tujuan",
+          "Pilihan master",
+          "Jika berubah",
+          "Struktur organisasi",
+          "Tujuan sah dan dikonfirmasi bila lintas unit",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Mulai dan akhir berlaku",
+          "Tanggal",
+          "Mulai wajib; akhir sesuai jenis",
+          "Pemohon dan kebijakan",
+          "Tidak bentrok dengan riwayat yang masih berlaku",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Dasar dan dokumen",
+          "Teks + dokumen",
+          "Ya",
+          "HR unit",
+          "Dokumen kontrak menurut kebijakan yang disahkan",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Dampak gaji dan akses",
+          "Referensi",
+          "Jika terdampak",
+          "SAL/ACC terkait",
+          "Perubahan hak tidak disisipkan tanpa keputusan terkait",
+          "Review"
+        ]
+      ]
+    },
+    {
+      "id": "F04",
+      "name": "Perubahan status / akhir hubungan kerja",
+      "menu": "Karyawan",
+      "actor": "HR unit mengajukan; pusat memutuskan",
+      "effect": "Pisahkan permintaan, keputusan efektif dan pelaksanaan offboarding; tidak otomatis menyatakan semua hak selesai.",
+      "fields": [
+        [
+          "Karyawan",
+          "Referensi",
+          "Ya",
+          "Register unit",
+          "Sesuai cakupan",
+          "Draf"
+        ],
+        [
+          "Jenis dan alasan",
+          "Pilihan + teks",
+          "Ya",
+          "Jenis perubahan yang disahkan",
+          "Transisi valid menurut status dan kebijakan",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Tanggal keputusan/efektif",
+          "Tanggal",
+          "Ya",
+          "Keputusan berwenang",
+          "Tidak menulis ulang riwayat tanpa proses koreksi",
+          "Draf / review"
+        ],
+        [
+          "Dokumen dasar",
+          "Dokumen",
+          "Sesuai jenis",
+          "Pemohon",
+          "Akses dibatasi karena sensitif",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Dampak lanjutan",
+          "Checklist referensi",
+          "Ya",
+          "Kontrak; gaji; akses; barang",
+          "Pemilik dan referensi untuk setiap dampak",
+          "Review"
+        ]
+      ]
+    },
+    {
+      "id": "F05",
+      "name": "Checklist onboarding/offboarding",
+      "menu": "Penerimaan / Karyawan",
+      "actor": "HR unit dan masing-masing pemilik tugas",
+      "effect": "Selesai hanya setelah tugas wajib punya hasil; setiap pihak menyelesaikan tanggung jawab sendiri.",
+      "fields": [
+        [
+          "Kasus dan karyawan",
+          "Baca saja",
+          "Otomatis",
+          "Keputusan hire/akhir kerja",
+          "Tidak membuat karyawan ganda",
+          "Semua"
+        ],
+        [
+          "Tugas",
+          "Pilihan + teks",
+          "Ya",
+          "Template dan tugas tambahan",
+          "Template mengikuti jenis kasus",
+          "Draf / berjalan"
+        ],
+        [
+          "Pemilik dan tenggat",
+          "Referensi + tanggal",
+          "Ya",
+          "HR; atasan; admin akun; Finance",
+          "Pemilik harus punya cakupan yang sah",
+          "Draf / berjalan"
+        ],
+        [
+          "Hasil dan bukti",
+          "Pilihan + dokumen",
+          "Saat selesai",
+          "Owner tugas",
+          "Selesai; tidak berlaku dengan alasan",
+          "Berjalan"
+        ],
+        [
+          "Referensi proses terkait",
+          "Tautan dokumen",
+          "Jika terkait",
+          "Kontrak; akun; payroll",
+          "Status dibaca dari sumber, bukan disalin manual",
+          "Semua"
+        ]
+      ]
+    },
+    {
+      "id": "F06",
+      "name": "Usulan penerimaan",
+      "menu": "Penerimaan & Onboarding",
+      "actor": "HR unit mengajukan; HR pusat memutuskan",
+      "effect": "Persetujuan penerimaan menghasilkan satu proses pegawai/onboarding. Pemberian akun tetap keputusan yang jelas.",
+      "fields": [
+        [
+          "Unit dan jabatan",
+          "Pilihan master",
+          "Ya",
+          "Unit HR dan struktur",
+          "HR toko tidak memilih unit lain tanpa mandat",
+          "Draf"
+        ],
+        [
+          "Kebutuhan dan pengganti",
+          "Pilihan + referensi",
+          "Ya",
+          "Penambahan; pengganti",
+          "Jika pengganti, referensikan posisi/pegawai terkait",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Identitas calon",
+          "Data calon terbatas",
+          "Ya",
+          "Calon dan HR unit",
+          "Data kandidat tidak terbuka di direktori umum",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Usulan mulai kerja/kontrak",
+          "Tanggal + pilihan",
+          "Ya",
+          "HR unit",
+          "Tipe dan masa kontrak sesuai kebijakan yang disahkan",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Usulan kompensasi",
+          "Baris komponen nominal",
+          "Ya",
+          "Komponen yang diizinkan",
+          "Pisahkan gaji pokok dan tunjangan; angka belum final",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Dasar kebutuhan dan dokumen",
+          "Teks + lampiran",
+          "Ya",
+          "HR unit / atasan kebutuhan",
+          "Kelengkapan sesuai jenis penerimaan",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Kebutuhan akun",
+          "Pilihan peran + alasan",
+          "Jika perlu",
+          "Peran karyawan yang dibutuhkan",
+          "Menjadi permintaan akses terkait, bukan auto-admin",
+          "Draf / review"
+        ]
+      ]
+    },
+    {
+      "id": "F07",
+      "name": "Roster",
+      "menu": "Jadwal & Kehadiran",
+      "actor": "HR unit / atasan yang diberi mandat",
+      "effect": "Publikasi membuat versi jadwal terlihat bagi pegawai unit; perubahan berikutnya punya riwayat.",
+      "fields": [
+        [
+          "Unit dan rentang tanggal",
+          "Referensi + tanggal",
+          "Ya",
+          "Konteks unit",
+          "Hanya cakupan berizin",
+          "Draf"
+        ],
+        [
+          "Karyawan",
+          "Pilihan jamak",
+          "Ya",
+          "Penempatan berlaku",
+          "Tidak menjadwalkan pegawai di luar masa penempatan",
+          "Draf"
+        ],
+        [
+          "Shift per hari",
+          "Grid pilihan",
+          "Ya",
+          "Master shift berlaku",
+          "Cek bentrok dan ketidakhadiran disetujui",
+          "Draf"
+        ],
+        [
+          "Alasan perubahan",
+          "Teks",
+          "Jika revisi",
+          "Penyusun",
+          "Perubahan versi yang sudah terbit harus tertelusur",
+          "Revisi"
+        ],
+        [
+          "Ringkasan publikasi",
+          "Baca saja",
+          "Otomatis",
+          "Delta jadwal",
+          "Daftar pegawai dan tanggal terdampak terlihat sebelum terbit",
+          "Sebelum publikasi"
+        ]
+      ]
+    },
+    {
+      "id": "F08",
+      "name": "Koreksi kehadiran",
+      "menu": "Jadwal & Kehadiran / Pengajuan karyawan",
+      "actor": "Karyawan/HR unit; reviewer sesuai mandat",
+      "effect": "Koreksi ditambahkan di atas sumber asli. Periode terkunci mengarah ke prosedur pembukaan/revisi.",
+      "fields": [
+        [
+          "Karyawan dan tanggal kerja",
+          "Referensi + tanggal",
+          "Ya",
+          "Diri sendiri/pegawai unit",
+          "Sesuai cakupan dan masa kerja",
+          "Draf"
+        ],
+        [
+          "Data sumber",
+          "Baca saja",
+          "Jika ada",
+          "Presensi aktual",
+          "Data asli tidak dapat diedit di form",
+          "Semua"
+        ],
+        [
+          "Jenis koreksi",
+          "Pilihan",
+          "Ya",
+          "Masuk; keluar; klasifikasi",
+          "Jenis menentukan field yang muncul",
+          "Draf"
+        ],
+        [
+          "Nilai usulan",
+          "Waktu / pilihan",
+          "Ya",
+          "Pemohon",
+          "Keluar tidak sebelum masuk kecuali shift lintas tanggal yang jelas",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Alasan dan bukti",
+          "Teks + dokumen",
+          "Ya",
+          "Pemohon/atasan",
+          "Bukti cukup dan akses dibatasi",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Dampak periode",
+          "Baca saja",
+          "Otomatis",
+          "Status periode dan payroll",
+          "Terkunci tidak boleh dikoreksi diam-diam",
+          "Review"
+        ]
+      ]
+    },
+    {
+      "id": "F09",
+      "name": "Tutup / buka kembali periode",
+      "menu": "Jadwal & Kehadiran",
+      "actor": "HR unit; pusat untuk pengecualian berdampak final",
+      "effect": "Mengunci fakta versi tertentu; membuka ulang tidak mengubah payroll final atau pembayaran secara diam-diam.",
+      "fields": [
+        [
+          "Unit dan periode",
+          "Referensi",
+          "Ya",
+          "Periode terpilih",
+          "Sesuai cakupan",
+          "Draf"
+        ],
+        [
+          "Kelengkapan fakta",
+          "Baca saja + checklist",
+          "Ya",
+          "Presensi, roster, cuti, lembur, koreksi",
+          "Sumber aktual belum lengkap tidak dianggap siap",
+          "Review"
+        ],
+        [
+          "Alasan pengecualian / buka ulang",
+          "Teks",
+          "Jika ada",
+          "Pengaju",
+          "Tidak menghapus peringatan kelengkapan",
+          "Pengajuan"
+        ],
+        [
+          "Dampak payroll/Finance",
+          "Baca saja",
+          "Jika sudah diteruskan",
+          "Versi batch dan pembayaran",
+          "Wajib review dampak sebelum eksekusi",
+          "Review"
+        ],
+        [
+          "Keputusan dan versi",
+          "Baca saja",
+          "Otomatis",
+          "F01 dan versi sistem",
+          "Jejak orang dan waktu tersimpan",
+          "Selesai"
+        ]
+      ]
+    },
+    {
+      "id": "F10",
+      "name": "Cuti / izin",
+      "menu": "Cuti & Lembur / Pengajuan karyawan",
+      "actor": "Karyawan; unit memverifikasi dan memutuskan dalam mandat",
+      "effect": "Persetujuan memperbarui fakta ketidakhadiran dan saldo menurut kebijakan, tanpa mengarang hak yang belum ditetapkan.",
+      "fields": [
+        [
+          "Pemohon",
+          "Referensi",
+          "Ya",
+          "Diri sendiri; HR mewakili dengan alasan",
+          "Sesuai cakupan",
+          "Draf"
+        ],
+        [
+          "Jenis",
+          "Pilihan",
+          "Ya",
+          "Jenis cuti/izin yang berlaku",
+          "Jenis nonaktif tidak dipilih untuk pengajuan baru",
+          "Draf"
+        ],
+        [
+          "Tanggal mulai/selesai",
+          "Tanggal",
+          "Ya",
+          "Pemohon",
+          "Akhir tidak sebelum awal; cek bentrok",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Durasi dan hak",
+          "Baca saja",
+          "Jika tersedia",
+          "Kebijakan dan kalender",
+          "Belum ada kebijakan ditampilkan sebagai belum tersedia",
+          "Review"
+        ],
+        [
+          "Alasan / lampiran",
+          "Teks + dokumen",
+          "Sesuai jenis",
+          "Pemohon",
+          "Informasi medis/pribadi terbatas bagi pihak yang perlu",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Dampak tim",
+          "Baca saja + konfirmasi",
+          "Menurut mandat",
+          "Atasan operasional",
+          "Kesiapan tim bukan persetujuan pusat otomatis",
+          "Review"
+        ]
+      ]
+    },
+    {
+      "id": "F11",
+      "name": "Rencana dan realisasi lembur",
+      "menu": "Cuti & Lembur / Pengajuan karyawan",
+      "actor": "Atasan/HR unit; pegawai menyatakan kesediaan",
+      "effect": "Hanya realisasi terverifikasi yang masuk fakta payroll; batas delegasi/eskalasi ditentukan kebijakan.",
+      "fields": [
+        [
+          "Pegawai, unit, tanggal",
+          "Referensi + tanggal",
+          "Ya",
+          "Penempatan dan jadwal",
+          "Sesuai cakupan",
+          "Draf"
+        ],
+        [
+          "Rencana mulai/selesai",
+          "Waktu",
+          "Ya",
+          "Pengusul",
+          "Cek bentrok dan tanggal lintas hari",
+          "Draf"
+        ],
+        [
+          "Keperluan",
+          "Teks",
+          "Ya",
+          "Atasan/HR unit",
+          "Dasar pekerjaan dapat ditinjau",
+          "Draf"
+        ],
+        [
+          "Kesediaan pegawai",
+          "Keputusan pegawai",
+          "Sesuai proses berlaku",
+          "Pegawai terkait",
+          "Tidak dicatat sebagai setuju tanpa tindakan yang sah",
+          "Menunggu pegawai"
+        ],
+        [
+          "Realisasi dan sumber bukti",
+          "Waktu + referensi",
+          "Sebelum masuk payroll",
+          "Presensi dan verifikasi unit",
+          "Tidak menyalin rencana sebagai bukti aktual",
+          "Setelah kerja"
+        ],
+        [
+          "Persetujuan pengecualian",
+          "Referensi",
+          "Jika di luar mandat",
+          "F01 pusat",
+          "Batas nominal/jam belum ditetapkan dalam rancangan",
+          "Review"
+        ]
+      ]
+    },
+    {
+      "id": "F12",
+      "name": "Kesepakatan gaji",
+      "menu": "Kompensasi & Payroll",
+      "actor": "HR unit usul; pusat putuskan",
+      "effect": "Versi bertanggal berlaku menjadi sumber payroll; perubahan periode lalu mengikuti mekanisme penyesuaian yang disahkan.",
+      "fields": [
+        [
+          "Karyawan",
+          "Referensi",
+          "Ya",
+          "Register berizin",
+          "Nominal dibatasi sesuai hak",
+          "Draf"
+        ],
+        [
+          "Tanggal berlaku",
+          "Tanggal",
+          "Ya",
+          "Dasar keputusan",
+          "Tidak bentrok dengan versi yang berlaku",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Gaji pokok",
+          "Nominal IDR",
+          "Ya",
+          "Usulan",
+          "Angka valid; bukan teks berformat bebas",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Tunjangan tetap",
+          "Baris komponen IDR",
+          "Jika ada",
+          "Master komponen",
+          "Setiap baris memiliki jenis dan dasar",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Sebelum/sesudah",
+          "Baca saja",
+          "Otomatis",
+          "Versi saat ini dan usulan",
+          "Selisih terlihat bagi reviewer",
+          "Review"
+        ],
+        [
+          "Alasan dan dokumen",
+          "Teks + dokumen",
+          "Ya",
+          "HR unit",
+          "Keputusan terkait tersimpan",
+          "Draf / dikembalikan"
+        ]
+      ]
+    },
+    {
+      "id": "F13",
+      "name": "Susun / revisi payroll",
+      "menu": "Kompensasi & Payroll",
+      "actor": "HR unit menyusun/verifikasi; pusat menyetujui",
+      "effect": "Satu unit, satu periode, versi dan jejak reviewer. Komponen belum lengkap menghalangi label final/siap bayar.",
+      "fields": [
+        [
+          "Unit, periode, versi",
+          "Referensi + baca saja",
+          "Ya",
+          "Konteks dan versi sistem",
+          "Satu batch sumber per unit/periode dengan revisi eksplisit",
+          "Draf"
+        ],
+        [
+          "Fakta waktu tertutup",
+          "Referensi",
+          "Ya untuk final",
+          "Periode kehadiran",
+          "Roster bukan bukti presensi aktual",
+          "Penyusunan"
+        ],
+        [
+          "Pegawai dan komponen",
+          "Tabel terhitung + input terbatas",
+          "Ya",
+          "Gaji berlaku; fakta waktu; komponen sah",
+          "Setiap komponen punya asal; field terhitung tidak diedit bebas",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Penyesuaian",
+          "Baris nominal + alasan + bukti",
+          "Jika ada",
+          "HR berizin",
+          "Pisahkan koreksi/rapel, potongan dan penggantian",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Beban, potongan, neto",
+          "Baca saja",
+          "Setelah lengkap",
+          "Komponen batch",
+          "Beban perusahaan berbeda dari take-home pay; tidak isi nol untuk komponen belum dihitung",
+          "Review"
+        ],
+        [
+          "Perubahan vs versi/lalu",
+          "Baca saja",
+          "Otomatis",
+          "Snapshot pembanding",
+          "Reviewer dapat telusuri pegawai/komponen penyebab",
+          "Review"
+        ],
+        [
+          "Verifikasi dan pengajuan",
+          "Aksi + alasan",
+          "Ya",
+          "Verifier berwenang",
+          "Verifikasi lengkap; pusat berbeda orang; versi terkunci saat keputusan",
+          "Siap review"
+        ]
+      ]
+    },
+    {
+      "id": "F14",
+      "name": "Serah terima / revisi payroll",
+      "menu": "Kompensasi & Payroll",
+      "actor": "HR berwenang melepas batch; Finance menerima",
+      "effect": "Finance menerima snapshot versi yang sama dan mengembalikan ID kewajiban/pembayaran. Pengiriman ulang tidak membuat duplikat.",
+      "fields": [
+        [
+          "Batch dan versi disetujui",
+          "Baca saja",
+          "Ya",
+          "Keputusan HR pusat",
+          "Harus approved, lengkap, dikunci (sealed) dan belum digantikan",
+          "Siap kirim"
+        ],
+        [
+          "Rincian yang dikirim",
+          "Baca saja",
+          "Ya",
+          "Pegawai, komponen, alokasi unit",
+          "Sesuai izin; referensi rekening dikelola aman",
+          "Konfirmasi"
+        ],
+        [
+          "ID serah terima",
+          "Baca saja",
+          "Otomatis",
+          "Sistem",
+          "Unik untuk batch dan versi",
+          "Terkirim"
+        ],
+        [
+          "Hasil Finance",
+          "Baca saja",
+          "Saat tersedia",
+          "Finance",
+          "Diterima; perlu perbaikan; kewajiban tercatat; dibayar",
+          "Sesudah kirim"
+        ],
+        [
+          "Alasan revisi",
+          "Teks + referensi dampak",
+          "Jika revisi",
+          "HR/Finance",
+          "Versi baru perlu approval ulang; yang dibayar tidak ditimpa",
+          "Revisi"
+        ]
+      ]
+    },
+    {
+      "id": "F15",
+      "name": "Permintaan akun / akses",
+      "menu": "Akun & Akses",
+      "actor": "HR unit usul; pusat putuskan; admin eksekusi",
+      "effect": "Pegawai, akun dan grant merupakan objek berbeda tetapi tertaut; aktivasi/penonaktifan mengikuti keputusan dan tanggal.",
+      "fields": [
+        [
+          "Karyawan",
+          "Referensi",
+          "Ya",
+          "Register / hire approved",
+          "Identitas tunggal; tidak membuat akun tanpa sumber sah",
+          "Draf"
+        ],
+        [
+          "Jenis permintaan",
+          "Pilihan",
+          "Ya",
+          "Baru; ubah; cabut",
+          "Offboarding dapat membuat tugas pencabutan terkait",
+          "Draf"
+        ],
+        [
+          "Peran dan aplikasi",
+          "Pilihan master",
+          "Ya",
+          "Peran yang disahkan",
+          "Peran minimum sesuai pekerjaan, bukan role teknis bebas",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Cakupan unit / diri sendiri",
+          "Pilihan berizin",
+          "Ya",
+          "Penempatan dan kebutuhan",
+          "Unit kerja bukan otomatis cakupan administrasi",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Mulai/akhir akses",
+          "Tanggal",
+          "Sesuai kebutuhan",
+          "Kebijakan dan tugas",
+          "Tidak di luar keputusan tanpa pengecualian",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Alasan dan persetujuan",
+          "Teks + F01",
+          "Ya",
+          "HR unit / pusat",
+          "Keputusan versi tersimpan",
+          "Review"
+        ],
+        [
+          "Hasil provisioning",
+          "Baca saja",
+          "Saat eksekusi",
+          "Administrator akun",
+          "Aktif; gagal; dicabut; tidak menyimpan password pada form HR",
+          "Sesudah keputusan"
+        ]
+      ]
+    },
+    {
+      "id": "F16",
+      "name": "Kebijakan / konfigurasi",
+      "menu": "Pengaturan HR",
+      "actor": "Pemilik kebijakan pusat dan reviewer berwenang",
+      "effect": "Konfigurasi berlaku pada tanggal dan lingkup tertentu; perubahan tidak diam-diam mengubah keputusan lama.",
+      "fields": [
+        [
+          "Jenis dan lingkup",
+          "Pilihan",
+          "Ya",
+          "Unit; waktu; komponen; kewenangan",
+          "Field dinamis sesuai jenis, bukan satu form bebas",
+          "Draf"
+        ],
+        [
+          "Nilai/parameter",
+          "Tipe sesuai jenis",
+          "Ya",
+          "Pemilik kebijakan",
+          "Semantik, tipe dan batas menurut kebijakan yang disahkan",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Mulai/akhir berlaku",
+          "Tanggal",
+          "Mulai wajib",
+          "Keputusan organisasi",
+          "Cegah versi bertumpuk yang ambigu",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Dasar dan alasan",
+          "Teks + dokumen",
+          "Ya",
+          "Pemilik kebijakan",
+          "Tidak mengarang tarif atau aturan hukum dalam desain UI",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Dampak perubahan",
+          "Baca saja + kajian",
+          "Ya",
+          "Jadwal/batch/hak terkait",
+          "Versi lama dan objek terdampak terlihat",
+          "Review"
+        ],
+        [
+          "Reviewer dan publikasi",
+          "F01 + aksi",
+          "Ya",
+          "Mandat pusat",
+          "Pengaju bukan pemberi keputusan sendiri",
+          "Review / disetujui"
+        ]
+      ]
+    },
+    {
+      "id": "F17",
+      "name": "Penyesuaian hak cuti",
+      "menu": "Cuti & Lembur",
+      "actor": "HR unit mengajukan; reviewer sesuai mandat memutuskan",
+      "effect": "Mutasi hak/saldo cuti bertanggal dengan dasar kebijakan; tidak mengedit data pribadi atau menimpa saldo diam-diam.",
+      "fields": [
+        [
+          "Karyawan dan jenis cuti",
+          "Referensi",
+          "Ya",
+          "Register dan jenis cuti",
+          "Sesuai cakupan unit",
+          "Draf"
+        ],
+        [
+          "Periode dan dasar hak",
+          "Referensi kebijakan",
+          "Ya",
+          "Versi kebijakan yang berlaku",
+          "Hak belum ditetapkan tidak boleh diasumsikan nol",
+          "Draf"
+        ],
+        [
+          "Saldo kini dan mutasi usulan",
+          "Baca saja + angka hari",
+          "Ya",
+          "Mutasi terhitung dan usulan",
+          "Pisahkan penambahan/pengurangan; hasil saldo terlihat",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Tanggal berlaku, alasan, bukti",
+          "Tanggal + teks + dokumen",
+          "Ya",
+          "HR unit",
+          "Tidak menghapus riwayat pemakaian",
+          "Draf / dikembalikan"
+        ],
+        [
+          "Keputusan",
+          "F01",
+          "Ya",
+          "Reviewer berwenang",
+          "Reviewer bukan pengaju; pengecualian kebijakan naik pusat",
+          "Menunggu review"
+        ]
+      ]
+    }
+  ],
+  "employeeMenus": [
+    [
+      "Beranda",
+      "Hari ini; Perlu tindakan",
+      "Ringkasan jadwal, pengajuan, slip terbit dan notifikasi pribadi.",
+      "Tanggal, shift, status data, permintaan menunggu tindakan.",
+      "Buka sumber; tanpa pengajuan duplikat.",
+      "Status data aktual/simulasi harus jelas."
+    ],
+    [
+      "Jadwal & Kehadiran",
+      "Jadwal saya; Kehadiran saya",
+      "Kalender jadwal dan bukti masuk/keluar pribadi.",
+      "Tanggal, shift, masuk, keluar, sumber, status koreksi.",
+      "Ajukan koreksi melalui F08.",
+      "Tidak mengasumsikan sumber clock-in sudah tersedia."
+    ],
+    [
+      "Pengajuan",
+      "Daftar pengajuan; Cuti & izin; Koreksi; Lembur",
+      "Satu tempat membuat dan melacak permintaan sendiri.",
+      "Nomor, jenis, tanggal, reviewer saat ini, status, alasan pengembalian.",
+      "Buat; revisi jika dikembalikan; kesediaan lembur; batal sesuai status.",
+      "Tab jenis adalah pintu layanan; daftar memakai ID sumber HR yang sama."
+    ],
+    [
+      "Gaji & Dokumen",
+      "Slip gaji; Dokumen kerja",
+      "Slip resmi dan dokumen kerja yang sudah dirilis.",
+      "Periode, versi, tanggal terbit, status pembayaran, dokumen.",
+      "Buka/unduh sendiri; ajukan pertanyaan/koreksi lewat pengajuan terkait.",
+      "Dokumen kerja milik kontrak/profil; tampil sebagai tampilan pribadi, bukan salinan master."
+    ],
+    [
+      "Profil",
+      "Profil saya; Perubahan data",
+      "Identitas dan penempatan sendiri; perubahan data yang diizinkan.",
+      "Nama, nomor, unit, jabatan, data pribadi sesuai hak.",
+      "Ajukan perubahan F02; lihat riwayat sendiri.",
+      "Tidak bisa mengubah gaji, jabatan, peran atau unit langsung."
+    ]
+  ],
+  "flows": [
+    [
+      "Penerimaan toko",
+      "HR toko",
+      "HIR v1 lengkap",
+      "HR pusat putuskan",
+      "Onboarding + kontrak + sumber gaji",
+      "Permintaan akses terpisah",
+      "Pegawai mulai kerja",
+      "Usulan tetap satu ID; calon bukan pegawai aktif sebelum keputusan efektif"
+    ],
+    [
+      "Penerimaan pegawai HO",
+      "HR unit HO",
+      "HIR v1 lengkap",
+      "Reviewer pusat bukan pengaju",
+      "Proses sama dengan toko",
+      "Permintaan akses terpisah",
+      "Pegawai HO mulai kerja",
+      "Unit HO tidak menghapus kontrol dua orang"
+    ],
+    [
+      "Pemberian akun",
+      "HR unit",
+      "ACC peran/cakupan",
+      "HR pusat putuskan",
+      "Admin akun provision",
+      "Status dikembalikan ke ACC",
+      "Pegawai aktivasi sesuai mekanisme",
+      "Approved, provisioned dan activated dipisahkan"
+    ],
+    [
+      "Cuti rutin",
+      "Karyawan",
+      "LEV dan bukti",
+      "Unit verifikasi + atasan; pemutus unit dalam mandat",
+      "Fakta waktu diperbarui",
+      "Roster/payroll membaca sumber",
+      "Karyawan melihat keputusan",
+      "Hanya pengecualian kebijakan menuju pusat"
+    ],
+    [
+      "Koreksi presensi",
+      "Karyawan / HR unit",
+      "COR dengan sumber asli",
+      "Unit sesuai mandat; pusat jika periode final",
+      "Tambahkan koreksi tertelusur",
+      "Periode/fakta payroll versi baru jika perlu",
+      "Riwayat asli tetap ada",
+      "Tidak menimpa data asli atau batch paid"
+    ],
+    [
+      "Lembur",
+      "Atasan/HR unit",
+      "OT rencana dan dasar",
+      "Keputusan sesuai mandat + kesediaan pegawai",
+      "Catat realisasi dan verifikasi",
+      "Komponen payroll",
+      "Slip/pembayaran terkait",
+      "Rencana/approved tidak otomatis menjadi realisasi"
+    ],
+    [
+      "Payroll toko",
+      "HR toko",
+      "Fakta tertutup + komponen lengkap + verifikasi",
+      "HR pusat setujui beban gaji versi tertentu",
+      "Serah terima HR → Finance",
+      "Finance posting kewajiban lalu bayar",
+      "Status kembali; slip dirilis sesuai kebijakan",
+      "Pemisahan keputusan HR, review Finance dan pembayaran"
+    ],
+    [
+      "Payroll HO",
+      "HR unit HO",
+      "Batch HO diperiksa",
+      "Reviewer pusat berbeda dari pengaju",
+      "Serah terima sama dengan toko",
+      "Finance bayar",
+      "Slip pegawai HO",
+      "Tidak ada self-approval karena HR bekerja di HO"
+    ],
+    [
+      "Mutasi antarunit",
+      "HR unit asal",
+      "CHG + konfirmasi unit tujuan",
+      "HR pusat sesuai mandat",
+      "Penempatan bertanggal + akses/gaji terkait",
+      "Payroll alokasi menurut masa berlaku",
+      "Karyawan melihat penempatan",
+      "Tidak membuat identitas pegawai baru"
+    ],
+    [
+      "Offboarding",
+      "Karyawan/HR unit mengajukan",
+      "STS + dasar keputusan",
+      "HR pusat sesuai mandat",
+      "Checklist unit, Finance dan akun",
+      "Pencabutan akses + payroll akhir",
+      "Kasus selesai setelah tugas wajib",
+      "Status kerja tidak otomatis menyatakan pembayaran selesai"
+    ]
+  ]
+}

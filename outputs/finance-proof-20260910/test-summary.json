@@ -1,0 +1,343 @@
+{
+  "output": "/Users/hari/itulah/outputs/finance-proof-20260910",
+  "accounts": 7528,
+  "bindings": 997,
+  "boundAccounts": 969,
+  "packages": 29,
+  "disabled": [
+    "card_clearing_at_checkout",
+    "interunit_receipt",
+    "oe_reserve_accrual"
+  ],
+  "scenarios": [
+    {
+      "id": "A",
+      "pass": true,
+      "checks": 6,
+      "failed": []
+    },
+    {
+      "id": "B",
+      "pass": true,
+      "checks": 5,
+      "failed": []
+    },
+    {
+      "id": "C",
+      "pass": true,
+      "checks": 7,
+      "failed": []
+    },
+    {
+      "id": "D",
+      "pass": true,
+      "checks": 6,
+      "failed": []
+    },
+    {
+      "id": "E",
+      "pass": true,
+      "checks": 10,
+      "failed": []
+    },
+    {
+      "id": "F",
+      "pass": true,
+      "checks": 10,
+      "failed": []
+    },
+    {
+      "id": "G",
+      "pass": true,
+      "checks": 7,
+      "failed": []
+    },
+    {
+      "id": "H",
+      "pass": true,
+      "checks": 7,
+      "failed": []
+    }
+  ],
+  "checksTotal": 56,
+  "checksPassed": 36,
+  "failures": [
+    {
+      "id": "dispatch-C004",
+      "description": "Activated dispatch must resolve for selected unit",
+      "expected": "posting succeeds",
+      "actual": {
+        "ok": false,
+        "code": "ACCOUNT_UNRESOLVED",
+        "message": "1 of 2 lines could not be resolved",
+        "detail": [
+          "line 1: No account is mapped for GOODS_IN_TRANSIT at C004 (vs HO) on 2026-08-10. The role is mapped elsewhere, so this is a gap in the narrowing, not a missing role."
+        ]
+      },
+      "pass": false,
+      "evidence": "rules.ts:366; bindings.ts:313"
+    },
+    {
+      "id": "dispatch-C013",
+      "description": "Activated dispatch must resolve for selected unit",
+      "expected": "posting succeeds",
+      "actual": {
+        "ok": false,
+        "code": "ACCOUNT_UNRESOLVED",
+        "message": "1 of 2 lines could not be resolved",
+        "detail": [
+          "line 1: No account is mapped for GOODS_IN_TRANSIT at C013 (vs HO) on 2026-08-10. The role is mapped elsewhere, so this is a gap in the narrowing, not a missing role."
+        ]
+      },
+      "pass": false,
+      "evidence": "rules.ts:366; bindings.ts:313"
+    },
+    {
+      "id": "bank-BCA-DEP-C006",
+      "description": "Registered bank account has a resolvable posting binding",
+      "expected": "one permitted account",
+      "actual": "MISSING",
+      "pass": false,
+      "evidence": "bindings.ts:95; bindings.ts:313"
+    },
+    {
+      "id": "bank-BNI-GIRO-C006",
+      "description": "Registered bank account has a resolvable posting binding",
+      "expected": "one permitted account",
+      "actual": "MISSING",
+      "pass": false,
+      "evidence": "bindings.ts:95; bindings.ts:313"
+    },
+    {
+      "id": "bank-BRI-GIRO-C006",
+      "description": "Registered bank account has a resolvable posting binding",
+      "expected": "one permitted account",
+      "actual": "MISSING",
+      "pass": false,
+      "evidence": "bindings.ts:95; bindings.ts:313"
+    },
+    {
+      "id": "bank-BRI-TAB-C006",
+      "description": "Registered bank account has a resolvable posting binding",
+      "expected": "one permitted account",
+      "actual": "MISSING",
+      "pass": false,
+      "evidence": "bindings.ts:95; bindings.ts:313"
+    },
+    {
+      "id": "bank-BTN-TAB-C006",
+      "description": "Registered bank account has a resolvable posting binding",
+      "expected": "one permitted account",
+      "actual": "MISSING",
+      "pass": false,
+      "evidence": "bindings.ts:95; bindings.ts:313"
+    },
+    {
+      "id": "bank-DANAMON-GIRO-C006",
+      "description": "Registered bank account has a resolvable posting binding",
+      "expected": "one permitted account",
+      "actual": "MISSING",
+      "pass": false,
+      "evidence": "bindings.ts:95; bindings.ts:313"
+    },
+    {
+      "id": "bank-MANDIRI-GIRO-C006",
+      "description": "Registered bank account has a resolvable posting binding",
+      "expected": "one permitted account",
+      "actual": "MISSING",
+      "pass": false,
+      "evidence": "bindings.ts:95; bindings.ts:313"
+    },
+    {
+      "id": "bank-MANDIRI-TAB-C006",
+      "description": "Registered bank account has a resolvable posting binding",
+      "expected": "one permitted account",
+      "actual": "MISSING",
+      "pass": false,
+      "evidence": "bindings.ts:95; bindings.ts:313"
+    },
+    {
+      "id": "manual-inactive",
+      "description": "Inactive account must be rejected",
+      "expected": "refused",
+      "actual": {
+        "ok": true,
+        "codes": [
+          "401011300106",
+          "101100100106"
+        ],
+        "units": [
+          "C006"
+        ]
+      },
+      "pass": false,
+      "evidence": "ledger.ts:225; chart.ts:56"
+    },
+    {
+      "id": "manual-heading",
+      "description": "Heading account must be rejected",
+      "expected": "refused",
+      "actual": {
+        "ok": true,
+        "codes": [
+          "1",
+          "101100100106"
+        ],
+        "units": [
+          "C006"
+        ]
+      },
+      "pass": false,
+      "evidence": "ledger.ts:225; chart.ts:56"
+    },
+    {
+      "id": "manual-unit-mismatch",
+      "description": "C004 account in C006 journal must be rejected",
+      "expected": "refused",
+      "actual": {
+        "ok": true,
+        "codes": [
+          "101100100104",
+          "101100100106"
+        ],
+        "units": [
+          "C006"
+        ]
+      },
+      "pass": false,
+      "evidence": "ledger.ts:225; chart.ts:56"
+    },
+    {
+      "id": "manual-blocked",
+      "description": "Shop merchandise payable blocked by policy must be rejected",
+      "expected": "refused",
+      "actual": {
+        "ok": true,
+        "codes": [
+          "201200100106",
+          "101100100106"
+        ],
+        "units": [
+          "C006"
+        ]
+      },
+      "pass": false,
+      "evidence": "ledger.ts:225; chart.ts:56"
+    },
+    {
+      "id": "bill-payment-register",
+      "description": "Bill payment is recorded in the shared payment register",
+      "expected": "one additional Payment",
+      "actual": {
+        "billCreated": true,
+        "payment": {
+          "ok": true,
+          "codes": [
+            "201200100306",
+            "101100300106"
+          ],
+          "units": [
+            "C006"
+          ]
+        },
+        "addedPayments": 0
+      },
+      "pass": false,
+      "evidence": "book.ts:1390; payments.ts:296"
+    },
+    {
+      "id": "giro-bank-dimension",
+      "description": "Mandiri giro uses the Mandiri outstanding-giro account",
+      "expected": "201200200200",
+      "actual": {
+        "outcome": {
+          "ok": true,
+          "codes": [
+            "201200100100",
+            "201200200100"
+          ],
+          "units": [
+            "HO"
+          ]
+        },
+        "credited": "201200200100",
+        "accountName": "Outstanding Giro Bank BCA HO"
+      },
+      "pass": false,
+      "evidence": "rules.ts:1106; bindings.ts:unitBindings"
+    },
+    {
+      "id": "staff-loan-ledger",
+      "description": "Staff loan deduction updates ledger or linked payroll posting",
+      "expected": "linked journal accompanies reduced receivable",
+      "actual": {
+        "outcome": {
+          "ok": true
+        },
+        "entriesAdded": 0,
+        "repaidChange": 500000000
+      },
+      "pass": false,
+      "evidence": "book.ts:2046"
+    },
+    {
+      "id": "interunit-family",
+      "description": "Financing settlement clears financing payable",
+      "expected": "2012301 family",
+      "actual": {
+        "family": "FINANCING",
+        "outcome": {
+          "ok": true,
+          "codes": [
+            "201230200104",
+            "101100100104"
+          ],
+          "units": [
+            "C004"
+          ]
+        }
+      },
+      "pass": false,
+      "evidence": "book.ts:2023"
+    },
+    {
+      "id": "close-generates-result",
+      "description": "Claim that period close produces system equity has an implementation",
+      "expected": "period result calculated or posted",
+      "actual": {
+        "journalChange": 0,
+        "equityChanged": false
+      },
+      "pass": false,
+      "evidence": "book.ts:903; ledger.ts:114; subledgers.ts:352"
+    },
+    {
+      "id": "register-account-validity",
+      "description": "Account references in domain fixtures exist in supplied COA",
+      "expected": "all exist",
+      "actual": [
+        {
+          "source": "subledgers.ts",
+          "record": "subledgers.PROVISIONS.2",
+          "code": "101110900106",
+          "exists": false
+        },
+        {
+          "source": "subledgers.ts",
+          "record": "subledgers.OTHER_REVENUE.2",
+          "code": "402010100106",
+          "exists": false
+        }
+      ],
+      "pass": false,
+      "evidence": "data.ts; subledgers.ts"
+    }
+  ],
+  "badBindings": [],
+  "seedEntries": 39,
+  "seedTrialBalance": {
+    "total_debit": 1112328461902,
+    "total_credit": 1112328461902,
+    "balanced": true
+  }
+}

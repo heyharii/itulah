@@ -1,0 +1,25 @@
+{
+  "menus": 9,
+  "tabs": 29,
+  "employeeMenus": 5,
+  "forms": 17,
+  "fields": 97,
+  "sheets": [
+    "00 Prinsip dan Peta",
+    "01 Matriks Kewenangan",
+    "02 Ringkasan",
+    "03 Karyawan",
+    "04 Penerimaan",
+    "05 Jadwal dan Kehadiran",
+    "06 Cuti dan Lembur",
+    "07 Kompensasi dan Payroll",
+    "08 Akun dan Akses",
+    "09 Laporan dan Pengawasan",
+    "10 Pengaturan HR",
+    "11 Aplikasi Karyawan",
+    "12 Form dan Field",
+    "13 Perilaku Sidebar",
+    "14 Alur Bisnis",
+    "15 Bukti dan Penerapan"
+  ]
+}

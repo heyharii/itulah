@@ -1,0 +1,71 @@
+{
+  "menus": 13,
+  "tabs": 54,
+  "sheets": [
+    {
+      "name": "00 Peta Menu",
+      "tabs": 0
+    },
+    {
+      "name": "01 Ringkasan",
+      "tabs": 3
+    },
+    {
+      "name": "02 Kas dan Bank",
+      "tabs": 5
+    },
+    {
+      "name": "03 Tagihan dan Pengeluaran",
+      "tabs": 4
+    },
+    {
+      "name": "04 Penjualan dan Piutang",
+      "tabs": 4
+    },
+    {
+      "name": "05 Persediaan",
+      "tabs": 4
+    },
+    {
+      "name": "06 Antarunit",
+      "tabs": 4
+    },
+    {
+      "name": "07 Aset dan Proyek",
+      "tabs": 4
+    },
+    {
+      "name": "08 Payroll",
+      "tabs": 4
+    },
+    {
+      "name": "09 Pajak",
+      "tabs": 4
+    },
+    {
+      "name": "10 Pendanaan dan Modal",
+      "tabs": 4
+    },
+    {
+      "name": "11 Akuntansi dan Tutup Buku",
+      "tabs": 4
+    },
+    {
+      "name": "12 Laporan",
+      "tabs": 4
+    },
+    {
+      "name": "13 Pengaturan Finance",
+      "tabs": 6
+    },
+    {
+      "name": "14 Alur Harian dan Bisnis",
+      "tabs": 0
+    },
+    {
+      "name": "15 Pola Layar dan Batas",
+      "tabs": 0
+    }
+  ],
+  "tables": 60
+}

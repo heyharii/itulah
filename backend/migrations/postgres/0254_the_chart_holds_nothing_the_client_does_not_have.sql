@@ -65,13 +65,23 @@ SELECT SUM(debit_minor) AS d, SUM(credit_minor) AS c FROM journal_line;
 -- Parents are the nearest ancestor the CLIENT has, which is why `205001` hangs
 -- off `2` and `7020310` off `7`: the rungs between do not exist in their chart
 -- and inventing them is the thing this migration exists to stop.
-INSERT INTO ledger_account (account_code, name, parent_code, is_group, is_active)
+-- `dimension` is not decoration: 0244 added a CHECK that a posting carries one
+-- and a group does not. These five inherit the dimension of the account each
+-- replaces, which is `unit` throughout — every one of them is a balance a
+-- single shop or head office can hold on its own.
+INSERT INTO ledger_account (account_code, name, parent_code, is_group, is_active, dimension)
 VALUES
-    ('205001',     'Uang Muka - Penjualan',     '2',       false, true),
-    ('7020310',    'BIAYA USAHA LAINNYA',       '7',       true,  true),
-    ('7020310003', 'Biaya Pajak Reklame',       '7020310', false, true),
-    ('7020310004', 'Biaya Management FEE',      '7020310', false, true),
-    ('7020310005', 'Biaya Asuransi Kendaraan',  '7020310', false, true)
+    ('205001',     'Uang Muka - Penjualan',     '2',       false, true, 'unit'),
+    ('7020310',    'BIAYA USAHA LAINNYA',       '7',       true,  true, NULL),
+    ('7020310003', 'Biaya Pajak Reklame',       '7020310', false, true, 'unit'),
+    ('7020310004', 'Biaya Management FEE',      '7020310', false, true, 'unit'),
+    ('7020310005', 'Biaya Asuransi Kendaraan',  '7020310', false, true, 'unit'),
+    -- 0253 refused to move these two back because their destinations did not
+    -- exist; they did not exist because 0244 had lifted their meanings into
+    -- class 4 and left the client's own class-8 rows behind. Created here with
+    -- the client's own names, which is what makes the move possible at all.
+    ('8010110003', 'Potongan Pembelian',        '8010110', false, true, 'unit'),
+    ('8010110004', 'Pendapatan Sewa Gedung',    '8010110', false, true, 'unit')
 ON CONFLICT (account_code) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -89,6 +99,17 @@ SELECT * FROM (VALUES
     ('7010310004', '7020310004'),
     ('7010310005', '7020310005')
 ) AS t(ours, theirs);
+
+-- The journal is append-only by trigger, and rightly so: a correction to a
+-- posted figure belongs in a reversing entry, not in an UPDATE. This is not a
+-- correction to a figure. Not one amount, date, side or unit changes — only the
+-- NAME of the account a line already pointed at, because that account should
+-- never have existed. 0244 lifted the same guards for the same reason and put
+-- them straight back; so does this.
+ALTER TABLE journal_line DISABLE TRIGGER journal_line_append_only;
+ALTER TABLE fixed_asset DISABLE TRIGGER fixed_asset_disposed_is_evidence;
+ALTER TABLE supplier_invoice_expense_line DISABLE TRIGGER supplier_invoice_expense_line_is_evidence;
+ALTER TABLE supplier_invoice_expense_line DISABLE TRIGGER supplier_invoice_expense_line_account_takes_costs;
 
 UPDATE journal_line l SET account_code = m.theirs
   FROM moves m WHERE l.account_code = m.ours;
@@ -118,6 +139,12 @@ UPDATE ledger_account_remap r SET new_code = m.theirs
 -- we minted for them and hung where the client hangs them.
 UPDATE ledger_account SET parent_code = '70103'
  WHERE account_code IN ('7010310001', '7010310002');
+
+ALTER TABLE journal_line ENABLE TRIGGER journal_line_append_only;
+ALTER TABLE fixed_asset ENABLE TRIGGER fixed_asset_disposed_is_evidence;
+ALTER TABLE supplier_invoice_expense_line ENABLE TRIGGER supplier_invoice_expense_line_is_evidence;
+ALTER TABLE supplier_invoice_expense_line ENABLE TRIGGER supplier_invoice_expense_line_account_takes_costs;
+SET CONSTRAINTS ALL IMMEDIATE;
 
 -- ---------------------------------------------------------------------------
 -- 3. `cash_in_transit` has nowhere to go — the client has no such account.

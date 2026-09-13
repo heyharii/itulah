@@ -1,0 +1,95 @@
+{
+  "menus": 13,
+  "tabs": 54,
+  "buttons": 245,
+  "forms": 35,
+  "fieldDefinitions": 350,
+  "subtables": 25,
+  "addedSheets": [
+    "16 Sidebar per Tab",
+    "17 Tombol Sidebar",
+    "18 Form dan Field",
+    "19 Alur Form dan Status",
+    "20 Contoh Subtable",
+    "21 Aturan Edit Tabel",
+    "22 Contoh Sidebar"
+  ],
+  "appendix": [
+    {
+      "name": "01 Ringkasan",
+      "start": 50
+    },
+    {
+      "name": "02 Kas dan Bank",
+      "start": 78
+    },
+    {
+      "name": "03 Tagihan dan Pengeluaran",
+      "start": 63
+    },
+    {
+      "name": "04 Penjualan dan Piutang",
+      "start": 62
+    },
+    {
+      "name": "05 Persediaan",
+      "start": 62
+    },
+    {
+      "name": "06 Antarunit",
+      "start": 62
+    },
+    {
+      "name": "07 Aset dan Proyek",
+      "start": 62
+    },
+    {
+      "name": "08 Payroll",
+      "start": 62
+    },
+    {
+      "name": "09 Pajak",
+      "start": 62
+    },
+    {
+      "name": "10 Pendanaan dan Modal",
+      "start": 62
+    },
+    {
+      "name": "11 Akuntansi dan Tutup Buku",
+      "start": 62
+    },
+    {
+      "name": "12 Laporan",
+      "start": 74
+    },
+    {
+      "name": "13 Pengaturan Finance",
+      "start": 88
+    }
+  ],
+  "exampleRanges": {
+    "allocation": {
+      "start": 26,
+      "header": 27,
+      "first": 29,
+      "last": 30,
+      "end": 34
+    },
+    "lines": {
+      "start": 58,
+      "header": 59,
+      "first": 61,
+      "last": 62,
+      "end": 66
+    },
+    "journal": {
+      "start": 201,
+      "header": 202,
+      "first": 204,
+      "last": 205,
+      "end": 209
+    },
+    "balanceRow": 211
+  }
+}
